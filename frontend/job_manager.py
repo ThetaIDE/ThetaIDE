@@ -8,6 +8,7 @@ Jobs persist in results/jobs/jobs.db (JobStore), as before.
 from __future__ import annotations
 
 import codecs
+import json
 import sys
 import time
 import uuid
@@ -40,7 +41,8 @@ class JobManager(QObject):
     queue_changed = pyqtSignal(dict)  # {"running", "active", "queued", "finished"}
 
     def __init__(self, store_path: Path | None = None, python: str | None = None,
-                 project_root: Path | None = None, logs_dir: Path | None = None, parent=None):
+                 project_root: Path | None = None, logs_dir: Path | None = None, parent=None,
+                 settings_path: Path | None = None, enabled_plugins_provider=None):
         super().__init__(parent)
         self.project_root = Path(project_root or PROJECT_ROOT)
         if not python:
@@ -50,6 +52,8 @@ class JobManager(QObject):
                 python = str(venv_python)
         self.python = python or sys.executable
         self.logs_dir = Path(logs_dir or LOGS_DIR)  # where run_pipeline.py writes results/logs/<group>/<id>
+        self.settings_path = Path(settings_path) if settings_path else None
+        self.enabled_plugins_provider = enabled_plugins_provider
         self.jobs_dir = Path(store_path).parent if store_path else JOBS_DIR
         self.store = JobStore(store_path or JOBS_DIR / "jobs.db")
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -175,6 +179,10 @@ class JobManager(QObject):
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("PYTHONIOENCODING", "utf-8")
+        if self.settings_path is not None:
+            env.insert("THETAIDE_SETTINGS_FILE", str(self.settings_path))
+        if self.enabled_plugins_provider is not None:
+            env.insert("THETA_ENABLED_PLUGINS", json.dumps(self.enabled_plugins_provider()))
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(lambda j=job_id: self._on_output(j))

@@ -20,7 +20,10 @@ dataset_path: null
 # Pipeline Orchestration Flags
 consolidate: null
 partition: null
-tensorboard: false
+# Optional external training loggers. Providers are discovered from the
+# ``thetaide.run_loggers`` Python entry-point group in the training environment.
+logging:
+  backends: {}
 plot_style: null
 plot_only: false
 no_plot: false

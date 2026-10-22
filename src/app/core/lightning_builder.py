@@ -10,7 +10,7 @@ from pathlib import Path
 import lightning as L
 import torch
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
+from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
@@ -220,6 +220,7 @@ def _record_only(logger_, selection):
 
 def setup_loggers(cfg, base_root):
     from src.app.telemetry.selection import selection_from_config
+    from src.app.core.run_logger_plugins import RunLoggerContext, create_run_loggers
 
     selection = selection_from_config(cfg)
     method_name = get_method_name(cfg)
@@ -231,18 +232,16 @@ def setup_loggers(cfg, base_root):
     )
     log_dir = os.path.join(base_root, "results/logs", group_name, exp_id)
     loggers = [_record_only(CSVLogger(log_dir, name=method_name), selection)]
-
-    use_tb = False
-    if "tensorboard" in cfg:
-        use_tb = bool(cfg.tensorboard)
-    elif "agent" in cfg and hasattr(cfg.agent, "get") and cfg.agent.get("tensorboard", False):
-        use_tb = bool(cfg.agent.tensorboard)
-
-    if use_tb:
-        tb_dir = os.path.join(base_root, "results/tensorboard", group_name, exp_id)
-        tb_logger = TensorBoardLogger(tb_dir, name=method_name, default_hp_metric=False)
-        _ = tb_logger.experiment
-        loggers.append(_record_only(tb_logger, selection))
+    run_context = RunLoggerContext(
+        base_root=Path(base_root).resolve(),
+        group_name=group_name,
+        experiment_id=exp_id,
+        method_name=method_name,
+    )
+    loggers.extend(
+        _record_only(logger_, selection)
+        for logger_ in create_run_loggers(cfg, run_context)
+    )
     telemetry_logger = _telemetry_logger(cfg, loggers[0], method_name)
     if telemetry_logger is not None:
         loggers.append(telemetry_logger)

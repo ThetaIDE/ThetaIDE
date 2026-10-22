@@ -31,7 +31,6 @@ dependencies = [
     "tabulate>=0.9",
     "pillow>=9.0",
     "pyyaml>=6.0",
-    "tensorboard>=2.12",
 ]
 
 [project.optional-dependencies]
@@ -60,8 +59,11 @@ video = [
     "vidmaker",
     "opencv-python",
 ]
+tensorboard = [
+    "tensorboard>=2.12",
+]
 all = [
-    "theta-ide[dev,gui,video]",
+    "theta-ide[dev,gui,video,tensorboard]",
 ]
 
 # ── Package discovery ────────────────────────────────────────

@@ -801,12 +801,15 @@ class ConfigViewer(QWidget):
     def tree(self):
         return config_tree()
 
-    def __init__(self, settings_manager=None, parent=None):
+    def __init__(self, settings_manager=None, parent=None, plugin_manager=None):
         if isinstance(settings_manager, QWidget) and parent is None:
             parent = settings_manager
             settings_manager = None
         super().__init__(parent)
         self.settings_manager = settings_manager
+        self.plugin_manager = plugin_manager
+        if self.plugin_manager is not None:
+            self.plugin_manager.pluginStateChanged.connect(self._on_plugin_state_changed)
         self.is_component_mode = False
         self.current_path = None
         self.current_rel_path = None
@@ -842,6 +845,18 @@ class ConfigViewer(QWidget):
             self.settings_manager.changed.connect(self._on_settings_changed)
 
         self._init_ui()
+
+    def _on_plugin_state_changed(self, plugin_id: str, _enabled: bool) -> None:
+        if plugin_id == "tensorboard" and not self.is_component_mode:
+            self._render_boxes()
+
+    def _plugin_enabled(self, plugin_id: str) -> bool:
+        if self.plugin_manager is not None:
+            active_check = getattr(self.plugin_manager, "is_plugin_active", None)
+            if callable(active_check):
+                return active_check(plugin_id)
+            return self.plugin_manager.is_plugin_enabled(plugin_id)
+        return True
 
     def _on_settings_changed(self):
         if self.settings_manager:
@@ -2073,11 +2088,12 @@ class ConfigViewer(QWidget):
 
         # Runtime & Logging Options (TensorBoard, Save Dataset, Recover, No Plots)
         OPTIONAL_RUNTIME_FLAGS = [
-            ("tensorboard", "Log to TensorBoard"),
             ("save_dataset", "Save Dataset"),
             ("recover", "Recover Checkpoint"),
             ("no_plot", "No Plots"),
         ]
+        if self._plugin_enabled("tensorboard"):
+            OPTIONAL_RUNTIME_FLAGS.insert(0, ("tensorboard", "Log to TensorBoard"))
 
         chk_row = QHBoxLayout()
         chk_row.setSpacing(14)
@@ -3486,15 +3502,17 @@ class ConfigViewer(QWidget):
         lower_keys = {
             "total_timesteps", "epochs", "seed", "eval_episodes", "eval_freq_steps",
             "eval_freq", "eval_every_n_epochs", "num_checkpoints", "checkpoint_every_steps",
-            "tensorboard", "save_dataset", "recover", "no_plot",
+            "save_dataset", "recover", "no_plot",
         }
+        if self._plugin_enabled("tensorboard"):
+            lower_keys.add("tensorboard")
         if any(key in data for key in lower_keys):
             return True
         if self.view_mode == "resolved" and any(key in resolved for key in lower_keys):
             return True
         standard_keys = lower_keys | {
             "defaults", "paradigm", "experiment_id", "description", "methods", "env",
-            "site", "trainer", "resources", "dataset", "dataset_path", "hydra", "plots",
+            "site", "trainer", "resources", "dataset", "dataset_path", "hydra", "plots", "tensorboard",
             "tuning", "sweeper",
         }
         return any(key not in standard_keys and isinstance(value, (int, float, str, bool)) for key, value in data.items())
@@ -3622,8 +3640,10 @@ class ConfigViewer(QWidget):
                 if key == "num_checkpoints" and any(k in data for k in CHECKPOINT_KEYS):
                     continue
                 candidates.append((key, title, default))
-        for key, title in (
-            ("tensorboard", "Log to TensorBoard"),
+        optional_integrations = []
+        if self._plugin_enabled("tensorboard"):
+            optional_integrations.append(("tensorboard", "Log to TensorBoard"))
+        for key, title in (*optional_integrations,
             ("save_dataset", "Save Dataset"),
             ("recover", "Recover Checkpoint"),
             ("no_plot", "No Plots"),
@@ -5499,7 +5519,7 @@ class ConfigViewer(QWidget):
             overrides.append(f"epochs={data['epochs']}")
         if "eval_every_n_epochs" in data:
             overrides.append(f"eval_every_n_epochs={data['eval_every_n_epochs']}")
-        if "tensorboard" in data:
+        if "tensorboard" in data and self._plugin_enabled("tensorboard"):
             overrides.append(f"tensorboard={str(data['tensorboard']).lower()}")
         if "save_dataset" in data and data["save_dataset"]:
             overrides.append(f"save_dataset={str(data['save_dataset']).lower()}")

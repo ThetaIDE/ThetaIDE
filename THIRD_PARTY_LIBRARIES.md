@@ -54,7 +54,7 @@ Worth settling before any public release.
 | [seaborn](https://github.com/mwaskom/seaborn) | 0.13.2 | BSD License | `seaborn>=0.12` |
 | [stable-baselines3](https://github.com/DLR-RM/stable-baselines3) | 2.9.0 | MIT | `stable-baselines3>=2.0` |
 | [tabulate](https://github.com/astanin/python-tabulate) | 0.10.0 | MIT | `tabulate>=0.9` |
-| [tensorboard](https://github.com/tensorflow/tensorboard) | 2.21.0 | Apache 2.0 | `tensorboard>=2.12` |
+| [tensorboard](https://github.com/tensorflow/tensorboard) | 2.21.0 | Apache 2.0 | `tensorboard>=2.12` (`tensorboard` extra) |
 | [torch](https://pytorch.org) | 2.14.0 | see project | `torch>=2.0,<3` |
 | [torchaudio](https://github.com/pytorch/audio) | 2.11.0 | BSD License | `torchaudio>=2.0,<3` |
 | [torchvision](https://github.com/pytorch/vision) | 0.29.0 | BSD | `torchvision>=0.15,<1` |

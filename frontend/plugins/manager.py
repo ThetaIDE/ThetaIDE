@@ -223,6 +223,10 @@ class PluginManager(QObject):
         """Check if a plugin is currently enabled."""
         return self.enabled_states.get(plugin_id, False)
 
+    def is_plugin_active(self, plugin_id: str) -> bool:
+        """Check if a plugin successfully activated and contributed its runtime features."""
+        return plugin_id in self.instances
+
     def enable_plugin(self, plugin_id: str) -> bool:
         """Dynamically activate and mount a plugin."""
         if plugin_id not in self.manifests:

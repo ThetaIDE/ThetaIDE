@@ -774,6 +774,13 @@ symbolic:
 </table>
 <p>Whatever a plugin registers through the context is cleaned up when it is switched off.</p>
 
+<h3>Training Logger Integrations</h3>
+<p>Training logger providers run inside the Python process that executes <code>run_pipeline.py</code>, so they use a backend extension point. A provider package registers a callable in the <code>thetaide.run_loggers</code> Python entry-point group. The entry-point name is its config ID; the callable receives its backend settings and a <code>RunLoggerContext</code>, then returns a Lightning logger (or a list of them). Core integrations can also be gated by their plugin setting; disabling the TensorBoard core plugin prevents its provider from starting even when an older experiment still contains <code>tensorboard: true</code>.</p>
+<pre><code># pyproject.toml in a logger integration package
+[project.entry-points."thetaide.run_loggers"]
+wandb = "thetaide_wandb:create_logger"</code></pre>
+<p>Configure a provider in an experiment with <code>logging.backends.&lt;id&gt;.enabled</code> and provider-specific keys. For example, a W&amp;B integration can use <code>logging.backends.wandb.project</code> and <code>logging.backends.wandb.entity</code>. Provider code and dependencies must be installed in the environment used to run training. Provider logging settings are separate from optional viewer panes; hiding a pane does not change a run's logger configuration. TensorBoard's existing top-level <code>tensorboard: true</code> setting remains supported for older experiments while the TensorBoard plugin is enabled.</p>
+
 <h3>Plugin Lifecycle Hooks</h3>
 <pre><code>from frontend.plugins.base import Plugin, PluginManifest
 from frontend.plugins.context import PluginContext
@@ -1263,7 +1270,7 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
         keywords=["tensorboard", "logs", "dashboard", "scalars", "webengine", "browser"],
         html_content=r"""
 <h2>TensorBoard Tab</h2>
-<p>Runs with <b>Log to TensorBoard</b> turned on also write TensorBoard logs to <code>results/tensorboard/</code>. It is off by default: add it from the <b>+</b> beside the Experiment heading (<i>Log to TensorBoard</i>), or set <code>tensorboard: true</code> in the YAML. The <a href="ide://tensorboard">TensorBoard</a> tab runs a TensorBoard server over that folder. It is hidden by default; open it with <code>Action + 6</code> or <i>View &rarr; TensorBoard</i>. It comes from the TensorBoard core plugin, which you can switch off in <i>Settings &rarr; Core Plugins</i>.</p>
+<p>Runs with <b>Log to TensorBoard</b> turned on write event logs to <code>results/tensorboard/</code>. Add the option from the <b>+</b> beside the Experiment heading or set <code>tensorboard: true</code> in YAML. The <a href="ide://tensorboard">TensorBoard</a> tab runs a server over that folder. It is hidden by default; open it with <code>Action + 6</code> or <i>View &rarr; TensorBoard</i>. It comes from the TensorBoard core plugin in <i>Settings &rarr; Core Plugins</i>. Turning that plugin off removes its pane and Experiment control, and disables TensorBoard logging for runs launched by Theta-IDE.</p>
 
 <h3>How It Works</h3>
 <ul>
@@ -1274,7 +1281,7 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
 
 <h3>Requirements</h3>
 <ul>
-  <li>TensorBoard is installed with Theta-IDE. If it is missing from the environment the IDE runs in, the tab says so instead of starting.</li>
+  <li>TensorBoard is an optional integration. Install <code>theta-ide[tensorboard]</code> in the training environment to enable its run logger; if the viewer dependency is missing, the plugin reports that instead of starting.</li>
 </ul>
 
 <div style="background-color: rgba(254, 128, 25, 0.12); border-left: 4px solid #fe8019; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">

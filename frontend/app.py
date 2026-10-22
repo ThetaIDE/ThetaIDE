@@ -176,7 +176,12 @@ class Window(QMainWindow):
         self.timer.timeout.connect(self.tick)
         # Configs compose in-process and training runs as a QProcess: no server to start.
         self.backend = LocalBackend(self)
-        self.jobs = JobManager(store_path=Path(data_dir) / "jobs" / "jobs.db", parent=self)
+        self.jobs = JobManager(
+            store_path=Path(data_dir) / "jobs" / "jobs.db",
+            settings_path=self.settings_manager.workspace_settings_path,
+            enabled_plugins_provider=lambda: list(self.plugin_manager.instances),
+            parent=self,
+        )
         self.jobs.job_changed.connect(self.on_job_changed)
         self.jobs.max_parallel = max(1, int(self.settings_manager.get("queue", "max_parallel", default=1) or 1))
         self.jobs.job_output.connect(self.on_job_output)
@@ -320,7 +325,9 @@ class Window(QMainWindow):
         self.preview_splitter = preview_splitter
 
         # Multi-tabbed Config Tab Manager (replaces single ConfigViewer)
-        self.config_tab_manager = ConfigTabManager(self.settings_manager, self)
+        self.config_tab_manager = ConfigTabManager(
+            self.settings_manager, self, plugin_manager=self.plugin_manager
+        )
         self.config_tab_manager.auto_save = True
         self.config_tab_manager.btn_save = self.btn_save
         self.config_tab_manager.config_changed.connect(self.update_config)

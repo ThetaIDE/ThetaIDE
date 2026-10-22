@@ -146,7 +146,6 @@ AVAILABLE_PANES = [
     ("monitor", "Training Monitor"),
     ("results", "Results Browser"),
     ("plots", "Plot Viewer"),
-    ("tensorboard", "TensorBoard"),
     ("queue", "Job Queue"),
     ("terminal", "Terminal"),
     ("console", "Console"),
@@ -1497,9 +1496,12 @@ class SettingsView(QWidget):
         tracked = []
         seen = set()
 
-        # 1. Canonical built-in panels
+        present_tabs = getattr(getattr(self.window, "tabs", None), "tabs", {})
+
+        # 1. Canonical built-in panels. Optional plugin panes appear below only
+        # while their plugin has actually contributed a tab.
         for pid, title in AVAILABLE_PANES:
-            if pid == "none" or pid in seen:
+            if pid == "none" or pid in seen or (pid not in present_tabs and pid != "settings"):
                 continue
             seen.add(pid)
             tracked.append({
@@ -1525,7 +1527,7 @@ class SettingsView(QWidget):
             sidebar_order = sm.get("sidebar", "order", default=[])
             if isinstance(sidebar_order, list):
                 for pid in sidebar_order:
-                    if pid not in seen and pid != "none":
+                    if pid not in seen and pid != "none" and pid in present_tabs:
                         seen.add(pid)
                         tracked.append({
                             "id": pid,
@@ -1550,7 +1552,7 @@ class SettingsView(QWidget):
             saved_bindings = sm.get("hotkeys", "bindings", default={})
             if isinstance(saved_bindings, dict):
                 for pid in saved_bindings.keys():
-                    if pid not in seen and pid != "none":
+                    if pid not in seen and pid != "none" and (pid == "settings" or pid in present_tabs):
                         seen.add(pid)
                         tracked.append({
                             "id": pid,
@@ -1561,7 +1563,7 @@ class SettingsView(QWidget):
             saved_panes = sm.get("hotkeys", "panes", default=[])
             if isinstance(saved_panes, list):
                 for pid in saved_panes:
-                    if pid not in seen and pid != "none":
+                    if pid not in seen and pid != "none" and (pid == "settings" or pid in present_tabs):
                         seen.add(pid)
                         tracked.append({
                             "id": pid,
