@@ -437,12 +437,36 @@ class BlendRLModel(nn.Module):
 <pre><code># in/config/model/blendrl.yaml
 architecture: blendrl
 blend_alpha: 0.25
+blend_function: softmax
+blender:
+  mode: neural
+  model:
+    name: basics/dnn
+    hidden_sizes: [64, 64]
 neural:
   name: basics/dnn
   hidden_sizes: [128, 128]
 symbolic:
   name: my_logic_head
   rules: default</code></pre>
+<p>Declare each child-model slot in the parent model's <code>parameter_schema</code> with <code>"x-theta-domain": "model"</code>. This makes the experiment editor show a model dropdown for the slot; after a model is selected, its declared parameters appear under the slot and can be added individually.</p>
+<pre><code>"parameter_schema": {
+  "type": "object",
+  "properties": {
+    "neural": {"type": "object", "x-theta-domain": "model"},
+    "symbolic": {"type": "object", "x-theta-domain": "model"},
+    "blender": {
+      "type": "object",
+      "required": ["mode", "model"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["logic", "neural"]},
+        "model": {"type": "object", "x-theta-domain": "model"}
+      }
+    },
+    "blend_function": {"type": "string", "enum": ["softmax", "gumbel_softmax"]},
+    "blend_alpha": {"type": "number", "default": 0.25}
+  }
+}</code></pre>
 
 <h3>3. Use it from an experiment</h3>
 <p>A method can select the parent model and provide its nested settings. These values reach the registered <code>BlendRLModel</code> constructor; the parent then resolves the child models:</p>
@@ -455,6 +479,12 @@ symbolic:
       neural:
         name: basics/dnn
         hidden_sizes: [128, 128]
+      blender:
+        mode: neural
+        model:
+          name: basics/dnn
+          hidden_sizes: [64, 64]
+      blend_function: softmax
       symbolic:
         name: my_logic_head
         rules: default</code></pre>

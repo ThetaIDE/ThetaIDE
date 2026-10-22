@@ -1,5 +1,6 @@
 """Spyder-inspired workspace for configuring and analyzing machine-learning experiments."""
 import argparse
+import base64
 import os
 import sys
 import time
@@ -11,7 +12,7 @@ import yaml
 if sys.platform == "darwin" and "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
 
-from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtCore import QByteArray, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QFont, QIcon, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -224,6 +225,7 @@ class Window(QMainWindow):
         self.tabs.tabOrderChanged.connect(lambda _: self.save_layout())
         step("Restoring layout…", 0.66)
         self.load_layout()
+        self.restore_session()
         if hasattr(self, "settings_manager"):
             self.tabs.set_auto_hide(bool(self.settings_manager.get("sidebar", "auto_hide", default=False)))
         self.tabs.autoHideChanged.connect(self.on_sidebar_auto_hide_changed)
@@ -1134,6 +1136,76 @@ class Window(QMainWindow):
         except Exception as exc:
             self.log(f"Failed to load sidebar layout: {exc}")
 
+    def save_session(self):
+        """Persist the user's current workspace view for the next launch."""
+        if not hasattr(self, "settings_manager") or getattr(self, "_restoring_session", False):
+            return
+        try:
+            pane_id = next(
+                (pid for pid, entry in self.tabs.tabs.items()
+                 if entry.get("widget") is self.tabs.currentWidget()),
+                "config",
+            )
+            manager = getattr(self, "config_tab_manager", None)
+            open_configs = list(manager._tabs) if manager else []
+            current_viewer = manager.current_viewer() if manager else None
+            active_config = current_viewer.current_rel_path if current_viewer else ""
+            session = {
+                "active_pane": pane_id,
+                "open_configs": open_configs,
+                "active_config": active_config or "",
+                "config_splitter": self.config_splitter.sizes(),
+                "preview_splitter": self.preview_splitter.sizes(),
+                "preview_visible": not self.preview_panel.isHidden(),
+                "window_geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
+            }
+            self.settings_manager.persist_many("session", session)
+        except Exception as exc:
+            self.log(f"Failed to save workspace session: {exc}")
+
+    def restore_session(self):
+        """Restore the last open pane, config tabs, and editor split positions."""
+        sm = getattr(self, "settings_manager", None)
+        if sm is None:
+            return
+        self._restoring_session = True
+        try:
+            saved_geometry = sm.get("session", "window_geometry", default="")
+            if isinstance(saved_geometry, str) and saved_geometry:
+                self.restoreGeometry(QByteArray.fromBase64(saved_geometry.encode("ascii")))
+            manager = self.config_tab_manager
+            saved_configs = sm.get("session", "open_configs", default=[])
+            if isinstance(saved_configs, list):
+                # init_default_experiment opens a fallback tab; replace it when a saved
+                # session has valid files, while gracefully skipping files that moved.
+                paths = [str(p) for p in saved_configs if isinstance(p, str)]
+                valid = [p for p in paths if (self.config_tree.root_dir / p).is_file()]
+                if valid:
+                    manager.close_tabs_matching(lambda _path: True)
+                    for rel_path in valid:
+                        manager.open_file(self.config_tree.root_dir / rel_path, rel_path, pinned=True)
+                    active = sm.get("session", "active_config", default="")
+                    if active in manager._tabs:
+                        manager.setCurrentWidget(manager._tabs[active])
+
+            config_sizes = sm.get("session", "config_splitter", default=[])
+            if isinstance(config_sizes, list) and len(config_sizes) == 2:
+                self.config_splitter.setSizes([max(0, int(v)) for v in config_sizes])
+            preview_sizes = sm.get("session", "preview_splitter", default=[])
+            if isinstance(preview_sizes, list) and len(preview_sizes) == 2:
+                self.preview_splitter.setSizes([max(0, int(v)) for v in preview_sizes])
+            preview_visible = bool(sm.get("session", "preview_visible", default=False))
+            self.preview_panel.setVisible(preview_visible)
+            self.btn_toggle_yaml.setChecked(preview_visible)
+
+            pane_id = sm.get("session", "active_pane", default="config")
+            if pane_id in self.tabs.tabs:
+                self.tabs.setCurrentWidget(self.tabs.tabs[pane_id]["widget"])
+        except Exception as exc:
+            self.log(f"Failed to restore workspace session: {exc}")
+        finally:
+            self._restoring_session = False
+
     def test_backend_connection(self):
         """Settings → Training pipeline: check the pipeline composes in this Python environment."""
         if hasattr(self, "settings_backend_status"):
@@ -1370,6 +1442,14 @@ class Window(QMainWindow):
             self.tabs.setCurrentWidget(self.tabs.tabs["tensorboard"]["widget"])
 
     def tab_changed(self, index):
+        if not getattr(self, "_restoring_session", False) and index >= 0:
+            pane_id = next(
+                (pid for pid, entry in self.tabs.tabs.items()
+                 if entry.get("widget") is self.tabs.widget(index)),
+                None,
+            )
+            if pane_id:
+                self.settings_manager.persist_key("session", "active_pane", pane_id)
         # 1. If leaving components panel, auto-save any unsaved edits
         if hasattr(self, "components_panel") and self.components_panel is not None:
             if hasattr(self.components_panel, "viewer") and self.components_panel.viewer and self.components_panel.viewer.is_dirty:
@@ -2616,6 +2696,7 @@ class Window(QMainWindow):
                 event.ignore()
                 return
         self._shutting_down = True
+        self.save_session()
         for viewer in self.findChildren(ConfigViewer):
             viewer.flush_pending_save()  # edits typed in the last moment before closing
         for run in list(self.active_runs):

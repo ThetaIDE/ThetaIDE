@@ -386,6 +386,23 @@ class SettingsManager(QObject):
             finally:
                 self._watcher.addPath(str(self._workspace_path))
 
+    def persist_many(self, section: str, values: dict[str, Any]) -> None:
+        """Persist internal state values together without emitting ``changed``."""
+        if not values:
+            return
+        self._data.setdefault(section, {}).update(values)
+        on_disk = _parse_toml_file(self._workspace_path)
+        disk_section = on_disk.setdefault(section, {})
+        changed = any(disk_section.get(key) != value for key, value in values.items())
+        if not changed:
+            return
+        disk_section.update(values)
+        self._watcher.removePath(str(self._workspace_path))
+        try:
+            _write_toml_file(self._workspace_path, on_disk)
+        finally:
+            self._watcher.addPath(str(self._workspace_path))
+
     # ------------------------------------------------------------------
     # Convenience helpers for the most-touched sections
     # ------------------------------------------------------------------

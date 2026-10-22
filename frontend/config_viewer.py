@@ -1612,6 +1612,8 @@ class ConfigViewer(QWidget):
         """Render standard boxes for an Experiment configuration."""
         data = self.raw_data
         resolved = self._get_resolved_defaults()
+        is_base = self._is_base_config()
+        show_resolved = is_base or self.view_mode == "resolved"
 
         # Paradigm is inherited from group base by default.
         # A missing paradigm is an incomplete experiment, not an invitation to
@@ -1628,8 +1630,6 @@ class ConfigViewer(QWidget):
         self.txt_group = QLineEdit(str(group_val))
         self.txt_group.textChanged.connect(lambda v: self._on_field_edited("group", v))
         self.field_widgets["group"] = self.txt_group
-
-        is_base = (self.current_path.stem == "_base") if self.current_path else False
 
         # Paradigm + Environment, driven by in/config/paradigms constraints.
         tree = config_tree()
@@ -1820,7 +1820,7 @@ class ConfigViewer(QWidget):
             self._add_experiment_context_fields(box_inputs, data, resolved)
 
             rules = tree.paradigms.get(paradigm) if tree else None
-            if rules and rules.uses_static_dataset and ("dataset_path" in data or self.view_mode == "resolved"):
+            if rules and rules.uses_static_dataset and ("dataset_path" in data or show_resolved):
                 self._add_dataset_source_fields(
                     box_inputs,
                     data,
@@ -1880,12 +1880,12 @@ class ConfigViewer(QWidget):
                     self.spin_eval_ep.setSuffix(f"   (not used by {paradigm})")
                 self.spin_eval_ep.setToolTip(rules.disabled_reason("eval_episodes"))
 
-        show_timesteps = is_timestep_budget and ("total_timesteps" in data or self.view_mode == "resolved")
-        show_seed = ("seed" in data or self.view_mode == "resolved")
-        show_eval_ep = is_timestep_budget and ("eval_episodes" in data or self.view_mode == "resolved")
-        show_eval_freq = is_timestep_budget and ("eval_freq_steps" in data or "eval_freq" in data or (self.view_mode == "resolved" and ("eval_freq_steps" in resolved or "eval_freq" in resolved)))
-        show_epochs = not is_timestep_budget and ("epochs" in data or self.view_mode == "resolved")
-        show_eval_every = not is_timestep_budget and ("eval_every_n_epochs" in data or self.view_mode == "resolved")
+        show_timesteps = is_timestep_budget and ("total_timesteps" in data or show_resolved)
+        show_seed = ("seed" in data or show_resolved)
+        show_eval_ep = is_timestep_budget and ("eval_episodes" in data or show_resolved)
+        show_eval_freq = is_timestep_budget and ("eval_freq_steps" in data or "eval_freq" in data or (show_resolved and ("eval_freq_steps" in resolved or "eval_freq" in resolved)))
+        show_epochs = not is_timestep_budget and ("epochs" in data or show_resolved)
+        show_eval_every = not is_timestep_budget and ("eval_every_n_epochs" in data or show_resolved)
 
         # Row layout for epochs
         self.spin_epochs = SpinBox()
@@ -1898,11 +1898,11 @@ class ConfigViewer(QWidget):
         row_epochs = QHBoxLayout()
         row_epochs.setSpacing(6)
         row_epochs.addWidget(self.spin_epochs)
-        if "epochs" in data:
+        if "epochs" in data and not is_base:
             btn_del_ep = _make_subtle_tool_button("close", "Remove epochs override to rely on group default", size=20, icon_size=12)
             btn_del_ep.clicked.connect(lambda: (self.raw_data.pop("epochs", None), self._mark_dirty(), self._render_boxes()))
             row_epochs.addWidget(btn_del_ep)
-        else:
+        elif not is_base:
             row_epochs.addWidget(label(str(self.spin_epochs.value()), "muted"))
         row_epochs.addStretch()
 
@@ -1917,11 +1917,11 @@ class ConfigViewer(QWidget):
         row_eval_every = QHBoxLayout()
         row_eval_every.setSpacing(6)
         row_eval_every.addWidget(self.spin_eval_every)
-        if "eval_every_n_epochs" in data:
+        if "eval_every_n_epochs" in data and not is_base:
             btn_del_ee = _make_subtle_tool_button("close", "Remove eval_every_n_epochs override to rely on group default", size=20, icon_size=12)
             btn_del_ee.clicked.connect(lambda: (self.raw_data.pop("eval_every_n_epochs", None), self._mark_dirty(), self._render_boxes()))
             row_eval_every.addWidget(btn_del_ee)
-        else:
+        elif not is_base:
             row_eval_every.addWidget(label(str(self.spin_eval_every.value()), "muted"))
         row_eval_every.addStretch()
 
@@ -1929,11 +1929,11 @@ class ConfigViewer(QWidget):
         row_timesteps = QHBoxLayout()
         row_timesteps.setSpacing(6)
         row_timesteps.addWidget(self.spin_timesteps)
-        if "total_timesteps" in data:
+        if "total_timesteps" in data and not is_base:
             btn_del_tt = _make_subtle_tool_button("close", "Remove total_timesteps override to rely on group default", size=20, icon_size=12)
             btn_del_tt.clicked.connect(lambda: (self.raw_data.pop("total_timesteps", None), self._mark_dirty(), self._render_boxes()))
             row_timesteps.addWidget(btn_del_tt)
-        else:
+        elif not is_base:
             row_timesteps.addWidget(label(str(self.spin_timesteps.value()), "muted"))
         row_timesteps.addStretch()
 
@@ -1946,11 +1946,11 @@ class ConfigViewer(QWidget):
         btn_rand_seed.setToolTip("Pick a random seed")
         btn_rand_seed.clicked.connect(lambda: self.spin_seed.setValue(random.randint(1, 9999)))
         row_seed.addWidget(btn_rand_seed)
-        if "seed" in data:
+        if "seed" in data and not is_base:
             btn_del_seed = _make_subtle_tool_button("close", "Remove seed override to rely on group default", size=20, icon_size=12)
             btn_del_seed.clicked.connect(lambda: (self.raw_data.pop("seed", None), self._mark_dirty(), self._render_boxes()))
             row_seed.addWidget(btn_del_seed)
-        else:
+        elif not is_base:
             row_seed.addWidget(label(str(self.spin_seed.value()), "muted"))
         row_seed.addStretch()
 
@@ -1958,11 +1958,11 @@ class ConfigViewer(QWidget):
         row_eval_ep = QHBoxLayout()
         row_eval_ep.setSpacing(6)
         row_eval_ep.addWidget(self.spin_eval_ep)
-        if "eval_episodes" in data:
+        if "eval_episodes" in data and not is_base:
             btn_del_ee = _make_subtle_tool_button("close", "Remove eval_episodes override to rely on group default", size=20, icon_size=12)
             btn_del_ee.clicked.connect(lambda: (self.raw_data.pop("eval_episodes", None), self._mark_dirty(), self._render_boxes()))
             row_eval_ep.addWidget(btn_del_ee)
-        elif eval_ep_enabled:
+        elif eval_ep_enabled and not is_base:
             row_eval_ep.addWidget(label(str(self.spin_eval_ep.value()), "muted"))
         row_eval_ep.addStretch()
 
@@ -1980,11 +1980,11 @@ class ConfigViewer(QWidget):
             row_eval_freq = QHBoxLayout()
             row_eval_freq.setSpacing(6)
             row_eval_freq.addWidget(spin_eval_freq)
-            if freq_key in data:
+            if freq_key in data and not is_base:
                 btn_del_ef = _make_subtle_tool_button("close", f"Remove '{freq_key}' override to rely on group default", size=20, icon_size=12)
                 btn_del_ef.clicked.connect(lambda _, fk=freq_key: (self.raw_data.pop(fk, None), self._mark_dirty(), self._render_boxes()))
                 row_eval_freq.addWidget(btn_del_ef)
-            else:
+            elif not is_base:
                 row_eval_freq.addWidget(label(str(spin_eval_freq.value()), "muted"))
             row_eval_freq.addStretch()
 
@@ -2020,9 +2020,10 @@ class ConfigViewer(QWidget):
                     line_extra.setMaximumWidth(TEXT_FIELD_WIDTH)
                     line_extra.textChanged.connect(lambda v, ek=extra_k: self._on_field_edited(ek, v))
                     row_extra.addWidget(line_extra)
-                btn_del_extra = _make_subtle_tool_button("close", f"Remove '{extra_k}' parameter", size=20, icon_size=12)
-                btn_del_extra.clicked.connect(lambda _, ek=extra_k: (self.raw_data.pop(ek, None), self._mark_dirty(), self._render_boxes()))
-                row_extra.addWidget(btn_del_extra)
+                if not is_base:
+                    btn_del_extra = _make_subtle_tool_button("close", f"Remove '{extra_k}' parameter", size=20, icon_size=12)
+                    btn_del_extra.clicked.connect(lambda _, ek=extra_k: (self.raw_data.pop(ek, None), self._mark_dirty(), self._render_boxes()))
+                    row_extra.addWidget(btn_del_extra)
                 row_extra.addStretch()
                 extra_experiment_items.append((label(str(extra_k)), row_extra))
 
@@ -2061,6 +2062,12 @@ class ConfigViewer(QWidget):
             form_budget.addWidget(lbl_widget, c_row, c_col)
             form_budget.addLayout(val_layout, c_row, c_col + 1)
             curr_row = max(curr_row, c_row + 1)
+        field_column_min = max(
+            (val_layout.sizeHint().width() for _, val_layout in grid_items),
+            default=0,
+        )
+        form_budget.setColumnMinimumWidth(1, field_column_min)
+        form_budget.setColumnMinimumWidth(3, field_column_min)
         form_budget.setColumnStretch(1, 1)
         form_budget.setColumnStretch(3, 1)
 
@@ -2079,7 +2086,7 @@ class ConfigViewer(QWidget):
         # Show checkboxes only for flags explicitly present in the experiment config (or when showing resolved defaults)
         active_flags = [
             (k, lbl) for k, lbl in OPTIONAL_RUNTIME_FLAGS
-            if k in data or self.view_mode == "resolved"
+            if k in data or show_resolved
         ]
 
         for flag_key, flag_label in active_flags:
@@ -2097,13 +2104,13 @@ class ConfigViewer(QWidget):
             row_flag.addWidget(label(flag_label))
             chk_widgets[flag_key] = chk
 
-            if flag_key in data:
+            if flag_key in data and not is_base:
                 btn_del_flag = _make_subtle_tool_button("close", f"Remove '{flag_key}' override", size=18, icon_size=11)
                 btn_del_flag.clicked.connect(
                     lambda _, fk=flag_key: (self.raw_data.pop(fk, None), self._mark_dirty(), self._render_boxes())
                 )
                 row_flag.addWidget(btn_del_flag)
-            else:
+            elif not is_base:
                 row_flag.addWidget(label(str(chk.isChecked()).lower(), "muted"))
 
             chk_row.addLayout(row_flag)
@@ -3499,32 +3506,34 @@ class ConfigViewer(QWidget):
         context_rows = []
         env_data = data.get("env") if isinstance(data.get("env"), dict) else {}
         trainer_data = data.get("trainer") if isinstance(data.get("trainer"), dict) else {}
-        if "num_envs" in env_data:
+        resolved_env = resolved.get("env") if isinstance(resolved.get("env"), dict) else {}
+        resolved_trainer = resolved.get("trainer") if isinstance(resolved.get("trainer"), dict) else {}
+        if "num_envs" in env_data or (is_base and "num_envs" in resolved_env):
             spin = SpinBox()
             spin.setMaximumWidth(NUMBER_FIELD_WIDTH)
             spin.setRange(1, 1024)
-            spin.setValue(int(env_data.get("num_envs", 4)))
+            spin.setValue(int(env_data.get("num_envs", resolved_env.get("num_envs", 4))))
             spin.valueChanged.connect(lambda value: self._on_nested_edited("env", "num_envs", value))
             context_rows.append(("Parallel Envs", "env.num_envs", spin))
-        if "num_steps" in env_data:
+        if "num_steps" in env_data or (is_base and "num_steps" in resolved_env):
             spin = SpinBox()
             spin.setMaximumWidth(NUMBER_FIELD_WIDTH)
             spin.setRange(1, 100000)
-            spin.setValue(int(env_data.get("num_steps", 128)))
+            spin.setValue(int(env_data.get("num_steps", resolved_env.get("num_steps", 128))))
             spin.valueChanged.connect(lambda value: self._on_nested_edited("env", "num_steps", value))
             context_rows.append(("Steps per Env", "env.num_steps", spin))
         if "accelerator" in trainer_data or is_base:
             combo = ComboBox()
             combo.setMaximumWidth(NUMBER_FIELD_WIDTH)
             combo.addItems(["cpu", "gpu", "mps", "auto"])
-            combo.setCurrentText(str(trainer_data.get("accelerator", "cpu")))
+            combo.setCurrentText(str(trainer_data.get("accelerator", resolved_trainer.get("accelerator", "cpu"))))
             combo.currentTextChanged.connect(lambda value: self._on_nested_edited("trainer", "accelerator", value))
             context_rows.append(("Accelerator", "trainer.accelerator", combo))
         if "max_epochs" in trainer_data or is_base:
             spin = SpinBox()
             spin.setMaximumWidth(NUMBER_FIELD_WIDTH)
             spin.setRange(1, 1000)
-            spin.setValue(int(trainer_data.get("max_epochs", 25)))
+            spin.setValue(int(trainer_data.get("max_epochs", resolved_trainer.get("max_epochs", 25))))
             spin.valueChanged.connect(lambda value: self._on_nested_edited("trainer", "max_epochs", value))
             context_rows.append(("Max Epochs", "trainer.max_epochs", spin))
 
@@ -4503,17 +4512,26 @@ class ConfigViewer(QWidget):
         return m_spec
 
     def _on_method_model_parameter_edited(
-        self, method_name: str, model_name: str, path: tuple[str, ...], value: Any
+        self,
+        method_name: str,
+        model_name: str,
+        path: tuple[str, ...],
+        value: Any,
+        schema_model_name: str | None = None,
+        schema_path: tuple[str, ...] | None = None,
     ):
         if self._block_updates or not path:
             return
         target = self._method_model_parameter_root(method_name, model_name, create=True)
         for key in path[:-1]:
             if not isinstance(target.get(key), dict):
-                target[key] = {}
+                target[key] = {"name": schema_model_name} if schema_model_name and schema_model_name != model_name else {}
             target = target[key]
         tree = config_tree()
-        schema = tree.model_parameter_schema(model_name, path) if tree else {}
+        schema_owner = schema_model_name or model_name
+        schema = tree.model_parameter_schema(
+            schema_owner, schema_path if schema_path is not None else path
+        ) if tree else {}
         target[path[-1]] = (
             value
             if isinstance(value, str) and schema.get("type") == "string"
@@ -4532,22 +4550,51 @@ class ConfigViewer(QWidget):
             self._mark_dirty()
             self._render_boxes()
 
-    def _add_method_model_parameter(self, method_name: str, model_name: str, path: tuple[str, ...]):
+    def _add_method_model_parameter(
+        self,
+        method_name: str,
+        model_name: str,
+        path: tuple[str, ...],
+        schema_model_name: str | None = None,
+        schema_path: tuple[str, ...] | None = None,
+    ):
         if not path:
             return
         tree = config_tree()
-        default = tree.model_parameters(model_name) if tree else {}
+        schema_owner = schema_model_name or model_name
+        default = tree.model_parameters(schema_owner) if tree else {}
+        lookup_path = schema_path if schema_path is not None else path
         found = True
-        for key in path:
+        for key in lookup_path:
             if isinstance(default, dict) and key in default:
                 default = default[key]
             else:
                 found = False
                 break
         if not found:
-            schema = tree.model_parameter_schema(model_name, path) if tree else {}
+            schema = tree.model_parameter_schema(schema_owner, lookup_path) if tree else {}
             default = schema.get("default")
-        self._on_method_model_parameter_edited(method_name, model_name, path, default)
+        self._on_method_model_parameter_edited(
+            method_name, model_name, path, default, schema_owner, lookup_path
+        )
+        self._render_boxes()
+
+    def _on_method_child_model_changed(
+        self, method_name: str, parent_model_name: str, path: tuple[str, ...], child_model_name: str
+    ):
+        if self._block_updates:
+            return
+        value = {"name": child_model_name} if child_model_name else None
+        target = self._method_model_parameter_root(method_name, parent_model_name, create=True)
+        for key in path[:-1]:
+            if not isinstance(target.get(key), dict):
+                target[key] = {}
+            target = target[key]
+        if child_model_name:
+            target[path[-1]] = value
+        else:
+            target.pop(path[-1], None)
+        self._mark_dirty()
         self._render_boxes()
 
     def _render_method_model_parameters(
@@ -4559,22 +4606,251 @@ class ConfigViewer(QWidget):
         path: tuple[str, ...] = (),
         level: int = 1,
         show_defaults: bool = False,
+        schema_model_name: str | None = None,
+        schema_path: tuple[str, ...] = (),
     ) -> list[tuple[str, Any]]:
         """Render typed, recursively nested model params from the component schema."""
         tree = config_tree()
-        schema = tree.model_parameter_schema(model_name, path) if tree else {}
+        schema_owner = schema_model_name or model_name
+        schema = tree.model_parameter_schema(schema_owner, schema_path) if tree else {}
         schema_properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
         keys = list(dict.fromkeys([*values.keys(), *defaults.keys(), *schema_properties.keys()]))
         rows = []
 
         for key in keys:
             present = key in values
-            if not present and not show_defaults:
+            param_path = path + (key,)
+            param_schema_path = schema_path + (key,)
+            param_schema = tree.model_parameter_schema(schema_owner, param_schema_path) if tree else {}
+            if not present and not show_defaults and key not in set(schema.get("required", [])):
                 continue
             value = values.get(key, defaults.get(key, schema_properties.get(key, {}).get("default")))
-            param_path = path + (key,)
-            param_schema = tree.model_parameter_schema(model_name, param_path) if tree else {}
             default_value = defaults.get(key, param_schema.get("default")) if isinstance(param_schema, dict) else defaults.get(key)
+
+            if param_schema.get("x-theta-domain") == "model":
+                slot_values = value if isinstance(value, dict) else {}
+                selected_model = value if isinstance(value, str) else (
+                    slot_values.get("name") or slot_values.get("architecture") or slot_values.get("type")
+                )
+                if tree and selected_model in tree.models:
+                    selected_model = tree.models[selected_model].name
+                row = QHBoxLayout()
+                picker = ComboBox()
+                picker.setMaximumWidth(TEXT_FIELD_WIDTH)
+                picker.setPlaceholderText("Select model...")
+                picker.addItem("", "")
+                for choice in (tree.model_names if tree else []):
+                    picker.addItem(choice, choice)
+                if selected_model:
+                    index = next(
+                        (i for i in range(picker.count()) if picker.itemData(i) == selected_model), -1
+                    )
+                    if index < 0:
+                        picker.insertItem(1, str(selected_model), selected_model)
+                        index = 1
+                    picker.setCurrentIndex(index)
+                picker.currentIndexChanged.connect(
+                    lambda i, mn=method_name, parent=model_name, p=param_path, combo=picker:
+                    self._on_method_child_model_changed(mn, parent, p, combo.itemData(i) or "")
+                )
+                row.addWidget(picker)
+
+                child_model = selected_model
+                if child_model and tree and child_model in tree.models:
+                    child_values = {
+                        child_key: child_value for child_key, child_value in slot_values.items()
+                        if child_key not in {"name", "architecture", "type", "model"}
+                    }
+                    child_defaults = tree.model_parameters(child_model)
+                    child_candidates = [
+                        candidate for candidate in tree.model_parameter_keys(child_model)
+                        if candidate not in child_values and candidate not in {"name", "architecture", "type"}
+                    ]
+                    if child_candidates:
+                        row.addWidget(_make_param_adder_button(
+                            f"Add {child_model} parameter",
+                            child_candidates,
+                            lambda child, mn=method_name, parent=model_name, p=param_path, cm=child_model:
+                            self._add_method_model_parameter(
+                                mn, parent, p + (child,), cm, (child,)
+                            ),
+                            parent_widget=self,
+                        ))
+                    delete_slot = _make_subtle_tool_button("close", f"Remove '{key}'", size=20, icon_size=12)
+                    delete_slot.clicked.connect(
+                        lambda _, mn=method_name, parent=model_name, p=param_path:
+                        self._remove_method_model_parameter(mn, parent, p)
+                    )
+                    row.addWidget(delete_slot)
+                    rows.append((str(key), row))
+                    child_rows = self._render_method_model_parameters(
+                        method_name,
+                        model_name,
+                        child_values,
+                        child_defaults,
+                        param_path,
+                        level + 1,
+                        show_defaults,
+                        child_model,
+                        (),
+                    )
+                    if child_rows:
+                        child_block = IndentedHierarchyBlock(level=level + 1)
+                        for child_label, child_row in child_rows:
+                            if isinstance(child_row, QWidget):
+                                child_block.addRow(child_row)
+                            else:
+                                child_row.addStretch()
+                                child_block.addRow(child_label, child_row)
+                        rows.append(("", child_block))
+                else:
+                    delete_slot = _make_subtle_tool_button("close", f"Remove '{key}'", size=20, icon_size=12)
+                    delete_slot.clicked.connect(
+                        lambda _, mn=method_name, parent=model_name, p=param_path:
+                        self._remove_method_model_parameter(mn, parent, p)
+                    )
+                    row.addWidget(delete_slot)
+                    rows.append((str(key), row))
+                continue
+
+            enum_properties = param_schema.get("properties", {}) if isinstance(param_schema, dict) else {}
+            if (
+                isinstance(value, dict)
+                and enum_properties
+                and all(
+                    isinstance(child_schema, dict)
+                    and (
+                        (isinstance(child_schema.get("enum"), list) and child_schema["enum"])
+                        or child_schema.get("x-theta-domain") == "model"
+                    )
+                    for child_schema in enum_properties.values()
+                )
+            ):
+                # Compact option groups (such as BlendRL's blender settings) into
+                # one labeled row instead of nesting each setting under a generic
+                # object editor. Model slots stay selectable here and expose their
+                # model parameters only through the adjacent add button.
+                row = QHBoxLayout()
+                model_block = IndentedHierarchyBlock(level=level + 1)
+                has_model_slot = False
+                for child_key, child_schema in enum_properties.items():
+                    if child_key not in value and not show_defaults:
+                        continue
+                    child_path = param_path + (child_key,)
+                    child_value = value.get(
+                        child_key,
+                        defaults.get(key, {}).get(child_key)
+                        if isinstance(defaults.get(key), dict)
+                        else child_schema.get("default"),
+                    )
+                    if child_schema.get("x-theta-domain") == "model":
+                        slot_values = child_value if isinstance(child_value, dict) else {}
+                        selected_model = child_value if isinstance(child_value, str) else (
+                            slot_values.get("name") or slot_values.get("architecture") or slot_values.get("type")
+                        )
+                        if tree and selected_model in tree.models:
+                            selected_model = tree.models[selected_model].name
+                        slot_row = QHBoxLayout()
+                        picker = ComboBox()
+                        picker.setMaximumWidth(TEXT_FIELD_WIDTH)
+                        picker.setPlaceholderText("Select model...")
+                        picker.addItem("", "")
+                        for choice in (tree.model_names if tree else []):
+                            picker.addItem(choice, choice)
+                        if selected_model:
+                            index = next(
+                                (i for i in range(picker.count()) if picker.itemData(i) == selected_model), -1
+                            )
+                            if index < 0:
+                                picker.insertItem(1, str(selected_model), selected_model)
+                                index = 1
+                            picker.setCurrentIndex(index)
+                        picker.currentIndexChanged.connect(
+                            lambda i, mn=method_name, parent=model_name, p=child_path, combo=picker:
+                            self._on_method_child_model_changed(mn, parent, p, combo.itemData(i) or "")
+                        )
+                        slot_row.addWidget(picker)
+
+                        nested_block = None
+                        if selected_model and tree and selected_model in tree.models:
+                            child_values = {
+                                name: child_value for name, child_value in slot_values.items()
+                                if name not in {"name", "architecture", "type", "model"}
+                            }
+                            child_defaults = tree.model_parameters(selected_model)
+                            candidates = [
+                                name for name in tree.model_parameter_keys(selected_model)
+                                if name not in child_values and name not in {"name", "architecture", "type"}
+                            ]
+                            if candidates:
+                                slot_row.addWidget(_make_param_adder_button(
+                                    f"Add {selected_model} parameter",
+                                    candidates,
+                                    lambda child, mn=method_name, parent=model_name, p=child_path, cm=selected_model:
+                                    self._add_method_model_parameter(mn, parent, p + (child,), cm, (child,)),
+                                    parent_widget=self,
+                                ))
+                            nested_rows = self._render_method_model_parameters(
+                                method_name, model_name, child_values, child_defaults,
+                                child_path, level + 1, False, selected_model, (),
+                            )
+                            if nested_rows:
+                                nested_block = IndentedHierarchyBlock(level=level + 2)
+                                for nested_label, nested_row in nested_rows:
+                                    if isinstance(nested_row, QWidget):
+                                        nested_block.addRow(nested_row)
+                                    else:
+                                        nested_row.addStretch()
+                                        nested_block.addRow(nested_label, nested_row)
+                        remove_model = _make_subtle_tool_button(
+                            "close", f"Remove '{child_key}' parameter", size=20, icon_size=12
+                        )
+                        remove_model.clicked.connect(
+                            lambda _, mn=method_name, parent=model_name, p=child_path:
+                            self._remove_method_model_parameter(mn, parent, p)
+                        )
+                        slot_row.addWidget(remove_model)
+                        model_block.addRow(str(child_key), slot_row)
+                        if nested_block is not None:
+                            model_block.addRow("", nested_block)
+                        has_model_slot = True
+                    else:
+                        if not child_schema.get("x-theta-hide-label"):
+                            child_title = child_schema.get("title") or child_key.replace("_", " ").title()
+                            row.addWidget(label(child_title, "muted"))
+                        row.addWidget(self._schema_widget(
+                            child_value,
+                            child_schema,
+                            lambda edited, mn=method_name, parent=model_name, p=child_path,
+                            sm=schema_owner, sp=param_schema_path + (child_key,):
+                            self._on_method_model_parameter_edited(mn, parent, p, edited, sm, sp),
+                        ))
+                missing_model_slots = [
+                    child_key for child_key, child_schema in enum_properties.items()
+                    if isinstance(child_schema, dict)
+                    and child_schema.get("x-theta-domain") == "model"
+                    and child_key not in value
+                ]
+                if missing_model_slots:
+                    slot_key = missing_model_slots[0]
+                    add_model = _make_subtle_tool_button("plus", "Add model parameter", size=20, icon_size=12)
+                    add_model.clicked.connect(
+                        lambda _, mn=method_name, parent=model_name, p=param_path + (slot_key,),
+                        sm=schema_owner, sp=param_schema_path + (slot_key,):
+                        self._add_method_model_parameter(mn, parent, p, sm, sp)
+                    )
+                    row.addWidget(add_model)
+                row.addStretch()
+                delete_group = _make_subtle_tool_button("close", f"Remove '{key}'", size=20, icon_size=12)
+                delete_group.clicked.connect(
+                    lambda _, mn=method_name, parent=model_name, p=param_path:
+                    self._remove_method_model_parameter(mn, parent, p)
+                )
+                row.addWidget(delete_group)
+                rows.append((str(key), row))
+                if has_model_slot:
+                    rows.append(("", model_block))
+                continue
 
             if isinstance(value, dict) or (isinstance(param_schema, dict) and param_schema.get("type") == "object"):
                 child_values = value if isinstance(value, dict) else {}
@@ -4599,7 +4875,8 @@ class ConfigViewer(QWidget):
                 header.addWidget(delete_group)
                 block.addRow("", header)
                 for child_label, child_row in self._render_method_model_parameters(
-                    method_name, model_name, child_values, child_defaults, param_path, level + 1, show_defaults
+                    method_name, model_name, child_values, child_defaults, param_path, level + 1, show_defaults,
+                    schema_owner, param_schema_path
                 ):
                     if isinstance(child_row, QWidget):
                         block.addRow(child_row)
@@ -4613,8 +4890,8 @@ class ConfigViewer(QWidget):
             widget = self._schema_widget(
                 value,
                 param_schema,
-                lambda edited, mn=method_name, model=model_name, p=param_path: self._on_method_model_parameter_edited(
-                    mn, model, p, edited
+                lambda edited, mn=method_name, model=model_name, p=param_path, sm=schema_owner, sp=param_schema_path: self._on_method_model_parameter_edited(
+                    mn, model, p, edited, sm, sp
                 ),
             )
             row.addWidget(widget)
@@ -4914,7 +5191,7 @@ class ConfigViewer(QWidget):
         Switching the mode edits this row in place: rebuilding the boxes would delete the focused menu,
         and the scroll area would jump to wherever Qt moved the focus next.
         """
-        source = data if any(k in data for k in CHECKPOINT_KEYS) else resolved if self.view_mode == "resolved" else {}
+        source = data if any(k in data for k in CHECKPOINT_KEYS) else resolved if (self.view_mode == "resolved" or self._is_base_config()) else {}
         key = next((k for k in CHECKPOINT_KEYS if source.get(k) is not None), None)
         if key is None:
             return None
@@ -4934,8 +5211,13 @@ class ConfigViewer(QWidget):
         row.setSpacing(6)
         row.addWidget(mode)
         row.addWidget(spin)
-        state["tail"] = self._checkpoint_remove_button() if key in data else label(str(source[key]), "muted")
-        row.addWidget(state["tail"])
+        state["tail"] = (
+            None if self._is_base_config()
+            else self._checkpoint_remove_button() if key in data
+            else label(str(source[key]), "muted")
+        )
+        if state["tail"] is not None:
+            row.addWidget(state["tail"])
         row.addStretch()
         mode.currentIndexChanged.connect(lambda _: self._switch_checkpoint_mode(state, spin, row, mode.currentData()))
         self._show_checkpoint_key(state, spin)
