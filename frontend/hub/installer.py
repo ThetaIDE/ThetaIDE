@@ -1010,6 +1010,17 @@ class HubInstaller:
             found.append(metadata)
         return found
 
+    def _installed_file_is_claimed(self, file_rel: str) -> bool:
+        """Keep root-relative assets that another installed component still owns."""
+        for manifest_path in self.workspace_dir.rglob(".theta_component.json"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if file_rel in (manifest.get("installed_files") or []):
+                return True
+        return False
+
     def uninstall_by_metadata(self, meta: Dict[str, Any]) -> bool:
         """Uninstall an installed component given its metadata dict."""
         target_dir = Path(meta["target_dir"])
@@ -1030,6 +1041,8 @@ class HubInstaller:
         config_rel_set = set(recorded_configs)
         recorded_installed_files = [p for p in (meta.get("installed_files") or []) if p not in config_rel_set]
         for file_rel in recorded_installed_files:
+            if self._installed_file_is_claimed(file_rel):
+                continue
             fp = self.workspace_dir / file_rel
             if fp.is_file():
                 try:
@@ -1133,6 +1146,8 @@ class HubInstaller:
         self._prune_empty_component_dirs(target_dir)
 
         for file_rel in recorded_installed_files:
+            if self._installed_file_is_claimed(file_rel):
+                continue
             fp = self.workspace_dir / file_rel
             if fp.is_file():
                 try:

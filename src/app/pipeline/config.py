@@ -296,6 +296,14 @@ def load_model_base_config(model_name: str, config_dir=None) -> dict:
     return {}
 
 
+def method_is_enabled(method_cfg: Any) -> bool:
+    """Whether a configured method participates in execution and preflight checks."""
+    try:
+        return method_cfg.get("enabled", True) is not False
+    except Exception:
+        return True
+
+
 def parse_methods_dict(cfg) -> dict[str, dict]:
     """Parse and normalize the structured methods: dict from Hydra config.
 
@@ -435,6 +443,11 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
         base_group_method = find_group_method_config(base_name, group=group)
         if base_group_method:
             m_dict = deep_merge(base_group_method, m_dict)
+
+        if not method_is_enabled(m_dict):
+            continue
+        # `enabled` is IDE metadata and must not be forwarded as a training parameter.
+        m_dict.pop("enabled", None)
 
         # Resolve method's agent algo and subparams
         raw_m_agent = m_dict.get("agent", default_agent_algo)

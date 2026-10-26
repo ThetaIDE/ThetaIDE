@@ -2310,6 +2310,14 @@ class ConfigViewer(QWidget):
                 btn_grip = MethodDragHandle(m_name, sub_card)
                 title_row.addWidget(btn_grip)
 
+                enabled_toggle = ToggleSlider(checked=bool(m_spec.get("enabled", True)), parent=sub_card)
+                enabled_toggle.setToolTip("Include this method when running and validating the experiment")
+                enabled_toggle.setAccessibleName(f"Run and validate method {m_name}")
+                enabled_toggle.toggled.connect(
+                    lambda enabled, mn=m_name: self._on_method_enabled_toggled(mn, enabled)
+                )
+                title_row.addWidget(enabled_toggle)
+
                 m_title = TitleLabel(m_name)
                 m_title.setObjectName("cardTitle")
                 m_title.setToolTip(f"{m_name}\n(Click to rename)")
@@ -3750,6 +3758,20 @@ class ConfigViewer(QWidget):
             widget.textChanged.connect(write)
         return widget
 
+    def _ruleset_domain_choices(self):
+        """List rule sets for the active environment, or all installed environments."""
+        tree = config_tree()
+        if tree is None:
+            return []
+        environment = None
+        for resolver in ("env_selection", "_get_explicit_env", "_inherited_env"):
+            method = getattr(self, resolver, None)
+            if callable(method):
+                environment = method()
+                if environment:
+                    break
+        return tree.ruleset_names(environment)
+
     def _schema_widget(self, value, schema, write):
         """Create an editor from a parameter's declared JSON Schema domain."""
         schema = schema if isinstance(schema, dict) else {}
@@ -3757,6 +3779,8 @@ class ConfigViewer(QWidget):
         if schema.get("x-theta-domain") == "model":
             tree = config_tree()
             choices = tree.model_names if tree else []
+        elif schema.get("x-theta-domain") == "ruleset":
+            choices = self._ruleset_domain_choices()
         if isinstance(choices, list) and choices:
             combo = ComboBox()
             combo.setMaximumWidth(TEXT_FIELD_WIDTH)
@@ -3815,7 +3839,7 @@ class ConfigViewer(QWidget):
 
     @staticmethod
     def _schema_has_choices(schema: dict[str, Any]) -> bool:
-        return bool(schema.get("enum")) or schema.get("x-theta-domain") == "model"
+        return bool(schema.get("enum")) or schema.get("x-theta-domain") in ("model", "ruleset")
 
     def _list_field(self, items, write):
         """Comma-separated editor for a YAML list, item types preserved."""
@@ -4180,6 +4204,8 @@ class ConfigViewer(QWidget):
         if isinstance(schema, dict) and schema.get("x-theta-domain") == "model":
             tree = config_tree()
             choices = tree.model_names if tree else []
+        elif isinstance(schema, dict) and schema.get("x-theta-domain") == "ruleset":
+            choices = self._ruleset_domain_choices()
         if isinstance(choices, list) and choices:
             labels = [str(value) for value in choices]
             selected, ok = QInputDialog.getItem(self, "Parameter Value", f"Value for '{key}':", labels, 0, False)
@@ -4468,6 +4494,14 @@ class ConfigViewer(QWidget):
         self.raw_data[parent_key][child_key] = value
         self._mark_dirty()
 
+    def _on_method_enabled_toggled(self, method_name: str, enabled: bool):
+        if self._block_updates:
+            return
+        methods = self.raw_data.setdefault("methods", {})
+        method = methods.setdefault(method_name, {})
+        method["enabled"] = bool(enabled)
+        self._mark_dirty()
+
     def _on_method_param_edited(self, method_name, param_key, value):
         if self._block_updates:
             return
@@ -4741,7 +4775,7 @@ class ConfigViewer(QWidget):
                     isinstance(child_schema, dict)
                     and (
                         (isinstance(child_schema.get("enum"), list) and child_schema["enum"])
-                        or child_schema.get("x-theta-domain") == "model"
+                        or child_schema.get("x-theta-domain") in ("model", "ruleset")
                     )
                     for child_schema in enum_properties.values()
                 )

@@ -1108,9 +1108,11 @@ class Window(QMainWindow):
         try:
             order = list(self.tabs.tab_order)
             visible = [pid for pid in order if self.tabs.is_tab_visible(pid)]
-            self.settings_manager.set("sidebar", "order", order)
-            self.settings_manager.set("sidebar", "visible", visible)
-            self.settings_manager.set("sidebar", "bins", self.tabs.bins_state())
+            self.settings_manager.persist_many("sidebar", {
+                "order": order,
+                "visible": visible,
+                "bins": self.tabs.bins_state(),
+            })
         except Exception as exc:
             self.log(f"Failed to save sidebar layout: {exc}")
 

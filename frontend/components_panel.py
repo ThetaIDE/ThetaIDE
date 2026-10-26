@@ -388,6 +388,10 @@ class ComponentsPanel(QWidget):
             initial_kind=None,
             mode="components",
             close_button_text="Back to Parameters",
+            show_footer=False,
+            title="ThetaHub",
+            include_plugins=False,
+            all_label="All",
             parent=self,
         )
         self.hub_view.close_requested.connect(self.show_params)

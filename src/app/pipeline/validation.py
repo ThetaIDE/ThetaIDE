@@ -16,7 +16,12 @@ from typing import Any
 import yaml
 
 from src.app.core.checkpoints import checkpoint_errors
-from src.app.pipeline.config import normalize_agent_name, parse_methods_dict, resolve_experiment_config_name
+from src.app.pipeline.config import (
+    method_is_enabled,
+    normalize_agent_name,
+    parse_methods_dict,
+    resolve_experiment_config_name,
+)
 from src.app.pipeline.datasets import resolve_dataset_path
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.telemetry.selection import selection_errors
@@ -677,6 +682,8 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
                 for m_name, m_spec in methods.items():
                     if not m_spec or not hasattr(m_spec, "get"):
                         continue
+                    if not method_is_enabled(m_spec):
+                        continue
                     try:
                         ds = resolve_dataset_for_method(m_name, m_spec, cfg_or_dict)
                         if not ds.exists():
@@ -692,6 +699,8 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
     if hasattr(methods, "items"):
         for m_name, m_spec in methods.items():
             if not m_spec or not hasattr(m_spec, "get"):
+                continue
+            if not method_is_enabled(m_spec):
                 continue
 
             # Check agent

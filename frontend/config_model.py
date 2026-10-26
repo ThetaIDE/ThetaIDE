@@ -688,6 +688,31 @@ class ConfigTree:
             return {}
         return dict(self.models[model_name].parameters)
 
+    def ruleset_names(self, environment: str | None = None) -> list[str]:
+        """Return available rule-set directory names, optionally for one environment."""
+        workspace_root = self.config_root.parent.parent
+        rules_root = workspace_root / "in" / "rules"
+        if not rules_root.is_dir():
+            return []
+
+        environment_roots = []
+        if environment:
+            environment_roots.append(rules_root / environment)
+            short_name = Path(environment).name
+            if short_name != environment:
+                environment_roots.append(rules_root / short_name)
+        else:
+            environment_roots.extend(path for path in rules_root.iterdir() if path.is_dir())
+
+        names = {
+            path.name
+            for root in environment_roots
+            if root.is_dir()
+            for path in root.iterdir()
+            if path.is_dir()
+        }
+        return sorted(names, key=str.casefold)
+
     def model_parameter_schema(self, model_name: str | None, path: tuple[str, ...] = ()) -> dict[str, Any]:
         """Return the JSON Schema node describing a model parameter or nested object."""
         if not model_name or model_name not in self.models:

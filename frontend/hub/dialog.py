@@ -336,6 +336,10 @@ class HubView(QWidget):
         initial_kind: str | None = None,
         mode: str = "components",  # "components" (all package kinds) | "plugins" (only plugins) | "all"
         close_button_text: str = "Back to Parameters",
+        show_footer: bool = True,
+        title: str | None = None,
+        include_plugins: bool = True,
+        all_label: str = "All Components",
         parent=None,
     ):
         super().__init__(parent)
@@ -343,6 +347,10 @@ class HubView(QWidget):
         self.mode = mode
         self.active_kind: str | None = "plugin" if mode == "plugins" else initial_kind
         self.close_button_text = close_button_text
+        self.show_footer = show_footer
+        self.title = title
+        self.include_plugins = include_plugins
+        self.all_label = all_label
         self.cards: Dict[str, HubComponentCard] = {}
         self.search_input = None
         self._styled_for = None
@@ -363,13 +371,21 @@ class HubView(QWidget):
     def _apply_theme(self):
         self._styled_for = _theme_key()
         self.sort_lbl.setStyleSheet(f"color: {theme_color('muted')}; font-size: 11px;")
-        self.status_label.setStyleSheet(f"color: {theme_color('comment')}; font-size: 11px;")
+        if self.title_label is not None:
+            self.title_label.setStyleSheet(
+                f"color: {theme_color('text')}; font-size: 24px; font-weight: bold;"
+            )
+        if self.status_label is not None:
+            self.status_label.setStyleSheet(f"color: {theme_color('comment')}; font-size: 11px;")
 
     def _matches_mode(self, comp: HubComponent) -> bool:
         """Hide package internals while filtering standalone packages by view."""
         # Package-internal components are available to dependency resolution but
         # are installed through their containing package.
         if comp.is_grouped_component or comp.hidden:
+            return False
+
+        if not self.include_plugins and comp.kind == "plugin":
             return False
 
         if self.mode == "plugins":
@@ -381,6 +397,11 @@ class HubView(QWidget):
         main_layout.setContentsMargins(16, 12, 16, 14)
         main_layout.setSpacing(12)
 
+        self.title_label = None
+        if self.title:
+            self.title_label = QLabel(self.title)
+            main_layout.addWidget(self.title_label)
+
         # ── Top Bar: Organizational Tabs & Sort / Refresh Controls ───────────
         top_bar = QHBoxLayout()
         top_bar.setSpacing(6)
@@ -388,8 +409,7 @@ class HubView(QWidget):
         self.pills = {}
         if self.mode == "components":
             kind_options = [
-                ("all", "All Components"),
-                ("plugin", "Plugins"),
+                ("all", self.all_label),
                 ("experiment", "Experiments"),
                 ("suite", "Suites"),
                 ("method", "Algorithms"),
@@ -399,6 +419,8 @@ class HubView(QWidget):
                 ("eval", "Evaluators"),
                 ("plot", "Plotters"),
             ]
+            if self.include_plugins:
+                kind_options.insert(1, ("plugin", "Plugins"))
         elif self.mode == "plugins":
             kind_options = [
                 ("plugin", "All Plugins"),
@@ -462,16 +484,24 @@ class HubView(QWidget):
         self.scroll_area.setWidget(self.card_container)
         main_layout.addWidget(self.scroll_area, 1)
 
-        # ── Footer / Status ──────────────────────────────────────────────────
-        footer = QHBoxLayout()
-        self.status_label = QLabel("Loading community registry…")
-        footer.addWidget(self.status_label, 1)
+        # The embedded Component Hub uses the panel controls to switch views,
+        # so it omits the dialog footer entirely.
+        self.status_label = None
+        self.btn_close = None
+        if self.show_footer:
+            footer = QHBoxLayout()
+            self.status_label = QLabel("Loading community registry…")
+            footer.addWidget(self.status_label, 1)
 
-        self.btn_close = QPushButton(self.close_button_text)
-        self.btn_close.clicked.connect(self.close_requested.emit)
-        footer.addWidget(self.btn_close)
+            self.btn_close = QPushButton(self.close_button_text)
+            self.btn_close.clicked.connect(self.close_requested.emit)
+            footer.addWidget(self.btn_close)
 
-        main_layout.addLayout(footer)
+            main_layout.addLayout(footer)
+
+    def _set_status(self, text: str):
+        if self.status_label is not None:
+            self.status_label.setText(text)
 
     def _wire_client(self):
         self.client.indexLoaded.connect(self._on_index_loaded)
@@ -481,6 +511,8 @@ class HubView(QWidget):
         self.client.uninstallFinished.connect(self._on_uninstall_finished)
 
     def _select_kind(self, kind_id: str):
+        if kind_id not in self.pills:
+            return
         if self.mode == "plugins":
             self.active_kind = "plugin"
         else:
@@ -495,11 +527,11 @@ class HubView(QWidget):
     def _on_index_loaded(self, components: List[HubComponent]):
         filtered = [c for c in components if self._matches_mode(c)]
         item_name = "plugins" if self.mode == "plugins" else "components"
-        self.status_label.setText(f"Registry ready · {len(filtered)} {item_name} available")
+        self._set_status(f"Registry ready · {len(filtered)} {item_name} available")
         self._populate_cards(components)
 
     def _on_fetch_failed(self, error: str):
-        self.status_label.setText(f"Using local cache (Network notice: {error})")
+        self._set_status(f"Using local cache (Network notice: {error})")
         self._populate_cards(self.client.components)
 
     def _populate_cards(self, components: List[HubComponent]):
@@ -553,9 +585,7 @@ class HubView(QWidget):
 
         item_name = "plugins" if self.mode == "plugins" else "components"
         total_mode_count = len([c for c in self.client.components if self._matches_mode(c)])
-        self.status_label.setText(
-            f"Showing {visible_count} of {total_mode_count} {item_name}"
-        )
+        self._set_status(f"Showing {visible_count} of {total_mode_count} {item_name}")
 
     def _on_install_progress(self, comp_id: str, percent: int):
         if comp_id in self.cards:
@@ -567,9 +597,9 @@ class HubView(QWidget):
             card.progress_bar.hide()
             card.update_action_state()
             if success:
-                self.status_label.setText(f"Installed {card.component.name} successfully.")
+                self._set_status(f"Installed {card.component.name} successfully.")
             else:
-                self.status_label.setText(f"Installation failed: {message}")
+                self._set_status(f"Installation failed: {message}")
         for other_card in self.cards.values():
             other_card.update_action_state()
         self._apply_filters()
@@ -579,9 +609,9 @@ class HubView(QWidget):
             card = self.cards[comp_id]
             card.update_action_state()
             if success:
-                self.status_label.setText(f"Uninstalled {card.component.name}.")
+                self._set_status(f"Uninstalled {card.component.name}.")
             else:
-                self.status_label.setText(f"Uninstall failed: {message}")
+                self._set_status(f"Uninstall failed: {message}")
         for other_card in self.cards.values():
             other_card.update_action_state()
         self._apply_filters()
