@@ -6,11 +6,15 @@ the pinned baseline, the queue) stays on the host window, which the rest of the 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from html import escape
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtWidgets import (
     QFrame,
+    QApplication,
+    QPlainTextEdit,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -20,12 +24,13 @@ from PyQt6.QtWidgets import (
 )
 
 from ..charts import Chart
-from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics
+from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics, metric_points
 from ..results.metrics_catalog import describe, group_sort_key, metric_group
+from ..queue_panel import QueuePanel
+from ..theme import theme_color
 from ..widgets import ElidedLabel, label
-from .live_view import ChartsView, FeedView, FilesView, LogView, StatusStrip, SystemView, latest_problem
-from .pipeline_strip import PipelineStrip
-from .run_switcher import RunSwitcher
+from .live_view import PALETTE, ChartsView, FeedView, FilesView, LogView, StatusStrip, SystemView, latest_problem
+from .pipeline_strip import PipelineStrip, pipeline_segments
 from .runs_sidebar import RunsSidebar
 
 if TYPE_CHECKING:
@@ -161,11 +166,7 @@ class MonitorPanel(QWidget):
         layout.setContentsMargins(16, 0, 0, 0)
         layout.setSpacing(12)
 
-        # Several experiments training at once: a chip for each picks which one this panel shows.
-        self.switcher = RunSwitcher()
-        self.switcher.chosen.connect(self._switch_to)
-        layout.addWidget(self.switcher)
-
+        self.content = content
         # One status row: badge, the run's name and description, its numbers, and the other views.
         self.status_strip = StatusStrip()
         # Long names give way first, ending in … (the full text is on the tooltip), so the row fits.
@@ -175,7 +176,20 @@ class MonitorPanel(QWidget):
         self.run_caption.setObjectName("muted")
         for widget in (self.run_title, self.run_caption):
             widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.status_strip.add_title(self.run_title, self.run_caption)
+        title_block = QWidget()
+        title_layout = QVBoxLayout(title_block)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(2)
+        title_layout.addWidget(self.run_title)
+        self.method_legend = QLabel()
+        self.method_legend.setObjectName("muted")
+        self.method_legend.setTextFormat(Qt.TextFormat.RichText)
+        self.method_legend.setWordWrap(True)
+        title_layout.addWidget(self.method_legend)
+        title_layout.addWidget(self.run_caption)
+        self.status_strip.add_title(title_block)
+        self.status_strip.badge.hide()
+        self.run_caption.hide()
         view_buttons = QWidget()
         view_row = QHBoxLayout(view_buttons)
         view_row.setContentsMargins(8, 0, 0, 0)
@@ -189,14 +203,44 @@ class MonitorPanel(QWidget):
             button.clicked.connect(lambda checked, n=name: self.show_view(n if checked else "Overview"))
             view_row.addWidget(button)
             self.view_buttons[name] = button
+        self.yaml_button = QPushButton("Config")
+        self.yaml_button.setObjectName("monitorViewButton")
+        self.yaml_button.setCheckable(True)
+        self.yaml_button.setToolTip("Show the saved configuration for the selected run")
+        self.yaml_button.clicked.connect(self.show_run_yaml)
+        view_row.addWidget(self.yaml_button)
+        self.queue_button = QPushButton("Queue")
+        self.queue_button.setObjectName("monitorViewButton")
+        self.queue_button.setCheckable(True)
+        self.queue_button.clicked.connect(self._toggle_queue_overlay)
+        view_row.addWidget(self.queue_button)
         self.status_strip.add_trailing(view_buttons)
         layout.addWidget(self.status_strip)
 
         # The run's methods in training order; clicking one shows only its curves.
-        self.pipeline_strip = PipelineStrip()
+        self.pipeline_strip = PipelineStrip(content)
         self.pipeline_strip.segment_clicked.connect(self.focus_agent)
         self.pipeline_strip.hide()
-        layout.addWidget(self.pipeline_strip)
+        self.queue_overlay = QFrame(content)
+        self.queue_overlay.setObjectName("card")
+        self.queue_overlay.setFrameShape(QFrame.Shape.StyledPanel)
+        self.queue_layout = QVBoxLayout(self.queue_overlay)
+        self.queue_layout.setContentsMargins(0, 0, 0, 0)
+        self.queue_preview = QueuePanel(self._open_queue_job, split_methods=True,
+                                        lives_for_job=self._queue_lives_for_job)
+        self.queue_layout.addWidget(self.queue_preview)
+        self.queue_overlay.hide()
+        if hasattr(host, "jobs"):
+            host.jobs.queue_changed.connect(self._queue_changed)
+        self.yaml_overlay = QFrame(content)
+        self.yaml_overlay.setObjectName("card")
+        yaml_layout = QVBoxLayout(self.yaml_overlay)
+        yaml_layout.setContentsMargins(14, 12, 14, 12)
+        self.yaml_viewer = QPlainTextEdit()
+        self.yaml_viewer.setReadOnly(True)
+        yaml_layout.addWidget(self.yaml_viewer)
+        self.yaml_overlay.hide()
+        QApplication.instance().installEventFilter(self)
         self.focused_agent: str | None = None
         self._focus_run_id: str | None = None  # the run whose method is focused
 
@@ -285,6 +329,107 @@ class MonitorPanel(QWidget):
         self.sidebar.setMinimumWidth(SIDEBAR_MIN_WIDTH)
         root.addWidget(content)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_queue_overlay()
+        self._place_yaml_overlay()
+
+    def _place_yaml_overlay(self):
+        if not hasattr(self, "yaml_overlay"):
+            return
+        width = min(560, max(1, self.content.width() - 20))
+        anchor = self.yaml_button.mapTo(self.content, self.yaml_button.rect().bottomLeft())
+        top = anchor.y() + 8
+        self.yaml_overlay.setGeometry(max(0, self.content.width() - width), top, width,
+                                      max(1, self.content.height() - top - 10))
+
+    def _place_queue_overlay(self):
+        if not hasattr(self, "queue_overlay"):
+            return
+        width = min(850, max(1, self.content.width() - 20))
+        anchor = self.queue_button.mapTo(self.content, self.queue_button.rect().bottomLeft())
+        top = anchor.y() + 8
+        available_height = max(1, self.content.height() - top - 10)
+        height = min(available_height, self.queue_preview.content_height(width))
+        self.queue_overlay.setGeometry(max(0, self.content.width() - width), top, width, height)
+
+    def _toggle_queue_overlay(self, checked):
+        if checked:
+            self._refresh_queue_overlay()
+            self._place_queue_overlay()
+            self.queue_overlay.show()
+            self.queue_overlay.raise_()
+        else:
+            self.queue_overlay.hide()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress:
+            widget = watched if isinstance(watched, QWidget) else None
+            ancestor = widget
+            while ancestor is not None and ancestor not in (self.queue_button, self.yaml_button):
+                ancestor = ancestor.parentWidget()
+            if ancestor is not None and (self.queue_overlay.isVisible() or self.yaml_overlay.isVisible()):
+                self.queue_button.setChecked(False)
+                self.yaml_button.setChecked(False)
+                self.queue_overlay.hide()
+                self.yaml_overlay.hide()
+                return True
+            for overlay, button in ((self.queue_overlay, self.queue_button), (self.yaml_overlay, self.yaml_button)):
+                if not overlay.isVisible():
+                    continue
+                target = widget
+                while target is not None and target not in (overlay, button):
+                    target = target.parentWidget()
+                if target is None:
+                    button.setChecked(False)
+                    overlay.hide()
+        return super().eventFilter(watched, event)
+
+    def _refresh_queue_overlay(self):
+        data = self.host.jobs.queue_state()
+        jobs = []
+        for job in [*data.get("active", []), *data.get("queued", [])]:
+            job = dict(job)
+            run = self.host.run_for_job(job.get("job_id"))
+            job["description"] = run.get("description", "") if run else ""
+            jobs.append(job)
+        self.queue_preview.set_data({"active": jobs})
+        self.queue_preview.empty.setText("No running or queued jobs")
+        self._place_queue_overlay()
+
+    def _queue_lives_for_job(self, job_id):
+        run = self.host.run_for_job(job_id)
+        return self.host.live_for_run(run, load=False) if run else {}
+
+    def _queue_changed(self, _data):
+        if self.queue_overlay.isVisible():
+            self._refresh_queue_overlay()
+
+    def _open_queue_job(self, job_id, method):
+        self.host.open_job(job_id, method)
+        self.queue_button.setChecked(False)
+        self.queue_overlay.hide()
+
+    def show_run_yaml(self, checked=True):
+        self.yaml_button.setChecked(checked)
+        if not checked:
+            self.yaml_overlay.hide()
+            return
+        self._refresh_run_yaml()
+        self._place_yaml_overlay()
+        self.yaml_overlay.show()
+        self.yaml_overlay.raise_()
+
+    def _refresh_run_yaml(self):
+        run = self.host.selected
+        folder = self.host.run_folder(run) if run else None
+        path = folder / "config.yaml" if folder else None
+        try:
+            text = path.read_text(encoding="utf-8") if path else ""
+        except OSError:
+            text = ""
+        self.yaml_viewer.setPlainText(text if text else "Saved configuration is not available yet for this run.")
+
     def show_view(self, name: str):
         """Show one of the views ("Overview" is the charts workspace) and mark its button."""
         self.views.setCurrentWidget(self._views[name])
@@ -301,6 +446,8 @@ class MonitorPanel(QWidget):
         """`run` is now the one shown here."""
         if run and run.get("id") != self._log_run_id:
             self._log_run_id = None  # its output may have grown while another run was shown: read it again
+        if self.yaml_overlay.isVisible():
+            self._refresh_run_yaml()
 
     def update_run_row(self, run):
         """A run's metrics or status changed: refresh its sidebar row."""
@@ -346,18 +493,12 @@ class MonitorPanel(QWidget):
         run = host.selected
         if not run:
             return
-        self.switcher.show_runs(list(getattr(host, "active_runs", [])), run["id"])
         config = run["config"]
         metrics = run["metrics"]
         live = not run["simulated"]
         title = run_display_name(run)
-        details = [run.get("paradigm") or config.get("env") or "?", f"seed {config['seed']}"]
-        if run.get("origin") == "cli":  # found in results/logs: no app job, and any environment or method
-            details.append("command line")
-        elif not live:
-            details.append("simulated")
-        self.run_title.setText(title)
-        self.run_caption.setText("  ·  ".join(details))
+        group = (run.get("backend") or {}).get("group")
+        self.run_title.setText(f"{group} / {title}" if group else title)
         if live:
             where = f"results/logs/{run['backend']['group']}/{run['backend']['experiment_id']}/"
             stored = f"{where}  ·  results/jobs/jobs.db"
@@ -458,7 +599,13 @@ class MonitorPanel(QWidget):
         if self.focused_agent and run["id"] != self._focus_run_id:  # another run: its methods are others
             self.focused_agent = self.pipeline_strip.focused = None
         self.status_strip.show_run(run.get("status", ""), lives, None, live)
-        self.pipeline_strip.show_run(list((run.get("backend") or {}).get("agents") or []), lives)
+        methods = list(dict.fromkeys([*((run.get("backend") or {}).get("agents") or []), *lives]))
+        colors = {name: PALETTE[i % len(PALETTE)] for i, name in enumerate(methods)}
+        self.method_legend.setText(" &nbsp; ".join(
+            f'<span style="color:{theme_color(colors[name])}">●</span> {escape(str(name))}' for name in methods
+        ))
+        self.method_legend.setVisible(bool(methods))
+        self.pipeline_strip.segments = pipeline_segments(list((run.get("backend") or {}).get("agents") or []), lives)
         # The bottom bar: the newest warning or error (with the log), else what the run is waiting for.
         problem = latest_problem(lives)
         if problem is not None:
@@ -470,9 +617,19 @@ class MonitorPanel(QWidget):
         self.open_log.setVisible(problem is not None)
         self.problem_bar.setVisible(problem is not None or bool(self.status_note))
         if view is self.charts_view:
-            view.show_lives(self.shown_lives(lives), None, live)
+            shown = self.shown_lives(lives)
+            head_key = self.reward_chart.metric
+            series = [(name, metric_points(method.rows), colors[name]) for name, method in shown.items()]
+            series = [entry for entry in series if any(point.get(head_key) is not None for point in entry[1])]
+            if series:
+                self.reward_chart.live_series = {name for name, method in shown.items()
+                                                 if live and not method.is_finished()}
+                self.reward_chart.set_series(series, self.reward_chart.xmax)
+            elif lives:
+                self.reward_chart.set_series([], self.reward_chart.xmax)
+            view.show_lives(shown, colors, live, comparing=False)
         elif view is self.system_view:
-            view.show_lives(self.shown_lives(lives))
+            view.show_lives(self.shown_lives(lives), colors)
         elif view is self.feed_view:
             self.feed_view.show_lives(lives)
         elif view is self.files_view:

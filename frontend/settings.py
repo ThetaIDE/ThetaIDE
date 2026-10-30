@@ -81,7 +81,6 @@ order = [
     "results",
     "plots",
     "tensorboard",
-    "queue",
     "terminal",
     "console",
 ]
@@ -91,7 +90,6 @@ order = [
 visible = [
     "components",
     "config",
-    "monitor",
     "results",
     "terminal",
     "console",
@@ -130,9 +128,8 @@ terminal_precedence = true
 #   4 -> "results"
 #   5 -> "plots"
 #   6 -> "tensorboard"
-#   7 -> "queue"
-#   8 -> "terminal"
-#   9 -> "console"
+#   7 -> "terminal"
+#   8 -> "console"
 panes = [
     "settings",
     "components",
@@ -141,7 +138,6 @@ panes = [
     "results",
     "plots",
     "tensorboard",
-    "queue",
     "terminal",
     "console",
 ]
@@ -543,7 +539,6 @@ class SettingsManager(QObject):
             "results",
             "plots",
             "tensorboard",
-            "queue",
             "terminal",
             "console",
         ]

@@ -69,9 +69,6 @@ class RunNotifier(QObject):
         settings = getattr(self.window, "settings_manager", None)
         return bool(settings.get("notifications", what, default=True)) if settings is not None else True
 
-    def has_notified(self, run: dict) -> bool:
-        return run.get("id") in self._notified
-
     def run_finished(self, run: dict, status: str):
         if run["id"] in self._notified:
             return

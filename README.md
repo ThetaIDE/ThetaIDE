@@ -76,7 +76,7 @@ python run_pipeline.py thetaide/cartpole_ppo_reference dry_run=true
 ```
 
 Each command-line run writes its results under the recipe's `experiment_id`, replacing the previous run with
-that ID. Pass `experiment_id=<new name>` to keep both. (Runs launched from the IDE get a unique, timestamped ID.)
+that ID. Pass `experiment_id=<new name>` to keep both. (In the IDE, enable Timestamp experiment to give reruns a timestamped ID and keep previous results.)
 
 `python run_pipeline.py --help` lists the orchestration overrides (`plot_only`, `no_plot`,
 `no_online`, `no_offline` and more).

@@ -155,6 +155,20 @@ def test_settings_switch_the_toast_and_the_sound_off(window):
     window.settings_manager.set("notifications", "sound", True)
 
 
+def test_queued_job_that_fails_before_activation_notifies_once(window):
+    from frontend.model import new_run
+
+    run = new_run(window.config(), simulated=False)
+    run.update(status="queued", backend={"job_id": "early-failure", "experiment_id": "example"})
+    window.runs.insert(0, run)
+    job = {"job_id": "early-failure", "status": "error"}
+    window.on_job_changed(job)
+    window.on_job_changed(job)
+    assert run["status"] == "error"
+    assert window.test_played == ["failed"]
+    assert len(visible_toasts(window)) == 1
+
+
 def test_the_settings_card_switches_and_tries_them(window):
     view = window.settings_view
     card = view._build_run_notifications_card()  # kept: the card owns the switches

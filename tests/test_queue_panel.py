@@ -204,6 +204,19 @@ class TestRunControlsInTheWindow(unittest.TestCase):
         self.win.close()
         self.temp.cleanup()
 
+    def test_queue_sidebar_follows_active_jobs_and_can_be_opened_while_idle(self):
+        state = {"running": False, "active": [], "queued": [], "finished": []}
+        self.assertFalse(self.win.tabs.is_tab_visible("queue"))
+        state["active"] = [{"job_id": "job-1", "status": "running"}]
+        self.win.on_queue_changed(state)
+        self.assertTrue(self.win.tabs.is_tab_visible("queue"))
+        state["active"] = []
+        self.win.on_queue_changed(state)
+        self.assertFalse(self.win.tabs.is_tab_visible("queue"))
+        self.win.on_pane_slider_toggled("queue", True)
+        self.win.on_queue_changed(state)
+        self.assertTrue(self.win.tabs.is_tab_visible("queue"))
+
     def test_the_run_menu_moved_to_the_queue_tab_and_its_shortcuts_still_work(self):
         menus = [a.text() for a in self.win.menuBar().actions()]
         self.assertNotIn("Run", menus)

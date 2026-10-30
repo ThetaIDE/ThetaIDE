@@ -71,7 +71,6 @@ from .model import (
 from .monitor import MonitorPanel
 from .plots import PlotViewer
 from .plugins import CommandRegistry, ExtensionSlotRegistry, PluginManager
-from .queue_panel import QueuePanel
 from .results.panel import ResultsPanel
 from .run_notifier import RunNotifier
 from .settings import SettingsManager
@@ -90,7 +89,7 @@ PERSIST_SECONDS = 5.0  # how often a training run's growing record is saved to t
 
 
 # Panes the default and restored sidebar leave hidden. Workflows can draw a pipeline but not run it yet.
-HIDDEN_BY_DEFAULT = {"workflows"}
+HIDDEN_BY_DEFAULT = {"workflows", "monitor"}
 
 
 class _LazyFigureWorkspace(QWidget):
@@ -308,6 +307,7 @@ class Window(QMainWindow):
         self.compose_error = None
         self.issued_ids = set()
         self.queue_running = False
+        self._queue_has_active_jobs = None
         self.active_config_path = None
         self.active_config_rel_path = None
         self.current_experiment = None
@@ -331,6 +331,8 @@ class Window(QMainWindow):
         step("Restoring layout…", 0.66)
         self.load_layout()
         self.restore_session()
+        self._queue_has_active_jobs = None
+        self.on_queue_changed(self.jobs.queue_state())
         if hasattr(self, "settings_manager"):
             self.tabs.set_auto_hide(bool(self.settings_manager.get("sidebar", "auto_hide", default=False)))
         self.tabs.autoHideChanged.connect(self.on_sidebar_auto_hide_changed)
@@ -475,7 +477,9 @@ class Window(QMainWindow):
         right_layout.addWidget(preview_splitter, 1)
 
         splitter.addWidget(right_panel)
-        splitter.setSizes([350, 1000])
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([270, 1000])
         config_layout.addWidget(splitter, 1)
         self.config_panel = config_panel
         self.tabs.addTab(self.config_panel, "Experiment", "config", "Experiment", tab_id="config")
@@ -508,10 +512,6 @@ class Window(QMainWindow):
         # scan until after the main window is visible.
         self.figure_workspace = _LazyFigureWorkspace()
         self.tabs.addTab(self.figure_workspace, "Figure workspace", "export", "Figures", tab_id="figures")
-
-        # 6. Job Queue Panel
-        self.queue_panel = QueuePanel(self.open_job)
-        self.tabs.addTab(self.queue_panel, "Job queue", "queue", "Queue", tab_id="queue")
 
         # 8. Terminal Panel
         command, cwd, env = self.terminal_config()
@@ -1166,7 +1166,6 @@ class Window(QMainWindow):
             "results",
             "plots",
             "tensorboard",
-            "queue",
             "terminal",
             "console",
         ]
@@ -1412,7 +1411,6 @@ class Window(QMainWindow):
         view_menu.addAction("Plot Viewer", lambda: self.tabs.setCurrentWidget(self.plot_viewer))
         if hasattr(self, "tabs") and "tensorboard" in self.tabs.tabs:
             view_menu.addAction("TensorBoard", self.show_tensorboard)
-        view_menu.addAction("Job queue", lambda: self.tabs.setCurrentWidget(self.queue_panel))
         view_menu.addAction("Terminal", lambda: self.tabs.setCurrentWidget(self.terminal_panel))
         view_menu.addAction("Console", lambda: self.tabs.setCurrentWidget(self.console_panel))
         view_menu.addAction("Settings", self.show_settings)
@@ -1571,8 +1569,6 @@ class Window(QMainWindow):
             if hasattr(viewer, "reload_data") and self._configs_changed_since(viewer):
                 viewer.reload_data(force_tree_refresh=True)
 
-        if self.tabs.widget(index) is self.queue_panel:
-            self.on_queue_changed(self.jobs.queue_state())
         if hasattr(self, "terminal_panel") and self.tabs.widget(index) is self.terminal_panel:
             self.terminal_panel.terminal.focus_terminal()
             self.terminal_panel.terminal.fit_terminal()
@@ -1621,6 +1617,8 @@ class Window(QMainWindow):
                 tree.refresh_icons()
         if hasattr(self, "results_view"):
             self.results_view.explorer.refresh_icons()
+        if hasattr(self, "monitor") and self.selected:
+            self.monitor.refresh_live()
         if hasattr(self, "settings_theme_select"):
             self.settings_theme_select.blockSignals(True)
             self.settings_theme_select.setCurrentText(self.theme_manager.active["name"])
@@ -1918,7 +1916,8 @@ class Window(QMainWindow):
 
                         mo = m_spec.get("model")
                         if isinstance(mo, dict):
-                            mo = next(iter(mo)) if mo else None
+                            mo = (mo.get("name") or mo.get("architecture") or mo.get("type")
+                                  or mo.get("base") or (next(iter(mo)) if len(mo) == 1 else None))
                         if mo and hasattr(tree, "models"):
                             mo_str = str(mo)
                             mo_stem = mo_str.split("/")[-1]
@@ -2046,6 +2045,7 @@ class Window(QMainWindow):
             self.runs.insert(0, run)
         self.select_run(run)
         self.refresh_runs()
+        self._set_monitor_active(True)
         self.tabs.setCurrentWidget(self.monitor_panel)
         self.update_launch_state()
 
@@ -2078,14 +2078,16 @@ class Window(QMainWindow):
         is_recover = False
         if hasattr(self, "config_viewer") and getattr(self.config_viewer, "raw_data", None):
             is_recover = bool(self.config_viewer.raw_data.get("recover", False))
-        experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover)
+        timestamp = bool(getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
+                         and self.config_viewer.chk_timestamp_experiment.isChecked())
+        experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover) if timestamp else config.name
         overrides = self.config_viewer.get_overrides() if hasattr(self, "config_viewer") else config.overrides()
         overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
         for button in launch_buttons(self):
             button.setEnabled(False)
         self.log(f"Launching {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
         try:
-            job = self.jobs.launch(exp_target, overrides)
+            job = self.jobs.launch(exp_target, overrides, overwrite=not timestamp)
         except LaunchError as exc:
             self.launch_finished(config, None, str(exc))
             return
@@ -2265,8 +2267,11 @@ class Window(QMainWindow):
                 self.update_launch_state()
                 self.refresh_runs()
         elif run["status"] != status and status in (*FINAL_STATUSES, "queued"):
+            previous_status = run["status"]
             run["status"] = status  # e.g. removed from the queue, or finished while another run was followed
             self.persist(run)
+            if status in FINAL_STATUSES and not (previous_status == "queued" and status == "cancelled"):
+                self.run_notifier.run_finished(run, status)
             self.refresh_runs()
             self.render_run()
 
@@ -2286,7 +2291,7 @@ class Window(QMainWindow):
         if name in self.issued_ids or exists_on_disk:
             base = f"{name}_{datetime.now():%Y%m%d-%H%M%S}"
             experiment_id, n = base, 2
-            while experiment_id in self.issued_ids:
+            while experiment_id in self.issued_ids or (group and (LOGS_DIR / group / experiment_id).exists()):
                 experiment_id, n = f"{base}-{n}", n + 1
             self.issued_ids.add(experiment_id)
             return experiment_id
@@ -2315,12 +2320,14 @@ class Window(QMainWindow):
         is_recover = False
         if hasattr(self, "config_viewer") and getattr(self.config_viewer, "raw_data", None):
             is_recover = bool(self.config_viewer.raw_data.get("recover", False))
-        experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover)
+        timestamp = bool(getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
+                         and self.config_viewer.chk_timestamp_experiment.isChecked())
+        experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover) if timestamp else config.name
         overrides = self.config_viewer.get_overrides() if hasattr(self, "config_viewer") else config.overrides()
         overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
         self.log(f"Queuing {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
         try:
-            job = self.jobs.launch(exp_target, overrides, queue=True)
+            job = self.jobs.launch(exp_target, overrides, queue=True, overwrite=not timestamp)
         except LaunchError as exc:
             self.queued(config, None, str(exc))
             return
@@ -2349,13 +2356,13 @@ class Window(QMainWindow):
         self.on_queue_changed(self.jobs.queue_state())
 
     def on_queue_changed(self, data):
+        self._set_monitor_active(bool(data.get("active")) or bool(self.active_runs))
         if self.queue_running != data["running"]:
             self.queue_running = data["running"]
             self.render_run()
         for job in data.get("active", []):
             run = self.run_for_job(job.get("job_id"))
             job["description"] = run.get("description", "") if run else ""
-        self.queue_panel.set_data(data)
         positions = {job["job_id"]: job["position"] for job in data.get("queued", [])}
         changed = False
         for run in [r for r in self.runs if r["status"] == "queued"]:
@@ -2366,6 +2373,28 @@ class Window(QMainWindow):
         if changed:
             self.refresh_runs()
             self.render_run()
+
+    def _set_monitor_active(self, active):
+        if active == self._queue_has_active_jobs:
+            return
+        self._queue_has_active_jobs = active
+        self.tabs.set_tab_visible("monitor", active)
+        slider = self.pane_sliders.get("monitor")
+        if slider:
+            slider.blockSignals(True)
+            slider.setChecked(active)
+            slider.blockSignals(False)
+            self.update_pane_sliders_state()
+
+    def _open_last_run_results(self, run):
+        # JobManager starts the next queued job after emitting job_changed.
+        if self.active_runs or self.jobs.is_busy() or self._quitting:
+            return
+        self._set_monitor_active(False)
+        backend = run.get("backend") or {}
+        if backend.get("group") and backend.get("experiment_id"):
+            self.results_view.open_run(backend["group"], backend["experiment_id"])
+            self.tabs.setCurrentWidget(self.results_panel)
 
     def set_max_parallel(self, count):
         """Save the concurrency limit and start queued work if capacity is available."""
@@ -2496,6 +2525,7 @@ class Window(QMainWindow):
         if not run["simulated"] and self.backend_connected:
             self.request_disk_runs()
         self.render_run()
+        QTimer.singleShot(0, lambda: self._open_last_run_results(run))
 
     def select_run(self, run):
         self.selected = run

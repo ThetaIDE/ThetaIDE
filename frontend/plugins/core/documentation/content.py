@@ -164,8 +164,8 @@ python -m frontend</code></pre>
 <h3>Creating an Experiment</h3>
 <ol>
   <li>Choose <i>File &rarr; New experiment</i> (<code>Ctrl+N</code>), click the new-experiment button in the tree's toolbar, or right-click a group and choose <b>New Experiment in this group&hellip;</b>.</li>
-  <li>In the <b>New Experiment</b> dialog, pick a <b>Group</b> and enter an <b>Experiment name</b>.</li>
-  <li>To start a <b>new group</b>, type a group name that doesn't exist yet. The dialog then also asks for the <b>Paradigm</b> and <b>Environment</b>, and creates the group's <code>_base.yaml</code> for you. Only environments compatible with the chosen paradigm are offered.</li>
+  <li>Select a group or subfolder, enter the experiment name in the tree, and press Enter.</li>
+  <li>To start a <b>new group</b>, click the new-group button, enter its name in the tree, and press Enter. Then configure its group defaults.</li>
   <li>Add methods in the <b>Methods</b> box: each one names an algorithm (e.g. <code>sb3/ppo</code>) and a model (e.g. <code>basics/dnn</code>).</li>
 </ol>
 <p>Groups can hold subfolders (<b>New Subfolder&hellip;</b>), so a group can sort its experiments further. In the Components tab, right-click a component category and choose <b>New Component in this category&hellip;</b> to add an agent, model or environment config the same way.</p>
@@ -1160,7 +1160,7 @@ python run_pipeline.py &lt;group&gt;/&lt;experiment&gt; dry_run=true
 
 # Replace with an experiment supplied by your installed components
 python run_pipeline.py <group>/<experiment></code></pre>
-<p>Each command-line run writes its results under the recipe's <code>experiment_id</code>, replacing the previous run with that ID; pass <code>experiment_id=&lt;new name&gt;</code> to keep both. Runs launched from the IDE get a unique, timestamped ID. Run <code>python run_pipeline.py --help</code> for the full list of orchestration overrides.</p>
+<p>Each command-line run writes its results under the recipe's <code>experiment_id</code>, replacing the previous run with that ID; pass <code>experiment_id=&lt;new name&gt;</code> to keep both. In the IDE, enable Timestamp experiment to give reruns a timestamped ID and keep previous results. Run <code>python run_pipeline.py --help</code> for the full list of orchestration overrides.</p>
 
 <h3>Common Overrides</h3>
 <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: rgba(255,255,255,0.15);">

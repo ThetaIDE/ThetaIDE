@@ -333,43 +333,10 @@ def test_nearest_picks_the_closest_logged_step():
     assert nearest([], 1.0) is None
 
 
-def test_hovering_a_chart_lists_every_metric_of_every_series():
+def test_chart_view_has_no_point_inspector_table():
     view = ChartsView()
-    sparse = LiveRun()  # evaluations and losses on separate rows, as Lightning logs them
-    sparse.add(
-        [
-            record("metrics", step=1, data={"eval/reward": 50.0, "transitions": 2000.0}),
-            record("metrics", step=2, data={"losses/total_loss": 0.4, "transitions": 2048.0}),
-        ],
-        now=T0,
-    )
-    view.show_lives({"ppo": sample_live(), "dqn": sparse}, {"ppo": "#b8bb26", "dqn": "#83a598"})
-    view.grid.cards["eval/reward"].chart.point_hovered.emit(2000.0)
-    table = view.inspector.table
-    assert [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())] == ["ppo", "dqn"]
-    assert table.horizontalHeaderItem(1).foreground().color().name() == "#83a598"
-    rows = [table.verticalHeaderItem(r).text() for r in range(table.rowCount())]
-    assert rows == ["eval/reward", "losses/total_loss"]  # evaluation before losses, like the sections
-    cell = {
-        (rows[r], table.horizontalHeaderItem(c).text()): table.item(r, c) for r in range(len(rows)) for c in range(2)
-    }
-    assert cell[("eval/reward", "ppo")].text() == "30.0"  # logged at exactly 2,000
-    assert cell[("eval/reward", "dqn")].text() == "50.0"
-    assert cell[("losses/total_loss", "dqn")].text().startswith("≈ ")  # nearest: 2,048
-    assert "2,048" in cell[("losses/total_loss", "dqn")].toolTip()
-    assert "environment steps = 2,000" in view.inspector.caption.text() and "≈ marks 1" in view.inspector.caption.text()
-
-
-def test_the_inspected_step_stays_current_as_values_arrive():
-    view = ChartsView()
-    live = LiveRun()
-    live.add([record("metrics", step=1, data={"eval/reward": 5.0, "transitions": 100.0})], now=T0)
-    view.show_lives({"ppo": live})
-    view.grid.point_hovered.emit(100.0)
-    live.add([record("metrics", step=2, data={"val/f1": 0.7, "transitions": 100.0})], now=T0 + 1)
-    view.show_lives({"ppo": live})
-    table = view.inspector.table
-    assert [table.verticalHeaderItem(r).text() for r in range(table.rowCount())] == ["eval/reward", "val/f1"]
+    assert not hasattr(view, "inspector")
+    assert view.layout().indexOf(view.grid) >= 0
 
 
 def test_the_overview_scrolls_rather_than_squashing_its_charts(window):

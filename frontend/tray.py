@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .app_icon import app_icon
 
-FINAL_STATUSES = ("completed", "failed", "cancelled", "error", "interrupted")
 # Badge in the icon's bottom-right corner: green while a run is training, blue while the queue waits to start
 # the next job. No badge when idle.
 BADGE_COLORS = {"training": "#2ea043", "queued": "#3b82f6"}
@@ -150,24 +149,6 @@ class TrayController(QObject):
 
     def _on_job_changed(self, job):
         self.refresh()
-        status = job.get("status")
-        if status not in FINAL_STATUSES or self.window.isVisible():
-            return
-        run = self.window.run_for_job(job.get("job_id"))
-        notifier = getattr(self.window, "run_notifier", None)
-        if run is not None and notifier is not None and notifier.has_notified(run):
-            return
-        name = job.get("experiment_id", "A run")
-        if status == "completed":
-            title, icon = f"{name} finished", QSystemTrayIcon.MessageIcon.Information
-            body = "Training completed. Open ThetaIDE to see the results."
-        elif status == "cancelled":
-            title, icon, body = f"{name} stopped", QSystemTrayIcon.MessageIcon.Information, "The run was stopped."
-        else:
-            code = job.get("returncode")
-            title, icon = f"{name} failed", QSystemTrayIcon.MessageIcon.Warning
-            body = f"Training ended with exit code {code}." if code is not None else "Training could not run."
-        self.icon.showMessage(title, body, icon, 8000)
 
     def remove(self):
         """Take the icon out of the tray (the app is quitting)."""

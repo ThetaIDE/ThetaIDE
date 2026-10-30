@@ -22,7 +22,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTreeWidget,
@@ -53,7 +52,6 @@ SYSTEM_LABELS = {
 LEVEL_MARKS = {"error": "✖", "warning": "⚠", "info": "●"}
 MAX_LOG_LINES = 20000
 SPEED_EASING = 0.7  # share of the previous speed kept at each reading: the status strip's speed is eased
-INSPECTOR_HEIGHT = 190  # px the point inspector opens to on the first hover
 
 
 def latest_problem(lives: dict[str, LiveRun]) -> tuple[str, dict] | None:
@@ -271,8 +269,7 @@ def budget_extent(lives: dict[str, LiveRun], axis: str) -> float | None:
 
 
 class ChartsView(QWidget):
-    """One chart per logged metric, grouped by prefix in folding sections, one series per agent (or run),
-    with a point inspector below listing every metric of every series at the hovered step.
+    """One chart per logged metric, grouped by prefix in folding sections, one series per agent (or run).
 
     `header` (e.g. the Overview's cards) scrolls with the charts, above them. `lead` is (group, widget): a
     chart of the caller's drawn first in that group's section while a single run is shown; metrics in
@@ -297,16 +294,7 @@ class ChartsView(QWidget):
         self.grid = PlotGrid()
         self.grid.configure(collapsible=True, header=header, lead=lead, toolbar=toolbar, group_columns=group_columns)
         self.grid.hide_requested.connect(self._hide)
-        self.grid.point_hovered.connect(self._hovered)
-        self.inspector = PointInspector()
-        split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self.grid)
-        split.addWidget(self.inspector)
-        split.setStretchFactor(0, 1)
-        split.setCollapsible(0, False)
-        split.setSizes([900, self.inspector.maximumHeight()])  # only its caption until a point is hovered
-        layout.addWidget(split, 1)
-        self.split = split
+        layout.addWidget(self.grid, 1)
         self.hidden: set[str] = set()
         self.exclude: set[str] = set()
         self.smoothing = 0.0
@@ -315,36 +303,32 @@ class ChartsView(QWidget):
         self._lives: dict[str, LiveRun] = {}
         self._colors: dict[str, str] | None = None
         self._live = False
+        self._comparing = False
         self._series_colors: dict[str, str] = {}
         self.grid.show_metrics([], "Metrics appear here as the run logs them.")  # the header, before any data
 
     def _hide(self, metric):
         self.hidden.add(metric)
-        self.show_lives(self._lives, self._colors, self._live)
+        self.show_lives(self._lives, self._colors, self._live, comparing=self._comparing)
 
     def _show_all(self):
         self.hidden.clear()
-        self.show_lives(self._lives, self._colors, self._live)
-
-    def _hovered(self, x: float):
-        folded = self.inspector.table.isHidden()
-        self.inspector.show_point(x, self.points, self._series_colors, self.axis_name)
-        if folded:  # the first hover opens the table under the charts; drag the handle for more rows
-            total = sum(self.split.sizes())
-            self.split.setSizes([max(200, total - INSPECTOR_HEIGHT), INSPECTOR_HEIGHT])
+        self.show_lives(self._lives, self._colors, self._live, comparing=self._comparing)
 
     def set_smoothing(self, factor: float):
         self.smoothing = factor
         for chart in self.grid.charts().values():
             chart.set_smoothing(factor)
 
-    def show_lives(self, lives: dict[str, LiveRun], colors: dict[str, str] | None = None, live: bool = False):
+    def show_lives(self, lives: dict[str, LiveRun], colors: dict[str, str] | None = None, live: bool = False,
+                   *, comparing: bool | None = None):
         """One series per entry of `lives` (label -> LiveRun), in `colors[label]` when given.
 
         `colors` is given when several runs are compared; `live` draws for a run still training: the
         x-axis fixed to its budget, a y-axis that only grows, and each curve's newest point marked.
         """
         self._lives, self._colors, self._live = lives, colors, live
+        self._comparing = colors is not None if comparing is None else comparing
         rows = {name: live.rows for name, live in lives.items()}
         axis = "transitions" if any("transitions" in r for rs in rows.values() for r in rs) else "step"
         self.axis_name = "environment steps" if axis == "transitions" else "logged step"
@@ -373,7 +357,7 @@ class ChartsView(QWidget):
         shown = [m for m in metrics if m not in self.hidden]
         hidden = len(metrics) - len(shown)
         # Comparing runs, the lead chart (the selected run's alone) steps aside and every metric is charted.
-        comparing = colors is not None
+        comparing = self._comparing
         self.grid.lead_hidden = comparing
         visible = shown if comparing or self.grid.lead is None else [m for m in shown if m not in self.exclude]
         self.show_all.setVisible(bool(hidden))
@@ -402,8 +386,6 @@ class ChartsView(QWidget):
             chart.live_series = training
             chart.show_future = live and xmax is not None  # a stopped run will not reach the rest
             chart.set_series(series, xmax)
-        if self.inspector.x is not None:  # keep the inspected step current as new values arrive
-            self.inspector.show_point(self.inspector.x, self.points, self._series_colors, self.axis_name)
 
 
 # ── System: resource use over time ───────────────────────────────────────────
