@@ -189,7 +189,7 @@ def test_explorer_lists_runs_that_logged_metrics():
     items = tree_items(panel)
     assert {"cartpole", "sb3", "ppo_run", "sb3_run"} <= set(items)
     assert "never_logged" not in items
-    assert panel.status.text().startswith("2 runs in results/logs")
+    assert panel.root.indexOf(panel.status) == -1
     assert panel.grid.cards == {}  # nothing ticked yet
 
 
@@ -313,12 +313,12 @@ def test_point_inspector_shows_every_metric_of_every_run():
     assert "nearest logged point" in panel.inspector.caption.text()
 
 
-def test_tables_tab_shows_every_row_and_plots_numeric_columns():
+def test_files_tab_shows_every_table_row_and_plots_numeric_columns():
     panel, _ = make_panel()
     tick(panel, "ppo_run")
-    names = [a["path"].rsplit("/", 1)[1] for _, a in panel.browser("Tables").artifacts()]
-    assert names == ["metrics.csv", "time_report.csv"]  # raw metrics.csv is a table too
-    browser = browser_select(panel, "Tables", "time_report.csv")
+    names = [a["path"].rsplit("/", 1)[1] for _, a in panel.browser("Files").artifacts()]
+    assert {"metrics.csv", "time_report.csv"} <= set(names)
+    browser = browser_select(panel, "Files", "time_report.csv")
     viewer = browser.viewers["table"]
     assert browser.stack.currentWidget() is viewer
     assert (viewer.table.rowCount(), viewer.table.columnCount()) == (2, 3)
@@ -330,21 +330,32 @@ def test_tables_tab_shows_every_row_and_plots_numeric_columns():
 def test_figures_reports_and_text_are_previewed():
     panel, _ = make_panel()
     tick(panel, "ppo_run")
-    figures = browser_select(panel, "Figures", "losses_total_loss.png")
+    figures = browser_select(panel, "Files", "losses_total_loss.png")
     assert figures.stack.currentWidget() is figures.viewers["figure"] and "8 × 6 px" in figures.detail.text()
     assert figures.title.text() == "plots/losses/ppo/losses_total_loss.png"  # path inside the run's folders
     reports = browser_select(panel, "Reports", "hyperparameters_report.md")
     assert "Hyperparameters" in reports.viewers["text"].browser.toPlainText()
 
 
-def test_config_tab_lists_only_settings_that_differ():
+def test_config_tab_shows_saved_yaml_for_selected_runs():
     panel, _ = make_panel()
     tick(panel, "ppo_run")
-    panel.browser("Config")  # the Config tab is built when first opened
-    assert len(panel.config_diff.rows) == 3  # one run: every setting
+    browser = panel.browser("Config")
+    assert "seed: 1" in browser.viewers["text"].browser.toPlainText()
     tick(panel, "sb3_run")
-    assert panel.config_diff.rows == [("seed", [1, 2])]  # env.name and lr match, so they are hidden
-    assert "1 settings differ across 2 runs" in panel.config_diff.caption.text()
+    assert len(browser.artifacts()) == 2
+    assert browser.select("sb3/sb3_run", "logs/sb3/sb3_run/config.yaml")
+    assert "seed: 2" in browser.viewers["text"].browser.toPlainText()
+
+
+def test_config_tab_prefers_saved_experiment_yaml(monkeypatch):
+    key = "logs/cartpole/ppo_run/experiment.yaml"
+    monkeypatch.setitem(FILES["cartpole/ppo_run"], key, ("config", b"seed: 42\n"))
+    panel, _ = make_panel()
+    tick(panel, "ppo_run")
+    browser = panel.browser("Config")
+    assert [a["path"] for _, a in browser.artifacts()] == [key]
+    assert "seed: 42" in browser.viewers["text"].browser.toPlainText()
 
 
 def test_files_tab_reaches_every_artifact_and_saves_copies(tmp_path):
@@ -360,14 +371,32 @@ def test_files_tab_reaches_every_artifact_and_saves_copies(tmp_path):
     assert target.read_bytes() == b"\x00weights"
 
 
+def test_files_tab_shows_directories_and_preserves_expansion():
+    panel, _ = make_panel()
+    tick(panel, "ppo_run")
+    browser = panel.browser("Files")
+    assert browser.tree.columnCount() == 1 and browser.tree.isHeaderHidden()
+    assert browser.select("cartpole/ppo_run", "plots/cartpole/ppo_run/losses/ppo/losses_total_loss.png")
+    file_item = browser.tree.currentItem()
+    assert file_item.text(0) == "losses_total_loss.png"
+    assert [file_item.parent().text(0), file_item.parent().parent().text(0),
+            file_item.parent().parent().parent().text(0)] == ["ppo", "losses", "plots"]
+    browser.set_manifests(panel.manifests())
+    file_item = browser.tree.currentItem()
+    assert file_item and file_item.parent().isExpanded()
+    browser.tree.setCurrentItem(file_item.parent())
+    assert browser.current is None and not browser.save_button.isEnabled()
+
+
 def test_artifact_tabs_are_built_when_first_opened():
     panel, _ = make_panel()
     tick(panel, "ppo_run")
-    assert panel.browsers == {} and panel.config_diff is None  # nothing built up front
-    panel.tabs.setCurrentIndex([panel.tabs.tabText(i) for i in range(panel.tabs.count())].index("Figures"))
-    assert list(panel.browsers) == ["Figures"]
-    # A tab opened after runs were ticked lists their files straight away.
-    assert [a["path"].rsplit("/", 1)[1] for _, a in panel.browsers["Figures"].artifacts()] == ["losses_total_loss.png"]
+    names = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
+    assert names[0] == "Files" and "Figures" not in names and "Tables" not in names
+    assert list(panel.browsers) == ["Files"]
+    panel.tabs.setCurrentIndex(names.index("Reports"))
+    assert list(panel.browsers) == ["Files", "Reports"]
+    assert [a["path"].rsplit("/", 1)[1] for _, a in panel.browsers["Reports"].artifacts()] == ["hyperparameters_report.md"]
 
 
 def test_files_too_large_to_preview_are_not_downloaded():
@@ -619,22 +648,6 @@ def test_combined_curves_export_their_spread(tmp_path):
     assert lines[1] == "ppo_run / ppo (mean of 2),eval/reward,1000.0,12.5,7.5,2"
 
 
-def test_load_in_builder_needs_exactly_one_ticked_run():
-    calls = []
-    backend = FakeBackend()
-    panel = ResultsPanel(backend, load_config=lambda run_key: calls.append(run_key) or None)
-    panel.refresh()
-    panel.browser("Config")
-    tick(panel, "ppo_run")
-    assert panel.load_button.isEnabled()
-    panel.load_in_builder()
-    assert calls == ["cartpole/ppo_run"] and "Loaded the saved config" in panel.status.text()
-    tick(panel, "sb3_run")
-    assert not panel.load_button.isEnabled()
-    panel.load_in_builder()
-    assert calls == ["cartpole/ppo_run"] and "exactly one run" in panel.status.text()
-
-
 def test_window_loads_results_runs_into_the_builder_only_when_it_has_their_config():
     from frontend.app import Window
 
@@ -708,7 +721,7 @@ def test_run_action_buttons_target_the_selected_run():
     explorer = RunExplorer()
     explorer.set_runs([{"group": "group", "experiment_id": "run", "agents": [{"name": "agent"}]}])
     experiment = explorer.tree.topLevelItem(0).child(0)
-    explorer.tree.setCurrentItem(experiment.child(0))
+    explorer.tree.setCurrentItem(experiment.child(0).child(0))
     calls = []
     explorer.archive_requested.connect(lambda group, run: calls.append(("archive", group, run)))
     explorer.delete_requested.connect(lambda group, run: calls.append(("delete", group, run)))
@@ -719,3 +732,92 @@ def test_run_action_buttons_target_the_selected_run():
     explorer.btn_delete.click()
     assert len(calls) == 2
     explorer.deleteLater()
+
+
+def test_run_selector_groups_timestamped_reruns_and_filters_them():
+    from frontend.results.explorer import RunExplorer
+
+    explorer = RunExplorer()
+    explorer.set_runs([
+        {"group": "group", "experiment_id": name, "agents": [{"name": "agent"}]}
+        for name in ("cartpole", "cartpole_20261028-165620", "cartpole_20261028-165620-2", "other")
+    ])
+    group = explorer.tree.topLevelItem(0)
+    experiment = group.child(0)
+    assert experiment.text(0) == "cartpole"
+    assert [experiment.child(i).text(0) for i in range(experiment.childCount())] == [
+        "cartpole", "cartpole_20261028-165620", "cartpole_20261028-165620-2"
+    ]
+    assert not experiment.flags() & Qt.ItemFlag.ItemIsUserCheckable
+    for i in range(experiment.childCount()):
+        experiment.child(i).setCheckState(0, Qt.CheckState.Checked)
+    assert {source.experiment_id for source in explorer.checked_sources()} == {
+        "cartpole", "cartpole_20261028-165620", "cartpole_20261028-165620-2"
+    }
+    explorer.apply_filter("165620-2")
+    assert not experiment.isHidden() and experiment.child(0).isHidden()
+    assert not experiment.child(2).isHidden() and group.child(1).isHidden()
+    explorer.deleteLater()
+
+
+def test_run_selector_switches_are_right_aligned_and_clickable():
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QStyleOptionViewItem
+    from frontend.results.explorer import RunExplorer
+
+    explorer = RunExplorer()
+    explorer.resize(400, 300)
+    explorer.set_runs([{"group": "group", "experiment_id": "run", "agents": [{"name": "agent"}]}])
+    explorer.show()
+    group = explorer.tree.topLevelItem(0)
+    experiment = group.child(0)
+    experiment.setExpanded(True)
+    run = experiment.child(0)
+    option = QStyleOptionViewItem()
+    explorer.tree.itemDelegate().initStyleOption(option, explorer.tree.indexFromItem(run))
+    assert not option.features & QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+    run.setExpanded(True)
+    QApplication.processEvents()
+    rect = explorer.tree.visualItemRect(run)
+    QTest.mouseClick(explorer.tree.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(rect.right() - 20, rect.center().y()))
+    assert run.checkState(0) == Qt.CheckState.Checked
+    assert len(explorer.checked_sources()) == 1
+    QTest.mouseClick(explorer.tree.viewport(), Qt.MouseButton.LeftButton,
+                     pos=QPoint(rect.right() - 20, rect.center().y()))
+    assert not explorer.checked_sources()
+    explorer.close()
+    explorer.deleteLater()
+
+
+def test_run_switch_selects_all_methods_but_only_latest_versions():
+    from frontend.results.data import Manifest
+    from frontend.results.explorer import RunExplorer
+
+    explorer = RunExplorer()
+    explorer.set_runs([{"group": "g", "experiment_id": "run", "agents": [{"name": "a"}, {"name": "b"}]}])
+    explorer.add_manifest(Manifest("g", "run", {"a": ["version_0", "version_1"],
+                                                 "b": ["version_0", "version_1"]}, []))
+    run = explorer.tree.topLevelItem(0).child(0).child(0)
+    run.setCheckState(0, Qt.CheckState.Checked)
+    assert {(s.agent, s.version) for s in explorer.checked_sources()} == {("a", "version_1"), ("b", "version_1")}
+    run.child(0).child(0).setCheckState(0, Qt.CheckState.Checked)
+    run.setCheckState(0, Qt.CheckState.Unchecked)
+    assert not explorer.checked_sources()
+    assert all(run.child(i).child(j).checkState(0) == Qt.CheckState.Unchecked for i in range(2) for j in range(2))
+    run.setCheckState(0, Qt.CheckState.Checked)
+    assert {(s.agent, s.version) for s in explorer.checked_sources()} == {("a", "version_1"), ("b", "version_1")}
+    run.child(0).setCheckState(0, Qt.CheckState.Unchecked)
+    assert {(s.agent, s.version) for s in explorer.checked_sources()} == {("b", "version_1")}
+    explorer.deleteLater()
+
+
+def test_open_run_selects_its_curves_after_listing():
+    panel, _ = make_panel()
+    tick(panel, "sb3_run")
+    panel.tabs.setCurrentWidget(panel.summary)
+    panel.open_run("cartpole", "ppo_run")
+    assert panel.tabs.currentWidget() is panel.curves_page
+    assert panel.run_keys() == ["cartpole/ppo_run"]
+    assert "eval/reward" in panel.grid.cards

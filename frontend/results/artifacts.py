@@ -1,6 +1,6 @@
 """Artifact browser: every file a run produced, with a preview for each kind.
 
-One ArtifactBrowser backs the Tables, Figures, Reports, Config and Files tabs; each tab only
+One ArtifactBrowser backs the Reports, Config and Files tabs; each tab only
 chooses which kinds it lists. Previews reuse the Plot viewer's canvases (frontend/plots.py).
 """
 
@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..plots import ImageCanvas, PlotCanvas, read_metrics_csv_text
+from ..tree_tools import folder_icon
 from ..widgets import SortableItem, YamlHighlighter, label
 from .data import Manifest, decode_text, read_csv_rows, to_float
 
@@ -37,6 +38,7 @@ PREVIEW_LIMIT = 25 * 1024 * 1024  # larger files are listed with Save a copy, no
 TABLE_ROW_LIMIT = 5000
 
 _ARTIFACT = Qt.ItemDataRole.UserRole
+_FOLDER = Qt.ItemDataRole.UserRole + 1
 
 
 def human_size(size: int | None) -> str:
@@ -239,10 +241,9 @@ class ArtifactBrowser(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["File", "Kind", "Size"])
+        self.tree.setColumnCount(1)
+        self.tree.setHeaderHidden(True)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in (1, 2):  # kind and size stay narrow so paths get the room
-            self.tree.header().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setMinimumWidth(360)
         self.tree.currentItemChanged.connect(self._current_changed)
         splitter.addWidget(self.tree)
@@ -278,6 +279,8 @@ class ArtifactBrowser(QWidget):
     def set_manifests(self, manifests: list[Manifest]):
         """List the matching files of these runs, keeping the current file selected if it is still there."""
         keep = (self.current[0], self.current[1]["path"]) if self.current else None
+        had_items = self.tree.topLevelItemCount() > 0
+        expanded = {item.data(0, _FOLDER) for item in self._items() if item.isExpanded() and item.data(0, _FOLDER)}
         self.tree.blockSignals(True)
         self.tree.clear()
         restore = None
@@ -285,22 +288,34 @@ class ArtifactBrowser(QWidget):
             artifacts = [a for a in manifest.artifacts if self.kinds is None or a.get("kind") in self.kinds]
             if not artifacts:
                 continue
-            run_item = QTreeWidgetItem(self.tree, [manifest.run_key, "", f"{len(artifacts)} files"])
+            run_item = QTreeWidgetItem(self.tree, [manifest.run_key])
+            run_item.setData(0, _FOLDER, (manifest.run_key, ""))
+            run_item.setIcon(0, folder_icon())
             run_item.setFirstColumnSpanned(False)
-            for artifact in artifacts:
+            folders = {"": run_item}
+            for artifact in sorted(artifacts, key=lambda a: run_relative(a, manifest.run_key)):
+                parts = PurePosixPath(run_relative(artifact, manifest.run_key)).parts
+                parent = run_item
+                for i, part in enumerate(parts[:-1]):
+                    path = "/".join(parts[:i + 1])
+                    if path not in folders:
+                        folder = QTreeWidgetItem(parent, [part])
+                        folder.setData(0, _FOLDER, (manifest.run_key, path))
+                        folder.setIcon(0, folder_icon())
+                        folders[path] = folder
+                    parent = folders[path]
                 item = QTreeWidgetItem(
-                    run_item,
-                    [
-                        run_relative(artifact, manifest.run_key),
-                        artifact.get("kind", ""),
-                        human_size(artifact.get("size")),
-                    ],
+                    parent,
+                    [parts[-1]],
                 )
                 item.setData(0, _ARTIFACT, (manifest.run_key, artifact))
                 item.setToolTip(0, f"results/{artifact['path']}")
                 if keep == (manifest.run_key, artifact["path"]):
                     restore = item
-            run_item.setExpanded(True)
+            run_item.setExpanded(not had_items or (manifest.run_key, "") in expanded)
+            for path, folder in folders.items():
+                if path and (manifest.run_key, path) in expanded:
+                    folder.setExpanded(True)
         self.tree.blockSignals(False)
         if restore is not None:
             self.tree.setCurrentItem(restore)
@@ -313,25 +328,37 @@ class ArtifactBrowser(QWidget):
             self.stack.setCurrentWidget(self.info)
 
     def artifacts(self) -> list[tuple[str, dict]]:
-        found = []
-        for r in range(self.tree.topLevelItemCount()):
-            run_item = self.tree.topLevelItem(r)
-            found.extend(run_item.child(i).data(0, _ARTIFACT) for i in range(run_item.childCount()))
-        return found
+        return [data for item in self._items() if (data := item.data(0, _ARTIFACT))]
+
+    def _items(self):
+        def walk(item):
+            yield item
+            for i in range(item.childCount()):
+                yield from walk(item.child(i))
+        for i in range(self.tree.topLevelItemCount()):
+            yield from walk(self.tree.topLevelItem(i))
 
     def select(self, run_key: str, path: str) -> bool:
-        for r in range(self.tree.topLevelItemCount()):
-            run_item = self.tree.topLevelItem(r)
-            for i in range(run_item.childCount()):
-                child = run_item.child(i)
-                if child.data(0, _ARTIFACT)[0] == run_key and child.data(0, _ARTIFACT)[1]["path"] == path:
-                    self.tree.setCurrentItem(child)
-                    return True
+        for item in self._items():
+            data = item.data(0, _ARTIFACT)
+            if data and data[0] == run_key and data[1]["path"] == path:
+                parent = item.parent()
+                while parent:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                self.tree.setCurrentItem(item)
+                return True
         return False
 
     def _current_changed(self, item, _previous):
         data = item.data(0, _ARTIFACT) if item is not None else None
         if not data:
+            self.current = None
+            self.title.setText("")
+            self.detail.setText("")
+            self.save_button.setEnabled(False)
+            self.info.show_info(None)
+            self.stack.setCurrentWidget(self.info)
             return
         run_key, artifact = data
         self.current = data

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 
 from ..widgets import label
 from .artifacts import ArtifactBrowser
-from .config_diff import ConfigDiff, run_config_path
+from .config_diff import run_config_path
 from .data import (
     COMBINE_MODES,
     SPREAD,
@@ -71,11 +71,9 @@ PALETTE = (
 )
 # Artifact tabs: the kinds each lists, and what it says when the ticked runs have none.
 ARTIFACT_TABS = {
-    "Tables": (("table", "metrics"), "The ticked runs have no tables."),
-    "Figures": (("figure",), "The ticked runs have no figures yet."),
+    "Files": (None, "Select runs to list every file they produced."),
     "Reports": (("report",), "The ticked runs have no reports yet."),
-    "Config": (("config", "metadata"), "The ticked runs have no config files."),
-    "Files": (None, "Tick runs to list every file they produced."),
+    "Config": (("config",), "The selected runs have no saved experiment YAML or resolved config."),
 }
 POLL_MS = 2000  # how often ticked runs that are still training fetch their new rows
 RELIST_EVERY = 15  # polls between re-listing runs (~30 s): learns which runs finished or started
@@ -100,11 +98,11 @@ def duration(seconds: float) -> str:
 class ResultsPanel(QWidget):
     """Everything the ticked runs produced.
 
-    Curves: one chart per metric, with a point inspector showing every value at the hovered step;
+    Curves: one chart per metric;
     an agent's versions (repeated runs) can be combined into a mean ± std or ± SEM band.
     Summary: final, best, range, mean and area under the curve per series and metric, plus when a
     threshold was first reached. Export writes the visible curves or the summary as CSV, or the charts as PNG.
-    Tables, Figures, Reports, Config (with a cross-run diff) and Files: every artifact in the runs'
+    Reports, Config and Files: artifacts in the runs'
     manifests, previewed by kind.
 
     `backend` needs get(path, callback); `settings` (optional) needs get(*keys, default=) and
@@ -119,7 +117,6 @@ class ResultsPanel(QWidget):
         self.settings = settings
         self.load_config = load_config
         self.curves: dict[str, list] = {}  # metric -> [(label, chart points, color, combined)], as drawn
-        self.load_button = None
         self.loader = ResultsLoader(backend, self)
         self.sources: list[Source] = []
         self.hidden: set[str] = set(self._setting("hidden_plots", []))
@@ -153,8 +150,8 @@ class ResultsPanel(QWidget):
         self.primary_select = QComboBox()
         self.primary_select.addItem("Nearest", None)
         self.primary_select.setToolTip(
-            "The series whose logged steps hovering snaps to (drawn on top, thicker, and listed first in the "
-            "inspector). Nearest snaps to whichever series is closest to the mouse."
+            "The series whose logged steps hovering snaps to (drawn on top and thicker). "
+            "Nearest snaps to whichever series is closest to the mouse."
         )
         self.primary_select.currentIndexChanged.connect(lambda _: self.redraw())
         self.export_button = QToolButton()
@@ -213,13 +210,16 @@ class ResultsPanel(QWidget):
         # Artifact tabs start empty and build their browser when first opened: each one is hundreds of
         # widgets, and the app restyles every widget when its theme is applied.
         self.browsers: dict[str, ArtifactBrowser] = {}
-        self.config_diff: ConfigDiff | None = None
         self._pages: dict[str, QWidget] = {}
         for name in ARTIFACT_TABS:
             page = QWidget()
             QVBoxLayout(page).setContentsMargins(0, 0, 0, 0)
             self._pages[name] = page
-            self.tabs.addTab(page, name)
+            if name == "Files":
+                self.tabs.insertTab(0, page, name)
+                self.tabs.setCurrentWidget(page)
+            else:
+                self.tabs.addTab(page, name)
         self.tabs.currentChanged.connect(self._tab_opened)
 
         self.root = QVBoxLayout(self)
@@ -227,7 +227,7 @@ class ResultsPanel(QWidget):
         self.root.setSpacing(10)
         self.frame: QWidget | None = None
         self.status = label("", "muted")
-        self.root.addWidget(self.status)
+        self.status.setParent(self._parking)
         layout_name = self._setting("layout", DEFAULT_LAYOUT)
         self.layout_name = layout_name if layout_name in LAYOUTS else DEFAULT_LAYOUT
         self._compose()
@@ -235,7 +235,6 @@ class ResultsPanel(QWidget):
         self.loader.runs_listed.connect(self._runs_listed)
         self.loader.manifest_loaded.connect(self.explorer.add_manifest)
         self.loader.manifest_loaded.connect(lambda _manifest: self.update_artifacts())
-        self.loader.file_loaded.connect(self._file_loaded)
         self.loader.table_loaded.connect(lambda _source: self.redraw())
         self.loader.failed.connect(lambda message: self.status.setText(f"Could not load: {message}"))
 
@@ -244,11 +243,13 @@ class ResultsPanel(QWidget):
         self.unfinished: set[str] = set()  # run keys without a recorded end time
         self.run_count = 0
         self._listing: tuple = ()
+        self._pending_open_run = None
         self._polls = 0
         self.poll_timer = QTimer(self)
         self.poll_timer.setInterval(POLL_MS)
         self.poll_timer.timeout.connect(self.poll)
         self.poll_timer.start()
+        self.browser("Files")
         self.redraw()
 
     # ── Settings ─────────────────────────────────────────────────────────────
@@ -334,14 +335,9 @@ class ResultsPanel(QWidget):
             frame.addWidget(split, 1)
             self.tab_corner.layout().addWidget(self.export_button)
             body.addWidget(self.legend)
-            charts = QSplitter(Qt.Orientation.Vertical)
-            charts.addWidget(self.grid)
-            charts.addWidget(self.inspector)
-            charts.setSizes([620, 180])
-            body.addWidget(charts, 1)
+            body.addWidget(self.grid, 1)
             return
 
-        frame.addLayout(self._toolbar())
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.explorer)
         split.addWidget(self.tabs)
@@ -349,11 +345,7 @@ class ResultsPanel(QWidget):
         frame.addWidget(split, 1)
         if name == "quiet":
             body.addWidget(self.legend)
-            charts = QSplitter(Qt.Orientation.Horizontal)
-            charts.addWidget(self.grid)
-            charts.addWidget(self.inspector)
-            charts.setSizes([760, 300])
-            body.addWidget(charts, 1)
+            body.addWidget(self.grid, 1)
         elif name == "focus":
             body.addWidget(self.chips)
             main = QWidget()
@@ -362,37 +354,9 @@ class ResultsPanel(QWidget):
             main_layout.setSpacing(8)
             main_layout.addWidget(self.grid, 1)
             main_layout.addWidget(self.filmstrip)
-            charts = QSplitter(Qt.Orientation.Horizontal)
-            charts.addWidget(main)
-            charts.addWidget(self.inspector)
-            charts.setSizes([760, 300])
-            body.addWidget(charts, 1)
+            body.addWidget(main, 1)
         else:  # overview: the series cards head the grid, above its large chart
-            charts = QSplitter(Qt.Orientation.Vertical)
-            charts.addWidget(self.grid)
-            charts.addWidget(self.inspector)
-            charts.setSizes([640, 180])
-            body.addWidget(charts, 1)
-
-    def _toolbar(self) -> QHBoxLayout:
-        """One row of controls: view settings on the left, actions on the right."""
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(label("X-axis", "muted"))
-        row.addWidget(self.axis_select)
-        row.addSpacing(10)
-        row.addWidget(self.smoothing_label)
-        row.addWidget(self.smoothing_slider)
-        row.addSpacing(10)
-        row.addWidget(label("Versions", "muted"))
-        row.addWidget(self.combine_select)
-        row.addSpacing(10)
-        row.addWidget(label("Primary", "muted"))
-        row.addWidget(self.primary_select)
-        row.addStretch()
-        for widget in (self.plots_button, self.export_button, self.refresh_button):
-            row.addWidget(widget)
-        return row
+            body.addWidget(self.grid, 1)
 
     def _rail(self) -> QWidget:
         """The Control rail: runs, view settings and a checkbox per plot, top to bottom."""
@@ -517,6 +481,12 @@ class ResultsPanel(QWidget):
             '(pip install -e ".[gui]" then python -m frontend).'
         )
 
+    def open_run(self, group, experiment):
+        """Show a run on the Curves tab once its catalog listing arrives."""
+        self._pending_open_run = (group, experiment)
+        self.tabs.setCurrentWidget(self.curves_page)
+        self.refresh()
+
     def _runs_listed(self, entries):
         listing = tuple(
             sorted(
@@ -526,23 +496,16 @@ class ResultsPanel(QWidget):
         if listing != self._listing:  # rebuild the tree only when runs or agents changed, not on every re-list
             self._listing = listing
             self.explorer.set_runs(entries)
+        if self._pending_open_run and self.explorer.select_run(*self._pending_open_run):
+            self._pending_open_run = None
         self.unfinished = {
             f"{e['group']}/{e['experiment_id']}" for e in entries if e.get("agents") and not e.get("finished")
         }
         self.run_count = sum(1 for e in entries if e.get("agents"))
-        self._show_status()
 
     def live_sources(self) -> list[Source]:
         """Ticked sources whose run is still training (no recorded end time)."""
         return [s for s in self.sources if s.run_key in self.unfinished]
-
-    def _show_status(self):
-        live = len({s.run_key for s in self.live_sources()})
-        following = f" · following {live} run{'s' * (live != 1)} still training" if live else ""
-        self.status.setText(
-            f"{self.run_count} run{'s' * (self.run_count != 1)} in results/logs. "
-            f"Tick runs to plot every metric they logged.{following}"
-        )
 
     def poll(self):
         """One live-update tick: new rows for ticked runs still training; now and then, re-list runs."""
@@ -556,7 +519,6 @@ class ResultsPanel(QWidget):
 
     def _selection_changed(self, sources):
         self.sources = sources
-        self._show_status()
         for source in sources:
             self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
@@ -570,31 +532,12 @@ class ResultsPanel(QWidget):
     # ── Artifacts ────────────────────────────────────────────────────────────
 
     def browser(self, name: str) -> ArtifactBrowser:
-        """The artifact browser of one tab ("Tables", "Figures", …), built on first use."""
+        """The artifact browser of one tab, built on first use."""
         if name not in self.browsers:
             kinds, empty = ARTIFACT_TABS[name]
             browser = self.browsers[name] = ArtifactBrowser(self.loader, kinds, empty)
             layout = self._pages[name].layout()
-            if name == "Config":
-                self.config_diff = ConfigDiff()
-                top = QWidget()
-                top_layout = QVBoxLayout(top)
-                top_layout.setContentsMargins(0, 0, 0, 0)
-                actions = QHBoxLayout()
-                actions.addStretch()
-                self.load_button = QPushButton("Load in experiment builder")
-                self.load_button.setToolTip("Put the ticked run's saved builder settings into the Experiment tab")
-                self.load_button.clicked.connect(self.load_in_builder)
-                actions.addWidget(self.load_button)
-                top_layout.addLayout(actions)
-                top_layout.addWidget(self.config_diff, 1)
-                split = QSplitter(Qt.Orientation.Vertical)
-                split.addWidget(top)
-                split.addWidget(browser)
-                split.setSizes([300, 400])
-                layout.addWidget(split)
-            else:
-                layout.addWidget(browser)
+            layout.addWidget(browser)
             self.update_artifacts()
         return self.browsers[name]
 
@@ -607,47 +550,24 @@ class ResultsPanel(QWidget):
         """Loaded manifests of the ticked runs."""
         return [self.loader.manifests[k] for k in self.run_keys() if k in self.loader.manifests]
 
-    def load_in_builder(self):
-        """Load the one ticked run's saved builder config into the experiment builder."""
-        runs = self.run_keys()
-        if len(runs) != 1:
-            self.status.setText("Tick exactly one run to load its saved config into the experiment builder.")
-            return
-        problem = self.load_config(runs[0]) if self.load_config else "The experiment builder is not available here."
-        self.status.setText(problem or f"Loaded the saved config of {runs[0]} into the experiment builder.")
-
     def update_artifacts(self):
-        if self.load_button is not None:
-            self.load_button.setEnabled(len(self.run_keys()) == 1)
         manifests = self.manifests()
-        for browser in self.browsers.values():
-            browser.set_manifests(manifests)
-        if self.config_diff is None:
-            return
-        for manifest in manifests:
-            path = run_config_path(manifest.run_key)
-            if any(a["path"] == path for a in manifest.artifacts):
-                self.loader.load_file(manifest.run_key, path)
-        self._show_config_diff()
-
-    def _file_loaded(self, run_key, path):
-        if path == run_config_path(run_key):
-            self._show_config_diff()
-
-    def _show_config_diff(self):
-        if self.config_diff is None:
-            return
-        configs, missing = {}, []
-        for key in self.run_keys():
-            manifest = self.loader.manifests.get(key)
-            if manifest is None:
-                continue  # still loading
-            data = self.loader.files.get((key, run_config_path(key)))
-            if data is not None:
-                configs[key] = data
-            elif not any(a["path"] == run_config_path(key) for a in manifest.artifacts):
-                missing.append(key)
-        self.config_diff.show_configs(configs, missing)
+        for name, browser in self.browsers.items():
+            if name == "Config":
+                from .data import Manifest
+                configs = []
+                for m in manifests:
+                    prefix = f"logs/{m.run_key}/experiment"
+                    recipes = [a for a in m.artifacts if a["path"] == f"{prefix}.yaml" or
+                               (a["path"].startswith(f"{prefix}_") and a["path"].endswith(".yaml"))]
+                    # Older runs only have the resolved config saved by training.
+                    files = recipes or [a for a in m.artifacts if a["path"] == run_config_path(m.run_key)]
+                    configs.append(Manifest(m.group, m.experiment_id, m.agents, files))
+                browser.set_manifests(configs)
+                if browser.current is None and (files := browser.artifacts()):
+                    browser.select(files[0][0], files[0][1]["path"])
+            else:
+                browser.set_manifests(manifests)
 
     # ── Point inspector ──────────────────────────────────────────────────────
 
@@ -875,7 +795,7 @@ class ResultsPanel(QWidget):
         absent = sorted(set([chosen] if chosen else self.all_metrics()) - {metric for _, metric, _ in entries})
         if absent and self.sources:
             # e.g. a value logged once on a row without a step count: say so rather than drop it silently
-            notes.append(f"no points on this x-axis for {', '.join(absent)} (pick another x-axis, or see Tables)")
+            notes.append(f"no points on this x-axis for {', '.join(absent)} (pick another x-axis, or see Files)")
         self.summary.show_rows(rows, axis, " · ".join(notes))
 
     # ── Export ───────────────────────────────────────────────────────────────
