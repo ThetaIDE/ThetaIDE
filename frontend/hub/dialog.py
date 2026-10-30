@@ -3,14 +3,15 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QEvent, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtCore import QEvent, QSize, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QActionGroup, QColor, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..sidetabs import svg_icon
 from ..theme import current_theme, theme_color
 from .client import HubClient
 from .models import HubComponent
@@ -26,18 +28,6 @@ from .models import HubComponent
 # Uninstall/remove are destructive in every theme, so they keep one red (with white text, which
 # reads on it at 4.9:1) rather than borrowing a theme role that is orange or purple in some palettes.
 DANGER, DANGER_HOVER, ON_DANGER = "#cc241d", "#e0352b", "#ffffff"
-
-# The theme role that colors each kind's badge.
-KIND_ROLES = {
-    "plugin": "number",
-    "suite": "number",
-    "package": "number",
-    "method": "primary",
-    "model": "secondary",
-    "env": "accent",
-    "experiment": "focus",
-}
-
 
 def _luminance(color: str) -> float:
     def channel(c):
@@ -110,7 +100,22 @@ class HubComponentCard(QFrame):
         self.client = client
         self.setObjectName("card")
         self._styled_for = None  # the theme the colors below were last set for
+        self.child_rows = {}
+        self._bulk_queue = []
+        self._bulk_current = None
+        self._bulk_install = False
         self._build_ui()
+        if self.has_members and self.client is not None:
+            self.client.installFinished.connect(self._bulk_finished)
+            self.client.uninstallFinished.connect(self._bulk_finished)
+
+    @property
+    def is_bundle(self):
+        return self.component.kind.lower() in ("suite", "package")
+
+    @property
+    def has_members(self):
+        return self.is_bundle or self.component.kind.lower() == "experiment"
 
     def changeEvent(self, event):
         # A theme switch sets the application palette, which reaches every widget as a PaletteChange
@@ -122,11 +127,6 @@ class HubComponentCard(QFrame):
     def _apply_theme(self):
         """Set every color on the card from the current theme. Runs when built and on theme switches."""
         self._styled_for = _theme_key()
-        badge_bg = theme_color(KIND_ROLES.get(self.component.kind, "disabled"))
-        self.kind_badge.setStyleSheet(
-            f"background-color: {badge_bg}; color: {_text_on(badge_bg)}; font-size: 10px; "
-            f"font-weight: 700; padding: 2px 6px; border-radius: 4px;"
-        )
         self.version_label.setStyleSheet(f"color: {theme_color('comment')}; font-size: 12px;")
         self.author_label.setStyleSheet(f"color: {theme_color('muted')}; font-size: 11px;")
         self.desc_label.setStyleSheet(f"color: {theme_color('text')}; font-size: 12px; line-height: 1.4;")
@@ -142,13 +142,9 @@ class HubComponentCard(QFrame):
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(8)
 
-        # ── Top Row: Badge, Title, Version, Author & Action Button ───────────
+        # ── Top Row: Title, Version, Author & Action Button ───────────
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
-
-        # Kind badge (colored by _apply_theme, like everything below)
-        self.kind_badge = QLabel(self.component.kind.upper())
-        top_row.addWidget(self.kind_badge)
 
         # Title
         title_label = QLabel(self.component.name)
@@ -209,6 +205,65 @@ class HubComponentCard(QFrame):
 
         layout.addLayout(bottom_row)
 
+        if self.has_members:
+            self.members = QWidget()
+            member_layout = QVBoxLayout(self.members)
+            member_layout.setContentsMargins(12, 4, 0, 0)
+            ids = set(self.component.provides)
+            dependencies = self.component.extra.get("dependencies", {})
+            if isinstance(dependencies, dict):
+                ids.update(dependencies.get("components", []))
+            children = []
+            visited = {self.component.id}
+
+            def collect(parent, member_ids):
+                for child in self.client.components:
+                    if child.id in visited or not (child.suite == parent.id or child.id in member_ids):
+                        continue
+                    visited.add(child.id)
+                    if child.kind.lower() in ("suite", "package"):
+                        deps = child.extra.get("dependencies", {})
+                        nested_ids = set(child.provides)
+                        if isinstance(deps, dict):
+                            nested_ids.update(deps.get("components", []))
+                        collect(child, nested_ids)
+                    else:
+                        children.append(child)
+
+            collect(self.component, ids)
+            bulk_row = QHBoxLayout()
+            bulk_row.addStretch()
+            self.btn_install_all = QPushButton("Install all")
+            self.btn_uninstall_all = QPushButton("Uninstall all")
+            for button in (self.btn_install_all, self.btn_uninstall_all):
+                button.setFixedHeight(28)
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                bulk_row.addWidget(button)
+            self.btn_install_all.clicked.connect(lambda: self._start_bulk(True))
+            self.btn_uninstall_all.clicked.connect(lambda: self._start_bulk(False))
+            member_layout.addLayout(bulk_row)
+            for child in children:
+                row = QHBoxLayout()
+                row.addWidget(QLabel(child.name))
+                row.addStretch()
+                button = QPushButton()
+                button.setFixedHeight(28)
+                button.clicked.connect(lambda checked=False, c=child: self._member_action(c))
+                row.addWidget(button)
+                member_layout.addLayout(row)
+                self.child_rows[child.id] = (child, button)
+            if not children:
+                member_layout.addWidget(QLabel("No individual components listed for this package."))
+            self.members.hide()
+            layout.addWidget(self.members)
+            self.btn_members = QPushButton("Components ▾")
+            self.btn_members.setFixedHeight(28)
+            self.btn_members.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_members.setToolTip("Show included components")
+            self.btn_members.setCheckable(True)
+            self.btn_members.toggled.connect(self._toggle_members)
+            top_row.addWidget(self.btn_members)
+
         # ── Download Progress Bar (hidden by default) ────────────────────────
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(4)
@@ -224,16 +279,93 @@ class HubComponentCard(QFrame):
         if self.component.is_installed and self.component.has_update:
             self.btn_action.setText(f"Update to v{self.component.version}")
             self.btn_action.setObjectName("actionUpdate")
+        elif self.component.is_installed and self.is_bundle:
+            self.btn_action.setText("Installed")
+            self.btn_action.setObjectName("actionInstalled")
         elif self.component.is_installed:
             self.btn_action.setText("Uninstall")
             self.btn_action.setObjectName("actionUninstall")
         else:
             self.btn_action.setText("Install")
             self.btn_action.setObjectName("actionInstall")
+        self.btn_action.setVisible(not (self.is_bundle and self.component.is_installed and not self.component.has_update))
         self.btn_action.setEnabled(True)
-        self.btn_uninstall_update.setVisible(bool(self.component.is_installed and self.component.has_update))
+        if self.has_members:
+            self.btn_members.setVisible(self.component.is_installed)
+            if not self.component.is_installed:
+                self.btn_members.setChecked(False)
+                self.members.hide()
+        self.btn_uninstall_update.setVisible(bool(not self.is_bundle and self.component.is_installed and self.component.has_update))
         self.btn_uninstall_update.setEnabled(True)
         self._style_action_button()
+        busy = self._bulk_current is not None
+        if self.has_members:
+            self.btn_install_all.setVisible(any(not child.is_installed for child, _ in self.child_rows.values()))
+            self.btn_uninstall_all.setVisible(any(child.is_installed for child, _ in self.child_rows.values()))
+            self.btn_install_all.setEnabled(not busy)
+            self.btn_uninstall_all.setEnabled(not busy)
+            self.btn_action.setEnabled(not busy)
+            self.btn_uninstall_update.setEnabled(not busy)
+        for child, button in self.child_rows.values():
+            button.setText("Uninstall" if child.is_installed else "Install")
+            button.setEnabled(not busy)
+            color = DANGER if child.is_installed else theme_color("primary")
+            button.setStyleSheet(_filled_button_css(color, DANGER_HOVER if child.is_installed else theme_color("primary_hover"), ON_DANGER if child.is_installed else _text_on(color)))
+
+    def _start_bulk(self, install):
+        children = [child for child, _ in self.child_rows.values() if child.is_installed != install]
+        if not children or self._bulk_current is not None:
+            return
+        if not install and UninstallComponentDialog(
+                f"all {len(children)} installed components in {self.component.name}", parent=self
+        ).exec() != QDialog.DialogCode.Accepted:
+            return
+        self._bulk_install = install
+        self._bulk_queue = children
+        self._next_bulk()
+
+    def _next_bulk(self):
+        if not self._bulk_queue:
+            self._bulk_current = None
+            self.update_action_state()
+            return
+        child = self._bulk_queue.pop(0)
+        self._bulk_current = child.id
+        self.update_action_state()
+        button = self.child_rows[child.id][1]
+        button.setText("Installing…" if self._bulk_install else "Uninstalling…")
+        if self._bulk_install:
+            self.client.install_async(child)
+        else:
+            self.client.uninstall_async(child)
+
+    def _bulk_finished(self, component_id, success, message):
+        if component_id != self._bulk_current:
+            return
+        if not success:
+            self._bulk_queue.clear()
+        self._bulk_current = None
+        self._next_bulk()
+
+    def _toggle_members(self, expanded):
+        self.members.setVisible(expanded)
+        self.btn_members.setText("Components ▴" if expanded else "Components ▾")
+        self.btn_members.setToolTip("Hide included components" if expanded else "Show included components")
+
+    def _member_action(self, child):
+        button = self.child_rows[child.id][1]
+        if child.kind.lower() in ("suite", "package"):
+            return
+        if child.is_installed:
+            if UninstallComponentDialog(child.name, parent=self).exec() != QDialog.DialogCode.Accepted:
+                return
+            button.setText("Uninstalling…")
+            button.setEnabled(False)
+            self.client.uninstall_async(child)
+        else:
+            button.setText("Installing…")
+            button.setEnabled(False)
+            self.client.install_async(child)
 
     def _style_action_button(self):
         """Color the action button for its role. Leaves its text and enabled state alone, so a theme
@@ -250,6 +382,12 @@ class HubComponentCard(QFrame):
         self.btn_action.setStyleSheet(css)
         self.btn_action.style().unpolish(self.btn_action)
         self.btn_action.style().polish(self.btn_action)
+        if self.has_members:
+            grey = theme_color("disabled")
+            self.btn_members.setStyleSheet(_filled_button_css(grey, _hover(grey), _text_on(grey)))
+            install = theme_color("primary")
+            self.btn_install_all.setStyleSheet(_filled_button_css(install, theme_color("primary_hover"), _text_on(install)))
+            self.btn_uninstall_all.setStyleSheet(_filled_button_css(DANGER, DANGER_HOVER, ON_DANGER))
         danger_css = _filled_button_css(DANGER, DANGER_HOVER, ON_DANGER)
         self.btn_uninstall_update.setStyleSheet(danger_css)
         self.btn_uninstall_update.style().unpolish(self.btn_uninstall_update)
@@ -370,7 +508,7 @@ class HubView(QWidget):
 
     def _apply_theme(self):
         self._styled_for = _theme_key()
-        self.sort_lbl.setStyleSheet(f"color: {theme_color('muted')}; font-size: 11px;")
+        self.btn_filter.setIcon(svg_icon("filter", {(QIcon.Mode.Normal, QIcon.State.Off): "text"}, size=16))
         if self.title_label is not None:
             self.title_label.setStyleSheet(
                 f"color: {theme_color('text')}; font-size: 24px; font-weight: bold;"
@@ -409,7 +547,6 @@ class HubView(QWidget):
         self.pills = {}
         if self.mode == "components":
             kind_options = [
-                ("all", self.all_label),
                 ("experiment", "Experiments"),
                 ("suite", "Suites"),
                 ("method", "Algorithms"),
@@ -418,16 +555,16 @@ class HubView(QWidget):
                 ("data", "Data Loaders"),
                 ("eval", "Evaluators"),
                 ("plot", "Plotters"),
+                ("all", self.all_label),
             ]
             if self.include_plugins:
-                kind_options.insert(1, ("plugin", "Plugins"))
+                kind_options.insert(0, ("plugin", "Plugins"))
         elif self.mode == "plugins":
             kind_options = [
                 ("plugin", "All Plugins"),
             ]
         else:
             kind_options = [
-                ("all", "All"),
                 ("experiment", "Experiments"),
                 ("plugin", "Plugins"),
                 ("suite", "Suites"),
@@ -437,6 +574,7 @@ class HubView(QWidget):
                 ("data", "Data Loaders"),
                 ("eval", "Evaluators"),
                 ("plot", "Plotters"),
+                ("all", "All"),
             ]
 
         for kind_id, label_text in kind_options:
@@ -451,17 +589,35 @@ class HubView(QWidget):
 
         top_bar.addStretch()
 
-        self.sort_lbl = QLabel("Sort:")
-        top_bar.addWidget(self.sort_lbl)
-
-        self.sort_combo = QComboBox()
+        # Keep the combo as the sort state API used by HubDialog callers.
+        self.sort_combo = QComboBox(self)
         self.sort_combo.addItem("Default", "default")
         self.sort_combo.addItem("Uninstalled first", "uninstalled_first")
         self.sort_combo.addItem("Installed first", "installed_first")
         self.sort_combo.addItem("Name (A–Z)", "name_asc")
-        self.sort_combo.setToolTip("Sort components list")
+        self.sort_combo.hide()
         self.sort_combo.currentIndexChanged.connect(self._apply_filters)
-        top_bar.addWidget(self.sort_combo)
+
+        self.btn_filter = QToolButton()
+        self.btn_filter.setFixedSize(30, 30)
+        self.btn_filter.setIconSize(QSize(16, 16))
+        self.btn_filter.setToolTip("Sort components list")
+        self.btn_filter.setAccessibleName("Sort components list")
+        self.btn_filter.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.sort_menu = QMenu(self.btn_filter)
+        self.sort_actions = QActionGroup(self.sort_menu)
+        self.sort_actions.setExclusive(True)
+        for index in range(self.sort_combo.count()):
+            action = self.sort_menu.addAction(self.sort_combo.itemText(index))
+            action.setCheckable(True)
+            action.setChecked(index == self.sort_combo.currentIndex())
+            self.sort_actions.addAction(action)
+            action.triggered.connect(lambda checked, i=index: self.sort_combo.setCurrentIndex(i))
+        self.sort_combo.currentIndexChanged.connect(
+            lambda index: self.sort_actions.actions()[index].setChecked(True)
+        )
+        self.btn_filter.setMenu(self.sort_menu)
+        top_bar.addWidget(self.btn_filter)
 
         self.btn_refresh = QPushButton("Refresh")
         self.btn_refresh.setToolTip("Reload registry from GitHub")
@@ -600,6 +756,8 @@ class HubView(QWidget):
                 self._set_status(f"Installed {card.component.name} successfully.")
             else:
                 self._set_status(f"Installation failed: {message}")
+        if comp_id not in self.cards:
+            self._set_status(("Installation complete." if success else f"Installation failed: {message}"))
         for other_card in self.cards.values():
             other_card.update_action_state()
         self._apply_filters()
@@ -612,6 +770,8 @@ class HubView(QWidget):
                 self._set_status(f"Uninstalled {card.component.name}.")
             else:
                 self._set_status(f"Uninstall failed: {message}")
+        if comp_id not in self.cards:
+            self._set_status(("Uninstalled successfully." if success else f"Uninstall failed: {message}"))
         for other_card in self.cards.values():
             other_card.update_action_state()
         self._apply_filters()

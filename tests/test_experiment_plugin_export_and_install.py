@@ -44,9 +44,9 @@ def mock_isolated_workspace():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_experiment_exporter_export_group():
+def test_experiment_exporter_export_group(fixture_workspace):
     """Test exporting an entire experiment group as an installable Experiment Plugin."""
-    ws = Path(__file__).resolve().parent.parent
+    ws = fixture_workspace
     exporter = ExperimentExporter(workspace_root=ws)
 
     # Export tabular_classification group
@@ -75,9 +75,9 @@ def test_experiment_exporter_export_group():
         res.archive_path.unlink()
 
 
-def test_experiment_exporter_export_thetaide_group():
+def test_experiment_exporter_export_thetaide_group(fixture_workspace):
     """Test exporting thetaide experiment group."""
-    ws = Path(__file__).resolve().parent.parent
+    ws = fixture_workspace
     exporter = ExperimentExporter(workspace_root=ws)
 
     opts = ExportOptions(

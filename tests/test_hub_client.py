@@ -285,6 +285,90 @@ class TestHubClientAndInstaller(unittest.TestCase):
         self.assertIn(theme_color("primary"), card.btn_action.styleSheet())  # Install follows the theme
         self.assertTrue(card.btn_uninstall_update.isHidden())
 
+    def test_suite_expands_to_individual_member_actions(self):
+        suite = HubComponent(id="suite", name="Suite", kind="suite", version="1",
+                             is_installed=True, installed_version="1",
+                             extra={"dependencies": {"components": ["child"]}})
+        child = HubComponent(id="child", name="Child", kind="model", version="1")
+        self.client.components = [suite, child]
+        card = HubComponentCard(suite, self.client)
+        self.assertTrue(card.btn_action.isHidden())
+        self.assertTrue(card.btn_uninstall_update.isHidden())
+        self.assertTrue(card.members.isHidden())
+        card.btn_members.click()
+        self.assertFalse(card.members.isHidden())
+        self.assertEqual(card.child_rows["child"][1].text(), "Install")
+        requested = []
+        self.client.install_async = lambda component: requested.append(component.id)
+        card.child_rows["child"][1].click()
+        self.assertEqual(requested, ["child"])
+        child.is_installed = True
+        card.update_action_state()
+        self.assertEqual(card.child_rows["child"][1].text(), "Uninstall")
+        suite.version = "2"
+        card.update_action_state()
+        self.assertEqual(card.btn_action.text(), "Update to v2")
+        self.assertTrue(card.btn_uninstall_update.isHidden())
+
+    def test_bulk_member_actions_follow_state_and_run_sequentially(self):
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QDialog
+
+        suite = HubComponent(id="suite", name="Suite", kind="suite", version="1",
+                             is_installed=True, installed_version="1",
+                             extra={"dependencies": {"components": ["a", "b"]}})
+        a = HubComponent(id="a", name="A", kind="model", version="1")
+        b = HubComponent(id="b", name="B", kind="model", version="1")
+        self.client.components = [suite, a, b]
+        card = HubComponentCard(suite, self.client)
+        self.assertFalse(card.btn_install_all.isHidden())
+        self.assertTrue(card.btn_uninstall_all.isHidden())
+        requested = []
+        self.client.install_async = lambda child: requested.append(child.id)
+        card.btn_install_all.click()
+        self.assertEqual(requested, ["a"])
+        a.is_installed = True
+        self.client.installFinished.emit("a", True, "")
+        self.assertEqual(requested, ["a", "b"])
+        b.is_installed = True
+        self.client.installFinished.emit("b", True, "")
+        self.assertTrue(card.btn_install_all.isHidden())
+        self.assertFalse(card.btn_uninstall_all.isHidden())
+        self.client.uninstall_async = lambda child: requested.append(child.id)
+        with patch("frontend.hub.dialog.UninstallComponentDialog.exec", return_value=QDialog.DialogCode.Accepted):
+            card.btn_uninstall_all.click()
+        self.assertEqual(requested[-1], "a")
+        a.is_installed = False
+        self.client.uninstallFinished.emit("a", True, "")
+        self.assertEqual(requested[-1], "b")
+        # Failure stops the queue and restores the controls.
+        self.client.uninstallFinished.emit("b", False, "failed")
+        self.assertTrue(card.btn_install_all.isEnabled())
+        self.assertFalse(card.btn_install_all.isHidden())
+        self.assertFalse(card.btn_uninstall_all.isHidden())
+
+    def test_experiment_members_visible_only_after_install(self):
+        experiment = HubComponent(id="experiment", name="Experiment", kind="experiment", version="1",
+                                  extra={"dependencies": {"components": ["suite"]}})
+        suite = HubComponent(id="suite", name="Suite", kind="suite", version="1",
+                             extra={"dependencies": {"components": ["model"]}})
+        model = HubComponent(id="model", name="Model", kind="model", version="1")
+        self.client.components = [experiment, suite, model]
+        card = HubComponentCard(experiment, self.client)
+        self.assertTrue(card.btn_members.isHidden())
+        experiment.is_installed = True
+        experiment.installed_version = "1"
+        card.update_action_state()
+        self.assertFalse(card.btn_members.isHidden())
+        self.assertEqual(card.btn_action.text(), "Uninstall")
+        card.btn_members.click()
+        self.assertIn("model", card.child_rows)
+        self.assertEqual(card.child_rows["model"][1].text(), "Install")
+        experiment.is_installed = False
+        card.update_action_state()
+        self.assertTrue(card.btn_members.isHidden())
+        self.assertTrue(card.members.isHidden())
+
     def test_suite_filtering_and_dialog_display(self):
         """Package metadata hides supplied components and exposes the installable suite."""
         thetalib = HubComponent.from_dict({

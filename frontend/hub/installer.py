@@ -158,7 +158,7 @@ class HubInstaller:
         """Check if a component is installed and determine its version."""
         target_dir = self.resolve_target_dir(component)
         if not target_dir.exists() or not target_dir.is_dir():
-            if component.suite:
+            if component.suite and not component.target_path:
                 provider = self.lookup_component(component.suite)
                 if provider and provider.id != component.id:
                     provider_dir = self.resolve_target_dir(provider)

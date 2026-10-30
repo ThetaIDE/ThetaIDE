@@ -100,7 +100,6 @@ class TestHubRestylesOnThemeSwitch(unittest.TestCase):
         self.switch_to("Gruvbox Light")
         self.assertIn(light["text"], card.desc_label.styleSheet())
         self.assertIn(light["primary"], card.btn_action.styleSheet())
-        self.assertIn(light["primary"], card.kind_badge.styleSheet())  # methods use the primary role
 
     def test_badge_and_button_text_stays_readable_in_every_theme(self):
         from frontend.hub.dialog import _contrast, _text_on, theme_color
