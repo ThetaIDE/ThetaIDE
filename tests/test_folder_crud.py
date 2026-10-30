@@ -191,6 +191,34 @@ class TestFolderCRUD(unittest.TestCase):
         self.assertEqual(len(selected_signals), 1)
         self.assertEqual(selected_signals[0][1], "experiment/robotics/_base.yaml")
 
+    def test_inline_subfolder_and_experiment_creation(self):
+        self.widget.prompt_new_folder("experiment/cartpole")
+        item = self.widget._active_inline_item
+        self.assertEqual(item.parent().text(0), "cartpole")
+        editor = self.widget.tree.itemWidget(item, 0)
+        self.assertEqual(editor.text(), "")
+        editor.setText("sweeps")
+        editor.returnPressed.emit()
+        self.assertTrue((self.group / "sweeps").is_dir())
+
+        self.widget.prompt_new_in_folder("experiment/cartpole/sweeps")
+        item = self.widget._active_inline_item
+        self.assertEqual(item.parent().text(0), "sweeps")
+        editor = self.widget.tree.itemWidget(item, 0)
+        self.assertEqual(editor.text(), "")
+        editor.setText("trial")
+        editor.returnPressed.emit()
+        self.assertTrue((self.group / "sweeps" / "trial.yaml").is_file())
+        self.assertEqual(self.widget.current_rel_path, "experiment/cartpole/sweeps/trial.yaml")
+
+    def test_inline_child_escape_cancels(self):
+        self.widget.prompt_new_folder("experiment/cartpole")
+        item = self.widget._active_inline_item
+        editor = self.widget.tree.itemWidget(item, 0)
+        editor.escape_pressed.emit()
+        self.assertIsNone(self.widget._active_inline_item)
+        self.assertFalse((self.group / "new_folder").exists())
+
     def test_new_experiment_generated_from_defaults(self):
         """Experiments inherit defined params and prompt null for missing ones."""
         # 1. Cartpole defines paradigm: online_rl and env: cartpole

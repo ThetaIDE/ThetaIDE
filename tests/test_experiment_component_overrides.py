@@ -17,8 +17,21 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_hydra_composes_component_overrides(project_root):
-    path = project_root / "in/config/experiment/thetaide/_pytest_components.yaml"
+@pytest.fixture
+def isolated_component_workspace(fixture_workspace, monkeypatch):
+    import src.app.pipeline.compose as compose_module
+    from frontend.config_model import ConfigTree
+    import frontend.config_viewer as viewer_module
+
+    monkeypatch.chdir(fixture_workspace)
+    config_root = fixture_workspace / "in" / "config"
+    monkeypatch.setattr(compose_module, "CONFIG_DIR", config_root)
+    monkeypatch.setattr(viewer_module, "config_tree", lambda *args, **kwargs: ConfigTree(config_root))
+    return fixture_workspace
+
+
+def test_hydra_composes_component_overrides(isolated_component_workspace):
+    path = isolated_component_workspace / "in/config/experiment/thetaide/_pytest_components.yaml"
     path.write_text(
         "# @package _global_\n"
         "defaults:\n  - thetaide/_base\n"
@@ -195,10 +208,10 @@ def test_panel_filters_components_by_declared_paradigm(qapp, tmp_path):
     assert "fixture_simulator" not in choices
 
 
-def test_inherited_figure_list_accepts_parameter_override(qapp, project_root):
+def test_inherited_figure_list_accepts_parameter_override(qapp, isolated_component_workspace):
     from frontend.config_viewer import ConfigViewer
 
-    group = project_root / "in/config/experiment/_pytest_plot_overrides"
+    group = isolated_component_workspace / "in/config/experiment/_pytest_plot_overrides"
     group.mkdir()
     base = group / "_base.yaml"
     recipe = group / "example.yaml"
@@ -224,11 +237,11 @@ def test_inherited_figure_list_accepts_parameter_override(qapp, project_root):
         group.rmdir()
 
 
-def test_inherited_figure_mapping_can_remove_one_figure(qapp, project_root):
+def test_inherited_figure_mapping_can_remove_one_figure(qapp, isolated_component_workspace):
     from frontend.config_viewer import ConfigViewer
     from plot.manager import get_requested_plots
 
-    group = project_root / "in/config/experiment/_pytest_plot_removal"
+    group = isolated_component_workspace / "in/config/experiment/_pytest_plot_removal"
     group.mkdir()
     base = group / "_base.yaml"
     recipe = group / "example.yaml"

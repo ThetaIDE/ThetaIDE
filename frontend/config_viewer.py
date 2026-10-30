@@ -391,7 +391,10 @@ def get_method_candidate_hyperparameters(
     candidates: list[str] = []
 
     # 1. Base training parameters
+    agent_defaults = tree.agent_hyperparameters(agent_name) if tree and agent_name else {}
     for p in get_training_candidate_hyperparameters(current_keys):
+        if agent_defaults and p in ("lr", "batch_size", "gamma") and p not in agent_defaults:
+            continue
         if p not in candidates:
             candidates.append(p)
 
@@ -2202,7 +2205,7 @@ class ConfigViewer(QWidget):
             "defaults", "paradigm", "experiment_id", "description",
             "seed", "total_timesteps", "eval_episodes", "eval_freq_steps", "eval_freq",
             "epochs", "eval_every_n_epochs", "checkpoint_every_steps", "num_checkpoints",
-            "run_in_parallel",
+            "run_in_parallel", "timestamp_experiment",
             "methods", "env", "site", "trainer", "resources", "dataset", "dataset_path",
             "tensorboard", "no_plot", "save_dataset", "recover",
             "hydra", "plots", "tuning", "sweeper"
@@ -2294,6 +2297,7 @@ class ConfigViewer(QWidget):
             ("recover", "Recover Checkpoint"),
             ("no_plot", "No Plots"),
             ("run_in_parallel", "Run methods in parallel"),
+            ("timestamp_experiment", "Timestamp experiment"),
         ]
         if self._plugin_enabled("tensorboard"):
             OPTIONAL_RUNTIME_FLAGS.insert(0, ("tensorboard", "Log to TensorBoard"))
@@ -2305,14 +2309,17 @@ class ConfigViewer(QWidget):
         # Show checkboxes only for flags explicitly present in the experiment config (or when showing resolved defaults)
         active_flags = [
             (k, lbl) for k, lbl in OPTIONAL_RUNTIME_FLAGS
-            if k in data or show_resolved or k == "run_in_parallel"
+            if k in data or show_resolved or k in ("run_in_parallel", "timestamp_experiment")
         ]
 
         for flag_key, flag_label in active_flags:
             row_flag = QHBoxLayout()
             row_flag.setSpacing(6)
             chk = ToggleSlider(checked=bool(data.get(flag_key, resolved.get(flag_key, False))))
-            if flag_key == "run_in_parallel":
+            if flag_key == "timestamp_experiment":
+                chk.setToolTip("Add a timestamp when results already exist to keep previous runs.")
+                chk.toggled.connect(lambda value: self._on_field_edited("timestamp_experiment", value))
+            elif flag_key == "run_in_parallel":
                 chk.setToolTip("Train every configured method in a separate process at the same time.")
                 chk.toggled.connect(lambda value: self._on_field_edited("run_in_parallel", value))
             else:
@@ -2334,11 +2341,12 @@ class ConfigViewer(QWidget):
                 )
                 row_flag.addWidget(btn_del_flag)
                 _reveal_remove_on_row_hover(row_flag, btn_del_flag)
-            elif not is_base and flag_key != "run_in_parallel":
+            elif not is_base and flag_key not in ("run_in_parallel", "timestamp_experiment"):
                 row_flag.addWidget(label(str(chk.isChecked()).lower(), "muted"))
 
             chk_row.addLayout(row_flag)
 
+        self.chk_timestamp_experiment = chk_widgets.get("timestamp_experiment")
         self.chk_tb = chk_widgets.get("tensorboard")
         self.chk_save_ds = chk_widgets.get("save_dataset")
         self.chk_recover = chk_widgets.get("recover")
@@ -2545,7 +2553,7 @@ class ConfigViewer(QWidget):
                         _reveal_remove_on_row_hover(row, btn_del_param)
                         if not parent_path:
                             self._add_sweep_toggle(row, "params", f"agent.{key}", val)
-                        elif parent_path[0] in ("agent", "model") and len(parent_path) == 1 and key not in ("name", "type", "algorithm", "architecture"):
+                        elif parent_path[0] in ("agent", "model") and key not in ("name", "type", "algorithm", "architecture"):
                             self._add_sweep_toggle(row, "params", dotted_path, val)
                     row.addStretch()
                     if isinstance(parent_layout, QFormLayout):
@@ -2621,6 +2629,12 @@ class ConfigViewer(QWidget):
                 title_row.addWidget(m_edit)
 
                 cand_train = get_training_candidate_hyperparameters(set(m_spec.keys()))
+                selected_agent = m_spec.get("agent")
+                if isinstance(selected_agent, dict):
+                    selected_agent = selected_agent.get("name") or selected_agent.get("algorithm") or next(iter(selected_agent), "")
+                agent_defaults = tree.agent_hyperparameters(selected_agent) if tree and selected_agent else {}
+                if agent_defaults:
+                    cand_train = [key for key in cand_train if key not in ("lr", "batch_size", "gamma") or key in agent_defaults]
                 btn_add_tp = None
                 if cand_train:
                     btn_add_tp = _make_param_adder_button(

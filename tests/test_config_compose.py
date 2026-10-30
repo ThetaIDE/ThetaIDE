@@ -26,12 +26,20 @@ def gui_compose(config):
     return compose_experiment(BASE_EXPERIMENT, config.overrides())
 
 
+@pytest.fixture(autouse=True)
+def isolated_config(fixture_workspace, monkeypatch):
+    import src.app.pipeline.compose as compose_module
+
+    monkeypatch.chdir(fixture_workspace)
+    monkeypatch.setattr(compose_module, "CONFIG_DIR", fixture_workspace / "in" / "config")
+
+
 @pytest.fixture
-def export_recipe(project_root):
+def export_recipe(fixture_workspace):
     written = []
 
     def write(config):
-        path = project_root / "in" / "config" / "experiment" / "thetaide" / f"_pytest_export_{len(written)}.yaml"
+        path = fixture_workspace / "in" / "config" / "experiment" / "thetaide" / f"_pytest_export_{len(written)}.yaml"
         path.write_text(config.recipe_yaml(), encoding="utf-8")
         written.append(path)
         return f"thetaide/{path.stem}"

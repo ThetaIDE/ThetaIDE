@@ -330,7 +330,10 @@ def test_tree_agent_and_model_helpers(tree):
     assert "blend_ent_coef" not in dnn_params
 
 
-def test_candidate_hyperparameters_filtering(tree):
+def test_candidate_hyperparameters_filtering(fixture_workspace):
+    (fixture_workspace / "in/config/agent/cql.yaml").write_text("algorithm: cql\ncql_alpha: 5.0\n")
+    tree = ConfigTree.discover()
+    tree.agents["cql"] = ConfigTree(fixture_workspace / "in" / "config").agents["cql"]
     if "dnn" not in tree.models or "blendrl" not in tree.models:
         pytest.skip("dnn or blendrl model plugins not installed")
     from frontend.config_viewer import get_method_candidate_hyperparameters

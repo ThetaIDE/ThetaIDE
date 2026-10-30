@@ -106,6 +106,14 @@ class ComponentConfigTree(QTreeWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.move_handler = None
+        self.delete_handler = None
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.delete_handler:
+            self.delete_handler()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _dragged_yaml(self):
         item = self.currentItem()
@@ -489,7 +497,12 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         # Tree widget
         self.tree = ComponentConfigTree()
+        self.tree.delete_handler = self._delete_selection
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setItemDelegate(GroupItemDelegate(self.tree))
+        self.tree.setStyleSheet(
+            "QTreeWidget::item:selected { background: #665c54; color: #fabd2f; }"
+        )
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(14)
         self.tree.itemClicked.connect(self._on_item_clicked)
@@ -508,6 +521,46 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         layout.addWidget(self.tree, 1)
 
         self.footer = None
+
+    def _set_group_expansion(self, expanded):
+        selected = self.tree.selectedItems()
+        groups = [item for item in selected
+                  if (item.data(0, Qt.ItemDataRole.UserRole) or {}).get("is_group")]
+        if not groups:
+            (self.tree.expandAll if expanded else self.tree.collapseAll)()
+            return
+
+        def visit(item):
+            for index in range(item.childCount()):
+                visit(item.child(index))
+            item.setExpanded(expanded)
+
+        for group in groups:
+            visit(group)
+
+    def expand_all(self):
+        self._set_group_expansion(True)
+
+    def collapse_all(self):
+        self._set_group_expansion(False)
+
+    def _delete_selection(self):
+        selected = self.tree.selectedItems()
+        entries = [item.data(0, Qt.ItemDataRole.UserRole) for item in selected]
+        if not entries or any(not entry for entry in entries):
+            return
+        if all(entry.get("type") == "file" for entry in entries):
+            paths = [entry["rel_path"] for entry in entries]
+            if len(paths) == 1:
+                self.prompt_delete(paths[0])
+            else:
+                self.prompt_delete_files(paths)
+        elif len(entries) == 1 and entries[0].get("type") == "dir":
+            entry = entries[0]
+            # Component headings are category roots, not removable folders.
+            if self.mode == "components" and entry.get("is_group"):
+                return
+            self.prompt_delete_dir(entry["rel_path"])
 
     def get_expanded_paths(self) -> set[str]:
         """Return the set of relative directory paths that are currently expanded."""
@@ -1153,9 +1206,68 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if getattr(self, "_active_inline_item", None) is item:
             self._active_inline_item = None
         self.tree.removeItemWidget(item, 0)
-        idx = self.tree.indexOfTopLevelItem(item)
-        if idx >= 0:
-            self.tree.takeTopLevelItem(idx)
+        parent = item.parent()
+        if parent:
+            parent.removeChild(item)
+        else:
+            idx = self.tree.indexOfTopLevelItem(item)
+            if idx >= 0:
+                self.tree.takeTopLevelItem(idx)
+
+    def _create_inline_child(self, parent_rel, kind, commit):
+        """Edit a new child name directly in its destination folder."""
+        if self._active_inline_item:
+            self._cancel_inline_group(self._active_inline_item)
+
+        def find_item(parent):
+            for index in range(parent.childCount()):
+                child = parent.child(index)
+                data = child.data(0, Qt.ItemDataRole.UserRole) or {}
+                if data.get("rel_path") == parent_rel:
+                    return child
+                found = find_item(child)
+                if found:
+                    return found
+            return None
+
+        parent = find_item(self.tree.invisibleRootItem())
+        if parent is None:
+            return
+        parent.setExpanded(True)
+        item = QTreeWidgetItem(parent, [""])
+        item.setIcon(0, folder_icon() if kind == "folder" else svg_icon("new_file", TOOL_ICON_COLORS))
+        self.tree.setCurrentItem(item)
+        self.tree.scrollToItem(item)
+        editor = InlineGroupEditor()
+        editor.setPlaceholderText("Folder name..." if kind == "folder" else "Experiment name...")
+        self.tree.setItemWidget(item, 0, editor)
+        self._active_inline_item = item
+        committing = False
+
+        def finish():
+            nonlocal committing
+            if committing:
+                return
+            name = editor.text().strip()
+            if not name:
+                self._cancel_inline_group(item)
+                return
+            if name in (".", "..", ".yaml") or any(c in name for c in '/\\<>:"|?*'):
+                QMessageBox.warning(self, "Invalid Name", "Enter a valid name without slashes or special characters.")
+                editor.setFocus()
+                return
+            committing = True
+            # The callback may repopulate the tree and destroy the editor.
+            self._active_inline_item = None
+            if not commit(name):
+                self._active_inline_item = item
+                committing = False
+                editor.setFocus()
+
+        editor.returnPressed.connect(finish)
+        editor.escape_pressed.connect(lambda: self._cancel_inline_group(item))
+        editor.lost_focus_empty.connect(lambda: self._cancel_inline_group(item))
+        editor.setFocus()
 
     def prompt_new_subfolder_in_active_group(self):
         """Create a new subfolder in the active/last focused group."""
@@ -1174,14 +1286,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 if grp == group_name:
                     target_rel = rel
 
-        folder_name, ok = QInputDialog.getText(
-            self, "New Subfolder", f"Folder name in '{target_rel}':",
-            QLineEdit.EchoMode.Normal, "new_folder"
-        )
-        if ok and folder_name.strip():
-            _, err = self.create_dir(target_rel, folder_name.strip())
-            if err:
-                QMessageBox.warning(self, "Cannot Create Subfolder", err)
+        self.prompt_new_folder(target_rel)
 
     def prompt_new_experiment_in_active_group(self, group=None, subpath=None):
         """Create a new experiment in the active or specified group, generated from group defaults."""
@@ -1200,22 +1305,20 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                     if grp == group_name and data.get("type") == "dir" and not data.get("is_group"):
                         subpath = sub
 
-        display_target = f"{group_name}/{subpath}" if subpath else group_name
-        name, ok = QInputDialog.getText(
-            self, "New Experiment", f"Experiment name in '{display_target}':",
-            QLineEdit.EchoMode.Normal, "new_experiment"
-        )
-        if not ok or not name.strip():
-            return
+        parent_rel = (f"experiment/{group_name}" if self.root_dir.name not in ("experiment", "experiments") else group_name)
+        if subpath:
+            parent_rel += f"/{subpath}"
 
-        name = name.strip()
-        filename = name if name.endswith(".yaml") else f"{name}.yaml"
-        exp_id = filename[:-5]
-
-        rel_path = self._write_experiment_from_defaults(group_name, filename, exp_id, subpath=subpath)
-        if rel_path:
-            self.populate()
+        def create(name):
+            filename = name if name.endswith(".yaml") else f"{name}.yaml"
+            rel_path = self._write_experiment_from_defaults(group_name, filename, filename[:-5], subpath=subpath)
+            if not rel_path:
+                return False
+            self.populate(ensure_expanded=parent_rel)
             self.select_file(rel_path)
+            return True
+
+        self._create_inline_child(parent_rel, "experiment", create)
 
     def _write_experiment_from_defaults(self, group_name: str, filename: str, exp_id: str, subpath: str = "") -> str | None:
         """Create a new experiment generated directly from group defaults.
@@ -1617,14 +1720,14 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def prompt_new_folder(self, parent_rel_path: str):
         """Prompt to create a new subfolder inside parent_rel_path."""
-        folder_name, ok = QInputDialog.getText(
-            self, "New Subfolder", f"Folder name in '{parent_rel_path}':",
-            QLineEdit.EchoMode.Normal, "new_folder"
-        )
-        if ok and folder_name.strip():
-            _, err = self.create_dir(parent_rel_path, folder_name.strip())
+        def create(name):
+            _, err = self.create_dir(parent_rel_path, name)
             if err:
                 QMessageBox.warning(self, "Error Creating Folder", err)
+                return False
+            return True
+
+        self._create_inline_child(parent_rel_path, "folder", create)
 
     def prompt_rename_dir(self, rel_path: str):
         """Prompt to rename a directory."""
@@ -1656,6 +1759,29 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         removed, error = self.delete_config(rel_path)
         if not removed:
             QMessageBox.critical(self, "Delete failed", error or "Unknown error")
+
+    def prompt_delete_files(self, rel_paths):
+        """Confirm and delete selected files, reporting any failures together."""
+        blocked = [(rel, deletion_blocked_reason(self.root_dir / rel)) for rel in rel_paths]
+        blocked = [(rel, reason) for rel, reason in blocked if reason]
+        if blocked:
+            QMessageBox.warning(self, "Cannot delete", "\n".join(f"{rel}: {reason}" for rel, reason in blocked))
+            return
+        answer = QMessageBox.question(
+            self, "Delete configs",
+            f"Delete these {len(rel_paths)} files?\n\n" + "\n".join(rel_paths),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        errors = []
+        for rel in rel_paths:
+            removed, error = self.delete_config(rel)
+            if not removed:
+                errors.append(f"{rel}: {error or 'Unknown error'}")
+        if errors:
+            QMessageBox.critical(self, "Delete failed", "\n".join(errors))
 
     def _get_installer(self):
         try:
@@ -1730,6 +1856,16 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             return
 
         menu = QMenu(self)
+        selected = self.tree.selectedItems()
+        selected_data = [selected_item.data(0, Qt.ItemDataRole.UserRole) for selected_item in selected]
+        if item in selected and len(selected_data) > 1 and all(
+            entry and entry.get("type") == "file" for entry in selected_data
+        ):
+            paths = [entry["rel_path"] for entry in selected_data]
+            action_delete = menu.addAction(f"Delete {len(paths)} Files…")
+            action_delete.triggered.connect(lambda: self.prompt_delete_files(paths))
+            menu.exec(self.tree.viewport().mapToGlobal(position))
+            return
         if data["type"] == "file":
             action_select = menu.addAction("Load in Config Viewer")
             action_select.triggered.connect(lambda: self._on_item_clicked(item, 0))

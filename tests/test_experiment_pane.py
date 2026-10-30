@@ -53,6 +53,33 @@ class TestConfigTree(unittest.TestCase):
         self.tree_widget.close()
         self.temp_dir.cleanup()
 
+    def test_selected_group_scopes_expansion_and_delete_key(self):
+        from PyQt6.QtTest import QTest
+
+        (self.root / "experiment" / "cartpole" / "nested" / "deep").mkdir(parents=True)
+        (self.root / "experiment" / "other" / "nested").mkdir(parents=True)
+        widget = ConfigTreeWidget(root_dir=self.root, mode="experiments")
+        self.addCleanup(widget.close)
+        tree = widget.tree
+        groups = {tree.topLevelItem(i).text(0): tree.topLevelItem(i)
+                  for i in range(tree.topLevelItemCount())}
+        group, other = groups["cartpole"], groups["other"]
+        tree.setCurrentItem(group)
+        widget.expand_all()
+        self.assertTrue(group.isExpanded())
+        self.assertTrue(group.child(0).isExpanded())
+        self.assertFalse(other.child(0).isExpanded())
+        other.setExpanded(True)
+        widget.collapse_all()
+        self.assertFalse(group.isExpanded())
+        self.assertTrue(other.isExpanded())
+        with patch.object(widget, "prompt_delete_dir") as delete:
+            QTest.keyClick(tree, Qt.Key.Key_Delete)
+            delete.assert_called_once_with("experiment/cartpole")
+        tree.clearSelection()
+        widget.expand_all()
+        self.assertTrue(other.child(0).isExpanded())
+
     def test_no_footer_text_at_bottom_of_tree(self):
         tree_exp = ConfigTreeWidget(root_dir=self.root, mode="experiments")
         tree_comp = ConfigTreeWidget(root_dir=self.root, mode="components")
@@ -756,7 +783,10 @@ class TestConfigViewer(unittest.TestCase):
         picker.activated.emit(picker.currentIndex())
         methods = parse_methods_dict(self.viewer.raw_data)
         for name, method in methods.items():
-            self.assertIn("agent.lr", method["tune"])
+            if name == "ppo":
+                self.assertNotIn("agent.lr", method["tune"])
+            else:
+                self.assertIn("agent.lr", method["tune"])
             self.assertIn("config.batch_size", method["tune"])
             overrides = build_method_overrides(name, method, cfg=self.viewer.raw_data, is_sweep=True)
             self.assertIn("batch_size=range(64, 64, 1)", overrides)

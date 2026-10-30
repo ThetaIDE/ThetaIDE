@@ -50,6 +50,15 @@ class TestExperimentParamsCrud(unittest.TestCase):
         self.viewer.close()
         self.temp_dir.cleanup()
 
+    def test_timestamp_toggle_defaults_off_and_persists(self):
+        self.assertFalse(self.viewer.chk_timestamp_experiment.isChecked())
+        self.viewer.chk_timestamp_experiment.setChecked(True)
+        self.assertTrue(yaml.safe_load(self.file_path.read_text())["timestamp_experiment"])
+        self.viewer._render_boxes()
+        self.assertTrue(self.viewer.chk_timestamp_experiment.isChecked())
+        self.viewer.chk_timestamp_experiment.setChecked(False)
+        self.assertFalse(yaml.safe_load(self.file_path.read_text())["timestamp_experiment"])
+
     def test_remove_total_timesteps_relies_on_default(self):
         """Removing total_timesteps pops it from config to rely on group base."""
         self.assertIn("total_timesteps", self.viewer.raw_data)
