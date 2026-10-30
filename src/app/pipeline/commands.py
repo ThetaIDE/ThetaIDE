@@ -5,6 +5,44 @@ Builds Hydra override lists from structured method config dicts.
 
 from src.app.pipeline.config import normalize_agent_name
 from src.app.pipeline.validation import paradigm_uses_agents, paradigm_uses_static_dataset
+import math
+import json
+
+
+def _sweep_expression(target, dimension):
+    """Compile a typed dimension, preserving legacy Hydra expressions."""
+    if isinstance(dimension, str):
+        return dimension.strip()
+    if not hasattr(dimension, "get"):
+        raise ValueError(f"Sweep dimension {target!r} must be a mapping or expression")
+    kind = dimension.get("type")
+    if kind == "choice":
+        values = dimension.get("values")
+        if not isinstance(values, (list, tuple)) or not values or any(v is None or v == "" for v in values):
+            raise ValueError(f"Sweep dimension {target!r} requires non-empty choices")
+        return "choice(" + ",".join(json.dumps(v) for v in values) + ")"
+    if kind not in ("int", "float", "log_float"):
+        raise ValueError(f"Sweep dimension {target!r} has unsupported type {kind!r}")
+    low, high, step = dimension.get("low"), dimension.get("high"), dimension.get("step")
+    def valid_number(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if not valid_number(low) or not valid_number(high) or low > high:
+        raise ValueError(f"Sweep dimension {target!r} requires ordered finite bounds")
+    if kind == "int" and (not isinstance(low, int) or not isinstance(high, int)):
+        raise ValueError(f"Sweep dimension {target!r} requires integer bounds")
+    if step is not None and (not valid_number(step) or step <= 0 or (kind == "int" and not isinstance(step, int))):
+        raise ValueError(f"Sweep dimension {target!r} requires a positive compatible step")
+    if kind == "log_float":
+        if low <= 0 or step is not None:
+            raise ValueError(f"Sweep dimension {target!r} requires positive log bounds and no step")
+        return f"tag(log, interval({low}, {high}))"
+    if kind == "int":
+        # The installed Hydra Optuna plugin treats range.stop as an inclusive
+        # Optuna bound (unlike Python's range).
+        return f"range({low}, {high}, {step or 1})"
+    if step is not None:
+        raise ValueError(f"Sweep dimension {target!r}: stepped float ranges are not supported by the Hydra backend")
+    return f"interval({low}, {high})"
 
 
 def _format_hydra_val(x):
@@ -217,7 +255,11 @@ def build_method_overrides(
         # Method-specific search space parameters
         tune_dict = method_cfg.get("tune") or method_cfg.get("search_space") or {}
         for k, v in tune_dict.items():
-            if "." in k:
+            if not isinstance(v, str) and (not isinstance(k, str) or not k.startswith(("agent.", "model.", "config."))):
+                raise ValueError(f"Typed sweep dimension {k!r} requires an explicit agent, model, or config path")
+            if k.startswith("config."):
+                full_k = k[len("config."):]
+            elif "." in k:
                 full_k = k
             elif not uses_agents:
                 full_k = f"model.{k}"
@@ -225,7 +267,10 @@ def build_method_overrides(
                 full_k = f"model.{k}"
             else:
                 full_k = f"agent.{k}"
-            overrides.append(f"{full_k}={str(v).strip()}")
+            # Hydra's sweeper prepends sampled values to the job overrides.
+            # A later fixed override for the same key would silently win.
+            overrides = [arg for arg in overrides if arg.split("=", 1)[0].lstrip("+") != full_k]
+            overrides.append(f"{full_k}={_sweep_expression(k, v)}")
 
         if "--multirun" not in overrides and "-m" not in overrides:
             overrides.insert(0, "--multirun")

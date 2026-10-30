@@ -81,7 +81,7 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
     if not any("group=" in arg for arg in launch_args):
         launch_args.append(f"++group={cfg.group}")
 
-    is_sweep = bool(cfg.get("sweep", False)) or "--multirun" in launch_args or "-m" in launch_args
+    is_sweep = ("tuning" in cfg and cfg.get("tuning") is not None) or bool(cfg.get("sweep", False)) or "--multirun" in launch_args or "-m" in launch_args
     launch_args = [a for a in launch_args if a not in ("--multirun", "-m")]
 
     return ComposedExperiment(experiment, cfg, extra_args, launch_args, is_sweep)

@@ -115,6 +115,53 @@ class TestFileTreeToolbar(unittest.TestCase):
         self.assertEqual([b.button_id for b in groups["row1_right"]], ["launch", "export", "raw_yaml"])
         self.assertEqual([b.button_id for b in groups["row2_right"]], [])
 
+    def test_results_toolbar_reorders_persists_and_resets(self):
+        from frontend.results.explorer import RunExplorer
+
+        explorer = RunExplorer()
+        try:
+            self.assertIsInstance(explorer.btn_archive, DraggableToolButton)
+            self.assertIsInstance(explorer.btn_delete, DraggableToolButton)
+            explorer.header_widget.move_button("archive", "row1_left", 0)
+            restored = RunExplorer()
+            try:
+                self.assertEqual(restored.header_layout.groups["row1_left"][0].button_id, "archive")
+                restored.reset_toolbar_layout()
+                self.assertEqual([b.button_id for b in restored.header_layout.groups["row2_left"]],
+                                 ["archive", "trash"])
+            finally:
+                restored.close()
+        finally:
+            explorer.close()
+
+    def test_dynamic_rows_width_and_saved_layout(self):
+        hw = self.tree_exp.header_widget
+        self.assertEqual(hw.height(), 64)
+        self.assertEqual(hw.minimumSizeHint().width(), 234)
+        hw.begin_drag()
+        self.assertEqual(hw.height(), 98)
+        self.assertEqual(hw._calc_drop_info(QPoint(10, 75))[0], "row3_left")
+        hw.move_button("copy", "row3_left", 0)
+        hw.end_drag()
+        self.assertEqual(hw.height(), 98)
+        restored = ConfigTreeWidget(root_dir=self.root, mode="experiments")
+        try:
+            self.assertEqual(restored.header_widget.height(), 98)
+            self.assertEqual(restored.header_layout.groups["row3_left"][0].button_id, "copy")
+        finally:
+            restored.close()
+        hw.move_button("copy", "row1_left", 0)
+        self.assertEqual(hw.height(), 64)
+        self.assertEqual(hw.minimumSizeHint().width(), 268)
+        for button in list(hw.header_layout.groups["row2_left"]):
+            hw.move_button(button.button_id, "row1_left", 0)
+        self.assertEqual(hw.height(), 30)
+        self.assertEqual(hw.minimumSizeHint().width(), 370)
+        hw.begin_drag()
+        self.assertEqual(hw._calc_drop_info(QPoint(10, 40))[0], "row2_left")
+        hw.end_drag()
+        self.assertEqual(hw.height(), 30)
+
     def test_components_mode_default_layout(self):
         """Verify components mode has creation buttons on row 2 left."""
         tree_comp = ConfigTreeWidget(root_dir=self.root, mode="components")

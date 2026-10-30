@@ -1,16 +1,10 @@
-"""Job queue tab: where training is started and stopped, and the backend's running, queued and recently
-finished jobs. It took over the old Run menu; the menu's shortcuts (F5, Shift+F5, ...) still work anywhere."""
+"""Live cards for processes currently training in the workspace."""
 import time
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QPushButton, QTableWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
-from .widgets import SpinBox, label
-
-MAX_PARALLEL = 8  # the most the Run up to field offers
-
-FINISHED_MARKS = {"completed": "✓", "failed": "✗", "error": "✗", "cancelled": "■"}
+from .widgets import label
 
 
 def clock(seconds):
@@ -23,211 +17,135 @@ def clock(seconds):
         return "0:00"
 
 
-class QueuePanel(QWidget):
-    """Shows JobManager.queue_state(). Actions call back into the window, which drives the JobManager."""
+class ProcessCard(QFrame):
+    """Clickable summary of one active process."""
 
-    def __init__(self, on_move, on_remove, on_open, on_toggle, on_launch=None, on_add=None, on_stop=None,
-                 on_demo=None, on_parallel=None, parent=None):
+    activated = pyqtSignal(str, str)
+
+    def __init__(self, job, method_name=None, parent=None):
         super().__init__(parent)
-        self.on_move, self.on_remove, self.on_open, self.on_toggle = on_move, on_remove, on_open, on_toggle
-        self.rows = []  # (kind, job) per table row: kind is "active", "queued" or "finished"
-        self.queued_count = 0
-        self.running = False
+        self.setObjectName("card")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName("Open training monitor for process")
+        self.job_id = ""
+        self.method_name = str(method_name or "")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 13, 16, 13)
+        layout.setSpacing(7)
+
+        top = QHBoxLayout()
+        self.experiment_id = label("", "cardTitle")
+        self.status = QLabel()
+        self.status.setObjectName("badge")
+        self.elapsed = label("", "muted")
+        top.addWidget(self.experiment_id, 1)
+        top.addWidget(self.status)
+        top.addSpacing(10)
+        top.addWidget(self.elapsed)
+        layout.addLayout(top)
+
+        self.description = label("", "muted")
+        self.description.setWordWrap(True)
+        layout.addWidget(self.description)
+
+        # Let clicks on any text activate the enclosing card.
+        for widget in (self.experiment_id, self.status, self.elapsed, self.description):
+            widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.update_job(job)
+
+    def update_job(self, job):
+        self.job_id = str(job.get("job_id") or "")
+        experiment_id = str(job.get("experiment_id") or self.job_id or "Unknown experiment")
+        self.experiment_id.setText(f"{experiment_id} · {self.method_name}" if self.method_name else experiment_id)
+        self.experiment_id.setToolTip(self.experiment_id.text())
+        self.description.setText(str(job.get("description") or "No description"))
+        self.status.setText(str(job.get("status") or "Starting").capitalize())
+        self.update_elapsed(job)
+
+    def update_elapsed(self, job):
+        started = job.get("started")
+        if not started and job.get("status") == "pending":
+            self.elapsed.setText("Starting")
+            return
+        started = started or job.get("created")
+        if started:
+            self.elapsed.setText(f"{clock(time.time() - started)} elapsed")
+        else:
+            self.elapsed.setText("Starting")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.activated.emit(self.job_id, self.method_name)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.activated.emit(self.job_id, self.method_name)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+class QueuePanel(QWidget):
+    """Shows only active training processes; selecting a card opens its Training Monitor."""
+
+    def __init__(self, on_open, parent=None):
+        super().__init__(parent)
+        self.on_open = on_open
+        self.card_jobs = []
+        self.cards = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
-        layout.addWidget(label("Job queue", "heading"))
-        about = label("Launch the open experiment now, or line experiments up with Add to queue and press "
-                      "Start queue. They train in order on this machine, as many at once as Run up to allows, and "
-                      "keep running if you close ThetaIDE.", "muted")
-        about.setWordWrap(True)
-        layout.addWidget(about)
+        layout.setSpacing(10)
 
-        run_row = QHBoxLayout()  # the open experiment and what to do with it (the old Run menu)
-        self.experiment = label("No experiment open", "muted")
-        run_row.addWidget(self.experiment, 1)
-        self.launch_button = self.button("Launch now", on_launch)
-        self.launch_button.setObjectName("primary")
-        self.add_button = self.button("Add to queue", on_add)
-        self.stop_button = self.button("Stop", on_stop)
-        self.demo_button = self.button("Start simulated demo", on_demo)
-        self.demo_button.setToolTip("A simulated run that needs no training environment (Ctrl+F5)")
-        for button in (self.launch_button, self.add_button, self.stop_button, self.demo_button):
-            run_row.addWidget(button)
-            button.setVisible(button.property("connected"))
-        layout.addLayout(run_row)
-        state_row = QHBoxLayout()
-        self.run_button = self.button("Start queue", lambda: self.on_toggle(not self.running))
-        state_row.addWidget(self.run_button)
-        # How many experiments train at once (the queue starts the next one whenever one finishes)
-        self.parallel = SpinBox()
-        self.parallel.setRange(1, MAX_PARALLEL)
-        self.parallel.setFixedWidth(88)  # room for the digit beside the arrows
-        self.parallel.setToolTip("How many experiments train at the same time; queued ones start as others finish")
-        self.parallel_labels = (label("Run up to", "muted"), label("at once", "muted"))
-        state_row.addWidget(self.parallel_labels[0])
-        state_row.addWidget(self.parallel)
-        state_row.addWidget(self.parallel_labels[1])
-        for widget in (self.parallel, *self.parallel_labels):
-            widget.setVisible(on_parallel is not None)
-        if on_parallel is not None:
-            self.parallel.valueChanged.connect(on_parallel)
-        self.state = label("", "muted")
-        self.state.setWordWrap(True)
-        state_row.addWidget(self.state, 1)
-        layout.addLayout(state_row)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.content = QWidget()
+        self.cards_layout = QVBoxLayout(self.content)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.cards_layout.setSpacing(10)
+        self.empty = label("No running processes", "muted")
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cards_layout.addWidget(self.empty)
+        self.cards_layout.addStretch(1)
+        self.scroll.setWidget(self.content)
+        layout.addWidget(self.scroll, 1)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "Experiment", "Steps", "Status", "Time"])
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.table.verticalHeader().hide()
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.setShowGrid(False)
-        self.table.itemSelectionChanged.connect(self.update_buttons)
-        self.table.itemDoubleClicked.connect(lambda _: self.open_selected())
-        layout.addWidget(self.table, 1)
-
-        actions = QHBoxLayout()
-        self.up_button = self.button("Move up", lambda: self.move_selected(-1))
-        self.down_button = self.button("Move down", lambda: self.move_selected(1))
-        self.remove_button = self.button("Remove from queue", self.remove_selected)
-        self.open_button = self.button("Open in Plot Viewer", self.open_selected)
-        self.open_button.setToolTip("Plot the selected job's run in the Plot Viewer (or double-click the job)")
-        for button in (self.up_button, self.down_button, self.remove_button, self.open_button):
-            actions.addWidget(button)
-        actions.addStretch()
-        self.summary = label("", "muted")
-        actions.addWidget(self.summary)
-        layout.addLayout(actions)
-        self.update_buttons()
-
-    def button(self, text, callback):
-        button = QPushButton(text)
-        button.setProperty("connected", callback is not None)
-        if callback is not None:
-            button.clicked.connect(lambda _=False: callback())
-        return button
-
-    def set_parallel(self, count):
-        """Show `count` in the Run up to field without reporting it back as a change."""
-        self.parallel.blockSignals(True)
-        self.parallel.setValue(int(count))
-        self.parallel.blockSignals(False)
-
-    def set_experiment(self, name, tooltip=""):
-        """The experiment Launch now and Add to queue act on (the one open in the Experiment tab)."""
-        self.experiment.setText(f"Experiment:  {name}" if name else "No experiment open")
-        self.experiment.setToolTip(tooltip)
-
-    def selected(self):
-        selection_model = self.table.selectionModel()
-        rows = selection_model.selectedRows() if selection_model else []
-        if rows and rows[0].row() < len(self.rows):
-            return self.rows[rows[0].row()]
-        return (None, None)
-
-    def set_offline(self, error):
-        self.summary.setText("Training pipeline unavailable: the queue can't run")
-        self.summary.setToolTip(str(error or ""))
-        self.run_button.setEnabled(False)
+        self.timer = QTimer(self)
+        self.timer.setInterval(1000)
+        self.timer.timeout.connect(self._update_times)
+        self.timer.start()
 
     def set_data(self, data):
-        _, keep = self.selected()
-        keep_id = keep and keep.get("job_id")
-        active_jobs = data.get("active", [])
-        queued_jobs = data.get("queued", [])
-        finished_jobs = data.get("finished", [])
-        self.rows = ([("active", j) for j in active_jobs] + [("queued", j) for j in queued_jobs]
-                     + [("finished", j) for j in finished_jobs])
-        self.queued_count = len(queued_jobs)
-        now = time.time()
-        self.table.blockSignals(True)
-        self.table.setRowCount(0)
-        for kind, job in self.rows:
-            if kind == "active":
-                marker = "▶"
-                start = job.get("started") or job.get("created")
-                if job.get("status") == "pending" or not job.get("started"):
-                    timing = f"starting {clock(now - start)}" if start else "starting"
-                else:
-                    timing = f"running {clock(now - start)}" if start else "running"
-            elif kind == "queued":
-                pos = job.get("position", 0)
-                marker = str(pos + 1)
-                created = job.get("created")
-                timing = ("queued " + time.strftime("%H:%M", time.localtime(created))) if created else "queued"
-            else:
-                marker = FINISHED_MARKS.get(job.get("status"), "·")
-                start = job.get("started")
-                finished = job.get("finished")
-                timing = (f"took {clock(finished - start)}" if start and finished
-                          else "never started")
-            steps = job.get("effective_timesteps") or job.get("total_timesteps")
-            try:
-                steps_text = f"{int(steps):,}" if steps else "—"
-            except (ValueError, TypeError):
-                steps_text = str(steps) if steps else "—"
+        for card in self.cards.values():
+            self.cards_layout.removeWidget(card)
+            card.deleteLater()
+        self.cards = {}
+        self.card_jobs = []
 
-            exp_id = str(job.get("experiment_id") or job.get("job_id") or "—")
-            status_text = str(job.get("status") or "—")
+        for job in data.get("active", []):
+            job_id = str(job.get("job_id") or "")
+            agents = job.get("agents") or []
+            methods = agents if job.get("run_in_parallel") and len(agents) > 1 else [None]
+            for method_name in methods:
+                key = f"{job_id}:{method_name}" if method_name else job_id
+                self.card_jobs.append((key, job))
+                card = ProcessCard(job, method_name, self.content)
+                card.activated.connect(self.on_open)
+                self.cards[key] = card
+                self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
 
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for col, text in enumerate((marker, exp_id, steps_text, status_text, timing)):
-                cell = QTableWidgetItem(text)
-                if col == 0:
-                    cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.table.setItem(row, col, cell)
-            if job.get("job_id") == keep_id:
-                self.table.selectRow(row)
-        self.table.blockSignals(False)
-        self.running = bool(data.get("running", False))
-        active = len(active_jobs)
-        self.summary.setText(f"{active} running  ·  {self.queued_count} queued")
-        self.summary.setToolTip("")
-        if self.running:
-            at_once = self.parallel.value()
-            pace = "one after another" if at_once == 1 else f"up to {at_once} at a time"
-            self.state.setText(f"Queue running: jobs start {pace}. It pauses itself when the last one finishes.")
-        elif self.queued_count:
-            self.state.setText(f"Queue paused: {self.queued_count} job{'s' * (self.queued_count != 1)} waiting. "
-                               "Press Start queue to begin."
-                               + ("  The job already training will finish." if active else ""))
-        else:
-            self.state.setText("Queue empty. Add experiments with Add to queue.")
-        self.run_button.setText("Pause queue" if self.running else "Start queue")
-        self.run_button.setObjectName("" if self.running else "primary")
-        self.run_button.setStyle(self.run_button.style())
-        self.run_button.setEnabled(self.running or self.queued_count > 0)
-        self.update_buttons()
+        self.empty.setVisible(not self.card_jobs)
 
-    def update_buttons(self):
-        kind, job = self.selected()
-        queued = kind == "queued" and job is not None
-        pos = (job.get("position") if job else None)
-        pos = pos if pos is not None else -1
-        self.up_button.setEnabled(queued and pos > 0)
-        self.down_button.setEnabled(queued and pos < self.queued_count - 1)
-        self.remove_button.setEnabled(queued)
-        self.open_button.setEnabled(job is not None)
-
-    def move_selected(self, delta):
-        kind, job = self.selected()
-        if kind == "queued" and job and "job_id" in job:
-            pos = job.get("position", 0)
-            self.on_move(job["job_id"], pos + delta)
-
-    def remove_selected(self):
-        kind, job = self.selected()
-        if kind == "queued" and job and "job_id" in job:
-            self.on_remove(job["job_id"])
-
-    def open_selected(self):
-        _, job = self.selected()
-        if job is not None and "job_id" in job:
-            self.on_open(job["job_id"])
+    def _update_times(self):
+        for key, job in self.card_jobs:
+            card = self.cards.get(key)
+            if card is not None:
+                card.update_elapsed(job)

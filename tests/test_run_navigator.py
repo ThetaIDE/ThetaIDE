@@ -138,7 +138,6 @@ class TestRunNavigator(unittest.TestCase):
         self.assertIn("Training in progress...", self.window.console.toPlainText())
         self.assertEqual(len(run["metrics"]), 2)
         self.assertEqual(run["metrics"][0]["reward"], 78.5)
-        self.assertEqual(self.window.reward_card.value.text(), "78.5")
         self.assertIn("15.2%", self.window.monitor.view_buttons["System"].toolTip())
 
 

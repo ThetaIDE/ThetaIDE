@@ -537,7 +537,6 @@ def test_the_headline_chart_leads_the_eval_section_and_ticks_leave_the_monitor_a
     monitor = window.monitor
     open_view(window, "Overview")
     grid = monitor.charts_view.grid
-    grid.toggle_group("eval")  # folded by default
     position = grid.grid.getItemPosition(grid.grid.indexOf(monitor.reward_card_frame))
     total = grid.grid.columnCount()
     assert position[1] == 0 and position[3] == total  # first of the eval section; alone in it, so full width
@@ -549,7 +548,7 @@ def test_the_headline_chart_leads_the_eval_section_and_ticks_leave_the_monitor_a
     assert "eval/reward" not in grid.cards
 
 
-def test_the_eval_section_starts_folded_and_stays_open_once_shown(window):
+def test_the_eval_section_starts_open_and_can_be_folded(window):
     run = make_run("shown", "running", [1.0], job_id="job_s")
     window.runs[:0] = [run]
     window.refresh_runs()
@@ -558,14 +557,14 @@ def test_the_eval_section_starts_folded_and_stays_open_once_shown(window):
     monitor = window.monitor
     open_view(window, "Overview")
     grid = monitor.charts_view.grid
-    assert grid.grid.indexOf(monitor.reward_card_frame) == -1  # its heading shows, the chart does not
+    assert grid.grid.indexOf(monitor.reward_card_frame) != -1
     assert grid.grid.indexOf(grid.cards["losses/total_loss"]) != -1
     grid.toggle_group("eval")
     monitor.refresh_live()
-    assert grid.grid.indexOf(monitor.reward_card_frame) != -1
+    assert grid.grid.indexOf(monitor.reward_card_frame) == -1
 
 
-def test_the_eval_section_is_folded_even_when_it_is_the_only_section(window):
+def test_the_eval_section_is_open_even_when_it_is_the_only_section(window):
     from frontend.model import new_run, sample, Config
 
     run = new_run(window.config())  # simulated: its only chart is the headline one, so the grid has no cards
@@ -575,7 +574,7 @@ def test_the_eval_section_is_folded_even_when_it_is_the_only_section(window):
     window.select_run(run)
     open_view(window, "Overview")
     grid = window.monitor.charts_view.grid
-    assert grid.grid.indexOf(window.monitor.reward_card_frame) == -1
+    assert grid.grid.indexOf(window.monitor.reward_card_frame) != -1
 
 
 def test_the_status_row_opens_the_other_views_in_place_of_the_charts(window):

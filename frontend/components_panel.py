@@ -52,7 +52,6 @@ class ComponentsPanel(QWidget):
 
         # 1. Components Tree (extends to top on the left)
         self.components_tree = ConfigTreeWidget(mode="components")
-        self.components_tree.setMinimumWidth(320)
         self.components_tree.file_selected.connect(self.on_component_selected)
         self.splitter.addWidget(self.components_tree)
 

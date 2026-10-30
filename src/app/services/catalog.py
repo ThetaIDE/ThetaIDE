@@ -11,6 +11,9 @@ import csv
 import io
 import json
 import os
+import shutil
+import tempfile
+import zipfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -487,6 +490,75 @@ def _run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
     dirs = {root: base / root / group / experiment_id for root in RESULT_ROOTS}
     return {root: path for root, path in dirs.items() if path.is_dir()}
 
+
+
+def _mutable_run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
+    """Locate run folders without following links outside the results tree."""
+    dirs = _run_dirs(group, experiment_id)
+    base = results_dir().resolve()
+    for path in dirs.values():
+        if any(part.is_symlink() for part in (path, path.parent, path.parent.parent)) or not path.resolve().is_relative_to(base):
+            raise ValueError(f"Unsafe run folder: {path}")
+    if not dirs:
+        raise FileNotFoundError(f"Run not found: {group}/{experiment_id}")
+    return dirs
+
+
+def _archive_dirs(dirs: dict[str, Path], destination: str) -> None:
+    """Write an archive atomically, preserving paths relative to results/."""
+    target = Path(destination).absolute()
+    if any(target.resolve().is_relative_to(path.resolve()) for path in dirs.values()):
+        raise ValueError("Archive destination cannot be inside the selected results")
+    fd, temporary = tempfile.mkstemp(prefix=".theta-archive-", suffix=".zip", dir=target.parent)
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+            for run_dir in dirs.values():
+                for path in sorted(run_dir.rglob("*")):
+                    if path.is_symlink():
+                        raise ValueError(f"Cannot archive symbolic link: {path}")
+                    if path.is_file():
+                        archive.write(path, path.relative_to(results_dir()))
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def archive_run(group: str, experiment_id: str, destination: str) -> None:
+    """Write a ZIP of all results folders for a run, without removing the originals."""
+    _archive_dirs(_mutable_run_dirs(group, experiment_id), destination)
+
+
+def _mutable_group_dirs(group: str) -> dict[str, Path]:
+    check_path_segment(group)
+    base = results_dir()
+    dirs = {root: base / root / group for root in RESULT_ROOTS}
+    dirs = {root: path for root, path in dirs.items() if path.is_dir()}
+    if not dirs:
+        raise FileNotFoundError(f"Group not found: {group}")
+    for path in dirs.values():
+        if (path.is_symlink() or path.parent.is_symlink()
+                or not path.resolve().is_relative_to(base.resolve())):
+            raise ValueError(f"Unsafe group folder: {path}")
+    return dirs
+
+
+def archive_group(group: str, destination: str) -> None:
+    """Archive all of a group's results, including runs not shown in the tree."""
+    _archive_dirs(_mutable_group_dirs(group), destination)
+
+
+def delete_group(group: str) -> None:
+    """Delete all of a group's folders across the results roots."""
+    for path in _mutable_group_dirs(group).values():
+        shutil.rmtree(path)
+
+
+def delete_run(group: str, experiment_id: str) -> None:
+    """Delete the run's folders across the results roots."""
+    for path in _mutable_run_dirs(group, experiment_id).values():
+        shutil.rmtree(path)
 
 def run_manifest(group: str, experiment_id: str) -> dict[str, Any]:
     """Every file a run produced across results/{logs,plots,checkpoints,tensorboard,datasets}.

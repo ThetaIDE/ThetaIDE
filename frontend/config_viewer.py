@@ -4,12 +4,14 @@ import inspect
 import math
 import random
 import re
+import weakref
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QObject, QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QDrag, QIcon, QPainter, QPen, QPixmap
+from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -55,6 +57,7 @@ from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 CONTENT_WIDTH = 960
 NUMBER_FIELD_WIDTH = 140
 TEXT_FIELD_WIDTH = 220
+HIERARCHY_INDENT = 12
 
 CATEGORICAL_CHOICES = {
     "activation": ["relu", "gelu", "tanh", "elu", "silu", "sigmoid", "leaky_relu", "identity"],
@@ -147,6 +150,81 @@ def _make_subtle_tool_button(icon_name: str, tooltip: str, size: int = 24, icon_
         }
     """)
     return btn
+
+
+class _RowHoverReveal(QObject):
+    """Reveal a control when the pointer is over its parameter row."""
+
+    def __init__(self, button: QToolButton, row_layout: QHBoxLayout):
+        super().__init__(button)
+        self._button = weakref.ref(button)
+        self._targets = [weakref.ref(item.widget()) for item in
+                         (row_layout.itemAt(i) for i in range(row_layout.count()))
+                         if item is not None and item.widget() is not None
+                         and not isinstance(item.widget(), QToolButton)]
+        self._parent = None
+        policy = button.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        button.setSizePolicy(policy)
+        button.hide()
+        for ref in self._targets:
+            widget = ref()
+            if widget is not None:
+                widget.setMouseTracking(True)
+                widget.installEventFilter(self)
+        QTimer.singleShot(0, self._attach_parent)
+
+    def _attach_parent(self):
+        button = self._button()
+        if button is None or sip.isdeleted(button):
+            return
+        parent = button.parentWidget()
+        if parent is None:
+            return
+        self._parent = weakref.ref(parent)
+        parent.setMouseTracking(True)
+        parent.installEventFilter(self)
+        for widget in parent.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
+            widget.setMouseTracking(True)
+            widget.installEventFilter(self)
+
+    def _update_visibility(self):
+        parent = self._parent() if self._parent else None
+        button = self._button()
+        targets = [ref() for ref in self._targets]
+        targets = [w for w in targets if w is not None and not sip.isdeleted(w)]
+        if parent is None or sip.isdeleted(parent) or button is None or sip.isdeleted(button) or not targets:
+            return
+        pos = parent.mapFromGlobal(QCursor.pos())
+        row_top = min(widget.mapTo(parent, widget.rect().topLeft()).y() for widget in targets)
+        row_bottom = max(widget.mapTo(parent, widget.rect().bottomRight()).y() for widget in targets)
+        button.setVisible(parent.rect().contains(pos) and row_top <= pos.y() <= row_bottom)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Enter, QEvent.Type.Leave, QEvent.Type.MouseMove):
+            self._update_visibility()
+        return False
+
+
+def _reveal_remove_on_row_hover(row_layout: QHBoxLayout, button: QToolButton) -> None:
+    """Keep parameter rows tidy until a row control is hovered."""
+    _RowHoverReveal(button, row_layout)
+
+
+class _SweepTypePicker(ComboBox):
+    cancelled = pyqtSignal()
+
+    def hidePopup(self):
+        super().hidePopup()
+        QTimer.singleShot(0, self._cancel_if_unselected)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        QTimer.singleShot(0, self._cancel_if_unselected)
+
+    def _cancel_if_unselected(self):
+        if self.currentData() is None and not self.view().isVisible():
+            self.cancelled.emit()
 
 
 def _make_param_adder_button(
@@ -271,7 +349,7 @@ def get_agent_candidate_hyperparameters(
             if key not in agent_keys:
                 agent_keys.append(key)
         for k in agent_keys:
-            if k not in ("algorithm", "name", "type") and k not in TRAINING_HYPERPARAMETERS:
+            if k not in ("algorithm", "name", "type", "enabled") and k not in TRAINING_HYPERPARAMETERS:
                 if k not in current_keys and k not in candidates:
                     candidates.append(k)
     return candidates
@@ -290,7 +368,7 @@ def get_model_candidate_hyperparameters(
     if tree:
         model_params = tree.model_parameters(model_name)
         for k in tree.model_parameter_keys(model_name):
-            if k not in ("architecture", "type", "lightning_module", "name"):
+            if k not in ("architecture", "type", "lightning_module", "name", "enabled"):
                 if k not in current_keys and k not in candidates:
                     candidates.append(k)
     return candidates
@@ -387,12 +465,11 @@ class IndentedHierarchyBlock(QFrame):
     def __init__(self, parent=None, level: int = 1):
         super().__init__(parent)
         self.setObjectName(f"hierarchyBlock_lvl{level}")
-        left_margin = 12 if level == 1 else 14
         border_color = theme_color("border")
         self.setStyleSheet(f"""
             QFrame#hierarchyBlock_lvl{level} {{
                 border-left: 2px solid {border_color};
-                margin-left: {left_margin}px;
+                margin-left: {HIERARCHY_INDENT}px;
                 padding-left: 10px;
                 background: transparent;
                 border-top: none;
@@ -577,6 +654,42 @@ class ConfigBox(QFrame):
 
     def add_layout(self, sub_layout):
         self.layout.addLayout(sub_layout)
+
+
+class _SectionMoveControls(QWidget):
+    """Show compact reorder controls while a section title is hovered."""
+    def __init__(self, title, box, move):
+        super().__init__(box)
+        self.title = title
+        self.setObjectName("sectionMoveControls")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        for glyph, direction, tooltip in (("⌃", -1, "Move section up"), ("⌄", 1, "Move section down")):
+            button = QToolButton(self)
+            button.setText(glyph)
+            button.setToolTip(tooltip)
+            button.setFixedSize(18, 12)
+            button.setStyleSheet("QToolButton { border: none; padding: 0; color: #a89984; } QToolButton:hover { color: #fbf1c7; }")
+            button.clicked.connect(lambda _, d=direction: move(d))
+            layout.addWidget(button)
+            button.installEventFilter(self)
+        self.setFixedSize(18, 24)
+        title.installEventFilter(self)
+        self.installEventFilter(self)
+        self.hide()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Enter:
+            self.show()
+        elif event.type() == QEvent.Type.Leave:
+            QTimer.singleShot(0, self._hide_unless_hovered)
+        return False
+
+    def _hide_unless_hovered(self):
+        pos = QCursor.pos()
+        if not self.title.rect().contains(self.title.mapFromGlobal(pos)) and not self.rect().contains(self.mapFromGlobal(pos)):
+            self.hide()
 
 
 class TitleLabel(QLabel):
@@ -1291,6 +1404,7 @@ class ConfigViewer(QWidget):
         if getattr(self, "auto_save", False) and self.is_dirty:
             self.save_to_disk()
 
+        self._show_empty_shared_params = False
         self.current_path = Path(file_path)
         self.current_rel_path = rel_path
         self.is_dirty = False
@@ -1360,6 +1474,10 @@ class ConfigViewer(QWidget):
             self.file_title.setToolTip(f"{self.current_rel_path}\n(Click to rename)")
 
         if getattr(self, "is_component_mode", False) and self.current_path:
+            component_type, _ = _get_component_kind(str(self.current_rel_path or ""))
+            self.file_title.setText(f"{component_type}: {self.current_path.stem}")
+
+        if getattr(self, "is_component_mode", False) and self.current_path:
             self.btn_edit_code.show()
             self.btn_export_component.show()
             self.btn_delete_component.show()
@@ -1387,6 +1505,9 @@ class ConfigViewer(QWidget):
             self._render_generic_boxes()
 
         self._cap_form_fields()
+        self._size_method_card_fields()
+        if is_experiment:
+            self._setup_experiment_box_order()
         self.boxes_layout.addStretch()
         self._block_updates = False
 
@@ -1622,6 +1743,71 @@ class ConfigViewer(QWidget):
                     widget.setMaximumWidth(NUMBER_FIELD_WIDTH)
                 elif isinstance(widget, (QComboBox, QLineEdit)):
                     widget.setMaximumWidth(TEXT_FIELD_WIDTH)
+
+    def _size_method_card_fields(self):
+        """Give editable fields in method cards a consistent width."""
+        width = round(TEXT_FIELD_WIDTH * 2 / 3)
+        for container in self.container.findChildren(MethodCardsContainer):
+            for _, card in container._cards:
+                for widget in card.findChildren(QWidget):
+                    if isinstance(widget, (QAbstractSpinBox, QComboBox)):
+                        widget.setFixedWidth(width)
+                    elif isinstance(widget, QLineEdit) and not isinstance(widget, InlineTitleEditor):
+                        if not isinstance(widget.parentWidget(), (QAbstractSpinBox, QComboBox)):
+                            widget.setFixedWidth(width)
+
+    def _setup_experiment_box_order(self):
+        boxes = [self.boxes_layout.itemAt(i).widget() for i in range(self.boxes_layout.count())]
+        boxes = [box for box in boxes if isinstance(box, ConfigBox)]
+        orders = self.__dict__.setdefault("_experiment_box_orders", {})
+        path = str(self.current_path or self.current_rel_path or "")
+        prior = orders.get(path, [])
+        keyed = []
+        for box in boxes:
+            title = next((w for w in box.findChildren(QLabel) if w.objectName() in ("heading", "cardTitle")), None)
+            if title is not None:
+                keyed.append((title.text(), box, title))
+        positions = [self.boxes_layout.indexOf(box) for _, box, _ in keyed]
+        keyed.sort(key=lambda entry: prior.index(entry[0]) if entry[0] in prior else len(prior) + boxes.index(entry[1]))
+        for _, box, _ in keyed:
+            self.boxes_layout.removeWidget(box)
+        for index, (_, box, _) in zip(positions, keyed):
+            self.boxes_layout.insertWidget(index, box)
+        orders[path] = [key for key, _, _ in keyed]
+
+        def attach(layout, title, controls):
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item.widget() is title:
+                    if isinstance(layout, QHBoxLayout):
+                        layout.insertWidget(i, controls)
+                    elif isinstance(layout, QVBoxLayout):
+                        layout.removeWidget(title)
+                        row = QHBoxLayout()
+                        row.addWidget(controls)
+                        row.addWidget(title)
+                        row.addStretch()
+                        layout.insertLayout(i, row)
+                    return True
+                if item.layout() and attach(item.layout(), title, controls):
+                    return True
+            return False
+
+        for key, box, title in keyed:
+            controls = _SectionMoveControls(title, box, lambda direction, k=key: self._move_experiment_box(k, direction))
+            attach(box.layout, title, controls)
+
+    def _move_experiment_box(self, key, direction):
+        path = str(self.current_path or self.current_rel_path or "")
+        order = self._experiment_box_orders.get(path, [])
+        if key not in order:
+            return
+        index = order.index(key)
+        target = index + direction
+        if not 0 <= target < len(order):
+            return
+        order[index], order[target] = order[target], order[index]
+        self._render_boxes()
 
     def _render_experiment_boxes(self):
         """Render standard boxes for an Experiment configuration."""
@@ -1917,6 +2103,7 @@ class ConfigViewer(QWidget):
             btn_del_ep = _make_subtle_tool_button("close", "Remove epochs override to rely on group default", size=20, icon_size=12)
             btn_del_ep.clicked.connect(lambda: (self.raw_data.pop("epochs", None), self._mark_dirty(), self._render_boxes()))
             row_epochs.addWidget(btn_del_ep)
+            _reveal_remove_on_row_hover(row_epochs, btn_del_ep)
         elif not is_base:
             row_epochs.addWidget(label(str(self.spin_epochs.value()), "muted"))
         row_epochs.addStretch()
@@ -1936,6 +2123,7 @@ class ConfigViewer(QWidget):
             btn_del_ee = _make_subtle_tool_button("close", "Remove eval_every_n_epochs override to rely on group default", size=20, icon_size=12)
             btn_del_ee.clicked.connect(lambda: (self.raw_data.pop("eval_every_n_epochs", None), self._mark_dirty(), self._render_boxes()))
             row_eval_every.addWidget(btn_del_ee)
+            _reveal_remove_on_row_hover(row_eval_every, btn_del_ee)
         elif not is_base:
             row_eval_every.addWidget(label(str(self.spin_eval_every.value()), "muted"))
         row_eval_every.addStretch()
@@ -1948,6 +2136,7 @@ class ConfigViewer(QWidget):
             btn_del_tt = _make_subtle_tool_button("close", "Remove total_timesteps override to rely on group default", size=20, icon_size=12)
             btn_del_tt.clicked.connect(lambda: (self.raw_data.pop("total_timesteps", None), self._mark_dirty(), self._render_boxes()))
             row_timesteps.addWidget(btn_del_tt)
+            _reveal_remove_on_row_hover(row_timesteps, btn_del_tt)
         elif not is_base:
             row_timesteps.addWidget(label(str(self.spin_timesteps.value()), "muted"))
         row_timesteps.addStretch()
@@ -1965,6 +2154,7 @@ class ConfigViewer(QWidget):
             btn_del_seed = _make_subtle_tool_button("close", "Remove seed override to rely on group default", size=20, icon_size=12)
             btn_del_seed.clicked.connect(lambda: (self.raw_data.pop("seed", None), self._mark_dirty(), self._render_boxes()))
             row_seed.addWidget(btn_del_seed)
+            _reveal_remove_on_row_hover(row_seed, btn_del_seed)
         elif not is_base:
             row_seed.addWidget(label(str(self.spin_seed.value()), "muted"))
         row_seed.addStretch()
@@ -1977,6 +2167,7 @@ class ConfigViewer(QWidget):
             btn_del_ee = _make_subtle_tool_button("close", "Remove eval_episodes override to rely on group default", size=20, icon_size=12)
             btn_del_ee.clicked.connect(lambda: (self.raw_data.pop("eval_episodes", None), self._mark_dirty(), self._render_boxes()))
             row_eval_ep.addWidget(btn_del_ee)
+            _reveal_remove_on_row_hover(row_eval_ep, btn_del_ee)
         elif eval_ep_enabled and not is_base:
             row_eval_ep.addWidget(label(str(self.spin_eval_ep.value()), "muted"))
         row_eval_ep.addStretch()
@@ -1999,6 +2190,7 @@ class ConfigViewer(QWidget):
                 btn_del_ef = _make_subtle_tool_button("close", f"Remove '{freq_key}' override to rely on group default", size=20, icon_size=12)
                 btn_del_ef.clicked.connect(lambda _, fk=freq_key: (self.raw_data.pop(fk, None), self._mark_dirty(), self._render_boxes()))
                 row_eval_freq.addWidget(btn_del_ef)
+                _reveal_remove_on_row_hover(row_eval_freq, btn_del_ef)
             elif not is_base:
                 row_eval_freq.addWidget(label(str(spin_eval_freq.value()), "muted"))
             row_eval_freq.addStretch()
@@ -2010,6 +2202,7 @@ class ConfigViewer(QWidget):
             "defaults", "paradigm", "experiment_id", "description",
             "seed", "total_timesteps", "eval_episodes", "eval_freq_steps", "eval_freq",
             "epochs", "eval_every_n_epochs", "checkpoint_every_steps", "num_checkpoints",
+            "run_in_parallel",
             "methods", "env", "site", "trainer", "resources", "dataset", "dataset_path",
             "tensorboard", "no_plot", "save_dataset", "recover",
             "hydra", "plots", "tuning", "sweeper"
@@ -2037,8 +2230,11 @@ class ConfigViewer(QWidget):
                     row_extra.addWidget(line_extra)
                 if not is_base:
                     btn_del_extra = _make_subtle_tool_button("close", f"Remove '{extra_k}' parameter", size=20, icon_size=12)
-                    btn_del_extra.clicked.connect(lambda _, ek=extra_k: (self.raw_data.pop(ek, None), self._mark_dirty(), self._render_boxes()))
+                    btn_del_extra.clicked.connect(lambda _, ek=extra_k: self._remove_experiment_parameter(ek))
                     row_extra.addWidget(btn_del_extra)
+                    _reveal_remove_on_row_hover(row_extra, btn_del_extra)
+                if extra_k == "batch_size":
+                    self._add_sweep_toggle(row_extra, "params", "config.batch_size", extra_v)
                 row_extra.addStretch()
                 extra_experiment_items.append((label(str(extra_k)), row_extra))
 
@@ -2071,12 +2267,18 @@ class ConfigViewer(QWidget):
             grid_items.append((extra_lbl, extra_row))
 
         curr_row = 0
-        for idx, (lbl_widget, val_layout) in enumerate(grid_items):
-            c_col = 0 if (idx % 2 == 0) else 2
-            c_row = idx // 2
-            form_budget.addWidget(lbl_widget, c_row, c_col)
-            form_budget.addLayout(val_layout, c_row, c_col + 1)
-            curr_row = max(curr_row, c_row + 1)
+        for start in range(0, len(grid_items), 2):
+            pair = grid_items[start:start + 2]
+            for column, (lbl_widget, val_layout) in enumerate(pair):
+                form_budget.addWidget(lbl_widget, curr_row, column * 2)
+                form_budget.addLayout(val_layout, curr_row, column * 2 + 1)
+            curr_row += 1
+            for column, (_, val_layout) in enumerate(pair):
+                block = getattr(val_layout, "_sweep_block", None)
+                if block is not None:
+                    form_budget.addWidget(block, curr_row, column * 2, 1, 2)
+            if any(getattr(item[1], "_sweep_block", None) is not None for item in pair):
+                curr_row += 1
         field_column_min = max(
             (val_layout.sizeHint().width() for _, val_layout in grid_items),
             default=0,
@@ -2086,11 +2288,12 @@ class ConfigViewer(QWidget):
         form_budget.setColumnStretch(1, 1)
         form_budget.setColumnStretch(3, 1)
 
-        # Runtime & Logging Options (TensorBoard, Save Dataset, Recover, No Plots)
+        # Runtime & execution options (logging, recovery, plotting, and parallel methods)
         OPTIONAL_RUNTIME_FLAGS = [
             ("save_dataset", "Save Dataset"),
             ("recover", "Recover Checkpoint"),
             ("no_plot", "No Plots"),
+            ("run_in_parallel", "Run methods in parallel"),
         ]
         if self._plugin_enabled("tensorboard"):
             OPTIONAL_RUNTIME_FLAGS.insert(0, ("tensorboard", "Log to TensorBoard"))
@@ -2102,20 +2305,24 @@ class ConfigViewer(QWidget):
         # Show checkboxes only for flags explicitly present in the experiment config (or when showing resolved defaults)
         active_flags = [
             (k, lbl) for k, lbl in OPTIONAL_RUNTIME_FLAGS
-            if k in data or show_resolved
+            if k in data or show_resolved or k == "run_in_parallel"
         ]
 
         for flag_key, flag_label in active_flags:
             row_flag = QHBoxLayout()
             row_flag.setSpacing(6)
             chk = ToggleSlider(checked=bool(data.get(flag_key, resolved.get(flag_key, False))))
-            chk.toggled.connect(
-                lambda v, fk=flag_key: (
-                    self._on_field_edited(fk, True)
-                    if v
-                    else (self.raw_data.pop(fk, None), self._mark_dirty(), self._render_boxes())
+            if flag_key == "run_in_parallel":
+                chk.setToolTip("Train every configured method in a separate process at the same time.")
+                chk.toggled.connect(lambda value: self._on_field_edited("run_in_parallel", value))
+            else:
+                chk.toggled.connect(
+                    lambda v, fk=flag_key: (
+                        self._on_field_edited(fk, True)
+                        if v
+                        else (self.raw_data.pop(fk, None), self._mark_dirty(), self._render_boxes())
+                    )
                 )
-            )
             row_flag.addWidget(chk)
             row_flag.addWidget(label(flag_label))
             chk_widgets[flag_key] = chk
@@ -2126,7 +2333,8 @@ class ConfigViewer(QWidget):
                     lambda _, fk=flag_key: (self.raw_data.pop(fk, None), self._mark_dirty(), self._render_boxes())
                 )
                 row_flag.addWidget(btn_del_flag)
-            elif not is_base:
+                _reveal_remove_on_row_hover(row_flag, btn_del_flag)
+            elif not is_base and flag_key != "run_in_parallel":
                 row_flag.addWidget(label(str(chk.isChecked()).lower(), "muted"))
 
             chk_row.addLayout(row_flag)
@@ -2140,6 +2348,11 @@ class ConfigViewer(QWidget):
         form_budget.addLayout(chk_row, curr_row, 0, 1, 4)
 
         box_budget.add_layout(form_budget)
+        shared_spec = self.raw_data.get("methods", {}).get("params", {})
+        if isinstance(shared_spec, dict):
+            experiment_sweeps = QFormLayout()
+            self._render_method_sweeps(experiment_sweeps, "params", shared_spec, prefix="config.")
+            box_budget.add_layout(experiment_sweeps)
         self.boxes_layout.addWidget(box_budget)
 
         # --- BOX 2 / 3: METHODS & AGENT ARCHITECTURES ---
@@ -2152,7 +2365,7 @@ class ConfigViewer(QWidget):
         # Universal / Shared Parameters (methods.params)
         has_params = "params" in methods_dict and isinstance(methods_dict["params"], dict)
         resolved_params = resolved.get("methods", {}).get("params", {}) if isinstance(resolved.get("methods"), dict) else {}
-        show_params = has_params or (self.view_mode == "resolved" and bool(resolved_params))
+        show_params = has_params or getattr(self, "_show_empty_shared_params", False) or (self.view_mode == "resolved" and bool(resolved_params))
 
         # The method-plus creates a blank method; shared parameters have their
         # own explicit action at the opposite edge of this header.
@@ -2186,35 +2399,110 @@ class ConfigViewer(QWidget):
             lbl_shared.setStyleSheet("font-size: 16px; font-weight: 600;")
             p_header.addWidget(lbl_shared)
 
+            curr_params = methods_dict.get("params", {}) if has_params else (
+                {} if getattr(self, "_show_empty_shared_params", False) else resolved_params
+            )
+
+            common_universal = ["lr", "gamma", "epochs", "eval_every_n_epochs", "weight_decay", "batch_size", "ent_coef", "agent", "model"]
+            cand_u = [u for u in common_universal if u not in curr_params]
+            btn_add_u = _make_param_adder_button(
+                "Add shared parameter", cand_u,
+                lambda pk: self._add_universal_param(pk, {} if pk in ("agent", "model") else None),
+                parent_widget=self,
+            )
+            for action in btn_add_u.menu().actions():
+                if action.text() == "agent":
+                    action.setText("Algorithm")
+                elif action.text() == "model":
+                    action.setText("Model")
+            p_header.addWidget(btn_add_u)
             p_header.addStretch()
-            if has_params:
+            if has_params or getattr(self, "_show_empty_shared_params", False):
                 btn_rm_params = _make_subtle_tool_button("trash", "Remove Shared Parameters block", size=24, icon_size=14)
                 btn_rm_params.clicked.connect(lambda: self.remove_block("params"))
                 p_header.addWidget(btn_rm_params)
             p_layout.addLayout(p_header)
 
-            curr_params = methods_dict.get("params", {}) if has_params else resolved_params
-
-            common_universal = ["lr", "gamma", "epochs", "eval_every_n_epochs", "weight_decay", "batch_size", "ent_coef"]
-            if tree:
-                for a in sorted(tree.agents):
-                    common_universal.append(f"agent.{a}")
-                for m in tree.model_names:
-                    common_universal.append(f"model.{m}")
-            cand_u = [u for u in common_universal if u not in curr_params]
-            btn_add_u = _make_param_adder_button("Add shared parameter", cand_u, lambda pk: self._add_universal_param(pk), parent_widget=self)
-
-            rendered_u_rows = []
-
             def _render_param_group(parent_layout, values: dict, parent_path: tuple[str, ...] = (), level: int = 0):
                 for key, val in list(values.items()):
+                    if not parent_path and key in ("tune", "search_space"):
+                        continue
                     key_path = parent_path + (str(key),)
                     dotted_path = ".".join(key_path)
+                    if not parent_path and key in ("agent", "model") and isinstance(val, dict) and not any(k in val for k in ("name", "algorithm", "type", "architecture", "base")):
+                        if key == "agent":
+                            names = [agent.name for agent in tree.agents_for(paradigm)] if tree and paradigm in tree.paradigms else []
+                        else:
+                            names = list(tree.model_names) if tree else []
+                        for component, component_params in (list(val.items()) or [("", {})]):
+                            row = QHBoxLayout()
+                            row.setSpacing(8)
+                            field_label = label("Algorithm" if key == "agent" else "Model")
+                            field_label.setMinimumWidth(160)
+                            row.addWidget(field_label)
+                            selector = ComboBox()
+                            selector.setObjectName(f"shared_{key}_selector")
+                            selector.setMaximumWidth(TEXT_FIELD_WIDTH)
+                            selector.addItem("Select algorithm..." if key == "agent" else "Select model...", "")
+                            for name in names:
+                                selector.addItem(name, name)
+                            if component and component not in names:
+                                selector.addItem(f"{component} (unavailable)", component)
+                                item = selector.model().item(selector.count() - 1)
+                                if item is not None:
+                                    item.setEnabled(False)
+                            selector.setCurrentIndex(max(0, selector.findData(component)))
+                            selector.currentIndexChanged.connect(
+                                lambda index, widget=selector, kind=key, old=component: self._select_shared_component(kind, old, widget.itemData(index))
+                            )
+                            row.addWidget(selector)
+                            if component and isinstance(component_params, dict):
+                                defaults = (tree.agent_hyperparameters(component) if key == "agent" else tree.model_parameters(component)) if tree else {}
+                                candidates = [name for name in defaults if name not in component_params]
+                                def add_component_param(name, path=(key, component), choices=defaults):
+                                    default = choices.get(name)
+                                    self._add_universal_param(".".join((*path, name)), {} if isinstance(default, dict) else default)
+                                row.addWidget(_make_param_adder_button(
+                                    f"Add {component} parameter", candidates, add_component_param, parent_widget=self,
+                                ))
+                            if has_params:
+                                remove_path = f"{key}.{component}" if component else key
+                                btn_remove = _make_subtle_tool_button("close", f"Remove parameter group '{remove_path}'", size=20, icon_size=12)
+                                btn_remove.clicked.connect(lambda _, path=remove_path: self._remove_universal_param(path))
+                                row.addWidget(btn_remove)
+                                _reveal_remove_on_row_hover(row, btn_remove)
+                            row.addStretch()
+                            parent_layout.addLayout(row)
+                            if component and isinstance(component_params, dict) and component_params:
+                                group = IndentedHierarchyBlock(level=1)
+                                _render_param_group(group.form_layout, component_params, (key, component), 1)
+                                parent_layout.addWidget(group)
+                        continue
                     if isinstance(val, dict):
                         group = IndentedHierarchyBlock(level=max(1, level + 1))
                         group_header = QHBoxLayout()
                         group_header.setSpacing(6)
-                        group_header.addWidget(label(f"[{key}]", "muted"))
+                        group_name = {"agent": "Algorithm", "model": "Model"}.get(key, key) if not parent_path else key
+                        group_header.addWidget(label(f"[{group_name}]", "muted"))
+                        candidates = []
+                        defaults = {}
+                        if tree and key_path[0] in ("agent", "model"):
+                            if len(key_path) == 1:
+                                candidates = list(tree.agent_names if key_path[0] == "agent" else tree.model_names)
+                            else:
+                                defaults = (tree.agent_hyperparameters(key_path[1]) if key_path[0] == "agent" else tree.model_parameters(key_path[1]))
+                                for part in key_path[2:]:
+                                    defaults = defaults.get(part, {}) if isinstance(defaults, dict) else {}
+                                candidates = list(defaults) if isinstance(defaults, dict) else []
+                        candidates = [candidate for candidate in candidates if candidate not in val]
+                        def add_nested(candidate, path=key_path, choices=defaults):
+                            default = choices.get(candidate) if isinstance(choices, dict) else None
+                            if len(path) == 1 or isinstance(default, dict):
+                                default = {}
+                            self._add_universal_param(".".join((*path, candidate)), default)
+                        group_header.addWidget(_make_param_adder_button(
+                            f"Add {group_name} parameter", candidates, add_nested, parent_widget=self,
+                        ))
                         group_header.addStretch()
                         if has_params:
                             btn_del_group = _make_subtle_tool_button(
@@ -2222,6 +2510,7 @@ class ConfigViewer(QWidget):
                             )
                             btn_del_group.clicked.connect(lambda _, kp=dotted_path: self._remove_universal_param(kp))
                             group_header.addWidget(btn_del_group)
+                            _reveal_remove_on_row_hover(group_header, btn_del_group)
                         group.addRow("", group_header)
                         _render_param_group(group.form_layout, val, key_path, level + 1)
                         if isinstance(parent_layout, QFormLayout):
@@ -2253,23 +2542,25 @@ class ConfigViewer(QWidget):
                         )
                         btn_del_param.clicked.connect(lambda _, kp=dotted_path: self._remove_universal_param(kp))
                         row.addWidget(btn_del_param)
+                        _reveal_remove_on_row_hover(row, btn_del_param)
+                        if not parent_path:
+                            self._add_sweep_toggle(row, "params", f"agent.{key}", val)
+                        elif parent_path[0] in ("agent", "model") and len(parent_path) == 1 and key not in ("name", "type", "algorithm", "architecture"):
+                            self._add_sweep_toggle(row, "params", dotted_path, val)
                     row.addStretch()
-                    rendered_u_rows.append(row)
                     if isinstance(parent_layout, QFormLayout):
                         parent_layout.addRow("", row)
+                        if getattr(row, "_sweep_block", None):
+                            parent_layout.addRow(row._sweep_block)
                     else:
                         parent_layout.addLayout(row)
+                        if getattr(row, "_sweep_block", None):
+                            parent_layout.addWidget(row._sweep_block)
 
             _render_param_group(p_layout, curr_params)
-
-            if rendered_u_rows:
-                rendered_u_rows[-1].insertWidget(rendered_u_rows[-1].count() - 1, btn_add_u)
-            else:
-                row_empty_p = QHBoxLayout()
-                row_empty_p.addWidget(label("No shared parameters configured.", "muted"))
-                row_empty_p.addWidget(btn_add_u)
-                row_empty_p.addStretch()
-                p_layout.addLayout(row_empty_p)
+            shared_sweeps = QFormLayout()
+            self._render_method_sweeps(shared_sweeps, "params", curr_params, exclude_prefix="config.")
+            p_layout.addLayout(shared_sweeps)
 
             m_layout.addWidget(p_card)
 
@@ -2468,7 +2759,7 @@ class ConfigViewer(QWidget):
                         )
 
                         agent_defaults = dict(tree.agent_hyperparameters(agent_val)) if (tree and agent_val) else {}
-                        agent_param_keys = set(agent_defaults.keys()) - set(TRAINING_HYPERPARAMETERS) - {"algorithm", "name", "type"}
+                        agent_param_keys = set(agent_defaults.keys()) - set(TRAINING_HYPERPARAMETERS) - {"algorithm", "name", "type", "enabled"}
 
                         # 1. Overridden keys in m_spec
                         _m_raw = m_spec.get("model", "")
@@ -2498,6 +2789,8 @@ class ConfigViewer(QWidget):
                                 btn_del_ap = _make_subtle_tool_button("close", f"Remove '{ak}'", size=20, icon_size=12)
                                 btn_del_ap.clicked.connect(lambda _, mn=m_name, pk=ak: self._remove_method_param(mn, pk))
                                 row_ap.addWidget(btn_del_ap)
+                                _reveal_remove_on_row_hover(row_ap, btn_del_ap)
+                                self._add_sweep_toggle(row_ap, m_name, f"agent.{ak}", av)
                                 agent_rows.append((str(ak), row_ap))
 
                         # 2. Defaults if show_ag_defs enabled
@@ -2540,6 +2833,8 @@ class ConfigViewer(QWidget):
                         for r_lbl, r_box in agent_rows:
                             r_box.addStretch()
                             agent_block.addRow(r_lbl, r_box)
+                            if getattr(r_box, "_sweep_block", None):
+                                agent_block.addRow(r_box._sweep_block)
                         sc_layout.addRow(agent_block)
 
                 # --- MODEL SECTION ---
@@ -2662,6 +2957,8 @@ class ConfigViewer(QWidget):
                             else:
                                 r_box.addStretch()
                                 model_block.addRow(r_lbl, r_box)
+                                if getattr(r_box, "_sweep_block", None):
+                                    model_block.addRow(r_box._sweep_block)
                         sc_layout.addRow(model_block)
                 else:
                     sc_layout.addRow("Model", txt_model)
@@ -2685,6 +2982,8 @@ class ConfigViewer(QWidget):
                     btn_del = _make_subtle_tool_button("close", "Remove lr parameter", size=20, icon_size=12)
                     btn_del.clicked.connect(lambda _, mn=m_name: self._remove_method_param(mn, "lr"))
                     row_lr.addWidget(btn_del)
+                    _reveal_remove_on_row_hover(row_lr, btn_del)
+                    self._add_sweep_toggle(row_lr, m_name, "agent.lr", m_spec["lr"])
                     train_rows.append(("Learning Rate (lr)", row_lr))
                 elif show_all_defs:
                     def_lr = float(u_params.get("lr") or base_def_spec.get("lr") or 0.0003)
@@ -2713,6 +3012,8 @@ class ConfigViewer(QWidget):
                     btn_del = _make_subtle_tool_button("close", "Remove batch_size parameter", size=20, icon_size=12)
                     btn_del.clicked.connect(lambda _, mn=m_name: self._remove_method_param(mn, "batch_size"))
                     row_bs.addWidget(btn_del)
+                    _reveal_remove_on_row_hover(row_bs, btn_del)
+                    self._add_sweep_toggle(row_bs, m_name, "agent.batch_size", m_spec["batch_size"])
                     train_rows.append(("Batch Size", row_bs))
                 elif show_all_defs:
                     def_bs = int(u_params.get("batch_size") or base_def_spec.get("batch_size") or 64)
@@ -2740,6 +3041,8 @@ class ConfigViewer(QWidget):
                     btn_del = _make_subtle_tool_button("close", "Remove gamma parameter", size=20, icon_size=12)
                     btn_del.clicked.connect(lambda _, mn=m_name: self._remove_method_param(mn, "gamma"))
                     row_g.addWidget(btn_del)
+                    _reveal_remove_on_row_hover(row_g, btn_del)
+                    self._add_sweep_toggle(row_g, m_name, "agent.gamma", m_spec["gamma"])
                     train_rows.append(("Discount Factor (γ)", row_g))
                 elif show_all_defs:
                     def_gamma = float(u_params.get("gamma") or base_def_spec.get("gamma") or 0.99)
@@ -2756,7 +3059,7 @@ class ConfigViewer(QWidget):
                     row_g.addWidget(lbl_def)
                     train_rows.append(("Discount Factor (γ)", row_g))
 
-                consumed_keys = {"agent", "model", "base", "lr", "batch_size", "gamma"}
+                consumed_keys = {"agent", "model", "base", "enabled", "lr", "batch_size", "gamma"}
                 consumed_keys.update(agent_keys_present)
                 consumed_keys.update(model_keys_present)
 
@@ -2788,12 +3091,18 @@ class ConfigViewer(QWidget):
                         btn_del = _make_subtle_tool_button("close", f"Remove '{extra_k}'", size=20, icon_size=12)
                         btn_del.clicked.connect(lambda _, mn=m_name, ek=extra_k: self._remove_method_param(mn, ek))
                         row_extra.addWidget(btn_del)
+                        _reveal_remove_on_row_hover(row_extra, btn_del)
+                        self._add_sweep_toggle(row_extra, m_name, f"agent.{extra_k}", extra_v)
                         train_rows.append((str(extra_k), row_extra))
 
                 if train_rows:
                     for t_lbl, t_row in train_rows:
                         t_row.addStretch()
                         sc_layout.addRow(t_lbl, t_row)
+                        if getattr(t_row, "_sweep_block", None):
+                            sc_layout.addRow(t_row._sweep_block)
+
+                self._render_method_sweeps(sc_layout, m_name, m_spec)
 
                 card_vbox.addLayout(sc_layout)
                 card_vbox.addStretch()
@@ -3004,6 +3313,7 @@ class ConfigViewer(QWidget):
             box_ckpt.add_layout(grid_c)
             self.boxes_layout.addWidget(box_ckpt)
 
+        self._render_sweep_box(data)
         self._render_component_overrides(data, resolved)
         self._render_remaining_sections()
 
@@ -3050,12 +3360,9 @@ class ConfigViewer(QWidget):
         act_ds.triggered.connect(lambda: self.add_block("dataset"))
         act_ds.setEnabled("dataset_path" not in data)
 
-        has_sweeper = (
-            (isinstance(data.get("hydra"), dict) and "sweeper" in data["hydra"])
-            or "sweeper" in data
-        )
-        act_sw = add_menu.addAction("Hyperparameter Sweeper (Optuna)")
-        act_sw.triggered.connect(lambda: self.add_block("sweeper"))
+        has_sweeper = "tuning" in data
+        act_sw = add_menu.addAction("Hyperparameter Sweep (Optuna)")
+        act_sw.triggered.connect(lambda: self.add_block("tuning"))
         act_sw.setEnabled(not has_sweeper)
         act_metrics = add_menu.addAction("Recorded Metrics")
         act_metrics.setToolTip("Record only some metrics (and skip the work behind the others) to train faster")
@@ -3510,6 +3817,7 @@ class ConfigViewer(QWidget):
         lower_keys = {
             "total_timesteps", "epochs", "seed", "eval_episodes", "eval_freq_steps",
             "eval_freq", "eval_every_n_epochs", "num_checkpoints", "checkpoint_every_steps",
+            "run_in_parallel",
             "save_dataset", "recover", "no_plot",
         }
         if self._plugin_enabled("tensorboard"):
@@ -3674,6 +3982,11 @@ class ConfigViewer(QWidget):
 
     def _remove_experiment_context_param(self, path: str) -> None:
         parts = path.split(".")
+        if len(parts) == 1:
+            self.raw_data.pop(path, None)
+            self._mark_dirty()
+            QTimer.singleShot(0, self._render_boxes)
+            return
         section, key = parts
         values = self.raw_data.get(section)
         if isinstance(values, dict):
@@ -3849,17 +4162,21 @@ class ConfigViewer(QWidget):
         return field
 
     def _render_remaining_sections(self):
-        """Surface every top-level key the fixed boxes do not cover.
+        """Surface structured top-level keys the fixed boxes do not cover.
 
         Without this an experiment's paradigm- or component-specific configuration
         is absent from the panel even though saving preserves it. Nested
-        dictionaries are rendered recursively so every value round-trips from
-        the panel, regardless of how a component structures its parameters.
+        dictionaries are rendered recursively so their values remain editable
+        regardless of how a component structures its parameters. Scalars are
+        already rendered in the experiment parameters box.
         """
         leftovers = {
             k: v for k, v in self.raw_data.items()
             if k not in FIXED_BOX_KEYS and k not in ("data_module", "evaluator", "plots", "plot_overrides")
         }
+        if isinstance(self.raw_data.get("tuning"), dict):
+            # The sweep has its own card; don't render it again as a generic section.
+            leftovers.pop("tuning", None)
         if isinstance(leftovers.get("telemetry"), dict):  # telemetry.metrics has its own box (Recorded Metrics)
             rest = {k: v for k, v in leftovers["telemetry"].items() if k != "metrics"}
             if rest:
@@ -3869,21 +4186,7 @@ class ConfigViewer(QWidget):
         if not leftovers:
             return
 
-        scalars = {k: v for k, v in leftovers.items() if not isinstance(v, (dict, list))}
         sections = {k: v for k, v in leftovers.items() if isinstance(v, (dict, list))}
-
-        if scalars:
-            box = ConfigBox()
-            # ConfigBox drops its title argument since the param box headers were
-            # removed, and an unlabelled box of tau_min/tau_max tells you nothing,
-            # so these sections carry their own heading the way method cards do.
-            box.add_widget(label("Additional Settings", "cardTitle"))
-            form = QFormLayout()
-            form.setVerticalSpacing(8)
-            for key, value in scalars.items():
-                form.addRow(key, self._scalar_widget(value, lambda v, k=key: self._on_field_edited(k, v)))
-            box.add_layout(form)
-            self.boxes_layout.addWidget(box)
 
         for name, value in sections.items():
             box = ConfigBox()
@@ -3926,35 +4229,20 @@ class ConfigViewer(QWidget):
         data = self.raw_data
 
         stem = self.current_path.stem if self.current_path else ""
-        rel_path = str(self.current_rel_path or "")
 
-        # --- Component Overview Header Card ---
-        overview_box = ConfigBox()
-        ov_layout = QVBoxLayout()
-        ov_layout.setContentsMargins(14, 12, 14, 12)
-        ov_layout.setSpacing(8)
+        # --- Component Parameters Card ---
+        box_props = ConfigBox()
+        hdr_layout = QHBoxLayout()
+        hdr_layout.setSpacing(8)
+        hdr_layout.addStretch()
 
-        top_row = QHBoxLayout()
-        top_row.setSpacing(10)
+        btn_add_p = _make_subtle_tool_button("plus", "Add parameter", size=22, icon_size=12)
+        btn_add_p.clicked.connect(self._prompt_add_generic_leaf_param)
+        hdr_layout.addWidget(btn_add_p)
+        box_props.add_layout(hdr_layout)
 
-        title_lbl = QLabel(stem)
-        title_lbl.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {theme_color('text')};")
-        top_row.addWidget(title_lbl)
-
-        kind_name, pill_color_role = _get_component_kind(rel_path)
-        kind_badge = QLabel(f" {kind_name} ")
-        kind_badge.setStyleSheet(f"""
-            background-color: {theme_color('surface')};
-            color: {theme_color(pill_color_role)};
-            border: 1px solid {theme_color('border')};
-            border-radius: 10px;
-            padding: 2px 8px;
-            font-size: 11px;
-            font-weight: 600;
-        """)
-        top_row.addWidget(kind_badge)
-        top_row.addStretch()
-        ov_layout.addLayout(top_row)
+        form = QFormLayout()
+        form.setVerticalSpacing(8)
 
         desc = str(self.raw_data.get("description", "") or "").strip()
         desc_edit = QLineEdit(desc)
@@ -3974,10 +4262,7 @@ class ConfigViewer(QWidget):
             }}
         """)
         desc_edit.textChanged.connect(lambda val: self._on_field_edited("description", val.strip()))
-        ov_layout.addWidget(desc_edit)
-
-        overview_box.add_layout(ov_layout)
-        self.boxes_layout.addWidget(overview_box)
+        form.addRow("Description", desc_edit)
 
         leaf_params = {}
         nested_sections = {}
@@ -3994,23 +4279,7 @@ class ConfigViewer(QWidget):
             else:
                 leaf_params[k] = v
 
-        # --- Parameters Card (Scalars and Lists) ---
-        box_props = ConfigBox()
-        hdr_layout = QHBoxLayout()
-        hdr_layout.setSpacing(8)
-        lbl_card_title = label("Parameters", "cardTitle")
-        hdr_layout.addWidget(lbl_card_title)
-        hdr_layout.addWidget(label(f"Settings in {stem}", "muted"))
-        hdr_layout.addStretch()
-
-        btn_add_p = _make_subtle_tool_button("plus", "Add parameter", size=22, icon_size=12)
-        btn_add_p.clicked.connect(self._prompt_add_generic_leaf_param)
-        hdr_layout.addWidget(btn_add_p)
-        box_props.add_layout(hdr_layout)
-
         if leaf_params:
-            form = QFormLayout()
-            form.setVerticalSpacing(8)
             for k, v in leaf_params.items():
                 row = QHBoxLayout()
                 row.setSpacing(8)
@@ -4059,14 +4328,16 @@ class ConfigViewer(QWidget):
                 btn_del = _make_subtle_tool_button("close", f"Remove '{k}'", size=20, icon_size=12)
                 btn_del.clicked.connect(lambda _, key=k: self._remove_generic_field(key))
                 row.addWidget(btn_del)
+                _reveal_remove_on_row_hover(row, btn_del)
                 row.addStretch()
                 form.addRow(k, row)
-            box_props.add_layout(form)
-        else:
+        elif not desc:
             empty_row = QHBoxLayout()
             empty_row.addWidget(label("No parameters configured. Click '+' to add one.", "muted"))
             empty_row.addStretch()
-            box_props.add_layout(empty_row)
+            form.addRow("", empty_row)
+
+        box_props.add_layout(form)
 
         self.boxes_layout.addWidget(box_props)
 
@@ -4164,6 +4435,7 @@ class ConfigViewer(QWidget):
                 btn_del = _make_subtle_tool_button("close", f"Remove '{k}'", size=20, icon_size=12)
                 btn_del.clicked.connect(lambda _, p=path + (k,): self._remove_generic_path(p))
                 row.addWidget(btn_del)
+                _reveal_remove_on_row_hover(row, btn_del)
                 row.addStretch()
                 parent_layout.addRow(k, row)
 
@@ -4601,6 +4873,15 @@ class ConfigViewer(QWidget):
             target = target.get(key, {}) if isinstance(target, dict) else {}
         if isinstance(target, dict):
             target.pop(path[-1], None)
+            spec = self.raw_data.get("methods", {}).get(method_name, {})
+            dimensions = spec.get("tune", {})
+            if isinstance(dimensions, dict):
+                prefix = "model." + ".".join(path)
+                for key in list(dimensions):
+                    if key == prefix or key.startswith(prefix + "."):
+                        dimensions.pop(key)
+                if not dimensions:
+                    spec.pop("tune", None)
             self._mark_dirty()
             self._render_boxes()
 
@@ -4736,6 +5017,7 @@ class ConfigViewer(QWidget):
                         self._remove_method_model_parameter(mn, parent, p)
                     )
                     row.addWidget(delete_slot)
+                    _reveal_remove_on_row_hover(row, delete_slot)
                     rows.append((str(key), row))
                     child_rows = self._render_method_model_parameters(
                         method_name,
@@ -4756,6 +5038,8 @@ class ConfigViewer(QWidget):
                             else:
                                 child_row.addStretch()
                                 child_block.addRow(child_label, child_row)
+                                if getattr(child_row, "_sweep_block", None):
+                                    child_block.addRow(child_row._sweep_block)
                         rows.append(("", child_block))
                 else:
                     delete_slot = _make_subtle_tool_button("close", f"Remove '{key}'", size=20, icon_size=12)
@@ -4764,6 +5048,7 @@ class ConfigViewer(QWidget):
                         self._remove_method_model_parameter(mn, parent, p)
                     )
                     row.addWidget(delete_slot)
+                    _reveal_remove_on_row_hover(row, delete_slot)
                     rows.append((str(key), row))
                 continue
 
@@ -4901,6 +5186,7 @@ class ConfigViewer(QWidget):
                     self._remove_method_model_parameter(mn, parent, p)
                 )
                 row.addWidget(delete_group)
+                _reveal_remove_on_row_hover(row, delete_group)
                 rows.append((str(key), row))
                 if has_model_slot:
                     rows.append(("", model_block))
@@ -4927,6 +5213,7 @@ class ConfigViewer(QWidget):
                     lambda _, mn=method_name, model=model_name, p=param_path: self._remove_method_model_parameter(mn, model, p)
                 )
                 header.addWidget(delete_group)
+                _reveal_remove_on_row_hover(header, delete_group)
                 block.addRow("", header)
                 for child_label, child_row in self._render_method_model_parameters(
                     method_name, model_name, child_values, child_defaults, param_path, level + 1, show_defaults,
@@ -4937,6 +5224,8 @@ class ConfigViewer(QWidget):
                     else:
                         child_row.addStretch()
                         block.addRow(child_label, child_row)
+                        if getattr(child_row, "_sweep_block", None):
+                            block.addRow(child_row._sweep_block)
                 rows.append(("", block))
                 continue
 
@@ -4954,6 +5243,9 @@ class ConfigViewer(QWidget):
                 lambda _, mn=method_name, model=model_name, p=param_path: self._remove_method_model_parameter(mn, model, p)
             )
             row.addWidget(delete_value)
+            _reveal_remove_on_row_hover(row, delete_value)
+            if present:
+                self._add_sweep_toggle(row, method_name, "model." + ".".join(param_path), value)
             if not present:
                 row.addWidget(QLabel("(default)"))
             row.addStretch()
@@ -4987,6 +5279,8 @@ class ConfigViewer(QWidget):
             self.raw_data.pop("trainer", None)
         elif block_name == "checkpoint":
             self.raw_data.pop("checkpoint", None)
+        elif block_name == "tuning":
+            self.raw_data.pop("tuning", None)
         elif block_name == "env":
             if isinstance(self.raw_data.get("env"), dict):
                 self.raw_data.pop("env", None)
@@ -4995,6 +5289,7 @@ class ConfigViewer(QWidget):
             self.raw_data.pop("offline_datasets", None)
             self.raw_data.pop("data_module", None)
         elif block_name == "params":
+            self._show_empty_shared_params = False
             if "methods" in self.raw_data and isinstance(self.raw_data["methods"], dict):
                 self.raw_data["methods"].pop("params", None)
         elif block_name in ("data_module", "evaluator"):
@@ -5010,6 +5305,219 @@ class ConfigViewer(QWidget):
                     self.raw_data.pop("telemetry", None)
         self._mark_dirty()
         self._render_boxes()
+
+    def _add_sweep_toggle(self, row, method, target, value):
+        if not isinstance(self.raw_data.get("tuning"), dict):
+            return
+        dimensions = self.raw_data.get("methods", {}).get(method, {}).get("tune", {})
+        dimension = dimensions.get(target) if isinstance(dimensions, dict) else None
+        pending = getattr(self, "_pending_sweep", None) == (method, target)
+        if not pending and not isinstance(dimension, dict):
+            button = _make_subtle_tool_button("sweep", f"Configure sweep for {target}", size=20, icon_size=14)
+            button.setObjectName("sweepToggle_" + method + "_" + target)
+            button.clicked.connect(lambda: self._toggle_method_sweep(method, target, value))
+            delete_index = next(
+                (i for i in range(row.count())
+                 if isinstance(row.itemAt(i).widget(), QToolButton)
+                 and row.itemAt(i).widget().toolTip().startswith("Remove")),
+                row.count(),
+            )
+            row.insertWidget(delete_index, button)
+            _reveal_remove_on_row_hover(row, button)
+            return
+        # The existing row X removes the sweep first; after rerender it resumes
+        # its normal parameter-removal action.
+        delete = None
+        for i in range(row.count()):
+            delete = row.itemAt(i).widget()
+            if isinstance(delete, QToolButton) and delete.toolTip().startswith("Remove"):
+                delete.clicked.disconnect()
+                delete.setToolTip("Remove sweep")
+                delete.setObjectName(f"sweepRemove_{method}_{target}")
+                delete.clicked.connect(lambda _, m=method, t=target, v=value: self._cancel_sweep_setup(m, t) if pending else self._toggle_method_sweep(m, t, v))
+                row.setAlignment(delete, Qt.AlignmentFlag.AlignTop)
+                break
+        # Replace the value widget in this row, preserving its underlying config value.
+        for index in range(row.count()):
+            widget = row.itemAt(index).widget()
+            if widget is not None and not isinstance(widget, (QLabel, QToolButton)):
+                row.removeWidget(widget)
+                # Hover handlers already reference this control; keep it alive
+                # until the row's parent is destroyed on the next render.
+                widget.hide()
+                break
+        else:
+            return
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        combo = _SweepTypePicker()
+        combo.setObjectName("sweepType_" + method + "_" + target)
+        combo.addItem("Select sweep type…", None)
+        for title, key in (("List", "choice"), ("Integer range", "int"), ("Numeric range", "float"), ("Log numeric range", "log_float")):
+            combo.addItem(title, key)
+        combo.setCurrentIndex(max(0, combo.findData(dimension.get("type") if isinstance(dimension, dict) else None)))
+        combo.activated.connect(lambda _, m=method, t=target, v=value, c=combo: self._select_sweep_type(m, t, v, c.currentData()))
+        if pending:
+            combo.cancelled.connect(lambda m=method, t=target: self._cancel_sweep_setup(m, t))
+            def open_picker(c=combo):
+                if not sip.isdeleted(c):
+                    c.setFocus()
+                    c.showPopup()
+            QTimer.singleShot(0, open_picker)
+        layout.addWidget(combo)
+        if delete is not None:
+            for hover in delete.findChildren(_RowHoverReveal):
+                hover._targets = [weakref.ref(combo)]
+                combo.setMouseTracking(True)
+                combo.installEventFilter(hover)
+        if isinstance(dimension, dict):
+            kind = dimension.get("type")
+            block = IndentedHierarchyBlock(level=1)
+            if kind == "choice":
+                values = dimension.get("values", [])
+                if isinstance(values, list):
+                    for i, item in enumerate(values):
+                        line = QHBoxLayout()
+                        edit = QLineEdit(yaml.safe_dump(item, default_flow_style=True).strip().removesuffix("\n...") if item != "" else "")
+                        edit.setPlaceholderText("Value")
+                        edit.setObjectName(f"sweep_choice_{method}_{target}_{i}")
+                        edit.textChanged.connect(lambda text, m=method, t=target, n=i: self._edit_sweep_choice(m, t, n, text))
+                        line.addWidget(edit)
+                        remove = _make_subtle_tool_button("close", "Remove value", size=20, icon_size=14)
+                        remove.clicked.connect(lambda _, m=method, t=target, n=i: self._remove_sweep_choice(m, t, n))
+                        line.addWidget(remove)
+                        block.addRow(f"Value {i + 1}", line)
+                    add = _make_subtle_tool_button("plus", "Add value", size=20, icon_size=14)
+                    add.setObjectName(f"sweepAddChoice_{method}_{target}")
+                    add.clicked.connect(lambda _, m=method, t=target: self._add_sweep_choice(m, t))
+                    block.addRow("", add)
+            else:
+                fields = [("low", "Lower bound"), ("high", "Upper bound")]
+                if kind != "log_float":
+                    fields.append(("step", "Step (optional)"))
+                for key, title in fields:
+                    edit = QLineEdit()
+                    edit.setObjectName(f"sweep_{key}_{method}_{target}")
+                    if key == "step":
+                        edit.setPlaceholderText("Leave blank for no step")
+                    if dimension.get(key) is not None:
+                        edit.setText(str(dimension[key]))
+                    edit.textChanged.connect(lambda text, m=method, t=target, k=key: self._edit_sweep_dimension(m, t, k, text))
+                    block.addRow(title, edit)
+            row._sweep_block = block
+        row.insertLayout(index, layout)
+
+    def _toggle_method_sweep(self, method, target, value):
+        spec = self.raw_data.get("methods", {}).get(method, {})
+        dimensions = spec.get("tune", {})
+        if isinstance(dimensions, dict) and target in dimensions:
+            dimensions.pop(target)
+            if not dimensions:
+                spec.pop("tune", None)
+            self._mark_dirty()
+        else:
+            self._pending_sweep = (method, target)
+        self._render_boxes()
+
+    def _cancel_sweep_setup(self, method, target):
+        if getattr(self, "_pending_sweep", None) == (method, target):
+            self._pending_sweep = None
+            self._render_boxes()
+
+    def _select_sweep_type(self, method, target, value, kind):
+        if kind is None:
+            self._cancel_sweep_setup(method, target)
+            return
+        self._pending_sweep = None
+        dimensions = self.raw_data.setdefault("methods", {}).setdefault(method, {}).setdefault("tune", {})
+        if kind == "choice":
+            dimensions[target] = {"type": kind, "values": [value, ""]}
+        else:
+            base = value if isinstance(value, (int, float)) and not isinstance(value, bool) else 1
+            if kind == "int":
+                base = int(base)
+            dimensions[target] = {"type": kind, "low": base, "high": base}
+        self._mark_dirty()
+        self._render_boxes()
+
+    def _edit_sweep_choice(self, method, target, index, text):
+        try:
+            value = yaml.safe_load(text) if text.strip() else ""
+        except yaml.YAMLError:
+            value = text
+        self.raw_data["methods"][method]["tune"][target]["values"][index] = value
+        self._mark_dirty()
+
+    def _add_sweep_choice(self, method, target):
+        self.raw_data["methods"][method]["tune"][target]["values"].append("")
+        self._mark_dirty()
+        self._render_boxes()
+
+    def _remove_sweep_choice(self, method, target, index):
+        self.raw_data["methods"][method]["tune"][target]["values"].pop(index)
+        self._mark_dirty()
+        self._render_boxes()
+
+    def _render_method_sweeps(self, form, method, spec, prefix=None, exclude_prefix=None):
+        # Unknown legacy expressions remain visible and untouched.
+        for target, dimension in spec.get("tune", {}).items() if isinstance(spec.get("tune", {}), dict) else ():
+            if isinstance(dimension, dict) or (prefix and not target.startswith(prefix)) or (exclude_prefix and target.startswith(exclude_prefix)):
+                continue
+            form.addRow("Sweep (legacy)", label(f"{target}: {dimension}", "muted"))
+
+    def _edit_sweep_dimension(self, method, target, key, text):
+        dimension = self.raw_data["methods"][method]["tune"][target]
+        if key == "step" and not text.strip():
+            dimension.pop(key, None)
+        else:
+            try:
+                dimension[key] = yaml.safe_load(text) if text.strip() else ""
+            except yaml.YAMLError:
+                dimension[key] = text
+        self._mark_dirty()
+
+    def _render_sweep_box(self, data):
+        tuning = data.get("tuning")
+        if not isinstance(tuning, dict):
+            return
+        box = ConfigBox("Hyperparameter Sweep", "Optimize each method independently")
+        header = QHBoxLayout()
+        title = label("Hyperparameter Sweep", "heading")
+        title.setStyleSheet("font-size: 23px; font-weight: 600;")
+        header.addWidget(title)
+        header.addStretch()
+        remove = _make_subtle_tool_button("trash", "Remove hyperparameter sweep", size=24, icon_size=14)
+        remove.clicked.connect(lambda: self.remove_block("tuning"))
+        header.addWidget(remove)
+        box.add_layout(header)
+        grid = QGridLayout()
+        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(16)
+        metric = QLineEdit()
+        metric.setObjectName("sweepMetric")
+        metric.setText(str(tuning.get("metric") or ""))
+        metric.setPlaceholderText("Objective metric")
+        metric.textChanged.connect(lambda v: self._on_nested_edited("tuning", "metric", v.strip()))
+        grid.addWidget(label("Objective metric"), 0, 0)
+        grid.addWidget(metric, 0, 1)
+        direction = ComboBox()
+        direction.setObjectName("sweepDirection")
+        direction.addItems(["maximize", "minimize"])
+        direction.setCurrentText(str(tuning.get("direction") or "minimize"))
+        direction.currentTextChanged.connect(lambda v: self._on_nested_edited("tuning", "direction", v))
+        grid.addWidget(label("Direction"), 0, 2)
+        grid.addWidget(direction, 0, 3)
+        for column, key, title, default in ((0, "n_trials", "Trials", 40), (2, "n_jobs", "Parallel trials", 1)):
+            spin = SpinBox()
+            spin.setObjectName("sweep_" + key)
+            spin.setRange(1, 100000)
+            spin.setValue(int(tuning.get(key, default)))
+            spin.valueChanged.connect(lambda v, k=key: self._on_nested_edited("tuning", k, v))
+            grid.addWidget(label(title), 1, column)
+            grid.addWidget(spin, 1, column + 1)
+        box.add_layout(grid)
+        self.boxes_layout.addWidget(box)
 
     def _render_metrics_box(self, data, resolved):
         """Recorded metrics (telemetry.metrics): shown once the experiment sets the list."""
@@ -5049,6 +5557,10 @@ class ConfigViewer(QWidget):
             self.raw_data["trainer"] = {"accelerator": "cpu", "max_epochs": 25}
         elif block_name == "checkpoint":
             self.raw_data["checkpoint"] = {"monitor": "val/loss", "mode": "min", "save_top_k": 1, "every_n_epochs": 1}
+        elif block_name in ("tuning", "sweeper"):
+            paradigm = self.raw_data.get("paradigm") or self._inherited_paradigm()
+            online = paradigm == "online_rl"
+            self.raw_data["tuning"] = {"metric": "eval/reward" if online else "val/loss", "direction": "maximize" if online else "minimize", "n_trials": 40, "n_jobs": 1}
         elif block_name == "env":
             self.raw_data["env"] = {}
         elif block_name == "dataset":
@@ -5060,7 +5572,8 @@ class ConfigViewer(QWidget):
             env_name = self.env_selection() or self._get_explicit_env() or self._inherited_env() or self._group_name() or "dataset"
             self.raw_data["dataset_path"] = self._get_resolved_defaults().get("dataset_path") or f"in/datasets/{env_name}"
         elif block_name == "params":
-            self.raw_data.setdefault("methods", {})["params"] = {"lr": 0.0003}
+            self._show_empty_shared_params = True
+            self.raw_data.setdefault("methods", {})["params"] = {}
         elif block_name == "metrics":
             # Start from what the run records anyway: every section ticked, so nothing changes until unticked.
             telemetry = self.raw_data.setdefault("telemetry", {})
@@ -5085,6 +5598,7 @@ class ConfigViewer(QWidget):
 
     def _remove_universal_param(self, key):
         if "methods" in self.raw_data and "params" in self.raw_data["methods"]:
+            self._show_empty_shared_params = True
             params = self.raw_data["methods"]["params"]
             if "." in key:
                 parts = key.split(".")
@@ -5101,10 +5615,40 @@ class ConfigViewer(QWidget):
                     params.pop(parts[0], None)
             else:
                 params.pop(key, None)
+            dimensions = params.get("tune", {})
+            if isinstance(dimensions, dict):
+                dimensions.pop(key, None)
+                dimensions.pop("agent." + key, None)
+                dimensions.pop("model." + key, None)
+                if not dimensions:
+                    params.pop("tune", None)
             if not self.raw_data["methods"]["params"]:
                 self.raw_data["methods"].pop("params", None)
             self._mark_dirty()
             self._render_boxes()
+
+    def _remove_experiment_parameter(self, key):
+        self.raw_data.pop(key, None)
+        params = self.raw_data.get("methods", {}).get("params", {})
+        dimensions = params.get("tune", {}) if isinstance(params, dict) else {}
+        if isinstance(dimensions, dict):
+            dimensions.pop("config." + key, None)
+            if not dimensions:
+                params.pop("tune", None)
+        self._mark_dirty()
+        self._render_boxes()
+
+    def _select_shared_component(self, kind, old, selected):
+        if self._block_updates or not selected or selected == old:
+            return
+        params = self.raw_data.setdefault("methods", {}).setdefault("params", {})
+        components = params.setdefault(kind, {})
+        if not isinstance(components, dict):
+            return
+        previous = components.pop(old, {}) if old else {}
+        components.setdefault(selected, previous)
+        self._mark_dirty()
+        self._render_boxes()
 
     def _add_universal_param(self, key, value=None):
         if not key:
@@ -5208,6 +5752,12 @@ class ConfigViewer(QWidget):
                 if isinstance(m_spec["model"].get(model_name), dict):
                     m_spec["model"][model_name].pop(param_key, None)
             m_spec.pop(param_key, None)
+            dimensions = m_spec.get("tune", {})
+            if isinstance(dimensions, dict):
+                dimensions.pop("agent." + param_key, None)
+                dimensions.pop("model." + param_key, None)
+                if not dimensions:
+                    m_spec.pop("tune", None)
             self._mark_dirty()
             self._render_boxes()
 

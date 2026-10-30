@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSlider,
     QSplitter,
@@ -168,11 +169,14 @@ class ResultsPanel(QWidget):
         self.refresh_button.setToolTip("Re-read results/ through the backend")
         self.refresh_button.clicked.connect(self.refresh)
 
-        self.explorer = RunExplorer()
-        self.explorer.setMinimumWidth(220)
+        self.explorer = RunExplorer(settings_manager=settings)
         self.explorer.selection_changed.connect(self._selection_changed)
         self.explorer.manifest_wanted.connect(self.loader.load_manifest)
         self.explorer.refresh_requested.connect(self.refresh)
+        self.explorer.archive_requested.connect(self._archive_run)
+        self.explorer.delete_requested.connect(self._delete_run)
+        self.explorer.archive_group_requested.connect(self._archive_group)
+        self.explorer.delete_group_requested.connect(self._delete_group)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.tab_corner = QWidget()  # buttons a layout puts beside the tabs (the Control rail's Export)
@@ -450,6 +454,62 @@ class ResultsPanel(QWidget):
         for source in self.sources:
             self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
+
+    def _archive_run(self, group, experiment):
+        path, _ = QFileDialog.getSaveFileName(self, "Archive run", f"{group}-{experiment}.zip", "ZIP archives (*.zip)")
+        if not path:
+            return
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        self.status.setText(f"Archiving {group}/{experiment}…")
+        self.loader.backend.archive_run(group, experiment, path,
+                                        lambda _, error: self._run_action_done("Archive", error, path))
+
+    def _delete_run(self, group, experiment):
+        live = f"{group}/{experiment}" in self.unfinished
+        warning = " This run may still be training." if live else ""
+        answer = QMessageBox.question(
+            self, "Delete run", f"Permanently delete {group}/{experiment} and its files across results folders?{warning}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.status.setText(f"Deleting {group}/{experiment}…")
+        self.loader.backend.delete_run(group, experiment,
+                                       lambda _, error: self._run_action_done("Delete", error))
+
+    def _archive_group(self, group):
+        path, _ = QFileDialog.getSaveFileName(self, "Archive group", f"{group}.zip", "ZIP archives (*.zip)")
+        if not path:
+            return
+        if not path.lower().endswith(".zip"):
+            path += ".zip"
+        self.status.setText(f"Archiving group {group}…")
+        self.loader.backend.archive_group(group, path,
+                                          lambda _, error: self._run_action_done("Archive", error, path))
+
+    def _delete_group(self, group):
+        live = any(key.startswith(f"{group}/") for key in self.unfinished)
+        warning = " Some runs in this group may still be training." if live else ""
+        answer = QMessageBox.question(
+            self, "Delete group",
+            f"Permanently delete group {group} and all its runs and files across results folders?{warning}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.status.setText(f"Deleting group {group}…")
+        self.loader.backend.delete_group(group, lambda _, error: self._run_action_done("Delete", error))
+
+    def _run_action_done(self, action, error, path=None):
+        if error:
+            QMessageBox.warning(self, f"{action} failed", str(error))
+            self.refresh()
+        elif action == "Delete":
+            self.loader.clear()
+            self.loader.list_runs()
+        else:
+            self.status.setText(f"Archived to {path}")
 
     def set_offline(self):
         self.status.setText(

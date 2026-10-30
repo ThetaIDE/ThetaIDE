@@ -326,6 +326,24 @@ class TestBuildMethodOverrides:
         # Ensure tune dict is not passed as a hyperparameter
         assert not any("agent.tune" in o for o in overrides)
 
+    def test_typed_sweep_dimensions(self):
+        method = {"agent": "cql", "model": "dnn", "tune": {
+            "agent.lr": {"type": "log_float", "low": 0.0001, "high": 0.01},
+            "model.width": {"type": "int", "low": 2, "high": 6, "step": 2},
+            "agent.enabled": {"type": "choice", "values": [True, False]},
+        }}
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl"}, is_sweep=True)
+        assert "agent.lr=tag(log, interval(0.0001, 0.01))" in overrides
+        assert "model.width=range(2, 6, 2)" in overrides
+        assert "agent.enabled=choice(true,false)" in overrides
+
+    def test_sweep_does_not_override_sample_with_base_value(self):
+        method = {"agent": "cql", "model": "dnn", "lr": 0.001,
+                  "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}}
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl"}, is_sweep=True)
+        assert "agent.lr=interval(0.0001, 0.01)" in overrides
+        assert not any(arg.startswith("++agent.lr=") for arg in overrides)
+
     def test_mixed_experiment_single_and_sweep(self):
         """Experiment with one untuned and one tuned method dispatches single vs sweep cleanly."""
         cfg_dict = {

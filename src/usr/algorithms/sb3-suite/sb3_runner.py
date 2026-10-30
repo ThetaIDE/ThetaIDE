@@ -8,8 +8,11 @@ by default) and saving checkpoints adhering to the Theta-IDE execution contract.
 from __future__ import annotations
 
 import os
+import math
 import sys
 import time
+from collections import deque
+from numbers import Real
 from pathlib import Path
 
 # Ensure project root is in sys.path
@@ -23,12 +26,61 @@ from omegaconf import DictConfig, OmegaConf
 from src.app import telemetry
 
 
+class EpisodeMetrics:
+    """Collect every completed training episode, including between logger dumps."""
+
+    def __init__(self, run, window=100):
+        self.run = run
+        self.rewards = deque(maxlen=window)
+        self.lengths = deque(maxlen=window)
+
+    def record(self, infos, transitions):
+        for info in infos:
+            episode = info.get("episode")
+            if not episode:
+                continue
+            reward, length = float(episode["r"]), float(episode["l"])
+            self.rewards.append(reward)
+            self.lengths.append(length)
+            self.run.log({"train/episode_reward": reward, "train/episode_length": length,
+                          "train/reward": sum(self.rewards) / len(self.rewards),
+                          "train/length": sum(self.lengths) / len(self.lengths)},
+                         step=transitions, transitions=transitions)
+
+
+class ThetaSB3Writer:
+    """Forward SB3's actual logger dumps, once per update, to Theta telemetry."""
+
+    def __init__(self, run, callback):
+        self.run, self.callback = run, callback
+
+    def write(self, key_values, key_excluded, step=0):
+        metrics = {}
+        for key, value in key_values.items():
+            if not isinstance(value, Real) or isinstance(value, bool) or not math.isfinite(float(value)):
+                continue
+            if key.startswith("train/"):
+                name = f"losses/{key}" if "loss" in key else f"diagnostics/{key[6:]}"
+            elif key in ("time/fps", "time/time_elapsed"):
+                name = key
+            else:
+                continue
+            metrics[name] = float(value)
+        if metrics:
+            transitions = self.callback.num_timesteps
+            self.run.log(metrics, step=transitions, transitions=transitions)
+
+    def close(self):
+        pass
+
+
 @hydra.main(version_base=None, config_path="../../../../in/config", config_name="config")
 def main(cfg: DictConfig):
     try:
         import stable_baselines3 as sb3
         from stable_baselines3 import A2C, DQN, PPO, SAC
         from stable_baselines3.common.callbacks import BaseCallback
+        from stable_baselines3.common.logger import KVWriter
     except ImportError:
         print(
             "\n[Error] Stable-Baselines3 is not installed in the active environment.\n"
@@ -74,43 +126,27 @@ def main(cfg: DictConfig):
         system_interval=system_interval,
     )
 
+    from hydra.core.hydra_config import HydraConfig
+
+    hydra_cfg = HydraConfig.get()
+    is_sweep = hydra_cfg.mode.name == "MULTIRUN"
     ckpt_dir = Path("results/checkpoints") / group / exp_id / agent_name.replace("/", "_")
+    if is_sweep:
+        ckpt_dir = ckpt_dir / "sweeps" / str(hydra_cfg.sweeper.study_name) / f"trial_{hydra_cfg.job.num}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # Custom SB3 Callback to bridge telemetry into the Theta-IDE telemetry run
     class ThetaMetricsCallback(BaseCallback):
-        def __init__(self, run: telemetry.Run, eval_freq: int = 1000):
+        def __init__(self, run: telemetry.Run):
             super().__init__()
             self.run = run
-            self.eval_freq = eval_freq
-            self.last_eval_step = 0
+            self.episodes = EpisodeMetrics(run)
+
+        def _on_training_start(self) -> None:
+            self.model.logger.output_formats.append(SB3TelemetryWriter(self.run, self))
 
         def _on_step(self) -> bool:
-            # Check episodic rewards from monitor or locals
-            if self.n_calls % self.eval_freq == 0:
-                infos = self.locals.get("infos", [])
-                ep_rewards = []
-                for info in infos:
-                    if "episode" in info:
-                        ep_rewards.append(info["episode"]["r"])
-
-                metrics = {}
-                if ep_rewards:
-                    mean_r = float(sum(ep_rewards) / len(ep_rewards))
-                    metrics["eval/reward"] = mean_r
-                    metrics["train/reward"] = mean_r
-
-                # Extract loss metrics from SB3 logger if available
-                if hasattr(self.model, "logger") and hasattr(self.model.logger, "name_to_value"):
-                    for k, v in self.model.logger.name_to_value.items():
-                        if "loss" in k:
-                            metrics[f"losses/{k}"] = float(v)
-
-                self.run.log(
-                    metrics,
-                    step=self.n_calls,
-                    transitions=self.num_timesteps,
-                )
+            self.episodes.record(self.locals.get("infos", []), self.num_timesteps)
             return True
 
     # Build environment with Monitor wrapper for episode stats
@@ -163,13 +199,29 @@ def main(cfg: DictConfig):
 
     model = AlgoClass(policy_type, env, verbose=1, **algo_kwargs)
 
-    cb = ThetaMetricsCallback(run=logger, eval_freq=1000)
+    class SB3TelemetryWriter(ThetaSB3Writer, KVWriter):
+        pass
+
+    cb = ThetaMetricsCallback(run=logger)
 
     start_time = time.time()
     status = "failed"
+    objective = None
     logger.event("stage", "Training started", stage="training")
     try:
         model.learn(total_timesteps=total_timesteps, callback=cb)
+        tuning = cfg.get("tuning")
+        if is_sweep:
+            metric = tuning.get("metric") if tuning is not None else "eval/reward"
+            if metric != "eval/reward":
+                raise ValueError(f"SB3 sweep objective {metric!r} is not supported; use 'eval/reward'.")
+            from stable_baselines3.common.evaluation import evaluate_policy
+
+            objective, _ = evaluate_policy(model, env, n_eval_episodes=max(1, int(cfg.get("eval_episodes") or 5)), deterministic=True)
+            objective = float(objective)
+            if not math.isfinite(objective):
+                raise ValueError("SB3 evaluation did not produce a finite objective.")
+            logger.log({metric: objective}, step=cb.n_calls, transitions=cb.num_timesteps)
         status = "completed"
     except BaseException as exc:
         logger.event("error", f"{type(exc).__name__}: {exc}", level="error")
@@ -191,6 +243,7 @@ def main(cfg: DictConfig):
     print(f"\n[SB3 Engine Complete] Total time: {end_time - start_time:.2f}s")
     print(f"Checkpoints saved to: {ckpt_dir}")
     print(f"Telemetry logged to: {logger.version_dir}")
+    return objective
 
 
 if __name__ == "__main__":

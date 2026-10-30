@@ -5,6 +5,7 @@ Each method in cfg.methods is dispatched individually with proper overrides.
 """
 
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from src.app.pipeline.commands import build_method_overrides, get_sweep_direction
@@ -15,7 +16,6 @@ from src.app.pipeline.optuna_utils import (
     create_optuna_study,
     delete_optuna_study,
     get_next_study_name,
-    promote_best_trial_checkpoint,
 )
 from src.app.pipeline.validation import paradigm_uses_static_dataset
 
@@ -26,7 +26,7 @@ from src.app.pipeline.validation import paradigm_uses_static_dataset
 
 def _setup_output_dirs(cfg) -> None:
     """Purge and recreate checkpoint, log, and plot directories unless recovering."""
-    if cfg.get("recover", False):
+    if cfg.get("recover", False) or cfg.get("tuning") is not None or cfg.get("sweep", False):
         return
 
     ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
@@ -49,6 +49,20 @@ def _setup_output_dirs(cfg) -> None:
 
 
 def run_methods(cfg, context) -> None:
+    """Run methods one at a time, or launch one training process per method concurrently."""
+    methods = context["methods"]
+    if not cfg.get("run_in_parallel", False) or len(methods) < 2:
+        return _run_methods_sequential(cfg, context)
+
+    with ThreadPoolExecutor(max_workers=len(methods), thread_name_prefix="theta-method") as pool:
+        futures = [pool.submit(_run_methods_sequential, cfg,
+                               {**context, "methods": {name: settings}})
+                   for name, settings in methods.items()]
+        for future in as_completed(futures):
+            future.result()
+
+
+def _run_methods_sequential(cfg, context) -> None:
     """Execute all methods declared in cfg.methods."""
     methods = context["methods"]
     sanitized_extra_args = context["sanitized_extra_args"]
@@ -113,8 +127,6 @@ def run_methods(cfg, context) -> None:
             python_executable=engine_python,
         )
 
-        if method_is_sweep:
-            promote_best_trial_checkpoint(cfg.group, cfg.experiment_id, agent_name, storage_url, study_name)
 
 
 # ---------------------------------------------------------------------------

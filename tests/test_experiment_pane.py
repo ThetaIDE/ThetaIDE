@@ -562,6 +562,49 @@ class TestConfigViewer(unittest.TestCase):
         self.viewer._remove_universal_param("cql_alpha")
         self.assertNotIn("cql_alpha", self.viewer.raw_data.get("methods", {}).get("params", {}))
 
+    def test_shared_params_block_starts_empty(self):
+        self.viewer.add_block("params")
+        self.assertEqual(self.viewer.raw_data.get("methods", {}).get("params", {}), {})
+        labels = [lbl.text() for lbl in self.viewer.findChildren(QLabel)]
+        self.assertIn("Shared Parameters", labels)
+        self.assertNotIn("No shared parameters configured.", labels)
+        self.viewer._add_universal_param("lr", 0.001)
+        self.assertEqual(self.viewer.raw_data["methods"]["params"]["lr"], 0.001)
+
+    def test_shared_params_picker_uses_component_groups(self):
+        from PyQt6.QtWidgets import QToolButton
+
+        self.viewer.add_block("params")
+        button = next(b for b in self.viewer.findChildren(QToolButton) if b.toolTip() == "Add shared parameter")
+        actions = {a.text(): a for a in button.menu().actions()}
+        self.assertIn("Algorithm", actions)
+        self.assertIn("Model", actions)
+        self.assertFalse(any(name.startswith(("agent.", "model.")) for name in actions))
+        actions["Algorithm"].trigger()
+        self.assertEqual(self.viewer.raw_data["methods"]["params"]["agent"], {})
+        self.assertTrue(any(lbl.text() == "Algorithm" for lbl in self.viewer.findChildren(QLabel)))
+        self.viewer._select_shared_component("agent", "", "test_agent")
+        self.assertEqual(self.viewer.raw_data["methods"]["params"]["agent"], {"test_agent": {}})
+        self.assertTrue(any(b.toolTip() == "Add test_agent parameter" for b in self.viewer.findChildren(QToolButton)))
+
+    def test_shared_algorithm_choices_follow_paradigm(self):
+        from frontend.config_viewer import config_tree
+        from frontend.widgets import ComboBox
+
+        tree = config_tree()
+        self.viewer.add_block("params")
+        self.viewer._add_universal_param("agent", {})
+        selector = self.viewer.findChild(ComboBox, "shared_agent_selector")
+        self.assertIsNotNone(selector)
+        choices = {selector.itemData(i) for i in range(1, selector.count())}
+        self.assertEqual(choices, {agent.name for agent in tree.agents_for("online_rl")})
+
+    def test_removing_last_shared_parameter_keeps_box(self):
+        self.viewer._add_universal_param("lr", 0.001)
+        self.viewer._remove_universal_param("lr")
+        self.assertIn("Shared Parameters", [lbl.text() for lbl in self.viewer.findChildren(QLabel)])
+        self.assertNotIn("lr", self.viewer.raw_data.get("methods", {}).get("params", {}))
+
     def test_methods_and_shared_params_title_sizes(self):
         """Verify method box title matches experiment title size (23px heading) and shared params matches method titles (16px cardTitle)."""
         self.viewer._add_universal_param("lr", 0.001)
@@ -597,6 +640,33 @@ class TestConfigViewer(unittest.TestCase):
         self.viewer._remove_method_param("ppo", "ent_coef")
         self.assertNotIn("ent_coef", self.viewer.raw_data["methods"]["ppo"])
 
+    def test_method_card_fields_have_consistent_widths(self):
+        from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox
+        from frontend.config_viewer import MethodCardsContainer, TEXT_FIELD_WIDTH
+
+        container = self.viewer.findChild(MethodCardsContainer)
+        card = next(card for name, card in container._cards if name == "ppo")
+        fields = card.findChildren(QAbstractSpinBox) + card.findChildren(QComboBox)
+        self.assertGreaterEqual(len(fields), 2)
+        expected_width = round(TEXT_FIELD_WIDTH * 2 / 3)
+        self.assertTrue(all(field.minimumWidth() == field.maximumWidth() == expected_width for field in fields))
+
+    def test_experiment_sections_can_be_reordered_and_survive_rerender(self):
+        from frontend.config_viewer import ConfigBox
+
+        def titles():
+            boxes = [self.viewer.boxes_layout.itemAt(i).widget() for i in range(self.viewer.boxes_layout.count())]
+            return [next(label.text() for label in box.findChildren(QLabel)
+                         if label.objectName() in ("heading", "cardTitle"))
+                    for box in boxes if isinstance(box, ConfigBox)]
+
+        original = titles()
+        self.assertGreaterEqual(len(original), 2)
+        self.viewer._move_experiment_box(original[1], -1)
+        self.assertEqual(titles()[:2], [original[1], original[0]])
+        self.viewer._render_boxes()
+        self.assertEqual(titles()[:2], [original[1], original[0]])
+
     def test_modular_block_crud(self):
         # Runtime defaults live in the top card; component overrides are
         # available even when no matching plugin is installed.
@@ -611,6 +681,128 @@ class TestConfigViewer(unittest.TestCase):
         # Unsupported direct calls do not create hidden configuration blocks.
         self.viewer.add_block("resources")
         self.assertNotIn("resources", self.viewer.raw_data)
+
+    def test_sweep_override_menu_add_and_remove(self):
+        from PyQt6.QtWidgets import QLineEdit
+
+        actions = self.viewer.btn_add_block.menu().actions()
+        action = next(a for a in actions if a.text() == "Hyperparameter Sweep (Optuna)")
+        action.trigger()
+        self.assertEqual(self.viewer.raw_data["tuning"]["n_trials"], 40)
+        self.assertIsNotNone(self.viewer.findChild(QLineEdit, "sweepMetric"))
+        titles = [widget.text() for widget in self.viewer.findChildren(QLabel)]
+        self.assertEqual(titles.count("Hyperparameter Sweep"), 1)
+        self.assertNotIn("tuning", titles)
+        self.viewer.remove_block("tuning")
+        self.assertNotIn("tuning", self.viewer.raw_data)
+
+    def test_parameter_sweep_range_edit_and_remove(self):
+        from PyQt6.QtWidgets import QComboBox, QLineEdit, QToolButton
+
+        self.viewer.add_block("tuning")
+        button = self.viewer.findChild(QToolButton, "sweepToggle_ppo_agent.lr")
+        self.assertIsNotNone(button)
+        button.click()
+        picker = self.viewer.findChild(QComboBox, "sweepType_ppo_agent.lr")
+        picker.setCurrentIndex(picker.findData("float"))
+        picker.activated.emit(picker.currentIndex())
+        self.viewer.show()
+        QApplication.processEvents()
+        picker = self.viewer.findChild(QComboBox, "sweepType_ppo_agent.lr")
+        remove_sweep = self.viewer.findChild(QToolButton, "sweepRemove_ppo_agent.lr")
+        from frontend.config_viewer import _RowHoverReveal, IndentedHierarchyBlock
+        hover = remove_sweep.findChild(_RowHoverReveal)
+        self.assertIn(picker, [ref() for ref in hover._targets])
+        self.assertTrue(self.viewer.findChildren(IndentedHierarchyBlock))
+        lower = self.viewer.findChild(QLineEdit, "sweep_low_ppo_agent.lr")
+        sweep_block = lower.parentWidget()
+        self.assertIsInstance(sweep_block, IndentedHierarchyBlock)
+        self.assertLess(sweep_block.mapTo(self.viewer, sweep_block.rect().topLeft()).x(),
+                        picker.mapTo(self.viewer, picker.rect().topLeft()).x())
+        with patch("frontend.config_viewer.QCursor.pos", return_value=picker.mapToGlobal(picker.rect().center())):
+            hover._update_visibility()
+        self.assertTrue(remove_sweep.isVisible())
+        low = self.viewer.findChild(QLineEdit, "sweep_low_ppo_agent.lr")
+        high = self.viewer.findChild(QLineEdit, "sweep_high_ppo_agent.lr")
+        low.setText("0.0001")
+        high.setText("0.01")
+        spec = self.viewer.raw_data["methods"]["ppo"]
+        self.assertEqual(spec["tune"]["agent.lr"], {"type": "float", "low": 0.0001, "high": 0.01})
+        self.assertEqual(spec["lr"], 0.0005)
+        self.assertEqual(self.viewer.findChild(QLineEdit, "sweep_step_ppo_agent.lr").placeholderText(), "Leave blank for no step")
+        self.viewer.findChild(QToolButton, "sweepRemove_ppo_agent.lr").click()
+        self.assertNotIn("tune", spec)
+        self.assertEqual(spec["lr"], 0.0005)
+        delete = next(button for button in self.viewer.findChildren(QToolButton) if button.toolTip() == "Remove lr parameter")
+        delete.click()
+        self.assertNotIn("lr", spec)
+
+    def test_shared_and_experiment_sweeps_apply_to_each_method(self):
+        from PyQt6.QtWidgets import QToolButton, QComboBox
+        from src.app.pipeline.config import parse_methods_dict
+        from src.app.pipeline.commands import build_method_overrides
+
+        self.viewer.raw_data["batch_size"] = 64
+        self.viewer.raw_data["methods"]["params"] = {"lr": 0.01}
+        self.viewer.raw_data["methods"]["other"] = {"agent": "ppo", "model": "dnn"}
+        self.viewer.add_block("tuning")
+        self.viewer.findChild(QToolButton, "sweepToggle_params_agent.lr").click()
+        picker = self.viewer.findChild(QComboBox, "sweepType_params_agent.lr")
+        picker.setCurrentIndex(picker.findData("float"))
+        picker.activated.emit(picker.currentIndex())
+        self.viewer.findChild(QToolButton, "sweepToggle_params_config.batch_size").click()
+        picker = self.viewer.findChild(QComboBox, "sweepType_params_config.batch_size")
+        picker.setCurrentIndex(picker.findData("int"))
+        picker.activated.emit(picker.currentIndex())
+        methods = parse_methods_dict(self.viewer.raw_data)
+        for name, method in methods.items():
+            self.assertIn("agent.lr", method["tune"])
+            self.assertIn("config.batch_size", method["tune"])
+            overrides = build_method_overrides(name, method, cfg=self.viewer.raw_data, is_sweep=True)
+            self.assertIn("batch_size=range(64, 64, 1)", overrides)
+
+    def test_sweep_setup_cancel_and_list_entries(self):
+        from PyQt6.QtWidgets import QComboBox, QLineEdit, QToolButton
+
+        self.viewer.add_block("tuning")
+        self.viewer.findChild(QToolButton, "sweepToggle_ppo_agent.lr").click()
+        self.assertNotIn("tune", self.viewer.raw_data["methods"]["ppo"])
+        self.viewer._cancel_sweep_setup("ppo", "agent.lr")
+        self.assertEqual(self.viewer.raw_data["methods"]["ppo"]["lr"], 0.0005)
+        self.viewer.findChild(QToolButton, "sweepToggle_ppo_agent.lr").click()
+        picker = self.viewer.findChild(QComboBox, "sweepType_ppo_agent.lr")
+        picker.setCurrentIndex(picker.findData("choice"))
+        picker.activated.emit(picker.currentIndex())
+        self.viewer.findChild(QLineEdit, "sweep_choice_ppo_agent.lr_1").setText("0.01")
+        self.viewer.findChild(QToolButton, "sweepAddChoice_ppo_agent.lr").click()
+        self.assertEqual(self.viewer.raw_data["methods"]["ppo"]["tune"]["agent.lr"]["values"], [0.0005, 0.01, ""])
+        self.viewer._toggle_method_sweep("ppo", "agent.lr", 0.0005)
+        self.assertEqual(self.viewer.raw_data["methods"]["ppo"]["lr"], 0.0005)
+        self.assertNotIn("tune", self.viewer.raw_data["methods"]["ppo"])
+
+    def test_saved_sweep_can_open_and_close_in_event_loop(self):
+        import subprocess
+
+        data = yaml.safe_load(self.file_path.read_text())
+        data["tuning"] = {"metric": "eval/reward", "direction": "maximize"}
+        data["methods"]["ppo"]["tune"] = {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}
+        self.file_path.write_text(yaml.safe_dump(data))
+        code = '''
+import sys
+from pathlib import Path
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
+from frontend.config_viewer import ConfigViewer
+app = QApplication([])
+viewer = ConfigViewer()
+viewer.load_file(Path(sys.argv[1]), "experiment/test_exp.yaml")
+viewer.show()
+QTimer.singleShot(200, app.quit)
+app.exec()
+'''
+        result = subprocess.run([sys.executable, "-X", "faulthandler", "-c", code, str(self.file_path)],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_dataset_card_specification(self):
         # An online RL experiment cannot opt into a static dataset source.

@@ -76,6 +76,18 @@ class LocalBackend(QObject):
     def list_runs(self, callback: Callback):
         self._submit(lambda: {"runs": catalog.list_runs()}, callback=callback)
 
+    def archive_run(self, group: str, experiment_id: str, destination: str, callback: Callback):
+        self._submit(catalog.archive_run, group, experiment_id, destination, callback=callback)
+
+    def delete_run(self, group: str, experiment_id: str, callback: Callback):
+        self._submit(catalog.delete_run, group, experiment_id, callback=callback)
+
+    def archive_group(self, group: str, destination: str, callback: Callback):
+        self._submit(catalog.archive_group, group, destination, callback=callback)
+
+    def delete_group(self, group: str, callback: Callback):
+        self._submit(catalog.delete_group, group, callback=callback)
+
     def run_metrics(self, group: str, experiment_id: str, agent: str, callback: Callback,
                     version: str | None = None, since: int = 0):
         self._submit(catalog.run_metrics, group, experiment_id, agent, version, since, callback=callback)

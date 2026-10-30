@@ -90,14 +90,20 @@ With uv, also pass `--index-strategy unsafe-best-match`.
 From the repository root, with the environment active:
 
 ```bash
+# macOS: automatically creates and opens the local app bundle
+venv/bin/python -m frontend
+
+# Windows/Linux:
 python -m frontend
 ```
 
-That is the only command: there is no server to start first. The status bar shows **Pipeline ready** once the
-training pipeline has loaded.
+There is no server to start first. The status bar shows **Pipeline ready** once the training pipeline has
+loaded. On macOS, the command automatically launches the local app bundle so the Dock and Mission Control
+associate the window with ThetaIDE instead of the Python interpreter.
 
 ThetaIDE keeps its workspace (run history, the job queue, workspace settings and the Hub cache) in `.thetaide/`
-in the repository. To keep it somewhere else, start the IDE with `python -m frontend --data-dir <path>`.
+in the repository. To keep it somewhere else, start the IDE with `venv/bin/python -m frontend --data-dir <path>`
+on macOS, or `python -m frontend --data-dir <path>` on Windows/Linux.
 Settings that apply to every workspace live in `~/.config/thetaide/settings.toml`.
 
 ---

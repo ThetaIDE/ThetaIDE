@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QPushButton,
@@ -21,9 +20,9 @@ from PyQt6.QtWidgets import (
 )
 
 from ..charts import Chart
-from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics, latest
+from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics
 from ..results.metrics_catalog import describe, group_sort_key, metric_group
-from ..widgets import ElidedLabel, MetricCard, label
+from ..widgets import ElidedLabel, label
 from .live_view import ChartsView, FeedView, FilesView, LogView, StatusStrip, SystemView, latest_problem
 from .pipeline_strip import PipelineStrip
 from .run_switcher import RunSwitcher
@@ -146,8 +145,7 @@ class MonitorPanel(QWidget):
 
     # Widgets the host window also exposes under the same names (existing code and tests use them).
     EXPOSED = (
-        "smoothing_label", "smoothing_slider", "btn_pin_baseline", "run_title", "run_caption", "reward_card",
-        "loss_card", "steps_card", "reward_chart", "metric_select",
+        "smoothing_label", "smoothing_slider", "btn_pin_baseline", "run_title", "run_caption", "reward_chart",
     )
     # The views besides the workspace, opened from the status row in its place.
     VIEW_NAMES = ("System", "Logs", "Feed", "Files")
@@ -155,7 +153,6 @@ class MonitorPanel(QWidget):
     def __init__(self, host: Window):
         super().__init__()
         self.host = host
-        self.second_metric = "loss"
         # The runs list lives in the Plots tab (the window places it there): its ticks choose what the Plot
         # Viewer draws. This panel shows only the current or most recent run (host.selected).
         self.sidebar = RunsSidebar()
@@ -203,27 +200,7 @@ class MonitorPanel(QWidget):
         self.focused_agent: str | None = None
         self._focus_run_id: str | None = None  # the run whose method is focused
 
-        # Cards, then sections of charts. The headline (reward) chart is the first chart of its section.
-        cards = QWidget()
-        row = QHBoxLayout(cards)
-        row.setContentsMargins(0, 0, 0, 4)
-        row.setSpacing(12)
-        self.reward_card = MetricCard("EPISODE REWARD", "synthetic evaluation / mean")
-        self.loss_card = MetricCard("TRAINING LOSS", "total loss across minibatches")
-        self.steps_card = MetricCard("TIMESTEPS", "configured training budget")
-        for card in (self.reward_card, self.loss_card, self.steps_card):
-            row.addWidget(card, 1)  # equal widths, whatever the second card's selector needs
-        self.metric_select = QComboBox()
-        self.metric_select.setToolTip("Metric shown in this card")
-        # Re-measure when the choices change: metric names vary by engine.
-        self.metric_select.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        self.metric_select.currentIndexChanged.connect(self.second_metric_changed)
-        title_row = QHBoxLayout()
-        self.loss_card.layout().removeWidget(self.loss_card.title)
-        title_row.addWidget(self.loss_card.title)
-        title_row.addStretch()
-        title_row.addWidget(self.metric_select)
-        self.loss_card.layout().insertLayout(0, title_row)
+        # Sections of charts, led by the run’s headline metric.
         self.reward_chart = Chart("reward", "Episode reward  ·  mean ± 1 std over evaluation episodes",
                                   band="reward_std")
         self.reward_chart.setMinimumHeight(OVERVIEW_REWARD_HEIGHT)
@@ -251,14 +228,9 @@ class MonitorPanel(QWidget):
         self.btn_pin_baseline.setToolTip("Pin this run to overlay as a dashed baseline curve on other runs")
         self.btn_pin_baseline.clicked.connect(self.toggle_pin_baseline)
         tools.addWidget(self.btn_pin_baseline)
-        self.charts_view = ChartsView(header=cards, lead=("eval", self.reward_card_frame), toolbar=toolbar,
+        self.charts_view = ChartsView(lead=("eval", self.reward_card_frame), toolbar=toolbar,
                                       group_columns=SECTION_COLUMNS, show_caption=False)
-        self.overview_scroll = self.charts_view.grid  # cards and every chart scroll together
-        # The headline card already shows the latest value, so its chart's section starts folded away;
-        # clicking the heading shows it, and it stays shown from then on.
-        self._lead_groups_seen = {"eval"}
-        self.charts_view.grid.collapsed.add("eval")
-        self.charts_view.grid.relayout()  # ChartsView already laid the empty grid out, with the section open
+        self.overview_scroll = self.charts_view.grid
         self.overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.overview_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.system_view = SystemView()
@@ -349,24 +321,6 @@ class MonitorPanel(QWidget):
         self.reward_chart.set_smoothing(factor)
         self.charts_view.set_smoothing(factor)
 
-    def sync_metric_select(self, run):
-        """Offer every second-card metric this run has; keep the user's choice when available."""
-        available = second_metric_choices(run)
-        chosen = self.second_metric if self.second_metric in available else available[0]
-        self.metric_select.blockSignals(True)
-        self.metric_select.clear()
-        for key in available:
-            self.metric_select.addItem(second_metric_text(key)[1], key)
-        self.metric_select.setCurrentIndex(available.index(chosen))
-        self.metric_select.blockSignals(False)
-        return chosen
-
-    def second_metric_changed(self, index):
-        key = self.metric_select.itemData(index)
-        if key:
-            self.second_metric = key
-            self.render()
-
     def show_hardware(self, hw):
         """Live CPU and memory use of the training process (and its children, when reported), on the System button."""
         children = int(hw.get("children") or 0)
@@ -430,60 +384,34 @@ class MonitorPanel(QWidget):
             self.btn_pin_baseline.setText(f"Replace baseline ({label_name})")
             self.btn_pin_baseline.setToolTip(f"Baseline '{p_name}' is pinned. Click to replace it with this run.")
 
-        second = self.sync_metric_select(run)
-        card_title, _, subtitle, fmt = second_metric_text(second)
-        second_value = latest(run, second)
         step = max((m["step"] for m in metrics), default=0)
         requested = config["total_timesteps"]
         # Records from older runs may not include an effective budget; use the steps actually run.
         budget = (run["backend"].get("effective_timesteps") or max(step, requested)) if live else requested
         head_key, head_info = headline_metric(run, config)
-        head_value = latest(run, head_key)
         # The headline chart leads its metric's section and draws that metric, so the grid leaves it out.
         head_column = METRIC_COLUMNS.get(head_key, head_key)
         self.charts_view.exclude = {head_column} | ({"eval/reward_std"} if head_key == "reward" else set())
         lead_group = metric_group(head_column)
         if self.charts_view.grid.lead is None or self.charts_view.grid.lead[0] != lead_group:
             self.charts_view.grid.lead = (lead_group, self.reward_card_frame)
-            if lead_group not in self._lead_groups_seen:
-                self._lead_groups_seen.add(lead_group)
-                self.charts_view.grid.collapsed.add(lead_group)
-        self.reward_card.title.setText(head_info.label.upper())
-        self.reward_card.value.setText(
-            "—" if head_value is None else format(head_value, head_info.fmt)
-        )
-        self.loss_card.title.setText(card_title)
-        self.loss_card.value.setText("—" if second_value is None else format(second_value, fmt))
-        self.loss_card.subtitle.setText(subtitle if live else "synthetic training loss")
         env_steps = measures_environment_steps(run)
-        self.steps_card.value.setText(f"{step:,}")
         note = None  # only what the run is waiting for: where its files are is on the title's tooltip
         if live:
-            self.reward_card.subtitle.setText(
-                "evaluation / mean episode reward" if head_key == "reward" else head_info.name
-            )
-            rounding = f"\n{requested:,} requested, effective budget {budget:,}" if budget != requested else ""
-            self.steps_card.subtitle.setText(
-                f"of {budget:,} environment steps{rounding}" if env_steps
-                else "optimizer steps · this paradigm trains by epochs"
-            )
             if run["status"] == "queued":
                 position = run.get("queue_position")
                 ahead = f"position {position + 1}" if position is not None else "waiting"
                 note = (f"In the job queue ({ahead}). Queued experiments train one at a time; "
                         "this view follows it when it starts.")
                 if not host.queue_running:
-                    note += " The queue is paused: press Start queue in the Queue tab."
+                    note += " The queue is paused: use Start or pause queue (Ctrl+Shift+R)."
             elif run["status"] == "starting" or (run["status"] == "running" and not metrics):
-                note = "Starting the pipeline — the first evaluation usually appears after about 15 seconds."
+                note = "Starting the pipeline — waiting for the first metrics."
             elif run["status"] == "running" and run.get("phase") == "plotting":
                 note = f"Training finished — the pipeline is generating plots in results/plots/{run['backend']['group']}/…"
             elif run["status"] == "incomplete":
                 note = (f"Metrics from {where} · this run was started outside the app and has no recorded end "
                         "time: it may still be training, or it stopped early.")
-        else:
-            self.reward_card.subtitle.setText("synthetic evaluation / mean")
-            self.steps_card.subtitle.setText("configured training budget")
         self.status_note = note
         # Fit the data when the budget is not what this run is measured against,
         # or the curve lands in the leftmost few percent of the chart.

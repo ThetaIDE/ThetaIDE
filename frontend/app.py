@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStyle,
     QToolButton,
+    QLabel,
     QVBoxLayout,
     QWidget,
 )
@@ -39,6 +40,7 @@ from .about import AboutDialog
 from .app_icon import (
     DESKTOP_FILE_NAME,
     ICON_PATH,
+    ICON_PNG_PATH,
     app_icon,
     install_desktop_entry,
     register_windows_app_identity,
@@ -90,6 +92,38 @@ PERSIST_SECONDS = 5.0  # how often a training run's growing record is saved to t
 # Panes the default and restored sidebar leave hidden. Workflows can draw a pipeline but not run it yet.
 HIDDEN_BY_DEFAULT = {"workflows"}
 
+
+class _LazyFigureWorkspace(QWidget):
+    """Load Matplotlib after the main window is visible, not during startup."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._loaded = False
+        layout = QVBoxLayout(self)
+        layout.addStretch()
+        message = QLabel("Loading figure workspace…")
+        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(message)
+        layout.addStretch()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._loaded:
+            self._loaded = True
+            # Give Qt a chance to paint the window before Matplotlib scans system fonts.
+            QTimer.singleShot(250, self._load)
+
+    def _load(self):
+        from .figures.view import FigureWorkspace
+
+        layout = self.layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        layout.addWidget(FigureWorkspace())
+
 def normalize_menu_shortcut(shortcut_str: str) -> str:
     """Normalize user-entered shortcut string for Qt QKeySequence.
 
@@ -103,9 +137,75 @@ def normalize_menu_shortcut(shortcut_str: str) -> str:
 
 
 def launch_buttons(window):
-    """Buttons that launch the open experiment now: the experiment tree's and the Queue tab's."""
-    panel = getattr(window, "queue_panel", None)
-    return [b for b in (window.start_button, panel and panel.launch_button) if b is not None]
+    """Buttons that launch the open experiment now."""
+    return [window.start_button] if window.start_button is not None else []
+
+
+def configure_macos_application():
+    """Give an unbundled Python process a normal macOS app policy and Dock icon."""
+    if sys.platform != "darwin":
+        return
+    try:
+        from AppKit import NSApp, NSApplicationActivationPolicyRegular, NSImage
+    except ImportError as exc:
+        print(f"[ThetaIDE] macOS Dock integration unavailable: {exc}", file=sys.stderr)
+        return
+
+    initial_policy = NSApp.activationPolicy()
+    accepted = NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    final_policy = NSApp.activationPolicy()
+    print(
+        f"[ThetaIDE] macOS activation policy: {initial_policy} -> {final_policy} "
+        f"(regular-policy request accepted: {bool(accepted)})",
+        file=sys.stderr,
+        flush=True,
+    )
+    if final_policy != NSApplicationActivationPolicyRegular:
+        print("[ThetaIDE] macOS refused regular app activation policy; Dock and Mission Control may not work.",
+              file=sys.stderr, flush=True)
+        return
+    if not accepted and initial_policy == final_policy:
+        print("[ThetaIDE] macOS app was already using regular activation policy.", file=sys.stderr, flush=True)
+    icon = NSImage.alloc().initWithContentsOfFile_(str(ICON_PNG_PATH))
+    if icon is not None:
+        NSApp.setApplicationIconImage_(icon)
+
+
+def activate_macos_window(window):
+    """Activate the configured app and bring its main window forward."""
+    if sys.platform != "darwin":
+        return
+    try:
+        from AppKit import (
+            NSApp,
+            NSApplicationActivateIgnoringOtherApps,
+            NSRunningApplication,
+        )
+    except ImportError:
+        return
+    running_app = NSRunningApplication.currentApplication()
+    activated = running_app.activateWithOptions_(
+        NSApplicationActivateIgnoringOtherApps
+    )
+    window.raise_()
+    window.activateWindow()
+    print(
+        f"[ThetaIDE] macOS activation request accepted={bool(activated)}, active={NSApp.isActive()}, "
+        f"policy={NSApp.activationPolicy()}, window_visible={window.isVisible()}, "
+        f"bundle_id={running_app.bundleIdentifier()}, app_name={running_app.localizedName()}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    def report_activation_state():
+        print(
+            f"[ThetaIDE] macOS activation after 500ms: active={NSApp.isActive()}, "
+            f"window_active={window.isActiveWindow()}, window_visible={window.isVisible()}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    QTimer.singleShot(500, report_activation_state)
 
 
 class Window(QMainWindow):
@@ -289,7 +389,6 @@ class Window(QMainWindow):
 
         # 1. Config Tree (mirrors in/config/experiment/) - extends to top!
         self.config_tree = ConfigTreeWidget(mode="experiments", settings_manager=getattr(self, "settings_manager", None))
-        self.config_tree.setMinimumWidth(350)
         self.tree = self.config_tree.tree  # backwards compatibility alias
         self.config_tree.file_selected.connect(self.on_config_file_selected)
         self.config_tree.file_opened.connect(self.on_config_file_opened)
@@ -303,9 +402,6 @@ class Window(QMainWindow):
         self.btn_launch = self.config_tree.btn_launch
         self.btn_export = self.config_tree.btn_export
         self.btn_toggle_yaml = self.config_tree.btn_toggle_yaml
-        self.queue_button = None
-        self.stop_button = None
-
         if self.start_button is not None:
             self.start_button.clicked.connect(self.launch_training)
         if self.btn_save is not None:
@@ -408,22 +504,13 @@ class Window(QMainWindow):
         self.monitor.sidebar.compare_changed.connect(self.plot_ticked_runs)
         self.tabs.addTab(self.plot_viewer, "Plot Viewer", "plots", "Plots", tab_id="plots")
 
-        # 5b. Figure workspace: compose several plots into one figure for a paper.
-        # Separate from the Plot Viewer above, which views runs; this assembles
-        # and exports a finished figure.
-        from .figures.view import FigureWorkspace
-
-        self.figure_workspace = FigureWorkspace()
+        # 5b. Figure workspace: defer Matplotlib's potentially slow macOS font
+        # scan until after the main window is visible.
+        self.figure_workspace = _LazyFigureWorkspace()
         self.tabs.addTab(self.figure_workspace, "Figure workspace", "export", "Figures", tab_id="figures")
 
         # 6. Job Queue Panel
-        self.queue_panel = QueuePanel(self.move_queued, self.remove_queued, self.open_job, self.set_queue_running,
-                                      on_launch=self.launch_training, on_add=self.add_to_queue,
-                                      on_stop=self.stop_run, on_demo=self.start_demo,
-                                      on_parallel=self.set_max_parallel)
-        self.queue_panel.set_parallel(self.jobs.max_parallel)
-        self.queue_button = self.queue_panel.add_button
-        self.stop_button = self.queue_panel.stop_button
+        self.queue_panel = QueuePanel(self.open_job)
         self.tabs.addTab(self.queue_panel, "Job queue", "queue", "Queue", tab_id="queue")
 
         # 8. Terminal Panel
@@ -509,10 +596,6 @@ class Window(QMainWindow):
             self.current_experiment = None
             for button in launch_buttons(self):
                 button.setEnabled(False)
-            if self.queue_button is not None:
-                self.queue_button.setEnabled(False)
-            if hasattr(self, "queue_panel"):
-                self.queue_panel.set_experiment(None)
             return
 
         self.active_config_path = viewer.current_path
@@ -1268,7 +1351,7 @@ class Window(QMainWindow):
             self.addAction(action)
             self.menu_actions[aid] = action
 
-        # Training is started and stopped from the Queue tab; its shortcuts stay window-wide.
+        # Training actions stay available as app-wide shortcuts and Run menu commands.
         for aid, title, default_sc, callback in (
             ("launch_training", "Launch training", "F5", self.launch_training),
             ("stop_run", "Stop", "Shift+F5", self.stop_run),
@@ -1896,7 +1979,7 @@ class Window(QMainWindow):
             self.active_runs = [*self.active_runs, run]
 
     def launch_capacity(self) -> int:
-        """How many runs may train at once (the Queue tab's "Run up to N at once")."""
+        """How many runs may train at once."""
         return max(1, int(getattr(self.jobs, "max_parallel", 1) or 1))
 
     def update_launch_state(self):
@@ -1908,18 +1991,13 @@ class Window(QMainWindow):
         if not isinstance(missing_components, list):
             missing_components = []
         ready = not full and self.compose_valid and has_experiment and not missing_components
-        for button in launch_buttons(self):  # the experiment tree's and the Queue tab's
+        for button in launch_buttons(self):
             button.setEnabled(ready)
-        if self.queue_button is not None:
-            self.queue_button.setEnabled(self.compose_valid and has_experiment and not missing_components)
-        if self.stop_button is not None:
-            self.stop_button.setEnabled(not idle)
         if full and training == 1:
-            tip = "Cannot run: A run is currently active. Stop it, or let more run at once in the Queue tab."
+            tip = "Cannot run: A run is currently active. Stop it before launching another."
             btn_text = "Running..."
         elif full:
-            tip = (f"Cannot run: {training} runs are training, the most at once. Stop one, or let more run at "
-                   "once in the Queue tab.")
+            tip = f"Cannot run: {training} runs are training, the most at once. Stop one before launching another."
             btn_text = "Running..."
         elif not has_experiment:
             rel = getattr(self, "active_config_rel_path", "") or ""
@@ -1946,17 +2024,9 @@ class Window(QMainWindow):
             btn_text = "Launch training"
         for button in launch_buttons(self):
             button.setToolTip(tip)
-        # Only the experiment tree's button says why in its text; the Queue tab's stays "Launch now"
-        # (a missing-component reason does not fit it) and says why in its tooltip.
+        # The experiment tree's button shows the reason in its text and tooltip.
         if self.start_button is not None and hasattr(self.start_button, "setText"):
             self.start_button.setText(btn_text)
-        if hasattr(self, "queue_panel"):
-            self.queue_panel.set_experiment(getattr(self, "current_experiment", None),
-                                            getattr(self, "active_config_rel_path", "") or "")
-            self.queue_panel.stop_button.setToolTip("Stop the active run (Shift+F5)" if not idle else "No run is active")
-            self.queue_panel.add_button.setToolTip(
-                tip.replace("Cannot run", "Cannot queue") if not ready and not full
-                else f"Add {getattr(self, 'current_experiment', 'the experiment')} to the queue (Ctrl+Shift+Q)")
         if getattr(self, "state_label", None) is not None:
             run = self.active
             if run is None:
@@ -1984,7 +2054,7 @@ class Window(QMainWindow):
     def launch_training(self):
         if len(self.active_runs) >= self.launch_capacity():
             self.statusBar().showMessage(
-                "As many runs are training as may run at once. Stop one, or raise \"Run up to\" in the Queue tab.",
+                "As many runs are training as may run at once. Stop one before launching another.",
                 5000)
             return
         missing = self.check_missing_components()
@@ -2041,6 +2111,7 @@ class Window(QMainWindow):
             self.update_launch_state()
             return
         run = new_run(self.config_for_run(config), simulated=False)
+        run["description"] = self.experiment_description()
         run["paradigm"] = (getattr(self, "composed_facts", None) or {}).get("paradigm")
         run.update(status="starting", log_since=0, metrics_since=0, metrics_byte=0, backend={
             key: job.get(key) for key in ("job_id", "experiment", "group", "experiment_id", "agents", "total_timesteps",
@@ -2050,9 +2121,15 @@ class Window(QMainWindow):
         self.activate(run)
         self.log(f"Job {job['job_id']} started. Metrics: results/logs/{job['group']}/{job['experiment_id']}/")
         self.on_job_changed(job)  # it may have started (or failed to start) before the run existed
+        self.on_queue_changed(self.jobs.queue_state())
 
     def run_for_job(self, job_id):
         return next((r for r in self.runs if not r["simulated"] and r["backend"].get("job_id") == job_id), None)
+
+    def experiment_description(self):
+        viewer = getattr(self, "config_viewer", None)
+        raw_data = getattr(viewer, "raw_data", None) or {}
+        return str(raw_data.get("description") or "").strip()
 
     def reconnect_live_run(self):
         """Runs left live or queued by the last session: training ended with that session (QProcess jobs
@@ -2241,8 +2318,6 @@ class Window(QMainWindow):
         experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover)
         overrides = self.config_viewer.get_overrides() if hasattr(self, "config_viewer") else config.overrides()
         overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
-        if self.queue_button is not None:
-            self.queue_button.setEnabled(False)
         self.log(f"Queuing {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
         try:
             job = self.jobs.launch(exp_target, overrides, queue=True)
@@ -2257,6 +2332,7 @@ class Window(QMainWindow):
             self.statusBar().showMessage("Could not add to queue; see the console.", 8000)
             return
         run = new_run(config, simulated=False)
+        run["description"] = self.experiment_description()
         run.update(status="queued", log_since=0, metrics_since=0, queue_position=job.get("position"), backend={
             key: job.get(key) for key in ("job_id", "experiment", "group", "experiment_id", "agents", "total_timesteps",
                                           "effective_timesteps")})
@@ -2267,17 +2343,18 @@ class Window(QMainWindow):
         self.queue_running = bool(job.get("queue_running"))
         place = f"position {job['position'] + 1}"
         hint = ("it runs after the jobs ahead of it" if self.queue_running
-                else "the queue is paused; press Start queue in the Queue tab to begin")
+                else "the queue is paused; use Start or pause queue (Ctrl+Shift+R) to begin")
         self.log(f"Queued {job['experiment_id']} ({place}): {hint}.")
         self.statusBar().showMessage(f"Added {job['experiment_id']} to the queue ({place}); {hint}.", 8000)
-        if self.queue_button is not None:
-            self.queue_button.setEnabled(self.compose_valid)
         self.on_queue_changed(self.jobs.queue_state())
 
     def on_queue_changed(self, data):
         if self.queue_running != data["running"]:
             self.queue_running = data["running"]
             self.render_run()
+        for job in data.get("active", []):
+            run = self.run_for_job(job.get("job_id"))
+            job["description"] = run.get("description", "") if run else ""
         self.queue_panel.set_data(data)
         positions = {job["job_id"]: job["position"] for job in data.get("queued", [])}
         changed = False
@@ -2291,10 +2368,8 @@ class Window(QMainWindow):
             self.render_run()
 
     def set_max_parallel(self, count):
-        """Queue tab → Run up to N at once: saved, and a running queue starts more jobs if it now can."""
+        """Save the concurrency limit and start queued work if capacity is available."""
         self.jobs.set_max_parallel(count)
-        if hasattr(self, "queue_panel"):
-            self.queue_panel.set_parallel(self.jobs.max_parallel)
         if hasattr(self, "settings_manager"):
             self.settings_manager.set("queue", "max_parallel", int(count))
         self.update_launch_state()
@@ -2334,14 +2409,16 @@ class Window(QMainWindow):
                 self.load_disk_metrics(run)  # command-line runs load their curves on first use
         self.plot_viewer.set_compared(run_ids, self.monitor.sidebar.colors())
 
-    def open_job(self, job_id):
-        """Queue → double-click (or Open in Plot Viewer): plot that job's run in the Plot Viewer."""
-        run = next((r for r in self.runs if not r["simulated"] and r["backend"].get("job_id") == job_id), None)
+    def open_job(self, job_id, method_name=None):
+        """Open the selected process in the Training Monitor."""
+        run = self.run_for_job(job_id)
         if run is None:
             self.statusBar().showMessage("That job has no run record in this workspace.", 5000)
             return
-        self.monitor.sidebar.tick(run["id"])
-        self.tabs.setCurrentWidget(self.plot_viewer)
+        self.select_run(run)
+        if method_name:
+            self.monitor.focus_agent(method_name)
+        self.tabs.setCurrentWidget(self.monitor_panel)
 
     def view_run(self, run):
         """Open a run from its completion toast in the Plot Viewer."""
@@ -2393,8 +2470,6 @@ class Window(QMainWindow):
         if run["simulated"]:
             self.finish("stopped", run=run)
             return
-        if self.stop_button is not None:
-            self.stop_button.setEnabled(False)
         self.log(f"Stopping {run['backend']['experiment_id']}: terminating the pipeline and its training processes…")
         try:
             self.jobs.cancel(run["backend"]["job_id"])  # job_changed reports "cancelled" and finishes the run
@@ -2770,6 +2845,7 @@ def main():
     app = QApplication(["ThetaIDE"] + sys.argv[1:])
     app.setApplicationName("ThetaIDE")
     app.setApplicationDisplayName("ThetaIDE")
+    configure_macos_application()
     app.setStyle("Fusion")
     if sys.platform == "darwin":
         app.setFont(QFont(".AppleSystemUIFont", 10))
@@ -2779,7 +2855,7 @@ def main():
     app.wheel_guard = wheel_guard.install(app)
 
     if ICON_PATH.is_file():
-        app.setWindowIcon(app_icon())  # every window's title bar, the taskbar and (macOS) the Dock
+        app.setWindowIcon(app_icon())  # default icon inherited by top-level windows
 
     from .splash import SplashScreen, splash_theme
 
@@ -2793,8 +2869,18 @@ def main():
         QMessageBox.critical(None, "Workspace unavailable", f"Could not open local run storage:\n{exc}")
         return 1
     splash.set_progress("Opening window…", 0.88)
+    window.setWindowIcon(app_icon())
     window.show()
     splash.finish(window)
+    if sys.platform == "darwin":
+        # QApplication.setWindowIcon alone does not reliably supply the Dock icon
+        # for a Python-launched Qt app; set it on the native top-level window too.
+        native_window = window.windowHandle()
+        if native_window is not None:
+            native_window.setIcon(app_icon())
+        # Let the event loop start before asking macOS to expose the app in the Dock
+        # and bring the window forward.
+        QTimer.singleShot(0, lambda: activate_macos_window(window))
 
     from .tray import TrayController
 

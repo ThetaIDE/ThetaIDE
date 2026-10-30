@@ -700,3 +700,22 @@ def test_the_run_selector_shares_the_experiment_trees_header_behaviour():
     assert explorer.search.isHidden() and not explorer.btn_search.isChecked() and explorer.search.text() == ""
     explorer.close()
     explorer.deleteLater()
+
+
+def test_run_action_buttons_target_the_selected_run():
+    from frontend.results.explorer import RunExplorer
+
+    explorer = RunExplorer()
+    explorer.set_runs([{"group": "group", "experiment_id": "run", "agents": [{"name": "agent"}]}])
+    experiment = explorer.tree.topLevelItem(0).child(0)
+    explorer.tree.setCurrentItem(experiment.child(0))
+    calls = []
+    explorer.archive_requested.connect(lambda group, run: calls.append(("archive", group, run)))
+    explorer.delete_requested.connect(lambda group, run: calls.append(("delete", group, run)))
+    explorer.btn_archive.click()
+    explorer.btn_delete.click()
+    assert calls == [("archive", "group", "run"), ("delete", "group", "run")]
+    explorer.tree.setCurrentItem(None)
+    explorer.btn_delete.click()
+    assert len(calls) == 2
+    explorer.deleteLater()

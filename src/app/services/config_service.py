@@ -234,4 +234,5 @@ def prepare_launch(
         "agents": agents,
         "total_timesteps": cfg.get("total_timesteps"),
         "effective_timesteps": effective_timesteps(plans, cfg.get("total_timesteps")),
+        "run_in_parallel": bool(cfg.get("run_in_parallel", False)),
     }

@@ -130,10 +130,11 @@ class TestSupervisedConfigurationIsVisible(unittest.TestCase):
         self.addCleanup(viewer.close)
         self.assertTrue(expected <= set(_headings(viewer)))
 
-    def test_a_scalar_outside_the_fixed_boxes_gets_a_box_too(self):
+    def test_a_scalar_outside_the_fixed_boxes_appears_once(self):
         viewer = _open(self.sample, self.root)
         self.addCleanup(viewer.close)
-        self.assertIn("Additional Settings", _headings(viewer))
+        self.assertNotIn("Additional Settings", _headings(viewer))
+        self.assertEqual(sum(w.text() == "custom_flag" for w in viewer.findChildren(QLabel)), 1)
 
     def test_the_settings_are_editable_not_just_displayed(self):
         viewer = _open(self.sample, self.root)

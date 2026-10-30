@@ -410,6 +410,9 @@ class ConfigTree:
         # (e.g. ``profile`` for ``package/profile``). UI pickers should show each config
         # file once, under its canonical path.
         self.model_names = sorted({model.name for model in self.models.values()})
+        # ``agents`` also includes short-name aliases for older configs. Keep a
+        # canonical list for UI pickers so each installed profile appears once.
+        self.agent_names = sorted({agent.name for agent in self.agents.values()})
 
         env_dir = self.config_root / "env"
         self.environments = {}
@@ -605,11 +608,13 @@ class ConfigTree:
         if paradigm not in self.paradigms:
             return []
         rules = self.paradigms[paradigm]
-        seen: set[int] = set()
+        seen: set[str] = set()
         result: list[Agent] = []
         for a in self.agents.values():
-            if id(a) not in seen:
-                seen.add(id(a))
+            # Manifest schema association can replace canonical and alias
+            # entries independently, so object identity is not stable here.
+            if a.name not in seen:
+                seen.add(a.name)
                 if rules.permits_agent(a):
                     result.append(a)
         return result

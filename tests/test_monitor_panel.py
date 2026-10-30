@@ -77,10 +77,5 @@ class TestMonitorPanel(unittest.TestCase):
         self.window.refresh_runs()
         self.window.select_run(run)
         monitor = self.window.monitor
-        choices = [monitor.metric_select.itemData(i) for i in range(monitor.metric_select.count())]
-        self.assertEqual(choices, ["losses/train/policy_gradient_loss", "losses/train/value_loss"])
-        self.assertEqual(monitor.reward_card.value.text(), "82.0")
-        # Pick the value loss: the card follows it.
-        monitor.metric_select.setCurrentIndex(choices.index("losses/train/value_loss"))
-        self.assertEqual(monitor.loss_card.title.text(), "VALUE LOSS")
-        self.assertEqual(monitor.loss_card.value.text(), "10")
+        self.assertIsNone(monitor.charts_view.grid.header)
+        self.assertNotIn("eval", monitor.charts_view.grid.collapsed)

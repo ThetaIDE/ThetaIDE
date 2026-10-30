@@ -30,7 +30,8 @@ from src.app.telemetry.selection import selection_errors
 # Paradigm registry loading
 # ---------------------------------------------------------------------------
 
-_PARADIGMS_DIR = Path("in/config/paradigms")
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PARADIGMS_DIR = _PROJECT_ROOT / "in" / "config" / "paradigms"
 
 
 def _load_all_paradigms() -> dict[str, dict]:
@@ -281,6 +282,10 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
             f"{', '.join(missing_comps)}. Install them via the Component Hub."
         )
 
+    # New-style sweep settings are validated before either launcher starts work.
+    if "tuning" in cfg and cfg.get("tuning") is not None:
+        _validate_tuning(cfg)
+
     # --- Optuna sweep direction notice ---
     if is_sweep:
         try:
@@ -299,6 +304,37 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     _validate_offline_dataset_paths(cfg, notices)
 
     return notices
+
+
+def _validate_tuning(cfg: Any) -> None:
+    from src.app.pipeline.commands import _sweep_expression
+
+    tuning = cfg.get("tuning")
+    if not hasattr(tuning, "get"):
+        raise ConfigurationError("Sweep tuning must be a mapping.")
+    if not isinstance(tuning.get("metric"), str) or not tuning.get("metric").strip():
+        raise ConfigurationError("Sweep tuning requires an objective metric.")
+    if tuning.get("direction") not in ("minimize", "maximize"):
+        raise ConfigurationError("Sweep direction must be 'minimize' or 'maximize'.")
+    for key, default in (("n_trials", 40), ("n_jobs", 1)):
+        value = tuning.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ConfigurationError(f"Sweep {key} must be a positive integer.")
+    missing = []
+    for name, method in parse_methods_dict(cfg).items():
+        dimensions = method.get("tune") or method.get("search_space") or {}
+        if not dimensions:
+            missing.append(name)
+            continue
+        for target, dimension in dimensions.items():
+            try:
+                if not isinstance(dimension, str) and not str(target).startswith(("agent.", "model.", "config.")):
+                    raise ValueError(f"Typed sweep dimension {target!r} requires an explicit agent, model, or config path")
+                _sweep_expression(target, dimension)
+            except ValueError as exc:
+                raise ConfigurationError(f"Method '{name}': {exc}") from exc
+    if missing:
+        raise ConfigurationError("Sweep methods require at least one dimension: " + ", ".join(missing))
 
 
 def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: dict) -> None:
@@ -507,24 +543,26 @@ def _agent_exists(agent_algo: str) -> bool:
         pass
 
     prefix = str(agent_algo).split("/")[0].lower()
+    project_root = _PROJECT_ROOT
 
-    algorithms_dir = Path("src/usr/algorithms")
-    for d in [algorithms_dir / agent_algo, algorithms_dir / clean_algo, algorithms_dir / prefix]:
-        if d.is_dir():
-            return True
+    for root in dict.fromkeys((Path.cwd(), project_root)):
+        algorithms_dir = root / "src/usr/algorithms"
+        for d in (algorithms_dir / agent_algo, algorithms_dir / clean_algo, algorithms_dir / prefix):
+            if d.is_dir():
+                return True
 
-    agent_dir = Path("in/config/agent")
-    if agent_dir.exists():
-        for p in [
-            agent_dir / f"{agent_algo}.yaml",
-            agent_dir / f"{agent_algo.replace('_', '/')}.yaml",
-            agent_dir / f"{clean_algo}.yaml",
-        ]:
-            if p.is_file():
-                return True
-        for y in agent_dir.rglob("*.yaml"):
-            if y.stem.lower() in (clean_algo, str(agent_algo).lower()):
-                return True
+        agent_dir = root / "in/config/agent"
+        if agent_dir.exists():
+            for p in (
+                agent_dir / f"{agent_algo}.yaml",
+                agent_dir / f"{agent_algo.replace('_', '/')}.yaml",
+                agent_dir / f"{clean_algo}.yaml",
+            ):
+                if p.is_file():
+                    return True
+            for y in agent_dir.rglob("*.yaml"):
+                if y.stem.lower() in (clean_algo, str(agent_algo).lower()):
+                    return True
     return False
 
 

@@ -16,7 +16,7 @@ AXIS_COLUMNS = ("transitions", "step", "epoch", "time/total", "training_time_sec
 COUNTER_COLUMNS = ("transitions", "step", "epoch")
 
 # Order in which metric groups (the part before the first '/') are listed.
-GROUP_ORDER = ("eval", "train", "losses", "val", "test", "time")
+GROUP_ORDER = ("eval", "train", "losses", "diagnostics", "val", "test", "time")
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,10 @@ def _add(name, label, fmt=".4g", higher_is_better=None, description=""):
 # Evaluation and training reward
 _add("eval/reward", "Episode reward", ".1f", True, "Mean episode reward over evaluation episodes")
 _add("eval/reward_std", "Episode reward (std)", ".2f", None, "Spread of evaluation episode rewards")
-_add("train/reward", "Training reward", ".1f", True, "Mean episode reward while collecting experience")
+_add("train/reward", "Training reward", ".1f", True, "Mean episode reward while collecting experience (SB3: most recent 100 episodes)")
+_add("train/episode_reward", "Training episode reward", ".1f", True, "Reward for each completed training episode")
+_add("train/episode_length", "Training episode length", ".1f", None, "Length of each completed training episode")
+_add("train/length", "Training length (rolling mean)", ".1f", None, "Mean length over the most recent 100 training episodes")
 # Common training metrics
 _add("losses/total_loss", "Total loss", ".4f", False, "Combined training objective")
 _add("losses/policy_loss", "Policy loss", ".4f", False, "Policy optimization objective")

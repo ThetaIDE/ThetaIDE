@@ -105,6 +105,14 @@ class TrayController(QObject):
         self.window.raise_()
         self.window.activateWindow()
 
+    def notify(self, title: str, body: str, warning: bool = False):
+        """Show one run-completion notification through the system tray."""
+        if not self.available():
+            return
+        icon = (QSystemTrayIcon.MessageIcon.Warning if warning
+                else QSystemTrayIcon.MessageIcon.Information)
+        self.icon.showMessage(title, body, icon, 8000)
+
     def _on_activated(self, reason):
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
             self.show_window()
@@ -144,6 +152,10 @@ class TrayController(QObject):
         self.refresh()
         status = job.get("status")
         if status not in FINAL_STATUSES or self.window.isVisible():
+            return
+        run = self.window.run_for_job(job.get("job_id"))
+        notifier = getattr(self.window, "run_notifier", None)
+        if run is not None and notifier is not None and notifier.has_notified(run):
             return
         name = job.get("experiment_id", "A run")
         if status == "completed":

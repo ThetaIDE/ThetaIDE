@@ -45,6 +45,10 @@ pip install -e ".[dev,gui]"
 1. Start the IDE from the repository root:
 
    ```bash
+   # macOS (automatically creates and opens the app bundle)
+   venv/bin/python -m frontend
+
+   # Windows/Linux:
    python -m frontend
    ```
 

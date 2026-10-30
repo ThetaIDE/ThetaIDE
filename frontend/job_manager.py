@@ -156,6 +156,7 @@ class JobManager(QObject):
             "agents": plan["agents"],
             "total_timesteps": plan["total_timesteps"],
             "effective_timesteps": plan["effective_timesteps"],
+            "run_in_parallel": plan["run_in_parallel"],
             "created": time.time(),
         }
         self.jobs[job_id] = job

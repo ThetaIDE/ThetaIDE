@@ -4,10 +4,9 @@ import shutil
 from pathlib import Path
 
 import yaml
-from PyQt6.QtCore import QByteArray, QMimeData, QPoint, QRect, QSettings, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QDrag, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QApplication,
     QAbstractItemView,
     QComboBox,
     QDialog,
@@ -16,7 +15,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QLayout,
     QLineEdit,
     QMenu,
     QMessageBox,
@@ -27,7 +25,6 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
-    QWidgetItem,
 )
 
 from .config_model import (
@@ -44,12 +41,16 @@ from .tree_tools import (  # noqa: F401  (TOOL_ICON_COLORS and GroupItemDelegate
     TOOL_ICON_COLORS,
     GroupItemDelegate,
     TreeHeaderActions,
+    DraggableToolButton,
+    TreeHeaderLayout,
+    TreeHeaderWidget,
+    TreeToolbarPersistence,
+    TREE_BUTTON_MIME,
     folder_icon,
     group_heading_font,
     refresh_tool_icons,
     style_tool_button,
 )
-from .theme import theme_color
 from .widgets import label
 
 TREE_GEAR_COLORS = {
@@ -309,284 +310,7 @@ def find_config_root():
     return (Path(__file__).resolve().parent.parent / "in" / "config").resolve()
 
 
-TREE_BUTTON_MIME = "application/x-theta-tree-button"
-
-
-class DraggableToolButton(QToolButton):
-    """Square header tool button with drag-and-drop reordering support."""
-
-    def __init__(self, button_id: str, parent=None):
-        super().__init__(parent)
-        self.button_id = button_id
-        self._drag_start_pos = None
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_pos = event.pos()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (event.buttons() & Qt.MouseButton.LeftButton) and self._drag_start_pos is not None:
-            dist = (event.pos() - self._drag_start_pos).manhattanLength()
-            if dist >= QApplication.startDragDistance():
-                self._start_drag()
-                self._drag_start_pos = None
-                return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_start_pos = None
-        super().mouseReleaseEvent(event)
-
-    def contextMenuEvent(self, event):
-        p = self.parentWidget()
-        if p is not None and hasattr(p, "contextMenuEvent"):
-            p.contextMenuEvent(event)
-        else:
-            super().contextMenuEvent(event)
-
-    def _start_drag(self):
-        self.setDown(False)
-        drag = QDrag(self)
-        mime = QMimeData()
-        mime.setData(TREE_BUTTON_MIME, QByteArray(self.button_id.encode("utf-8")))
-        drag.setMimeData(mime)
-
-        pixmap = self.grab()
-        ghost = QPixmap(pixmap.size())
-        ghost.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(ghost)
-        painter.setOpacity(0.75)
-        painter.drawPixmap(0, 0, pixmap)
-        painter.end()
-
-        drag.setPixmap(ghost)
-        drag.setHotSpot(self._drag_start_pos or QPoint(pixmap.width() // 2, pixmap.height() // 2))
-        drag.exec(Qt.DropAction.MoveAction)
-
-
-class TreeHeaderLayout(QLayout):
-    """Layout managing two rows of toolbar buttons with left and right groups per row."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._items: list[QWidgetItem] = []
-        self.groups: dict[str, list[DraggableToolButton]] = {
-            "row1_left": [],
-            "row1_right": [],
-            "row2_left": [],
-            "row2_right": [],
-        }
-
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index: int):
-        if 0 <= index < len(self._items):
-            return self._items[index]
-        return None
-
-    def takeAt(self, index: int):
-        if 0 <= index < len(self._items):
-            return self._items.pop(index)
-        return None
-
-    def sizeHint(self) -> QSize:
-        return QSize(200, 64)
-
-    def minimumSize(self) -> QSize:
-        return QSize(120, 64)
-
-    def setGeometry(self, rect: QRect):
-        super().setGeometry(rect)
-        btn_w, btn_h, spacing = 30, 30, 4
-        y1 = rect.top()
-        y2 = rect.top() + btn_h + spacing
-
-        # row1_left: left-aligned
-        x = rect.left()
-        for w in self.groups.get("row1_left", []):
-            w.setGeometry(QRect(x, y1, btn_w, btn_h))
-            x += btn_w + spacing
-
-        # row1_right: right-aligned, rendered left-to-right
-        r1_list = self.groups.get("row1_right", [])
-        if r1_list:
-            total_r1_w = len(r1_list) * btn_w + (len(r1_list) - 1) * spacing
-            rx = rect.right() - total_r1_w + 1
-            for w in r1_list:
-                w.setGeometry(QRect(rx, y1, btn_w, btn_h))
-                rx += btn_w + spacing
-
-        # row2_left: left-aligned
-        x = rect.left()
-        for w in self.groups.get("row2_left", []):
-            w.setGeometry(QRect(x, y2, btn_w, btn_h))
-            x += btn_w + spacing
-
-        # row2_right: right-aligned, rendered left-to-right
-        r2_list = self.groups.get("row2_right", [])
-        if r2_list:
-            total_r2_w = len(r2_list) * btn_w + (len(r2_list) - 1) * spacing
-            rx = rect.right() - total_r2_w + 1
-            for w in r2_list:
-                w.setGeometry(QRect(rx, y2, btn_w, btn_h))
-                rx += btn_w + spacing
-
-
-class TreeHeaderWidget(QWidget):
-    """Header toolbar widget with two rows and 4 draggable/reorderable button groups."""
-
-    layout_changed = pyqtSignal()
-
-    def __init__(self, tree_widget: "ConfigTreeWidget", parent=None):
-        super().__init__(parent)
-        self.tree_widget = tree_widget
-        self.setAcceptDrops(True)
-        self.header_layout = TreeHeaderLayout(self)
-        self._drop_info = None  # (group_key, target_index, (kind, rect))
-
-    def set_groups(self, groups: dict[str, list[DraggableToolButton]]):
-        self.header_layout.groups = {
-            "row1_left": list(groups.get("row1_left", [])),
-            "row1_right": list(groups.get("row1_right", [])),
-            "row2_left": list(groups.get("row2_left", [])),
-            "row2_right": list(groups.get("row2_right", [])),
-        }
-        self.header_layout._items.clear()
-        for g in ("row1_left", "row1_right", "row2_left", "row2_right"):
-            for b in self.header_layout.groups[g]:
-                self.header_layout.addWidget(b)
-        self.header_layout.setGeometry(self.contentsRect())
-        self.updateGeometry()
-        self.update()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.header_layout.setGeometry(self.contentsRect())
-
-    def sizeHint(self) -> QSize:
-        return QSize(200, 64)
-
-    def minimumSizeHint(self) -> QSize:
-        return QSize(120, 64)
-
-    def _calc_drop_info(self, pos: QPoint):
-        w = self.width()
-        mid_x = w / 2.0
-        row_key = "row1" if pos.y() < 32 else "row2"
-        side_key = "left" if pos.x() <= mid_x else "right"
-        group_key = f"{row_key}_{side_key}"
-        buttons = self.header_layout.groups.get(group_key, [])
-
-        y = 0 if row_key == "row1" else 34
-        btn_w, btn_h = 30, 30
-
-        if not buttons:
-            if side_key == "left":
-                rect = QRect(0, y, btn_w, btn_h)
-            else:
-                rect = QRect(w - btn_w, y, btn_w, btn_h)
-            return (group_key, 0, ("box", rect))
-
-        for idx, btn in enumerate(buttons):
-            geom = btn.geometry()
-            if pos.x() < geom.center().x():
-                lx = max(0, geom.left() - 2)
-                return (group_key, idx, ("line", QRect(lx, geom.top() + 2, 2, 26)))
-
-        last_geom = buttons[-1].geometry()
-        lx = min(w - 2, last_geom.right() + 2)
-        return (group_key, len(buttons), ("line", QRect(lx, last_geom.top() + 2, 2, 26)))
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat(TREE_BUTTON_MIME):
-            event.acceptProposedAction()
-            self._drop_info = self._calc_drop_info(event.position().toPoint())
-            self.update()
-
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat(TREE_BUTTON_MIME):
-            event.acceptProposedAction()
-            self._drop_info = self._calc_drop_info(event.position().toPoint())
-            self.update()
-
-    def dragLeaveEvent(self, event):
-        self._drop_info = None
-        self.update()
-
-    def dropEvent(self, event):
-        if event.mimeData().hasFormat(TREE_BUTTON_MIME):
-            event.acceptProposedAction()
-            button_id = bytes(event.mimeData().data(TREE_BUTTON_MIME)).decode("utf-8")
-            if self._drop_info:
-                target_group, target_idx, _ = self._drop_info
-                self.move_button(button_id, target_group, target_idx)
-            self._drop_info = None
-            self.update()
-
-    def move_button(self, button_id: str, target_group: str, target_idx: int):
-        src_group = None
-        src_idx = None
-        target_btn = None
-        for g_name, b_list in self.header_layout.groups.items():
-            for idx, b in enumerate(b_list):
-                if b.button_id == button_id:
-                    src_group = g_name
-                    src_idx = idx
-                    target_btn = b
-                    break
-            if src_group:
-                break
-
-        if not target_btn or target_group not in self.header_layout.groups:
-            return
-
-        if src_group == target_group:
-            if src_idx == target_idx or target_idx == src_idx + 1:
-                return
-            self.header_layout.groups[src_group].pop(src_idx)
-            if target_idx > src_idx:
-                target_idx -= 1
-            self.header_layout.groups[target_group].insert(target_idx, target_btn)
-        else:
-            self.header_layout.groups[src_group].pop(src_idx)
-            self.header_layout.groups[target_group].insert(target_idx, target_btn)
-
-        self.set_groups(self.header_layout.groups)
-        self.layout_changed.emit()
-
-    def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        reset_act = menu.addAction("Reset Toolbar Layout")
-        reset_act.triggered.connect(self.tree_widget.reset_toolbar_layout)
-        menu.exec(event.globalPos())
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if self._drop_info:
-            painter = QPainter(self)
-            try:
-                acc_color = QColor(theme_color("accent"))
-            except Exception:
-                acc_color = QColor("#fabd2f")
-            pen = QPen(acc_color, 2)
-            painter.setPen(pen)
-            kind, geom = self._drop_info[2]
-            if kind == "line":
-                painter.fillRect(geom, acc_color)
-            elif kind == "box":
-                pen.setStyle(Qt.PenStyle.DashLine)
-                painter.setPen(pen)
-                painter.drawRect(geom.adjusted(1, 1, -1, -1))
-            painter.end()
-
-
-class ConfigTreeWidget(TreeHeaderActions, QWidget):
+class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     """File tree that mirrors in/config/ and allows selecting, duplicating,
 
     and creating experiments in groups.
@@ -635,73 +359,6 @@ class ConfigTreeWidget(TreeHeaderActions, QWidget):
                 "row2_left": [self.btn_new_group, self.btn_new_subfolder, self.btn_new_experiment, self.btn_duplicate],
                 "row2_right": [],
             }
-
-    def _load_toolbar_groups(self) -> dict[str, list[DraggableToolButton]]:
-        defaults = self._default_toolbar_groups()
-        all_buttons = {b.button_id: b for g in defaults.values() for b in g}
-
-        saved_state = None
-        if self.settings_manager:
-            try:
-                saved_state = self.settings_manager.get("filetree", f"buttons_{self.mode}", default=None)
-            except Exception:
-                saved_state = None
-        if not saved_state:
-            settings = QSettings("ThetaIDE", "ThetaIDE")
-            raw = settings.value(f"filetree_buttons_{self.mode}", None)
-            if raw and isinstance(raw, str):
-                try:
-                    saved_state = json.loads(raw)
-                except Exception:
-                    saved_state = None
-
-        if not isinstance(saved_state, dict):
-            return defaults
-
-        loaded_groups = {
-            "row1_left": [],
-            "row1_right": [],
-            "row2_left": [],
-            "row2_right": [],
-        }
-        placed = set()
-        for g_name in ("row1_left", "row1_right", "row2_left", "row2_right"):
-            b_ids = saved_state.get(g_name, [])
-            if isinstance(b_ids, list):
-                for bid in b_ids:
-                    if bid in all_buttons and bid not in placed:
-                        loaded_groups[g_name].append(all_buttons[bid])
-                        placed.add(bid)
-
-        # Append any newly added / missing buttons to their default location
-        for g_name, b_list in defaults.items():
-            for b in b_list:
-                if b.button_id not in placed:
-                    loaded_groups[g_name].append(b)
-                    placed.add(b.button_id)
-
-        return loaded_groups
-
-    def _save_toolbar_layout(self):
-        state = {
-            g_name: [b.button_id for b in btn_list]
-            for g_name, btn_list in self.header_widget.header_layout.groups.items()
-        }
-        if self.settings_manager:
-            try:
-                self.settings_manager.set("filetree", f"buttons_{self.mode}", state)
-            except Exception:
-                pass
-        try:
-            settings = QSettings("ThetaIDE", "ThetaIDE")
-            settings.setValue(f"filetree_buttons_{self.mode}", json.dumps(state))
-        except Exception:
-            pass
-
-    def reset_toolbar_layout(self):
-        """Reset the header toolbar buttons to their default 2-row layout."""
-        self.header_widget.set_groups(self._default_toolbar_groups())
-        self._save_toolbar_layout()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)

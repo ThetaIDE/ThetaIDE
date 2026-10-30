@@ -17,7 +17,7 @@ from typing import Any, Iterable
 
 ALWAYS_KEPT = frozenset({"step", "epoch", "transitions", "training_time_seconds"})
 # Sections the experiment editor offers even before a run has logged anything.
-SECTIONS = ("eval", "train", "losses", "val", "test", "time", "system")
+SECTIONS = ("eval", "train", "losses", "diagnostics", "val", "test", "time", "system")
 
 
 class MetricSelection:

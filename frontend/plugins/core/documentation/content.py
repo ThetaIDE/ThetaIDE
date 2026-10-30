@@ -251,14 +251,11 @@ python -m frontend</code></pre>
 </ul>
 
 <h3>3. Job Queue (<code>queue</code>)</h3>
-<p>Start and stop training here, or line up several experiments and train them one after another:</p>
+<p>The Queue tab shows cards for processes that are currently training. Each card shows its experiment ID, description, status and elapsed time. Click a card to open that run in the Training Monitor.</p>
 <ul>
-  <li>The top row names the experiment open in the Experiment tab. <b>Launch now</b> (<code>F5</code>) trains it straight away, <b>Stop</b> (<code>Shift+F5</code>) ends the active run, and <b>Start simulated demo</b> (<code>Ctrl+F5</code>) runs a simulated one that needs no training environment.</li>
-  <li>Add the open experiment with <b>Add to queue</b> (<code>Ctrl+Shift+Q</code>). Adding does not start it.</li>
-  <li><b>Start queue</b> (<code>Ctrl+Shift+R</code>) trains queued experiments in order. <b>Run up to N at once</b> (beside it, remembered between sessions) sets how many train at the same time: the queue starts the next one whenever one finishes, and Launch now works while there is room. The Training Monitor switches to each one as it starts.</li>
-  <li><b>Pause queue</b> stops the next job from starting; a job already training keeps running. The queue also pauses itself when it runs out of jobs.</li>
-  <li>The list shows running, queued and recent jobs. Select a job to <b>Move up</b>, <b>Move down</b> or <b>Remove from queue</b>; double-click it (or <b>Open in Plot Viewer</b>) to plot its run in the Plot Viewer.</li>
-  <li>Jobs are saved in <code>results/jobs/jobs.db</code>, so queued jobs survive a restart and wait for <b>Start queue</b>. Training runs inside Theta-IDE: closing the window while something trains keeps it going in the system tray (see <a href="launching">Installing &amp; Launching</a>).</li>
+  <li>Enable <b>Run methods in parallel</b> in Experiment Inputs to give each configured method its own concurrent training process and queue card. Clicking a method card opens the Training Monitor focused on that method.</li>
+  <li>Launch the selected experiment with <code>F5</code>, stop the active run with <code>Shift+F5</code>, add an experiment to the queue with <code>Ctrl+Shift+Q</code>, and start or pause the queue with <code>Ctrl+Shift+R</code>. Start a simulated demo with <code>Ctrl+F5</code>.</li>
+  <li>Queued jobs are saved in <code>results/jobs/jobs.db</code>. Training runs inside ThetaIDE: closing the window while something trains keeps it going in the system tray (see <a href="launching">Installing &amp; Launching</a>).</li>
 </ul>
 
 <h3>4. Plots & Visualizations (<code>plots</code>)</h3>
