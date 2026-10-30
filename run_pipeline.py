@@ -25,7 +25,7 @@ for p in [
 
 from omegaconf import OmegaConf
 
-from src.app.pipeline.compose import compose_experiment, validate_composed
+from src.app.pipeline.compose import CONFIG_DIR, compose_experiment, validate_composed
 from src.app.pipeline.config import normalize_agent_name, parse_methods_dict, resolve_experiment_config_name
 from src.app.pipeline.datasets import run_plotting
 from src.app.pipeline.exceptions import ConfigurationError
@@ -264,6 +264,7 @@ def main():
 
     # Build context for tasks
     context = {
+        "experiment_yaml": (CONFIG_DIR / "experiment" / f"{composed.experiment}.yaml").read_bytes(),
         "is_interactive": is_interactive,
         "site_name": site_name,
         "sanitized_extra_args": sanitized_extra_args,
@@ -287,6 +288,9 @@ def main():
     if workflow_id:
         from src.app.pipeline.workflow.executor import run_workflow
 
+        from src.app.pipeline.experiment_snapshot import save_run_config
+
+        save_run_config(cfg)
         run_workflow(workflow_id, cfg, context)
     elif is_interactive:
         from src.app.pipeline.local_runner import run_local_training

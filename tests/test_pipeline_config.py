@@ -501,3 +501,36 @@ class TestParseMethodsDict:
 
 
 
+
+
+def test_shared_component_values_and_sweeps_follow_inheritance():
+    from src.app.pipeline.config import parse_methods_dict
+
+    sweep = {"type": "float", "low": 0.0001, "high": 0.001}
+    cfg = {"methods": {
+        "params": {"agent": {"name": "sb3/ppo", "learning_rate": 0.0003},
+                   "tune": {"agent.learning_rate": sweep}},
+        "one": {"agent": "sb3/ppo", "model": "dnn"},
+        "two": {"agent": {"name": "sb3/ppo", "learning_rate": 0.0007}, "model": "dnn"},
+        "three": {"agent": "sb3/a2c", "model": "dnn"},
+    }}
+    result = parse_methods_dict(cfg)
+    assert result["one"]["agent_params"]["learning_rate"] == 0.0003
+    assert result["one"]["tune"]["agent.learning_rate"] == sweep
+    assert result["two"]["agent_params"]["learning_rate"] == 0.0007
+    assert "tune" not in result["two"]
+    assert "learning_rate" not in result["three"].get("agent_params", {})
+    assert "tune" not in result["three"]
+
+
+def test_component_qualified_shared_sweep():
+    from src.app.pipeline.config import parse_methods_dict
+
+    sweep = {"type": "float", "low": 0.0001, "high": 0.001}
+    cfg = {"methods": {"params": {"agent": {"sb3/ppo": {"learning_rate": 0.0003}},
+                                 "tune": {"agent.sb3/ppo.learning_rate": sweep}},
+                       "one": {"agent": "sb3/ppo", "model": "dnn"},
+                       "two": {"agent": "sb3/a2c", "model": "dnn"}}}
+    result = parse_methods_dict(cfg)
+    assert result["one"]["tune"] == {"agent.learning_rate": sweep}
+    assert "tune" not in result["two"]

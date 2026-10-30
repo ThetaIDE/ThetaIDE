@@ -209,6 +209,15 @@ def test_missing_component_run_guard(tmp_path):
     assert "Missing component" in mock_btn.setToolTip.call_args[0][0]
     assert "Missing component" in mock_btn.setText.call_args[0][0]
 
+    # Named model mappings must be checked by their value, not the key "name".
+    model_dir = tmp_path / "model" / "basics"
+    model_dir.mkdir(parents=True)
+    (model_dir / "dnn.yaml").write_text("architecture: dnn\n")
+    mock_viewer.raw_data["methods"]["my_ppo"]["model"] = {
+        "name": "basics/dnn", "hidden_sizes": [64, 64]
+    }
+    assert not any(m.startswith("model:") for m in Window.check_missing_components(win))
+
 
 def test_component_run_guard_uses_composed_inherited_environment(tmp_path, monkeypatch):
     """A child recipe must be checked after its _base.yaml is composed."""

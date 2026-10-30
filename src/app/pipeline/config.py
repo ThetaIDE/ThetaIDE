@@ -463,9 +463,12 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
 
         # Tier 2: Universal global parameters
         resolved_mcfg = dict(universal_global)
+        if default_agent_algo and m_agent_algo != default_agent_algo:
+            for key in ("lr", "learning_rate"):
+                resolved_mcfg.pop(key, None)
 
         # Tier 2: Algorithm-specific overrides from params.agent.<algo> or params.<algo>
-        agent_params = dict(default_agent_sub)
+        agent_params = dict(default_agent_sub) if m_agent_algo == default_agent_algo else {}
         if m_agent_algo:
             if (
                 isinstance(shared_agent, dict)
@@ -477,7 +480,7 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
                 agent_params = deep_merge(agent_params, shared_params[m_agent_algo])
 
         # Tier 2: Model-specific overrides from params.model.<arch> or params.<arch>
-        model_params = dict(default_model_sub)
+        model_params = dict(default_model_sub) if m_model_arch == default_model_arch else {}
         if m_model_arch:
             if (
                 isinstance(shared_model, dict)
@@ -517,13 +520,46 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
                     study_ref,
                 )
 
-        # Support method-level tuning search spaces (Tier 3) merged with universal (Tier 2)
+        # Shared ranges follow the same component and parameter inheritance as
+        # shared values. Component-qualified targets are stored by the editor
+        # and reduced to Hydra paths only for the matching component.
+        inherited_tune = {}
+        for target, dimension in shared_tune.items():
+            if not isinstance(target, str):
+                continue
+            parts = target.split(".")
+            kind = parts[0] if len(parts) > 1 else "agent"
+            path = parts[1:] if len(parts) > 1 else parts
+            component_qualified = False
+            if kind in ("agent", "model") and len(path) > 1:
+                component = m_agent_algo if kind == "agent" else m_model_arch
+                shared_components = shared_agent if kind == "agent" else shared_model
+                if isinstance(shared_components, dict) and path[0] in shared_components:
+                    if path[0] != component:
+                        continue
+                    component_qualified = True
+                    path = path[1:]
+                    target = kind + "." + ".".join(path)
+            if kind == "agent" and not component_qualified and default_agent_algo and m_agent_algo != default_agent_algo:
+                continue
+            if kind == "model" and not component_qualified and default_model_arch and m_model_arch != default_model_arch:
+                continue
+            explicit = m_agent_sub if kind == "agent" else m_model_sub if kind == "model" else m_dict
+            value = explicit
+            for part in path:
+                if not isinstance(value, dict) or part not in value:
+                    value = None
+                    break
+                value = value[part]
+            if kind != "config" and (value is not None or (len(path) == 1 and path[0] in m_dict)):
+                continue
+            inherited_tune[target] = dimension
+
         raw_tune = m_dict.get("tune") or m_dict.get("search_space") or {}
-        combined_tune = (
-            deep_merge(shared_tune, raw_tune)
-            if isinstance(raw_tune, dict)
-            else (dict(shared_tune) if shared_tune else {})
-        )
+        combined_tune = dict(inherited_tune)
+        if isinstance(raw_tune, dict):
+            # A method's range replaces the shared dimension as a whole.
+            combined_tune.update(raw_tune)
         if combined_tune:
             resolved_mcfg["tune"] = combined_tune
 

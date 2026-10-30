@@ -331,6 +331,22 @@ def _validate_tuning(cfg: Any) -> None:
                 if not isinstance(dimension, str) and not str(target).startswith(("agent.", "model.", "config.")):
                     raise ValueError(f"Typed sweep dimension {target!r} requires an explicit agent, model, or config path")
                 _sweep_expression(target, dimension)
+                if str(target).startswith("agent."):
+                    agent = method.get("agent")
+                    if isinstance(agent, dict):
+                        agent = agent.get("name") or agent.get("algorithm") or agent.get("type")
+                    if isinstance(agent, str):
+                        root = (_PROJECT_ROOT / "in" / "config" / "agent").resolve()
+                        path = (root / (agent + ".yaml")).resolve()
+                        if path.is_relative_to(root) and path.is_file():
+                            base = yaml.safe_load(path.read_text()) or {}
+                            if isinstance(base, dict) and "defaults" not in base:
+                                value = base
+                                for part in str(target).split(".")[1:]:
+                                    if not isinstance(value, dict) or part not in value:
+                                        hint = " Did you mean agent.learning_rate?" if target == "agent.lr" and "learning_rate" in base else ""
+                                        raise ValueError(f"Sweep target {target!r} is absent from agent {agent!r}.{hint}")
+                                    value = value[part]
             except ValueError as exc:
                 raise ConfigurationError(f"Method '{name}': {exc}") from exc
     if missing:

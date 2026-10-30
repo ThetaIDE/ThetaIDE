@@ -11,6 +11,7 @@ from src.app.pipeline.commands import build_method_overrides, get_sweep_directio
 from src.app.pipeline.config import normalize_agent_name
 from src.app.pipeline.datasets import fast_purge_dir, resolve_dataset_for_method
 from src.app.pipeline.engine import resolve_engine
+from src.app.pipeline.experiment_snapshot import save_experiment_snapshot, save_run_config
 from src.app.pipeline.optuna_utils import create_optuna_study, delete_optuna_study, get_next_study_name
 from src.app.pipeline.runtime import get_shell_env_block, get_shell_python_cmd
 from src.app.pipeline.slurm import generate_sbatch_header, generate_sbatch_script, submit_sbatch
@@ -43,6 +44,8 @@ def run_slurm_training(cfg, context):
         fast_purge_dir(exp_plot_dir)
         exp_plot_dir.mkdir(parents=True, exist_ok=True)
 
+    save_experiment_snapshot(cfg, context)
+    save_run_config(cfg)
     cfg_consolidate = cfg.get("consolidate", None)
     site_consolidate = getattr(site_cfg, "consolidate", False) if site_cfg else False
     should_consolidate = cfg_consolidate if cfg_consolidate is not None else site_consolidate

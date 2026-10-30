@@ -12,6 +12,7 @@ from src.app.pipeline.commands import build_method_overrides, get_sweep_directio
 from src.app.pipeline.config import normalize_agent_name
 from src.app.pipeline.datasets import fast_purge_dir, resolve_dataset_for_method, run_experiment
 from src.app.pipeline.engine import resolve_engine
+from src.app.pipeline.experiment_snapshot import save_experiment_snapshot, save_run_config
 from src.app.pipeline.optuna_utils import (
     create_optuna_study,
     delete_optuna_study,
@@ -155,6 +156,8 @@ def run_plotting_phase(cfg, context) -> None:
 def run_local_training(cfg, context) -> None:
     """Execute all phases sequentially: setup → methods → plot."""
     _setup_output_dirs(cfg)
+    save_experiment_snapshot(cfg, context)
+    save_run_config(cfg)
     run_methods(cfg, context)
 
     if not cfg.get("no_plot", False):

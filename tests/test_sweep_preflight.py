@@ -28,3 +28,10 @@ def test_invalid_bounds_fail_preflight():
     cfg["methods"]["one"]["tune"]["agent.lr"]["low"] = 1
     with pytest.raises(ConfigurationError, match="one.*bounds"):
         _validate_tuning(cfg)
+
+
+def test_invalid_sb3_parameter_is_reported_before_launch():
+    cfg = config()
+    cfg["methods"]["one"]["agent"] = "sb3/ppo"
+    with pytest.raises(ConfigurationError, match="agent.learning_rate"):
+        _validate_tuning(cfg)
