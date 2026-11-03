@@ -8,6 +8,7 @@ by default) and saving checkpoints adhering to the Theta-IDE execution contract.
 from __future__ import annotations
 
 import os
+import inspect
 import math
 import sys
 import time
@@ -24,6 +25,37 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.app import telemetry
+
+
+def resolve_algorithm(name, algorithms):
+    """Resolve a component-qualified SB3 algorithm without silently substituting another."""
+    key = str(name).rsplit("/", 1)[-1].upper()
+    if key not in algorithms:
+        raise ValueError(f"Unsupported SB3 algorithm {name!r}; choose one of {', '.join(sorted(algorithms))}.")
+    return algorithms[key]
+
+
+def algorithm_options(agent_cfg, algorithm_class):
+    """Forward the selected algorithm's supported constructor options from its config."""
+    signature = inspect.signature(algorithm_class.__init__)
+    excluded = {"self", "policy", "env", "verbose", "policy_kwargs", "seed"}
+    result = {}
+    for key, parameter in signature.parameters.items():
+        if key in excluded or key not in agent_cfg:
+            continue
+        value = agent_cfg[key]
+        if value is None:
+            continue
+        default = parameter.default
+        if isinstance(value, str) and isinstance(default, (float, int)) and not isinstance(default, bool):
+            try:
+                value = type(default)(value)
+            except ValueError:
+                raise ValueError(f"SB3 {key} must be numeric; got {value!r}.") from None
+        result[key] = value
+    if "learning_rate" not in result and agent_cfg.get("lr") is not None:
+        result["learning_rate"] = float(agent_cfg["lr"])
+    return result
 
 
 class EpisodeMetrics:
@@ -76,6 +108,13 @@ class ThetaSB3Writer:
 
 @hydra.main(version_base=None, config_path="../../../../in/config", config_name="config")
 def main(cfg: DictConfig):
+    model_cfg = cfg.get("model", {})
+    from src.app.pipeline.tuners import trial_monitor
+    monitor = trial_monitor(cfg)
+    if monitor is not None:
+        from src.app.pipeline.objective import objective_metric
+        if objective_metric(cfg, "eval/reward") != "eval/reward":
+            raise ValueError("SB3 pruning requires the eval/reward objective.")
     try:
         import stable_baselines3 as sb3
         from stable_baselines3 import A2C, DQN, PPO, SAC
@@ -124,6 +163,7 @@ def main(cfg: DictConfig):
         sinks=sinks,
         config=OmegaConf.to_container(cfg, resolve=True),
         system_interval=system_interval,
+        version=cfg.get("variability_version") if cfg.get("variability_run_id") else None,
     )
 
     from hydra.core.hydra_config import HydraConfig
@@ -131,8 +171,14 @@ def main(cfg: DictConfig):
     hydra_cfg = HydraConfig.get()
     is_sweep = hydra_cfg.mode.name == "MULTIRUN"
     ckpt_dir = Path("results/checkpoints") / group / exp_id / agent_name.replace("/", "_")
+    if cfg.get("variability_run_id"):
+        ckpt_dir = ckpt_dir / str(cfg.get("variability_version", "version_0"))
     if is_sweep:
-        ckpt_dir = ckpt_dir / "sweeps" / str(hydra_cfg.sweeper.study_name) / f"trial_{hydra_cfg.job.num}"
+        from src.app.pipeline.trial_artifacts import trial_checkpoint_dir_from_config
+
+        ckpt_dir = trial_checkpoint_dir_from_config(ckpt_dir, cfg) or (
+            ckpt_dir / "sweeps" / str(hydra_cfg.sweeper.study_name) / f"trial_{hydra_cfg.job.num}"
+        )
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # Custom SB3 Callback to bridge telemetry into the Theta-IDE telemetry run
@@ -141,13 +187,124 @@ def main(cfg: DictConfig):
             super().__init__()
             self.run = run
             self.episodes = EpisodeMetrics(run)
+            self.eval_index = 0
+            self.last_eval = -1
+            self.eval_env = None
+            self.monitor_samples = []
+
+        def _model_monitor(self, observations, phase):
+            """Optional model-owned diagnostics; the runner only transports their results."""
+            import numpy as np
+            import torch
+            selected = getattr(self.model.policy, "theta_model_module", None)
+            if selected is None and hasattr(self.model.policy, "q_net"):
+                selected = getattr(self.model.policy.q_net, "theta_model_module", None)
+            collect = getattr(selected, "collect_monitoring", None)
+            namespace = getattr(selected, "monitoring_namespace", None)
+            if not callable(collect) or (namespace and not self.run.metrics.keeps_section(namespace)):
+                return
+            obs = torch.as_tensor(observations, device=self.model.device)
+            metrics, samples = collect(obs)
+            data = {}
+            for key, value in metrics.items():
+                section, separator, name = key.partition("/")
+                data[f"{section}/{phase}/{name}" if separator else f"{phase}/{section}"] = value
+            self.run.log(data, step=int(self.num_timesteps), transitions=int(self.num_timesteps))
+            limit = int(model_cfg.get("monitoring_max_samples", 0) or 0)
+            if phase == "train" and limit > 0 and samples:
+                arrays = {key: np.asarray(value.detach().cpu() if torch.is_tensor(value) else value)
+                          for key, value in samples.items()}
+                if any(len(value) != len(obs) for value in arrays.values()):
+                    raise ValueError("Model monitoring sample arrays must match the observation batch size.")
+                self.monitor_samples.extend({key: value[i] for key, value in arrays.items()} for i in range(len(obs)))
+                self.monitor_samples = self.monitor_samples[-limit:]
+
+        def _save_model_samples(self):
+            if not self.monitor_samples:
+                return
+            import numpy as np
+            selected = getattr(self.model.policy, "theta_model_module", None)
+            if selected is None and hasattr(self.model.policy, "q_net"):
+                selected = getattr(self.model.policy.q_net, "theta_model_module", None)
+            path = self.run.version_dir / "model_monitoring_samples.npz"
+            arrays = {key: np.stack([row[key] for row in self.monitor_samples]) for key in self.monitor_samples[0]}
+            metadata = getattr(selected, "monitoring_metadata", None)
+            if callable(metadata):
+                arrays.update(metadata())
+            np.savez_compressed(path, **arrays)
+            self.run.artifact(path, kind="model_monitoring_samples")
+
+        def _evaluate(self):
+            from stable_baselines3.common.evaluation import evaluate_policy
+            from stable_baselines3.common.vec_env import DummyVecEnv
+            import json
+            import numpy as np
+
+            if self.eval_env is None:
+                self.eval_env = DummyVecEnv([make_environment])
+            base = cfg.get("variability_evaluation_seed")
+            seed = ((int(base) + self.eval_index) % (2**32 - 1)) if base is not None else None
+            if seed is not None:
+                self.eval_env.seed(seed)
+            eval_observations = []
+            def capture_eval(local_vars, _globals):
+                if len(eval_observations) < 1024:
+                    eval_observations.append(np.asarray(local_vars["observations"][local_vars["i"]]).copy())
+            rewards, _ = evaluate_policy(self.model, self.eval_env, n_eval_episodes=max(1, int(cfg.get("eval_episodes") or 5)),
+                                         deterministic=True, return_episode_rewards=True, callback=capture_eval)
+            if eval_observations:
+                self._model_monitor(np.stack(eval_observations), "eval")
+            step = int(self.num_timesteps)
+            self.run.log({"eval/reward": float(np.mean(rewards)), "eval/reward_std": float(np.std(rewards))},
+                         step=step, transitions=step)
+            if cfg.get("variability_run_id"):
+                event = {"schema_version": 1, "run_id": str(cfg.variability_run_id),
+                     "method": str(cfg.variability_method), "event_index": self.eval_index,
+                     "training_step": step, "checkpoint": "in-memory policy", "metric": "eval/reward",
+                     "episode_count": len(rewards), "evaluation_seed": seed,
+                     "seed_policy": "(base plus event index) modulo (2^32 minus 1)" if seed is not None else "runner default",
+                     "deterministic_actions": True, "episode_outcomes": [float(x) for x in rewards]}
+                path = (Path("results/logs") / group / exp_id / agent_name.replace("/", "_")
+                    / str(cfg.get("variability_version", "version_0")) / "evaluation_events.jsonl")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(event, allow_nan=False) + "\n")
+            if monitor is not None:
+                from src.app.pipeline.objective import objective_value
+                value = objective_value({"eval/reward": float(np.mean(rewards))}, "eval/reward")
+                monitor.report(value, self.eval_index)
+            self.eval_index += 1
+            self.last_eval = step
+
+        def _evaluation_enabled(self):
+            from src.app.telemetry.selection import selection_from_config
+            return bool(cfg.get("variability_run_id") and int(cfg.get("eval_episodes", 0) or 0) > 0
+                        and selection_from_config(cfg).keeps_section("eval"))
 
         def _on_training_start(self) -> None:
             self.model.logger.output_formats.append(SB3TelemetryWriter(self.run, self))
+            if self._evaluation_enabled():
+                self._evaluate()
 
         def _on_step(self) -> bool:
             self.episodes.record(self.locals.get("infos", []), self.num_timesteps)
+            interval = int(model_cfg.get("monitoring_interval", 256) or 0)
+            observations = self.locals.get("new_obs")
+            if interval > 0 and observations is not None and self.n_calls % interval == 0:
+                self._model_monitor(observations, "train")
+            freq = cfg.get("eval_freq_steps") or cfg.get("eval_freq") or max(1, total_timesteps // 4)
+            if (monitor is not None or self._evaluation_enabled()) and self.num_timesteps - max(0, self.last_eval) >= int(freq):
+                self._evaluate()
             return True
+
+        def _on_training_end(self):
+            try:
+                if (monitor is not None or self._evaluation_enabled()) and self.last_eval != self.num_timesteps:
+                    self._evaluate()
+                self._save_model_samples()
+            finally:
+                if self.eval_env is not None:
+                    self.eval_env.close()
 
     # Build environment with Monitor wrapper for episode stats
     from stable_baselines3.common.monitor import Monitor
@@ -156,48 +313,77 @@ def main(cfg: DictConfig):
         env_id and ("ale/" in str(env_id).lower() or "atari" in str(env_id).lower())
     )
 
-    if is_atari:
-        import ale_py
-        from gymnasium.wrappers import AtariPreprocessing, FrameStackObservation
+    def make_environment():
+        if is_atari:
+            import ale_py
+            from gymnasium.wrappers import AtariPreprocessing, FrameStackObservation
 
-        try:
-            gym.register_envs(ale_py)
-        except Exception:
-            pass
-        game_stem = (str(env_name).split("/")[-1] if "/" in str(env_name) else str(env_id)).lower()
-        if "ale/" not in game_stem:
-            game_stem = f"ALE/{game_stem.capitalize()}-v5"
-        else:
-            game_stem = env_id
+            try:
+                gym.register_envs(ale_py)
+            except Exception:
+                pass
+            game_stem = (str(env_name).split("/")[-1] if "/" in str(env_name) else str(env_id)).lower()
+            if "ale/" not in game_stem:
+                game_stem = f"ALE/{game_stem.capitalize()}-v5"
+            else:
+                game_stem = env_id
 
-        atari_raw = gym.make(game_stem, frameskip=1, render_mode="rgb_array")
-        atari_pre = AtariPreprocessing(atari_raw, screen_size=84, grayscale_obs=True, frame_skip=4, scale_obs=False)
-        atari_stacked = FrameStackObservation(atari_pre, stack_size=4)
-        env = Monitor(atari_stacked)
-    else:
-        env = Monitor(gym.make(env_id))
+            atari_raw = gym.make(game_stem, frameskip=1, render_mode="rgb_array")
+            atari_pre = AtariPreprocessing(atari_raw, screen_size=84, grayscale_obs=True, frame_skip=4, scale_obs=False)
+            atari_stacked = FrameStackObservation(atari_pre, stack_size=4)
+            return Monitor(atari_stacked)
+        return Monitor(gym.make(env_id))
+
+    env = make_environment()
 
     # Resolve algorithm class
     algo_map = {"PPO": PPO, "DQN": DQN, "A2C": A2C, "SAC": SAC}
-    AlgoClass = algo_map.get(algo_name, PPO)
+    AlgoClass = resolve_algorithm(algo_name, algo_map)
 
     # Hyperparameters
-    algo_kwargs = {}
-    lr_val = agent_cfg.get("learning_rate", agent_cfg.get("lr"))
-    if lr_val is not None:
-        algo_kwargs["learning_rate"] = float(lr_val)
-    if "gamma" in agent_cfg:
-        algo_kwargs["gamma"] = float(agent_cfg["gamma"])
-    if "batch_size" in agent_cfg:
-        algo_kwargs["batch_size"] = int(agent_cfg["batch_size"])
-    if "n_steps" in agent_cfg:
-        algo_kwargs["n_steps"] = int(agent_cfg["n_steps"])
+    algo_kwargs = algorithm_options(agent_cfg, AlgoClass)
+    if cfg.get("variability_run_id"):
+        algo_kwargs["seed"] = int(cfg.get("seed", 1))
+    selected_model = (model_cfg.get("architecture") or model_cfg.get("name") or model_cfg.get("type")) if hasattr(model_cfg, "get") else None
+    if hasattr(model_cfg, "get") and model_cfg and model_cfg.get("sb3_native_policy") is not True:
+        if AlgoClass not in (PPO, A2C, DQN):
+            raise ValueError(f"SB3 {algo_name} does not yet have an adapter for selected model {selected_model!r}; "
+                             "select a compatible algorithm or implement its policy adapter.")
+        if not selected_model:
+            raise ValueError("The selected model must specify its name or architecture.")
+        from importlib import import_module
+        policy_module = import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy")
+        policy_type = policy_module.ThetaDQNPolicy if AlgoClass is DQN else policy_module.ThetaActorCriticPolicy
+        AlgoClass = {PPO: policy_module.ThetaPPO, A2C: policy_module.ThetaA2C, DQN: policy_module.ThetaDQN}[AlgoClass]
+        resolved_env_name = str(env_cfg.get("symbolic_name") or
+                                (str(env_name).rsplit("/", 1)[-1] if env_name else str(env_id).split("-")[0].lower()))
+        meanings = list(env_cfg.get("action_meanings") or [])
+        if not meanings:
+            action_names = getattr(env.unwrapped, "get_action_meanings", None)
+            if callable(action_names):
+                meanings = list(action_names())
+        algo_kwargs["policy_kwargs"] = {"theta_config": OmegaConf.to_container(cfg, resolve=True),
+                                       "theta_model": str(selected_model), "env_name": resolved_env_name,
+                                       "action_meanings": meanings}
+        algo_kwargs["device"] = "cpu"
 
-    model_arch = cfg.get("model", {}).get("architecture") if hasattr(cfg.get("model"), "get") else None
-    if model_arch == "cnn":
-        policy_type = "CnnPolicy"
-
-    model = AlgoClass(policy_type, env, verbose=1, **algo_kwargs)
+    try:
+        model = AlgoClass(policy_type, env, verbose=1, **algo_kwargs)
+    except BaseException as exc:
+        logger.event("error", f"{type(exc).__name__}: {exc}", level="error")
+        logger.finish(status="failed")
+        env.close()
+        raise
+    active_model = getattr(model.policy, "theta_model_module", None)
+    if active_model is None and hasattr(model.policy, "q_net"):
+        active_model = getattr(model.policy.q_net, "theta_model_module", None)
+    def class_name(obj):
+        return f"{type(obj).__module__}.{type(obj).__qualname__}"
+    model_identity = {"algorithm_class": class_name(model), "policy_class": class_name(model.policy),
+                      "model_class": class_name(active_model) if active_model is not None else None}
+    if active_model is not None and hasattr(active_model, "policy_modules"):
+        model_identity["model_components"] = [class_name(part) for part in active_model.policy_modules]
+    logger.event("model", "Training model constructed", **model_identity)
 
     class SB3TelemetryWriter(ThetaSB3Writer, KVWriter):
         pass
@@ -210,40 +396,52 @@ def main(cfg: DictConfig):
     logger.event("stage", "Training started", stage="training")
     try:
         model.learn(total_timesteps=total_timesteps, callback=cb)
-        tuning = cfg.get("tuning")
         if is_sweep:
-            metric = tuning.get("metric") if tuning is not None else "eval/reward"
+            from src.app.pipeline.objective import objective_metric, objective_value
+
+            metric = objective_metric(cfg, "eval/reward")
             if metric != "eval/reward":
                 raise ValueError(f"SB3 sweep objective {metric!r} is not supported; use 'eval/reward'.")
             from stable_baselines3.common.evaluation import evaluate_policy
+            from stable_baselines3.common.vec_env import DummyVecEnv
 
-            objective, _ = evaluate_policy(model, env, n_eval_episodes=max(1, int(cfg.get("eval_episodes") or 5)), deterministic=True)
-            objective = float(objective)
-            if not math.isfinite(objective):
-                raise ValueError("SB3 evaluation did not produce a finite objective.")
+            evaluation_env = DummyVecEnv([make_environment])
+            try:
+                objective, _ = evaluate_policy(model, evaluation_env, n_eval_episodes=max(1, int(cfg.get("eval_episodes") or 5)), deterministic=True)
+            finally:
+                evaluation_env.close()
+            objective = objective_value({metric: objective}, metric)
             logger.log({metric: objective}, step=cb.n_calls, transitions=cb.num_timesteps)
         status = "completed"
     except BaseException as exc:
-        logger.event("error", f"{type(exc).__name__}: {exc}", level="error")
-        raise
+        if getattr(exc, "theta_trial_status", None) == "pruned":
+            status = "pruned"
+            logger.event("stage", str(exc), stage="pruned")
+        else:
+            logger.event("error", f"{type(exc).__name__}: {exc}", level="error")
+            raise
     finally:
         end_time = time.time()
         # Save final models
-        model.save(str(ckpt_dir / "best_model.zip"))
-        model.save(str(ckpt_dir / "latest_model.zip"))
+        checkpoint_names = ("best_model.zip", "latest_model.zip") if status == "completed" else ()
+        for name in checkpoint_names:
+            model.save(str(ckpt_dir / name))
         logger.save_runtime_metadata(
             config=OmegaConf.to_container(cfg, resolve=True),
             training_time_seconds=end_time - start_time,
+            extra=model_identity,
         )
-        for name in ("best_model.zip", "latest_model.zip"):
+        for name in checkpoint_names:
             logger.artifact(ckpt_dir / name, kind="checkpoint")
         logger.finish(status=status)
+        if cb.eval_env is not None:
+            cb.eval_env.close()
         env.close()
 
     print(f"\n[SB3 Engine Complete] Total time: {end_time - start_time:.2f}s")
     print(f"Checkpoints saved to: {ckpt_dir}")
     print(f"Telemetry logged to: {logger.version_dir}")
-    return objective
+    return {"theta_trial_status": "pruned"} if status == "pruned" else objective
 
 
 if __name__ == "__main__":

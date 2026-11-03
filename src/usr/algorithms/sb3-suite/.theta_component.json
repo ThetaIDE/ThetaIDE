@@ -1,7 +1,7 @@
 {
   "id": "sb3-suite",
   "name": "Stable-Baselines3 Suite",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "kind": "method",
   "description": "Standard reinforcement learning algorithms (PPO, DQN, A2C, SAC) powered by Stable-Baselines3.",
   "author": "DLR-RM & SB3 Contributors",
@@ -189,8 +189,8 @@
     "in/config/agent/sb3/sac.yaml"
   ],
   "target_path": "src/usr/algorithms/sb3-suite",
-  "installed_from": "https://raw.githubusercontent.com/CameronEgb/theta-hub/main/packages/sb3_suite-1.0.4.zip",
-  "sha256": "6c83ca3dbb88e150f98e50815173ac21a28b35eb5bf0a1e65d658fe5a78cf1ca",
+  "installed_from": "https://raw.githubusercontent.com/CameronEgb/theta-hub/main/packages/sb3_suite-1.0.6.zip",
+  "sha256": "e4e5f699b615c7639df679838e190b10d61189bb76a4868d3a99b7ae059a7d1a",
   "config_path": "in/config/agent/sb3/a2c.yaml",
   "user_config_paths": [],
   "config_backups": {
