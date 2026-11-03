@@ -1,7 +1,7 @@
 """Training monitor panel: live and historic curves for the selected run.
 
 The panel owns its widgets and drawing. Run state (the run list, the selected and active runs,
-the pinned baseline, the queue) stays on the host window, which the rest of the app also reads.
+the queue) stays on the host window, which the rest of the app also reads.
 """
 from __future__ import annotations
 
@@ -15,16 +15,15 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSizePolicy,
-    QSlider,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from ..charts import Chart
-from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics, metric_points
+from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics
 from ..results.metrics_catalog import describe, group_sort_key, metric_group
 from ..queue_panel import QueuePanel
 from ..theme import theme_color
@@ -45,7 +44,6 @@ SECOND_METRICS = {
     "entropy": ("POLICY ENTROPY", "Policy entropy", "how random actions are · ln 2 ≈ 0.693 is uniform", ".3f"),
     "approx_kl": ("APPROX. KL", "Approximate KL per update", "size of each policy update", ".5f"),
 }
-OVERVIEW_REWARD_HEIGHT = 300  # px: the Overview's charts never shrink below these; the tab scrolls instead
 SECTION_COLUMNS = {"losses": 4}  # losses are small multiples, four to a row; other sections have two
 SIDEBAR_MIN_WIDTH = 250
 LIVE_REFRESH_MS = 400  # the live views redraw at most this often while records stream in
@@ -142,7 +140,7 @@ def second_metric_text(key: str) -> tuple[str, str, str, str]:
 
 
 def run_display_name(run) -> str:
-    return run["config"]["name"] if run["simulated"] else run["backend"]["experiment_id"]
+    return run.get("display_name") or (run["config"]["name"] if run["simulated"] else run["backend"]["experiment_id"])
 
 
 class MonitorPanel(QWidget):
@@ -150,7 +148,7 @@ class MonitorPanel(QWidget):
 
     # Widgets the host window also exposes under the same names (existing code and tests use them).
     EXPOSED = (
-        "smoothing_label", "smoothing_slider", "btn_pin_baseline", "run_title", "run_caption", "reward_chart",
+        "run_title", "run_caption",
     )
     # The views besides the workspace, opened from the status row in its place.
     VIEW_NAMES = ("System", "Logs", "Feed", "Files")
@@ -180,7 +178,19 @@ class MonitorPanel(QWidget):
         title_layout = QVBoxLayout(title_block)
         title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(2)
-        title_layout.addWidget(self.run_title)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(0)
+        title_row.addWidget(self.run_title)
+        self.method_button = QPushButton()
+        self.method_button.setObjectName("monitorMethodTitle")
+        self.method_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.method_button.setToolTip("Choose the method shown in front")
+        self.method_button.setMenu(QMenu(self.method_button))
+        self.method_button.hide()
+        title_row.addWidget(self.method_button)
+        title_row.addStretch()
+        title_layout.addLayout(title_row)
         self.method_legend = QLabel()
         self.method_legend.setObjectName("muted")
         self.method_legend.setTextFormat(Qt.TextFormat.RichText)
@@ -244,35 +254,8 @@ class MonitorPanel(QWidget):
         self.focused_agent: str | None = None
         self._focus_run_id: str | None = None  # the run whose method is focused
 
-        # Sections of charts, led by the run’s headline metric.
-        self.reward_chart = Chart("reward", "Episode reward  ·  mean ± 1 std over evaluation episodes",
-                                  band="reward_std")
-        self.reward_chart.setMinimumHeight(OVERVIEW_REWARD_HEIGHT)
-        self.reward_card_frame = QFrame()  # framed like the charts beside it
-        self.reward_card_frame.setObjectName("resultsChartCard")
-        frame_layout = QVBoxLayout(self.reward_card_frame)
-        frame_layout.setContentsMargins(0, 0, 0, 0)
-        frame_layout.addWidget(self.reward_chart)
-        # Smoothing and the baseline pin sit on the first section's heading row.
-        toolbar = QWidget()
-        tools = QHBoxLayout(toolbar)
-        tools.setContentsMargins(0, 0, 0, 0)
-        tools.setSpacing(10)
-        self.smoothing_label = label("Smoothing: 0%", "muted")
-        tools.addWidget(self.smoothing_label)
-        self.smoothing_slider = QSlider(Qt.Orientation.Horizontal)
-        self.smoothing_slider.setRange(0, 95)
-        self.smoothing_slider.setValue(0)
-        self.smoothing_slider.setFixedWidth(110)
-        self.smoothing_slider.setToolTip("Exponential moving average smoothing for training curves (0% = raw)")
-        self.smoothing_slider.valueChanged.connect(self.on_smoothing_changed)
-        tools.addWidget(self.smoothing_slider)
-        self.btn_pin_baseline = QPushButton("Pin as baseline")
-        self.btn_pin_baseline.setCheckable(True)
-        self.btn_pin_baseline.setToolTip("Pin this run to overlay as a dashed baseline curve on other runs")
-        self.btn_pin_baseline.clicked.connect(self.toggle_pin_baseline)
-        tools.addWidget(self.btn_pin_baseline)
-        self.charts_view = ChartsView(lead=("eval", self.reward_card_frame), toolbar=toolbar,
+        # One grouped chart for each logged metric.
+        self.charts_view = ChartsView(
                                       group_columns=SECTION_COLUMNS, show_caption=False)
         self.overview_scroll = self.charts_view.grid
         self.overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -346,7 +329,7 @@ class MonitorPanel(QWidget):
     def _place_queue_overlay(self):
         if not hasattr(self, "queue_overlay"):
             return
-        width = min(850, max(1, self.content.width() - 20))
+        width = max(1, min(self.content.width() - 20, self.content.width() * 2 // 3))
         anchor = self.queue_button.mapTo(self.content, self.queue_button.rect().bottomLeft())
         top = anchor.y() + 8
         available_height = max(1, self.content.height() - top - 10)
@@ -453,21 +436,6 @@ class MonitorPanel(QWidget):
         """A run's metrics or status changed: refresh its sidebar row."""
         self.sidebar.update_run(run)
 
-    def toggle_pin_baseline(self):
-        host = self.host
-        if not host.selected:
-            return
-        host.pinned_baseline_run = None if host.pinned_baseline_run is host.selected else host.selected
-        self.render()
-
-    # ── Charts ───────────────────────────────────────────────────────────────
-
-    def on_smoothing_changed(self, value):
-        self.smoothing_label.setText(f"Smoothing: {value}%")
-        factor = value / 100.0
-        self.reward_chart.set_smoothing(factor)
-        self.charts_view.set_smoothing(factor)
-
     def show_hardware(self, hw):
         """Live CPU and memory use of the training process (and its children, when reported), on the System button."""
         children = int(hw.get("children") or 0)
@@ -508,41 +476,12 @@ class MonitorPanel(QWidget):
         self.run_title.setToolTip(about)
         self.run_caption.setToolTip(about)
 
-        # Update Pin Baseline button
-        baseline = host.pinned_baseline_run
-        if baseline is None:
-            self.btn_pin_baseline.setChecked(False)
-            self.btn_pin_baseline.setText("Pin as baseline")
-            self.btn_pin_baseline.setToolTip("Pin this run's curve to overlay as a dashed baseline when inspecting other runs")
-        elif baseline is run:
-            self.btn_pin_baseline.setChecked(True)
-            self.btn_pin_baseline.setText("Pinned baseline")
-            self.btn_pin_baseline.setToolTip("This run is currently pinned as the baseline. Click to unpin.")
-        else:
-            self.btn_pin_baseline.setChecked(False)
-            p_name = run_display_name(baseline)
-            label_name = (p_name[:12] + "…") if len(p_name) > 12 else p_name
-            self.btn_pin_baseline.setText(f"Replace baseline ({label_name})")
-            self.btn_pin_baseline.setToolTip(f"Baseline '{p_name}' is pinned. Click to replace it with this run.")
-
-        step = max((m["step"] for m in metrics), default=0)
-        requested = config["total_timesteps"]
-        # Records from older runs may not include an effective budget; use the steps actually run.
-        budget = (run["backend"].get("effective_timesteps") or max(step, requested)) if live else requested
-        head_key, head_info = headline_metric(run, config)
-        # The headline chart leads its metric's section and draws that metric, so the grid leaves it out.
-        head_column = METRIC_COLUMNS.get(head_key, head_key)
-        self.charts_view.exclude = {head_column} | ({"eval/reward_std"} if head_key == "reward" else set())
-        lead_group = metric_group(head_column)
-        if self.charts_view.grid.lead is None or self.charts_view.grid.lead[0] != lead_group:
-            self.charts_view.grid.lead = (lead_group, self.reward_card_frame)
-        env_steps = measures_environment_steps(run)
         note = None  # only what the run is waiting for: where its files are is on the title's tooltip
         if live:
             if run["status"] == "queued":
                 position = run.get("queue_position")
                 ahead = f"position {position + 1}" if position is not None else "waiting"
-                note = (f"In the job queue ({ahead}). Queued experiments train one at a time; "
+                note = (f"In the job queue ({ahead}). Queued experiments wait for an available slot; "
                         "this view follows it when it starts.")
                 if not host.queue_running:
                     note += " The queue is paused: use Start or pause queue (Ctrl+Shift+R)."
@@ -554,27 +493,6 @@ class MonitorPanel(QWidget):
                 note = (f"Metrics from {where} · this run was started outside the app and has no recorded end "
                         "time: it may still be training, or it stopped early.")
         self.status_note = note
-        # Fit the data when the budget is not what this run is measured against,
-        # or the curve lands in the leftmost few percent of the chart.
-        xmax = budget if (live and env_steps) else None
-        has_spread = head_key == "reward" and any(m.get("reward_std") is not None for m in metrics)
-        self.reward_chart.set_metric(
-            head_key,
-            "Episode reward  ·  mean ± 1 std over evaluation episodes" if has_spread else head_info.label,
-        )
-        # Drawn like the charts beside it: while the run trains, its y-axis only grows and its newest point is marked.
-        training = self._run_is_live(run)
-        self.reward_chart.hold_y = training
-        self.reward_chart.show_future = training and xmax is not None
-        self.reward_chart.live_series = {title} if training else set()
-        self.reward_chart.set_series([(title, metrics, "#b8bb26")], xmax)
-
-        # Baseline overlay
-        if baseline and baseline is not run:
-            b_title = f"{run_display_name(baseline)} (baseline)"
-            self.reward_chart.set_baseline_series([(b_title, baseline["metrics"], "#d3869b")])
-        else:
-            self.reward_chart.set_baseline_series([])
         self.sidebar.update_run(run)
         self.live_changed()
 
@@ -594,12 +512,30 @@ class MonitorPanel(QWidget):
         if not run:
             return
         view = self.views.currentWidget()
-        lives = self.host.live_for_run(run, load=True)  # the Overview charts every metric, so it reads them all
+        lives = self.host.live_for_run(run, load=True)  # the Overview charts every metric
+        if run.get("simulated"):
+            from ..live_run import LiveRun
+            demo = LiveRun()
+            demo.rows = [{("eval/reward" if k == "reward" else "eval/reward_std" if k == "reward_std" else k): v
+                          for k, v in point.items() if v is not None} for point in run.get("metrics", [])]
+            lives = {run_display_name(run): demo}
         live = self._run_is_live(run)
         if self.focused_agent and run["id"] != self._focus_run_id:  # another run: its methods are others
             self.focused_agent = self.pipeline_strip.focused = None
         self.status_strip.show_run(run.get("status", ""), lives, None, live)
-        methods = list(dict.fromkeys([*((run.get("backend") or {}).get("agents") or []), *lives]))
+        methods = list(lives)
+        if not self.focused_agent:
+            self.focused_agent = methods[0] if methods else None
+            self._focus_run_id = run["id"]
+        menu = self.method_button.menu()
+        menu.clear()
+        for name in methods:
+            action = menu.addAction(str(name))
+            action.setCheckable(True)
+            action.setChecked(name == self.focused_agent)
+            action.triggered.connect(lambda checked=False, n=name: self.focus_agent(n))
+        self.method_button.setText(f" / {self.focused_agent}" if self.focused_agent else "")
+        self.method_button.setVisible(bool(methods))
         colors = {name: PALETTE[i % len(PALETTE)] for i, name in enumerate(methods)}
         self.method_legend.setText(" &nbsp; ".join(
             f'<span style="color:{theme_color(colors[name])}">●</span> {escape(str(name))}' for name in methods
@@ -618,15 +554,6 @@ class MonitorPanel(QWidget):
         self.problem_bar.setVisible(problem is not None or bool(self.status_note))
         if view is self.charts_view:
             shown = self.shown_lives(lives)
-            head_key = self.reward_chart.metric
-            series = [(name, metric_points(method.rows), colors[name]) for name, method in shown.items()]
-            series = [entry for entry in series if any(point.get(head_key) is not None for point in entry[1])]
-            if series:
-                self.reward_chart.live_series = {name for name, method in shown.items()
-                                                 if live and not method.is_finished()}
-                self.reward_chart.set_series(series, self.reward_chart.xmax)
-            elif lives:
-                self.reward_chart.set_series([], self.reward_chart.xmax)
             view.show_lives(shown, colors, live, comparing=False)
         elif view is self.system_view:
             view.show_lives(self.shown_lives(lives), colors)
@@ -640,16 +567,15 @@ class MonitorPanel(QWidget):
             self.log_view.set_lines(lines, empty)
 
     def shown_lives(self, lives):
-        """The shown run's agents, or only the one whose pipeline-strip segment was clicked.
+        """The shown run's agents, with the focused one drawn last.
 
         Runs ticked in the runs list are not drawn here: they are compared in the Plots tab.
         """
-        if self.focused_agent in lives:
-            return {self.focused_agent: lives[self.focused_agent]}
-        return lives
+        return {name: lives[name] for name in lives if name != self.focused_agent} | (
+            {self.focused_agent: lives[self.focused_agent]} if self.focused_agent in lives else {})
 
     def focus_agent(self, agent: str):
-        """Show only `agent`'s curves of the selected run ("" shows every agent again)."""
+        """Draw the selected method over its siblings."""
         self.focused_agent = agent or None
         self._focus_run_id = (self.host.selected or {}).get("id")
         self.refresh_live()

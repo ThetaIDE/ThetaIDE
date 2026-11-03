@@ -5,6 +5,7 @@ from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from .live_run import format_duration
 from .widgets import label
 from .theme import theme_color
 
@@ -34,6 +35,8 @@ class ProcessCard(QFrame):
         self.method_name = str(method_name or "")
         self.show_progress = show_progress and bool(self.method_name)
         self.progress_fraction = None
+        self._speed = None
+        self._speed_live = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 13, 16, 13)
@@ -41,21 +44,35 @@ class ProcessCard(QFrame):
 
         top = QHBoxLayout()
         self.experiment_id = label("", "cardTitle")
+        self.experiment_id.setWordWrap(True)
         self.status = QLabel()
         self.status.setObjectName("badge")
         self.elapsed = label("", "muted")
         top.addWidget(self.experiment_id, 1)
         top.addWidget(self.status)
-        top.addSpacing(10)
-        top.addWidget(self.elapsed)
+        if not self.show_progress:
+            top.addSpacing(10)
+            top.addWidget(self.elapsed)
         layout.addLayout(top)
 
         self.description = label("", "muted")
         self.description.setWordWrap(True)
         layout.addWidget(self.description)
+        self.speed = label("", "muted")
+        self.eta = label("", "muted")
+        if self.show_progress:
+            for field in (self.elapsed, self.speed, self.eta):
+                field.setWordWrap(True)
+                field.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+            metrics = QHBoxLayout()
+            metrics.addStretch()
+            metrics.addWidget(self.elapsed)
+            metrics.addWidget(self.speed)
+            metrics.addWidget(self.eta)
+            layout.addLayout(metrics)
 
         # Let clicks on any text activate the enclosing card.
-        for widget in (self.experiment_id, self.status, self.elapsed, self.description):
+        for widget in (self.experiment_id, self.status, self.elapsed, self.speed, self.eta, self.description):
             widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.update_job(job)
 
@@ -89,6 +106,23 @@ class ProcessCard(QFrame):
         live = lives.get(self.method_name)
         segment = pipeline_segments([self.method_name], {self.method_name: live} if live else {})[0]
         self.progress_fraction = segment.fraction
+        if segment.state == "pending":
+            self.elapsed.setText("Waiting")
+            self.speed.setText("Speed: —")
+            self.eta.setText("Time left: —")
+            self._speed = self._speed_live = None
+        else:
+            self.elapsed.setText(f"Elapsed: {format_duration(segment.duration)}")
+            rate = live.rate() if segment.state == "running" else None
+            if rate and self._speed and live is self._speed_live:
+                rate = 0.7 * self._speed + 0.3 * rate
+            self._speed, self._speed_live = rate, live
+            self.speed.setText(f"Speed: {rate:,.0f} steps/s" if rate else "Speed: —")
+            progress = live.progress()
+            eta = max(0.0, (live.budget - progress) / rate) if rate and live.budget and progress is not None else None
+            if eta is not None and eta >= 90:
+                eta = round(eta / 10) * 10
+            self.eta.setText(f"Time left: {format_duration(eta)}")
         self.update()
 
     def paintEvent(self, event):

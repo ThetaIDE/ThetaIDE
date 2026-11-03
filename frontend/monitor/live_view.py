@@ -156,9 +156,9 @@ class StatusStrip(QWidget):
         else:
             self.fields["updated"].setText(datetime.fromtimestamp(latest.last_update).strftime("%Y-%m-%d %H:%M"))
         if live:
-            self._show_fields("elapsed", "speed", "eta", *(("updated",) if stalled else ()))
+            self._show_fields(*(("updated",) if stalled else ()))
         else:
-            self._show_fields("elapsed", "updated")
+            self._show_fields("updated")
 
 
 # ── Charts: every metric each agent logged ───────────────────────────────────
@@ -297,7 +297,6 @@ class ChartsView(QWidget):
         layout.addWidget(self.grid, 1)
         self.hidden: set[str] = set()
         self.exclude: set[str] = set()
-        self.smoothing = 0.0
         self.points: Points = {}
         self.axis_name = "step"
         self._lives: dict[str, LiveRun] = {}
@@ -314,11 +313,6 @@ class ChartsView(QWidget):
     def _show_all(self):
         self.hidden.clear()
         self.show_lives(self._lives, self._colors, self._live, comparing=self._comparing)
-
-    def set_smoothing(self, factor: float):
-        self.smoothing = factor
-        for chart in self.grid.charts().values():
-            chart.set_smoothing(factor)
 
     def show_lives(self, lives: dict[str, LiveRun], colors: dict[str, str] | None = None, live: bool = False,
                    *, comparing: bool | None = None):
@@ -381,7 +375,6 @@ class ChartsView(QWidget):
                 if points:
                     series.append((name, thin(chart_points(points, metric), metric), self._series_colors[name]))
             chart.set_metric(metric, chart_title(metric))
-            chart.smoothing = self.smoothing
             chart.hold_y = live
             chart.live_series = training
             chart.show_future = live and xmax is not None  # a stopped run will not reach the rest

@@ -94,7 +94,7 @@ def test_queue_preview_uses_process_cards_for_each_method():
     opened = []
     jobs = Jobs()
     live = SimpleNamespace(start=None, events=[], rows=[{}], finish=None, budget=100,
-                           progress=lambda: 40, artifacts=[])
+                           progress=lambda: 40, rate=lambda: 2, artifacts=[])
     host = SimpleNamespace(jobs=jobs, selected=None, run_for_job=lambda job_id: {"description": "My run"},
                            live_for_run=lambda run, load=False: {"ppo": live},
                            open_job=lambda job_id, method: opened.append((job_id, method)))
@@ -106,6 +106,10 @@ def test_queue_preview_uses_process_cards_for_each_method():
     assert monitor.queue_preview.cards["one:ppo"].description.text() == "My run"
     assert monitor.queue_preview.cards["two:sac"].elapsed.text() == "Waiting"
     assert monitor.queue_preview.cards["one:ppo"].progress_fraction == 0.4
+    assert monitor.queue_preview.cards["one:ppo"].speed.text() == "Speed: 2 steps/s"
+    assert monitor.queue_preview.cards["one:ppo"].eta.text() == "Time left: 30s"
+    assert monitor.queue_preview.cards["one:dqn"].speed.text() == "Speed: —"
+    assert monitor.queue_overlay.width() == monitor.content.width() * 2 // 3
     assert monitor.queue_preview.cards["one:dqn"].progress_fraction is None
     assert monitor.queue_overlay.height() < monitor.content.height()
     live.progress = lambda: 75
@@ -204,7 +208,7 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     dqn = LiveRun()
     dqn.rows = [{"step": 1, "eval/reward": 42.0}]
     lives = {"dqn": dqn}
-    host = SimpleNamespace(selected=run, pinned_baseline_run=None, queue_running=False,
+    host = SimpleNamespace(selected=run, queue_running=False,
                            live_for_run=lambda run, load=True: lives)
     monitor = MonitorPanel(host)
     monitor.render()
@@ -213,8 +217,9 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     assert "ppo" in monitor.method_legend.text() and "dqn" in monitor.method_legend.text()
     assert theme_color(PALETTE[1]) in monitor.method_legend.text()
     assert monitor.charts_view._series_colors["dqn"] == PALETTE[1]
-    assert monitor.reward_chart.series[0][0] == "dqn"
-    assert theme_color(monitor.reward_chart.series[0][2]) == theme_color(PALETTE[1])
+    reward = monitor.charts_view.grid.cards["eval/reward"].chart
+    assert reward.series[0][0] == "dqn"
+    assert theme_color(reward.series[0][2]) == theme_color(PALETTE[1])
     assert not monitor.charts_view.grid.lead_hidden
     monitor.focus_agent("dqn")
     assert monitor.charts_view._series_colors["dqn"] == PALETTE[1]

@@ -8,7 +8,6 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
-    QGridLayout,
     QHBoxLayout,
     QMenu,
     QMessageBox,
@@ -31,25 +30,15 @@ from .data import (
     aggregate,
     chart_points,
     combined_points,
-    first_reaching,
     series_groups,
     smooth,
-    summarize,
     summary_rows,
     thin,
     to_csv,
 )
 from .explorer import RunExplorer
+from .executions import ExecutionsView
 from .inspector import PointInspector, format_value
-from .layouts import (
-    DEFAULT_LAYOUT,
-    LAYOUTS,
-    Filmstrip,
-    KpiStrip,
-    PlotsList,
-    SeriesChips,
-    headline_metric,
-)
 from .loader import ResultsLoader
 from .metrics_catalog import AXIS_COLUMNS, describe
 from .plot_grid import PlotGrid, chart_title
@@ -106,8 +95,7 @@ class ResultsPanel(QWidget):
     manifests, previewed by kind.
 
     `backend` needs get(path, callback); `settings` (optional) needs get(*keys, default=) and
-    set(*keys, value), and keeps hidden plots and the chosen layout (one of LAYOUTS) across sessions under
-    [results] hidden_plots and layout.
+    set(*keys, value), and keeps hidden plots across sessions under [results] hidden_plots.
     `load_config(run_key)` (optional) puts a run's saved builder config into the experiment builder and
     returns None, or returns why it could not.
     """
@@ -122,8 +110,7 @@ class ResultsPanel(QWidget):
         self.hidden: set[str] = set(self._setting("hidden_plots", []))
         self.smoothing = 0.0
 
-        # Controls, run tree, tabs, charts and inspector are built once; each layout (see layouts.py)
-        # only arranges them, so switching layouts keeps every tick, choice and loaded table.
+        # Controls, run tree, tabs, charts and inspector.
         self.plots_button = QToolButton()
         self.plots_button.setText("Plots ▾")
         self.plots_button.setToolTip("Show or hide individual plots")
@@ -189,21 +176,11 @@ class ResultsPanel(QWidget):
         self.grid.hide_requested.connect(lambda metric: self.set_hidden(metric, True))
         self.grid.point_hovered.connect(self._point_hovered)
         self.inspector = PointInspector()
-        self.kpis = KpiStrip()
-        self.kpis.clicked.connect(self.set_primary)
-        self.chips = SeriesChips()
-        self.chips.clicked.connect(self.set_primary)
-        self.filmstrip = Filmstrip()
-        self.filmstrip.chosen.connect(self.set_focus)
-        self.focus_metric: str | None = None
-        self.plots_list = PlotsList()
-        # Deferred: hiding a plot redraws, which rebuilds this list from inside its own signal.
-        self.plots_list.visibility_changed.connect(
-            lambda metric, on: QTimer.singleShot(0, lambda: self.set_hidden(metric, not on))
-        )
         self._parking = QWidget(self)  # holds the widgets the current layout leaves out; never shown
         self._parking.hide()
         self.tabs.addTab(self.curves_page, "Curves")
+        self.executions_view = ExecutionsView(backend, self.open_run)
+        self.tabs.addTab(self.executions_view, "Executions")
         self.summary = SummaryView()
         self.summary.changed.connect(self.update_summary)
         self.tabs.addTab(self.summary, "Summary")
@@ -228,8 +205,6 @@ class ResultsPanel(QWidget):
         self.frame: QWidget | None = None
         self.status = label("", "muted")
         self.status.setParent(self._parking)
-        layout_name = self._setting("layout", DEFAULT_LAYOUT)
-        self.layout_name = layout_name if layout_name in LAYOUTS else DEFAULT_LAYOUT
         self._compose()
 
         self.loader.runs_listed.connect(self._runs_listed)
@@ -266,16 +241,6 @@ class ResultsPanel(QWidget):
             self.settings.set("results", "hidden_plots", sorted(self.hidden))
         self.redraw()
 
-    def set_layout(self, name: str):
-        """Switch to one of LAYOUTS and remember it under [results] layout."""
-        if name not in LAYOUTS or name == self.layout_name:
-            return
-        self.layout_name = name
-        if self.settings is not None:
-            self.settings.set("results", "layout", name)
-        self._compose()
-        self.redraw()
-
     def show_all(self):
         self.hidden.clear()
         if self.settings is not None:
@@ -284,122 +249,30 @@ class ResultsPanel(QWidget):
 
     # ── Layouts ──────────────────────────────────────────────────────────────
 
-    def _shared_widgets(self) -> list[QWidget]:
-        return [
-            self.plots_button,
-            self.axis_select,
-            self.smoothing_label,
-            self.smoothing_slider,
-            self.combine_select,
-            self.primary_select,
-            self.export_button,
-            self.refresh_button,
-            self.explorer,
-            self.tabs,
-            self.legend,
-            self.grid,
-            self.inspector,
-            self.kpis,
-            self.chips,
-            self.filmstrip,
-            self.plots_list,
-        ]
-
     def _compose(self):
-        """Arrange the shared widgets as `self.layout_name` says, dropping the previous arrangement."""
-        for widget in self._shared_widgets():
-            widget.setParent(self._parking)
-        for old in (self.frame, self.curves_body):
-            if old is not None:
-                old.setParent(None)
-                old.deleteLater()
+        """Arrange the run explorer and grouped metric charts."""
         self.frame = QWidget()
         frame = QVBoxLayout(self.frame)
         frame.setContentsMargins(0, 0, 0, 0)
-        frame.setSpacing(10)
         self.curves_body = QWidget()
         body = QVBoxLayout(self.curves_body)
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(8)
         self.curves_page.layout().addWidget(self.curves_body)
         self.root.insertWidget(0, self.frame, 1)
-        name = self.layout_name
-        self.inspector.set_transposed(name == "rail")
-        self.tab_corner.setVisible(name == "rail")
-
-        if name == "rail":
-            split = QSplitter(Qt.Orientation.Horizontal)
-            split.addWidget(self._rail())
-            split.addWidget(self.tabs)
-            split.setSizes([280, 900])
-            frame.addWidget(split, 1)
-            self.tab_corner.layout().addWidget(self.export_button)
-            body.addWidget(self.legend)
-            body.addWidget(self.grid, 1)
-            return
-
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.explorer)
         split.addWidget(self.tabs)
         split.setSizes([260, 900])
         frame.addWidget(split, 1)
-        if name == "quiet":
-            body.addWidget(self.legend)
-            body.addWidget(self.grid, 1)
-        elif name == "focus":
-            body.addWidget(self.chips)
-            main = QWidget()
-            main_layout = QVBoxLayout(main)
-            main_layout.setContentsMargins(0, 0, 0, 0)
-            main_layout.setSpacing(8)
-            main_layout.addWidget(self.grid, 1)
-            main_layout.addWidget(self.filmstrip)
-            body.addWidget(main, 1)
-        else:  # overview: the series cards head the grid, above its large chart
-            body.addWidget(self.grid, 1)
-
-    def _rail(self) -> QWidget:
-        """The Control rail: runs, view settings and a checkbox per plot, top to bottom."""
-        rail = QWidget()
-        rail.setObjectName("resultsRail")
-        layout = QVBoxLayout(rail)
-        layout.setContentsMargins(0, 0, 8, 0)
-        layout.setSpacing(8)
-        layout.addWidget(label("RUNS", "eyebrow"))
-        layout.addWidget(self.explorer, 3)
-        layout.addWidget(label("VIEW", "eyebrow"))
-        form = QGridLayout()
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(6)
-        rows = (("X-axis", self.axis_select), ("Versions", self.combine_select), ("Primary", self.primary_select))
-        for i, (caption, widget) in enumerate(rows):
-            form.addWidget(label(caption, "muted"), i, 0)
-            form.addWidget(widget, i, 1)
-        form.addWidget(self.smoothing_label, len(rows), 0)
-        form.addWidget(self.smoothing_slider, len(rows), 1)
-        form.setColumnStretch(1, 1)
-        layout.addLayout(form)
-        layout.addWidget(label("PLOTS", "eyebrow"))
-        layout.addWidget(self.plots_list, 2)
-        layout.addWidget(self.refresh_button)
-        return rail
-
-    def _grid_options(self, visible: list[str]) -> dict:
-        name = self.layout_name
-        if name == "rail":
-            return {"columns": 3, "flat": True}
-        if name == "focus":
-            if self.focus_metric not in visible:
-                self.focus_metric = headline_metric(visible)
-            return {"columns": 1, "focus": self.focus_metric}
-        if name == "overview":
-            return {"collapsible": True, "hero": headline_metric(visible), "header": self.kpis}
-        return {"collapsible": True}
-
-    def set_focus(self, metric: str):
-        """Show `metric` as the Focus layout's large chart."""
-        self.focus_metric = metric
-        self.redraw()
+        controls = QHBoxLayout()
+        for widget in (self.plots_button, self.axis_select, self.smoothing_label, self.smoothing_slider,
+                       self.combine_select, self.primary_select, self.export_button, self.refresh_button):
+            controls.addWidget(widget)
+        controls.addStretch()
+        body.addLayout(controls)
+        body.addWidget(self.legend)
+        body.addWidget(self.grid, 1)
 
     def set_primary(self, name: str):
         """Make series `name` primary, or go back to Nearest when it already is."""
@@ -543,6 +416,8 @@ class ResultsPanel(QWidget):
 
     def _tab_opened(self, index):
         name = self.tabs.tabText(index)
+        if name == "Executions":
+            self.executions_view.refresh()
         if name in ARTIFACT_TABS:
             self.browser(name)
 
@@ -670,12 +545,12 @@ class ResultsPanel(QWidget):
             empty = "The ticked runs have no numeric metrics."
         else:
             empty = f"All {len(metrics)} plots are hidden. Use Plots ▾ to show them."
-        self.grid.configure(**self._grid_options(visible))
+        self.grid.configure(collapsible=True)
         self.grid.set_metrics(visible, empty)
         self.curves = self.curve_series(axis)
         groups = self.plotted_groups()
         primary = self._sync_primary([name for name, _ in groups])
-        large = {self.grid.hero, self.grid.focus}
+        large = set()
         for metric, chart in self.grid.charts().items():
             series = self.curves.get(metric, [])
             chart.band = SPREAD if any(combined for *_, combined in series) else None
@@ -704,70 +579,8 @@ class ResultsPanel(QWidget):
         return format_value(metric, chosen[1][-1][metric]), chosen[2]
 
     def _update_layout_widgets(self, axis, metrics, visible, groups, primary):
-        """Fill what only some layouts show: card values, series cards, chips, filmstrip, plot checklist."""
-        name = self.layout_name
-        colors = {series: PALETTE[i % len(PALETTE)] for i, (series, _) in enumerate(groups)}
         for metric, card in self.grid.cards.items():
-            card.set_value(*self.latest(metric, primary) if name in ("quiet", "overview") else ("",))
-        if name == "overview":
-            hero = self.grid.hero
-            self.kpis.set_cards(self.kpi_cards(axis, hero, groups, colors) if hero else [], primary)
-        elif name == "focus":
-            focus = self.grid.focus
-            chips = []
-            for series, _ in groups:
-                drawn = next((p for n, p, *_ in self.curves.get(focus, []) if n == series), None)
-                chips.append((series, colors[series], format_value(focus, drawn[-1][focus]) if drawn else ""))
-            self.chips.set_chips(chips, primary)
-            tiles = [
-                (
-                    metric,
-                    describe(metric).label,
-                    [(n, thin(p, metric, 120), color) for n, p, color, _ in self.curves.get(metric, [])],
-                    self.latest(metric, primary)[0],
-                )
-                for metric in visible
-            ]
-            self.filmstrip.set_tiles(tiles, focus, primary)
-        elif name == "rail":
-            self.plots_list.set_metrics(metrics, self.hidden)
-
-    def kpi_cards(self, axis, metric, groups, colors) -> list[tuple[str, str, list[tuple[str, str]]]]:
-        """The Overview's headline numbers per series: best, final, when it got there, training time.
-
-        "Reaches … at" replaces "Best at" while the Summary tab has a threshold for this metric.
-        """
-        tables = dict(self.loaded_tables())
-        higher = describe(metric).higher_is_better
-        threshold = self.summary.threshold_value() if self.summary.selected_metric() == metric else None
-        cards = []
-        for series, members in groups:
-            parts = [p for s in members if (p := tables[s].series(metric, axis))]
-            points = parts[0] if len(parts) == 1 else [(a.x, a.mean) for a in aggregate(parts)]
-            stats = []
-            summary = summarize(points, higher)
-            if summary is not None:
-                stats.append(("Best" if higher is not None else "Max", format_value(metric, summary.best)))
-                stats.append(("Final", format_value(metric, summary.final)))
-                if threshold is not None:
-                    at = first_reaching(points, threshold, higher)
-                    stats.append((f"Reaches {threshold:g} at", "not yet" if at is None else f"{at:,.0f}"))
-                else:
-                    stats.append(("Best at", f"{summary.best_x:,.0f}"))
-            seconds = [t for s in members if (t := self.training_time(tables[s])) is not None]
-            if seconds:
-                stats.append(("Training time", duration(max(seconds))))
-            cards.append((series, colors[series], stats))
-        return cards
-
-    @staticmethod
-    def training_time(table) -> float | None:
-        """The last training time a run logged, in seconds."""
-        for column in TIME_COLUMNS:
-            values = [v for v in table.columns.get(column, []) if v is not None]
-            if values:
-                return values[-1]
-        return None
+            card.set_value(*self.latest(metric, primary))
 
     # ── Summary ──────────────────────────────────────────────────────────────
 

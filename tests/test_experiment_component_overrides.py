@@ -261,3 +261,141 @@ def test_inherited_figure_mapping_can_remove_one_figure(qapp, isolated_component
         recipe.unlink(missing_ok=True)
         base.unlink(missing_ok=True)
         group.rmdir()
+
+
+def test_all_inherited_figures_can_be_removed():
+    from plot.manager import get_requested_plots
+
+    assert get_requested_plots({"plots": {"losses": None, "reports": None}}, "example") == {}
+
+
+def test_figures_box_adds_and_removes_cards(qapp, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QFrame, QLabel, QToolButton
+    from frontend.config_viewer import ConfigViewer
+
+    path = tmp_path / "example.yaml"
+    path.write_text("experiment_id: example\nplots: []\n", encoding="utf-8")
+    viewer = ConfigViewer()
+    monkeypatch.setattr(viewer, "_component_choices", lambda kind: {
+        "sample": {"plotter": "sample", "dpi": 120}
+    } if kind == "plots" else {})
+    viewer.load_file(path, "experiment/example.yaml")
+    buttons = viewer.findChildren(QToolButton)
+    add = next(button for button in buttons if button.toolTip() == "Add figure")
+    add.menu().actions()[0].trigger()
+    qapp.processEvents()
+    assert viewer.raw_data["plots"] == ["sample"]
+    assert viewer.raw_data["plot_overrides"]["sample"] == {"dpi": 120}
+    assert any(any(label.text() == "sample" for label in card.findChildren(QLabel))
+               for card in viewer.findChildren(QFrame, "card"))
+    remove = next(button for button in viewer.findChildren(QToolButton)
+                  if button.toolTip() == "Remove sample figure")
+    remove.click()
+    assert viewer.raw_data["plots"] == []
+    viewer.close()
+
+
+def test_figures_box_is_optional_and_uses_two_column_cards(qapp, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QGridLayout, QLabel, QToolButton
+    from frontend.config_viewer import ConfigViewer, IndentedHierarchyBlock
+
+    path = tmp_path / "example.yaml"
+    path.write_text("experiment_id: example\n", encoding="utf-8")
+    viewer = ConfigViewer()
+    monkeypatch.setattr(viewer, "_component_choices", lambda kind: {
+        "one": {"plotter": "one", "style": {"color": "red"}},
+        "two": {"plotter": "two", "dpi": 120},
+    } if kind == "plots" else {})
+    viewer.load_file(path, "experiment/example.yaml")
+    assert not any(w.text() == "Figures and Tables" for w in viewer.findChildren(QLabel))
+    viewer.add_component_override("plots")
+    for name in ("one", "two"):
+        viewer._set_plot_override(name, True, {})
+    qapp.processEvents()
+    one = next(w for w in viewer.findChildren(QToolButton) if w.toolTip() == "Remove one figure")
+    two = next(w for w in viewer.findChildren(QToolButton) if w.toolTip() == "Remove two figure")
+    box_layout = one.parentWidget().parentWidget().layout
+    grid = next(box_layout.itemAt(i).layout() for i in range(box_layout.count())
+                if isinstance(box_layout.itemAt(i).layout(), QGridLayout))
+    assert grid.getItemPosition(grid.indexOf(one.parentWidget()))[:2] == (0, 0)
+    assert grid.getItemPosition(grid.indexOf(two.parentWidget()))[:2] == (0, 1)
+    assert one.parentWidget().findChild(IndentedHierarchyBlock) is not None
+    viewer._remove_figures_box()
+    assert "plots" not in viewer.raw_data
+    assert not any(w.text() == "Figures and Tables" for w in viewer.findChildren(QLabel) if w.isVisible())
+    viewer.close()
+
+
+def test_no_plot_selection_skips_phase_and_plot_directory(qapp, tmp_path, monkeypatch):
+    from src.app.pipeline import local_runner
+    from src.app.pipeline.plot_config import should_run_plotting
+
+    monkeypatch.chdir(tmp_path)
+    cfg = OmegaConf.create({"group": "g", "experiment_id": "run"})
+    assert not should_run_plotting(cfg)
+    assert not should_run_plotting(OmegaConf.create({"plots": [], "env": {"default_plots": ["losses"]}}))
+    assert should_run_plotting(OmegaConf.create({"plots": ["losses"]}))
+    assert not should_run_plotting(OmegaConf.create({"plots": ["losses"], "no_plot": True}))
+    local_runner._setup_output_dirs(cfg)
+    assert not (tmp_path / "results/plots").exists()
+    from src.app.pipeline import datasets
+    monkeypatch.setattr(datasets, "run_plotting", lambda *args, **kwargs: pytest.fail("plotting ran"))
+    local_runner.run_plotting_phase(cfg, {})
+
+
+def test_slurm_omits_plot_job_without_selection(tmp_path, monkeypatch):
+    from src.app.pipeline import slurm_runner
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(slurm_runner, "save_experiment_snapshot", lambda *args: None)
+    monkeypatch.setattr(slurm_runner, "save_run_config", lambda *args: None)
+    monkeypatch.setattr(slurm_runner, "generate_sbatch_header", lambda **kwargs: "#!/bin/sh\n")
+    monkeypatch.setattr(slurm_runner, "get_shell_env_block", lambda *args: "")
+    monkeypatch.setattr(slurm_runner, "get_shell_python_cmd", lambda *args: "python")
+    submitted = []
+    monkeypatch.setattr(slurm_runner, "submit_sbatch", lambda script: submitted.append(script) or "1")
+    cfg = OmegaConf.create({"group": "g", "experiment_id": "run", "consolidate": True})
+    slurm_runner.run_slurm_training(cfg, {"methods": {}})
+    assert len(submitted) == 1 and "plot/manager.py" not in submitted[0]
+    assert not (tmp_path / "results/plots").exists()
+
+
+def test_remove_inherited_figures_masks_group_selection(qapp, tmp_path, monkeypatch):
+    from frontend.config_viewer import ConfigViewer
+    from src.app.pipeline.plot_config import should_run_plotting
+
+    path = tmp_path / "example.yaml"
+    path.write_text("experiment_id: example\n", encoding="utf-8")
+    viewer = ConfigViewer()
+    monkeypatch.setattr(viewer, "_get_resolved_defaults", lambda: {"plots": ["losses"]})
+    viewer.load_file(path, "experiment/group/example.yaml")
+    viewer._remove_figures_box()
+    assert "plots" in viewer.raw_data and viewer.raw_data["plots"] is None
+    assert not should_run_plotting(OmegaConf.create(viewer.raw_data))
+    viewer.close()
+
+
+def test_plot_manager_without_selection_writes_no_output(tmp_path, monkeypatch):
+    from plot import manager
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(manager.BasePlotter, "get_experiment_config", lambda *args, **kwargs: {})
+    manager.run_experiment_plots("run")
+    assert not (tmp_path / "results/plots").exists()
+
+
+def test_plot_manager_preserves_parameter_override_precedence(tmp_path, monkeypatch):
+    from plot import manager
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(manager.BasePlotter, "get_experiment_config", lambda *args, **kwargs: {
+        "plots": {"sample": {"dpi": 100}}, "plot_overrides": {"sample": {"dpi": 200}},
+    })
+    monkeypatch.setattr(manager.BasePlotter, "get_group", lambda *args: "g")
+    received = []
+    class Sample:
+        def run(self, exp_id, cli_overrides=None):
+            received.append(cli_overrides)
+    monkeypatch.setattr(manager, "discover_plotters", lambda: {"sample": Sample})
+    manager.run_experiment_plots("run")
+    assert received == [{"dpi": 200}]

@@ -56,59 +56,6 @@ class TestRunNavigator(unittest.TestCase):
         sidebar.tree.itemClicked.emit(item, 0)
         self.assertEqual(sidebar.compared, [])
 
-    def test_smoothing_slider(self):
-        """Test smoothing slider updates label and chart smoothing factors."""
-        slider = self.window.smoothing_slider
-        self.assertEqual(slider.value(), 0)
-        self.assertIn("0%", self.window.smoothing_label.text())
-
-        slider.setValue(60)
-        self.assertIn("60%", self.window.smoothing_label.text())
-        self.assertAlmostEqual(self.window.reward_chart.smoothing, 0.6, places=2)
-        self.assertAlmostEqual(self.window.monitor.charts_view.smoothing, 0.6, places=2)
-
-    def test_baseline_pinning_and_overlay(self):
-        """Test pinning a run overlays its metrics when viewing another run."""
-        # Setup run 1 with metrics
-        run1 = self.window.runs[0]
-        run1["metrics"] = [
-            {"step": 0, "reward": 10.0, "entropy": 0.69},
-            {"step": 100, "reward": 50.0, "entropy": 0.50},
-        ]
-        # Create run 2 with metrics
-        run2 = new_run(Config(name="test_run_2", seed=101))
-        run2["metrics"] = [
-            {"step": 0, "reward": 5.0, "entropy": 0.68},
-            {"step": 100, "reward": 30.0, "entropy": 0.55},
-        ]
-        self.window.runs.append(run2)
-        self.window.refresh_runs()
-
-        # Select run 1 and pin it
-        self.window.select_run(run1)
-        self.assertIsNone(self.window.pinned_baseline_run)
-        self.window.toggle_pin_baseline()
-        self.assertIs(self.window.pinned_baseline_run, run1)
-        self.assertTrue(self.window.btn_pin_baseline.isChecked())
-        # While on run 1, baseline series is empty (no self-overlay)
-        self.assertEqual(len(self.window.reward_chart.baseline_series), 0)
-
-        # Switch to run 2
-        self.window.select_run(run2)
-        self.assertFalse(self.window.btn_pin_baseline.isChecked())
-        # The baseline is now overlaid on the headline chart
-        self.assertEqual(len(self.window.reward_chart.baseline_series), 1)
-        b_name, b_metrics, b_color = self.window.reward_chart.baseline_series[0]
-        self.assertIn("baseline", b_name)
-        self.assertEqual(len(b_metrics), 2)
-
-        # Unpin baseline
-        self.window.select_run(run1)
-        self.window.toggle_pin_baseline()
-        self.assertIsNone(self.window.pinned_baseline_run)
-        self.window.select_run(run2)
-        self.assertEqual(len(self.window.reward_chart.baseline_series), 0)
-
     def test_the_run_title_says_where_the_run_is_stored(self):
         """Hovering the run's name tells where its records are kept."""
         self.window.render_run()

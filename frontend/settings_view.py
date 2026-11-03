@@ -33,7 +33,6 @@ from PyQt6.QtWidgets import (
 from src.app.services import PROJECT_ROOT
 
 from .hotkeys import parse_action_key
-from .results.layouts import DEFAULT_LAYOUT, LAYOUTS
 from .theme import current_theme, theme_color
 from .widgets import SmoothScrollArea, ToggleSlider, label
 
@@ -939,52 +938,6 @@ class SettingsView(QWidget):
 
         layout.addWidget(exp_card)
 
-        # Card 5: Results Panel Layout
-        results_card = QFrame()
-        results_card.setObjectName("card")
-        rc_layout = QVBoxLayout(results_card)
-        rc_layout.setContentsMargins(16, 14, 16, 14)
-        rc_layout.setSpacing(8)
-
-        rc_layout.addWidget(label("Results Panel Layout", "cardTitle"))
-        rc_sub = label("Choose how the Results browser arranges its runs, controls, charts and inspector.", "muted")
-        rc_sub.setWordWrap(True)
-        rc_layout.addWidget(rc_sub)
-
-        descriptions = {
-            "overview": "A card of headline numbers per run, one large reward chart, then the rest.",
-            "quiet": "One row of controls; charts in folding sections with the inspector beside them.",
-            "rail": "Every control in a left rail with the runs; three columns of charts, inspector below.",
-            "focus": "One large chart at a time, picked from a strip of small previews of every metric.",
-        }
-        row_layout = QHBoxLayout()
-        row_layout.addWidget(label("Layout:", "muted"))
-        self.results_layout_combo = QComboBox()
-        for key, title in LAYOUTS.items():
-            self.results_layout_combo.addItem(title + (" (default)" if key == DEFAULT_LAYOUT else ""), key)
-        current = self.window.settings_manager.get("results", "layout", default=DEFAULT_LAYOUT)
-        self.results_layout_combo.setCurrentIndex(max(0, self.results_layout_combo.findData(current)))
-        self.results_layout_combo.setMaximumWidth(320)
-        row_layout.addWidget(self.results_layout_combo, 1)
-        row_layout.addStretch()
-        rc_layout.addLayout(row_layout)
-        results_hint = label("", "muted")
-        results_hint.setWordWrap(True)
-        rc_layout.addWidget(results_hint)
-
-        def results_layout_picked(_index):
-            key = self.results_layout_combo.currentData()
-            results_hint.setText(descriptions.get(key, ""))
-            view = getattr(self.window, "results_view", None)
-            if view is not None:
-                view.set_layout(key)
-            else:
-                self.window.settings_manager.set("results", "layout", key)
-
-        self.results_layout_combo.currentIndexChanged.connect(results_layout_picked)
-        results_hint.setText(descriptions.get(self.results_layout_combo.currentData(), ""))
-
-        layout.addWidget(results_card)
         layout.addStretch()
         return container
 

@@ -517,81 +517,17 @@ def grid_widgets(panel):
     return [layout.itemAt(i).widget() for i in range(layout.count())]
 
 
-def test_overview_is_the_default_layout_with_cards_and_a_large_reward_chart():
-    panel, _ = make_panel()
-    tick(panel, "ppo_run", "sb3_run")
-    assert panel.layout_name == "overview"
-    assert panel.grid.hero == "eval/reward"
-    assert grid_widgets(panel)[:2] == [panel.kpis, panel.grid.cards["eval/reward"]]
-    assert panel.grid.cards["eval/reward"].chart.hover_all is True
-    groups = panel.plotted_groups()
-    colors = {name: "#000000" for name, _ in groups}
-    card = {name: dict(stats) for name, _, stats in panel.kpi_cards("transitions", "eval/reward", groups, colors)}
-    assert card["sb3_run / ppo"]["Best"] == card["sb3_run / ppo"]["Final"] == "35.0"
-    assert card["sb3_run / ppo"]["Best at"] == "2,000"
-    # Clicking a series card makes it primary; clicking it again goes back to Nearest.
-    panel.kpis.cards["sb3_run / ppo"].clicked.emit("sb3_run / ppo")
-    assert panel.primary_series() == "sb3_run / ppo"
-    assert panel.kpis.cards["sb3_run / ppo"].property("primary") is True
-    panel.kpis.cards["sb3_run / ppo"].clicked.emit("sb3_run / ppo")
-    assert panel.primary_series() is None
-    # Sections fold away under their heading but keep their cards.
-    panel.grid.toggle_group("losses")
-    assert panel.grid.cards["losses/total_loss"] not in grid_widgets(panel)
-    assert "losses/total_loss" in panel.grid.cards
-
-
-def test_every_layout_keeps_ticks_and_plots_and_is_remembered():
-    settings = FakeSettings()
-    panel, _ = make_panel(settings)
-    tick(panel, "ppo_run", "sb3_run")
-    metrics = {"eval/reward", "losses/total_loss", "losses/train/value_loss", "time/total"}
-    for name in ("quiet", "rail", "focus", "overview"):
-        panel.set_layout(name)
-        assert panel.layout_name == name and settings.data["results"]["layout"] == name
-        assert set(panel.grid.cards) == metrics, name
-        assert series_names(panel, "eval/reward") == ["ppo_run / ppo (version_1)", "sb3_run / ppo"], name
-        panel.grid.cards["eval/reward"].chart.point_hovered.emit(2000.0)
-        assert len(panel.inspector.values) == 2, name
-    again, _ = make_panel(settings)
-    assert again.layout_name == "overview"
-    assert make_panel(FakeSettings({"results": {"layout": "nonsense"}}))[0].layout_name == "overview"
-
-
-def test_quiet_layout_shows_the_primary_latest_value_on_each_card():
-    panel, _ = make_panel(FakeSettings({"results": {"layout": "quiet"}}))
-    tick(panel, "sb3_run")
-    assert panel.grid.hero is None and panel.grid.collapsible
-    assert panel.grid.cards["eval/reward"].value.text() == "35.0"
-
-
-def test_rail_layout_lists_plots_as_checkboxes_and_turns_the_inspector():
-    panel, _ = make_panel(FakeSettings({"results": {"layout": "rail"}}))
-    tick(panel, "sb3_run")
-    assert panel.grid.columns == 3
-    items = [panel.plots_list.item(i) for i in range(panel.plots_list.count())]
-    reward = next(item for item in items if item.data(Qt.ItemDataRole.UserRole) == "eval/reward")
-    reward.setCheckState(Qt.CheckState.Unchecked)
-    QApplication.processEvents()  # hiding is deferred out of the list's own signal
-    assert "eval/reward" in panel.hidden and "eval/reward" not in panel.grid.cards
-    panel.grid.cards["losses/train/value_loss"].chart.point_hovered.emit(2000.0)
-    assert panel.inspector.table.rowCount() == 1  # one row per run, one column per metric
-
-
-def test_focus_layout_shows_one_chart_chosen_from_the_filmstrip():
-    panel, _ = make_panel(FakeSettings({"results": {"layout": "focus"}}))
-    tick(panel, "ppo_run", "sb3_run")
-    assert panel.grid.focus == "eval/reward"
-    shown = [w for w in grid_widgets(panel) if w in panel.grid.cards.values()]
-    assert shown == [panel.grid.cards["eval/reward"]]
-    assert set(panel.filmstrip.tiles) == set(panel.grid.cards)
-    panel.filmstrip.tiles["losses/total_loss"].clicked.emit("losses/total_loss")
-    assert panel.grid.focus == "losses/total_loss"
-    assert [w for w in grid_widgets(panel) if w in panel.grid.cards.values()] == [panel.grid.cards["losses/total_loss"]]
-    assert list(panel.chips.buttons) == ["ppo_run / ppo (version_1)", "sb3_run / ppo"]
-    panel.chips.buttons["sb3_run / ppo"].click()
-    assert panel.primary_series() == "sb3_run / ppo"
-    assert panel.chips.buttons["sb3_run / ppo"].isChecked()
+def test_grouped_layout_has_one_chart_per_metric_and_ignores_old_layout_settings():
+    for old_layout in ("overview", "quiet", "rail", "focus"):
+        panel, _ = make_panel(FakeSettings({"results": {"layout": old_layout}}))
+        tick(panel, "ppo_run", "sb3_run")
+        assert panel.grid.hero is None and panel.grid.focus is None
+        assert panel.grid.collapsible
+        reward = panel.grid.cards["eval/reward"]
+        assert grid_widgets(panel).count(reward) == 1
+        assert series_names(panel, "eval/reward") == ["ppo_run / ppo (version_1)", "sb3_run / ppo"]
+        panel.grid.toggle_group("losses")
+        assert panel.grid.cards["losses/total_loss"] not in grid_widgets(panel)
 
 
 def test_summary_tab_lists_every_series_and_metric():

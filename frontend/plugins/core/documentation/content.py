@@ -186,7 +186,7 @@ python -m frontend</code></pre>
 </table>
 
 <h3>Tabs</h3>
-<p>Clicking an experiment opens it in a <b>preview tab</b> (its title is in italics), which the next click replaces. Double-click it, or choose <b>Open in New Tab</b>, to keep it open beside others. <i>File &rarr; Close tab</i> (<code>Ctrl+W</code>) closes the current tab.</p>
+<p>Click an experiment to switch to it or preview it. Double-click it, or choose <b>Open in New Tab</b>, to open a new tab. <i>File &rarr; Close tab</i> (<code>Ctrl+W</code>) closes the current tab.</p>
 
 <div style="background-color: rgba(251, 73, 52, 0.12); border-left: 4px solid #fb4934; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
   <b>Protected base files:</b> A group's <code>_base.yaml</code> can't be deleted while experiments in that group still inherit from it, because Hydra could no longer load them. Delete or move those experiments first.
@@ -225,7 +225,7 @@ python -m frontend</code></pre>
     <ul>
       <li><b>Experiment</b>: description, paradigm, environment and the run budget (timesteps or epochs, seed, evaluation, checkpoints). The <b>+</b> beside the heading adds any other setting.</li>
       <li><b>Methods</b>: one card per method, each with its algorithm, model and their parameters, plus optional <b>Shared Parameters</b> for every method. <b>Design...</b> beside the model opens the <b>Visual Model Builder</b>: drag layer blocks onto a canvas and wire them together, and it saves the network as a model config (a <code>sequential_spec</code> architecture) that you can pick like any other model.</li>
-      <li><b>Add Overrides</b> adds a <b>Data Loaders</b>, <b>Evaluators</b> or <b>Figures</b> box to choose those components and their parameters, or <b>Checkpoint Settings</b> (the metric the best checkpoint is chosen by, <code>save_top_k</code> and how often to check).</li>
+      <li><b>Add Overrides</b> adds a <b>Data Loaders</b>, <b>Evaluators</b> or <b>Figures and Tables</b> box to choose those components and their parameters, or <b>Checkpoint Settings</b> (the metric the best checkpoint is chosen by, <code>save_top_k</code> and how often to check).</li>
       <li>Opening a group's <code>_base.yaml</code> edits the <b>Group Defaults</b> its experiments inherit; inherited values are marked <i>(inherited)</i>. <i>Settings &rarr; Appearance &rarr; Experiment Panel Configuration</i> can show every resolved default too.</li>
     </ul>
   </li>
@@ -237,12 +237,11 @@ python -m frontend</code></pre>
 <ul>
   <li>The monitor is for the run training now: it shows that run, or the most recent one when nothing is training. Past runs are viewed in the <b>Plot Viewer</b> (see below).</li>
   <li><b>Several runs training at once:</b> a <b>TRAINING NOW</b> row of chips appears above the status row, one per running experiment with how far along it is. Click a chip to show that run; Stop stops the run shown.</li>
-  <li><b>Status row:</b> the run's status, name, paradigm and seed, then elapsed time, training speed (steps per second, eased so it does not jitter) and time left. A running job that goes quiet for two minutes shows <b>STALLED</b> and when it last reported; a finished run shows when it last wrote. Hover the name for the environment, methods and where the run's files are.</li>
+  <li><b>Status row:</b> the run's status, name, paradigm and seed, with timing and training speed shown on each method's Queue card. A running job that goes quiet for two minutes shows <b>STALLED</b> and when it last reported; a finished run shows when it last wrote. Hover the name for the environment, methods and where the run's files are.</li>
   <li><b>System &middot; Logs &middot; Feed &middot; Files:</b> buttons at the end of the status row. Each opens that view in place of the charts; click it again to go back. The System button shows the training process's CPU use while it runs.</li>
   <li><b>Pipeline strip:</b> the run's methods in training order, one segment each (done, training with its progress, or waiting), with checkpoints &#9670;, the latest new best &#9733; and warnings &#9888; marked under it. Click a segment to show only that method's curves; click it again to show them all.</li>
   <li><b>Cards:</b> the metric the run is judged by, a second metric of your choice (pick it on the card), and the timestep budget.</li>
   <li><b>Charts:</b> a chart for every metric the run logs, in folding sections, one curve per agent: the evaluation section first, led by the headline chart (with its &plusmn;1 std band and the environment's maximum), losses four to a row. The evaluation section starts folded, since the headline card already shows its latest value: click its heading to show it, and it stays shown. While a run trains, its charts span its whole step budget (the part not reached yet is shaded), their y-axis only grows (a dashed line marks the highest value so far), and each curve still training has its newest point marked. <b>Hide</b> a chart or <b>Show all plots</b>. Hover over any chart: the inspector below lists every metric of every curve at that step. Values marked &asymp; come from the nearest other logged step (hover the cell to see which).</li>
-  <li><b>Smoothing</b> and <b>Pin as baseline</b> sit on the first section's heading row. Smoothing is an exponential moving average from 0% (raw points) to 95%. Pinning a run overlays its curve as a dashed baseline on the headline chart of any other run you show.</li>
   <li><b>Bottom bar:</b> the newest warning or error any method reported, with <b>Open log</b>; or, before there are metrics, what the run is waiting for (its place in the queue, the pipeline starting).</li>
   <li><b>System:</b> CPU, memory and GPU memory of the training process (and its child processes) over time, measured inside the training process itself.</li>
   <li><b>Logs:</b> the pipeline's output with search, an <i>Errors and warnings only</i> filter, and <i>Follow</i> to keep the newest lines in view.</li>
@@ -265,7 +264,7 @@ python -m frontend</code></pre>
   <li><b>Open CSV / image&hellip;</b> shows a file from disk instead, such as a figure a run generated; ticking or unticking a run goes back to the runs.</li>
   <li><b>Zoom in</b>, <b>Zoom out</b> and <b>Fit</b> resize the view; <b>Export PNG&hellip;</b> saves what is shown.</li>
 </ul>
-<p>The figures each run generates at the end (convergence curves, loss curves and Markdown reports, from <code>plot/standard_figures/</code>) are under <code>results/plots/</code>; browse them in <a href="ide://results">Results &rarr; Figures</a>.</p>
+<p>The figures and reports selected in the experiment configuration are generated at the end of a run under <code>results/plots/</code>; browse them in <a href="ide://results">Results &rarr; Figures</a>.</p>
 
 <h3>5. Embedded Terminal (<code>terminal</code>)</h3>
 <p>Built-in interactive terminal powered by xterm.js:</p>
@@ -663,7 +662,7 @@ symbolic:
   <li><code>compatible_paradigms: [online_rl, offline_rl]</code> &mdash; the paradigms that may use it</li>
   <li><code>monitor_metric: "eval/reward" | "val/loss"</code> &mdash; target metric for checkpointing and tuning</li>
   <li><code>preprocess_on_load: true | false</code> &mdash; whether dataset requires offline conversion</li>
-  <li><code>default_plots: [...]</code> &mdash; default visualizers auto-run after training</li>
+  <li>Figures and tables are selected in the experiment configuration.</li>
   <li>Simulator settings such as <code>env_id</code>, <code>num_envs</code> and <code>num_steps</code></li>
 </ul>
 """,
@@ -1059,10 +1058,7 @@ env:
   monitor_metric: "eval/reward" # Target metric for early stopping and tuning
   preprocess_on_load: false
   obs_dim: 8
-  n_actions: 4
-  default_plots:
-    - convergence
-    - losses</code></pre>
+  n_actions: 4</code></pre>
 
 <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;" />
 
@@ -1131,7 +1127,7 @@ my_component = "my_pkg.components:MyRunnerOrCallback"</code></pre>
 <p><code>theta.datamodules</code> and <code>theta.components</code> are registered whenever the pipeline discovers components. <code>theta.models</code> and <code>theta.agents</code> are currently registered only by <i>File &rarr; Reload Component Code</i> (<code>Ctrl+Alt+R</code>), so a training run does not see them on its own. Environments, evaluators and IDE plugins are not loaded from entry points at all. Until that changes, packaging a component for the Theta Hub (below) is the reliable route.</p>
 
 <h4>Manual Release Archive & Hub Registry (<code>dist/index.json</code>)</h4>
-<p>The Theta Hub's catalog is <code>dist/index.json</code> in the <a href="https://github.com/CameronEgb/theta-hub">theta-hub</a> repository; Theta-IDE downloads it and caches it in <code>.thetaide/cache/hub/</code>. A <code>theta-hub</code> checkout next to this repository is used instead when it exists, which is handy while testing a release. For standalone zip releases, package your directory and generate the SHA-256 hash:</p>
+<p>The Theta Hub's catalog is <code>dist/index.json</code> in the <a href="https://github.com/CameronEgb/theta-hub">theta-hub</a> repository; Theta-IDE downloads it and caches it in <code>.thetaide/cache/hub/</code>. For standalone zip releases, package your directory and generate the SHA-256 hash:</p>
 <pre><code>zip -r my_cql-1.0.0.zip my_method/
 shasum -a 256 my_cql-1.0.0.zip</code></pre>
 <p>Add your release to the catalog index, and it becomes installable with one click in the <b>Theta Hub</b>.</p>
@@ -1179,6 +1175,7 @@ python run_pipeline.py <group>/<experiment></code></pre>
 </table>
 
 <h3>Plotting</h3>
+<p>Select plotters in the experiment’s <b>Figures and Tables</b> box or its <code>plots</code> configuration. If no plotters are selected, plotting is skipped.</p>
 <pre><code># Re-run the plotting phase for an experiment
 python run_pipeline.py &lt;group&gt;/&lt;experiment&gt; plot_only=true
 
@@ -1193,7 +1190,14 @@ python plot/manager.py &lt;group&gt;/&lt;experiment_id&gt; --wipe</code></pre>
 python run_pipeline.py export &lt;group&gt;/&lt;experiment&gt; --include-weights --out results/exports/my_exp.zip</code></pre>
 
 <h3>Optuna Hyperparameter Sweeps</h3>
-<p>Tuning experiments declare an Optuna sweeper under <code>hydra.sweeper</code> in their YAML (the experiment editor leaves that block alone, so edit it in the file):</p>
+<p>Install the optional tuner from the project directory with <code>pip install -e ".[optuna]"</code>.</p>
+<p>Add a Hyperparameter Sweep block in the experiment editor, choose an objective metric and direction, and mark the method parameters to search. The Enabled switch preserves tuning settings when off; methods with search spaces cannot run until tuning is enabled or their search spaces are removed. Each tuning trial writes its own checkpoint, and the winning checkpoint and parameters are saved in the method's checkpoint folder.</p>
+<p>The Optuna tuner offers TPE, random, or scrambled Sobol QMC sampling, a sampler seed, trial count, batch size and storage. QMC samples categorical parameters independently. A batch runs concurrently only with a parallel Hydra launcher. Select <b>new</b> to create a study or <b>resume</b> and enter its exact name to add more trials. For multiple methods, include <code>{method}</code> in a custom study name so each method has its own study.</p>
+<p>Median early stopping reports the selected objective after each Lightning validation epoch and can prune underperforming trials. Configure how many trials finish first and how many validation epochs to wait. The objective must be logged during validation; SB3 pruning and multi-process Lightning are not yet supported. A time budget prevents new batches after it expires, while allowing an active batch to finish.</p>
+<p>Search dimensions support scalar choices, integer and numeric ranges, optional numeric steps, and positive log-scaled numeric ranges.</p>
+<p>The failed-trial allowance controls how many trial failures a sweep can continue past in the current run. Pruned trials do not count as failures.</p>
+<p>Add the <code>tuning</code> figure in Figures and Tables to generate a trial table and objective-history plot from the saved tuning summary.</p>
+<p>Optuna studies created before trial identities were recorded can still be inspected in the dashboard. Their winning checkpoints cannot be promoted automatically without an explicit trial-to-checkpoint mapping.</p>
 <pre><code>python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; sweep=true
 
 # Watch the sweep in the Optuna dashboard
@@ -1221,20 +1225,11 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
 <ul>
   <li><b>One chart per metric</b> the ticked runs logged, grouped by prefix (<code>eval/</code>, <code>losses/</code>, <code>val/</code>, <code>time/</code>, …). Nothing is whitelisted: every numeric column of every <code>metrics.csv</code> gets a chart, including metrics from Stable-Baselines3 or custom engines.</li>
   <li><b>Hide</b> a chart with its button, or use <b>Plots ▾</b> to show or hide any metric. Hidden plots are remembered under <code>[results] hidden_plots</code> in <code>settings.toml</code>.</li>
-  <li><b>X-axis:</b> environment steps, logged step, epoch, wall time or training time, whichever the runs logged. <b>Smoothing</b> works like the Training monitor's.</li>
+  <li><b>X-axis:</b> environment steps, logged step, epoch, wall time or training time, whichever the runs logged. <b>Smoothing</b> applies an exponential moving average to the plotted curves.</li>
   <li><b>Versions:</b> <i>Separate</i> draws each version; <i>Mean ± std</i> or <i>Mean ± SEM</i> combine an agent's ticked versions into one curve with a shaded band.</li>
   <li><b>Primary:</b> the series whose logged steps hovering snaps to. It is drawn on top and thicker, and listed first in the inspector. <i>Nearest</i> snaps to whichever series is closest to the mouse.</li>
   <li><b>Point inspector:</b> hover over any chart to see every metric of every ticked run at that step. Runs that did not log exactly that step show their nearest logged point.</li>
   <li><b>Live:</b> while the pane is open, ticked runs that are still training update every few seconds with their new values.</li>
-</ul>
-
-<h3>Layouts</h3>
-<p>Pick how the pane is arranged in <i>Settings &rarr; Appearance &rarr; Results Panel Layout</i>. The choice applies immediately, keeps what is ticked, and is saved as <code>layout</code> under <code>[results]</code> in <code>settings.toml</code>.</p>
-<ul>
-  <li><b>Overview first</b> (default): a card per series with its best and final value, where the best was (or, with a Summary threshold for that metric, when it was reached) and its training time. Click a card to make its series primary. Below, the reward chart is drawn large and its hover card lists every series; the other charts follow in sections you can fold.</li>
-  <li><b>Quiet toolbar:</b> one row of controls; charts in sections you can fold, each showing the primary series' latest value; the inspector beside them.</li>
-  <li><b>Control rail:</b> runs, view settings and a checkbox per plot in a left rail; three columns of charts; the inspector below, one row per run.</li>
-  <li><b>Focus + filmstrip:</b> one large chart at a time, picked from a strip of small previews of every metric. Chips above it make a series primary.</li>
 </ul>
 
 <h3>Summary</h3>
@@ -1383,7 +1378,7 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
   <tr><td><code>[components]</code></td><td><code>confirm_delete</code></td></tr>
   <tr><td><code>[hotkeys]</code></td><td><code>enabled</code>, <code>action_key</code>, <code>leader_timeout</code>, <code>terminal_precedence</code>, <code>panes</code></td></tr>
   <tr><td><code>[terminal]</code></td><td><code>shell</code>, <code>cwd</code>, <code>activate_venv</code></td></tr>
-  <tr><td><code>[results]</code></td><td><code>layout</code>, <code>hidden_plots</code></td></tr>
+  <tr><td><code>[results]</code></td><td><code>hidden_plots</code></td></tr>
   <tr><td><code>[shortcuts]</code></td><td>Menu and training shortcut overrides, e.g. <code>launch_training = "F6"</code></td></tr>
 </table>
 

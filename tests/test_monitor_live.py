@@ -169,12 +169,11 @@ def test_a_followed_job_fills_the_live_views_as_records_arrive(window):
     open_view(window, "Overview")
     charts = window.monitor.charts_view
     assert set(charts.points["ppo"]) == {"eval/reward", "losses/total_loss"}
-    # The headline chart leads the eval section and draws reward, so the grid leaves reward out.
-    assert charts.grid.lead == ("eval", window.monitor.reward_card_frame) and "eval/reward" in charts.exclude
-    assert set(charts.grid.cards) == {"losses/total_loss"}
+    assert charts.grid.lead is None
+    assert set(charts.grid.cards) == {"eval/reward", "losses/total_loss"}
     window.on_job_records("job1", "ppo", [record("metrics", step=9, data={"val/f1": 0.5})], False)
     window.monitor.refresh_live()
-    assert set(charts.grid.cards) == {"losses/total_loss", "val/f1"}
+    assert set(charts.grid.cards) == {"eval/reward", "losses/total_loss", "val/f1"}
     assert [(s.agent, s.state) for s in window.monitor.pipeline_strip.segments] == [("ppo", "running")]
     assert not window.monitor.problem_bar.isHidden()
     assert "losses/x is nan" in window.monitor.problem_text.text()
@@ -340,8 +339,6 @@ def test_chart_view_has_no_point_inspector_table():
 
 
 def test_the_overview_scrolls_rather_than_squashing_its_charts(window):
-    from frontend.monitor.panel import OVERVIEW_REWARD_HEIGHT
-
     monitor = window.monitor
     assert monitor.views.widget(0) is monitor.charts_view
     assert monitor.overview_scroll is monitor.charts_view.grid  # the cards and every chart scroll together
@@ -360,7 +357,7 @@ def test_the_overview_scrolls_rather_than_squashing_its_charts(window):
     deadline = time.monotonic() + 3  # the layout can take a few passes to settle when the machine is busy
     while time.monotonic() < deadline and not monitor.overview_scroll.verticalScrollBar().maximum():
         app.processEvents()
-    assert monitor.reward_chart.height() >= OVERVIEW_REWARD_HEIGHT
+    assert monitor.charts_view.grid.cards["eval/reward"].chart.height() >= 180
     assert monitor.overview_scroll.verticalScrollBar().maximum() > 0
 
 
@@ -491,57 +488,31 @@ def test_the_speed_is_eased_between_readings():
 # ── Layout of design E ───────────────────────────────────────────────────────
 
 
-def test_the_headline_chart_leads_the_eval_section_and_ticks_leave_the_monitor_alone(window):
-    from frontend.monitor.panel import SECTION_COLUMNS
-
+def test_monitor_groups_each_metric_once_and_folds_sections(window):
     shown = make_run("shown", "running", [1.0], job_id="job_s")
-    other = make_run("other", "completed", [2.0], job_id="job_o")
-    window.runs[:0] = [shown, other]
+    window.runs.insert(0, shown)
     window.refresh_runs()
     window.select_run(shown)
     window.live_runs[("job_s", "ppo")] = sample_live()
-    window.live_runs[("job_o", "ppo")] = sample_live()
     monitor = window.monitor
     open_view(window, "Overview")
     grid = monitor.charts_view.grid
-    position = grid.grid.getItemPosition(grid.grid.indexOf(monitor.reward_card_frame))
-    total = grid.grid.columnCount()
-    assert position[1] == 0 and position[3] == total  # first of the eval section; alone in it, so full width
-    losses = grid.cards["losses/total_loss"]
-    assert grid.grid.getItemPosition(grid.grid.indexOf(losses))[3] == total // SECTION_COLUMNS["losses"]
-    monitor.sidebar.items[other["id"]].setCheckState(0, Qt.CheckState.Checked)
-    monitor.refresh_live()
-    assert grid.grid.indexOf(monitor.reward_card_frame) != -1  # ticked runs are compared in the Plots tab
-    assert "eval/reward" not in grid.cards
-
-
-def test_the_eval_section_starts_open_and_can_be_folded(window):
-    run = make_run("shown", "running", [1.0], job_id="job_s")
-    window.runs[:0] = [run]
-    window.refresh_runs()
-    window.select_run(run)
-    window.live_runs[("job_s", "ppo")] = sample_live()
-    monitor = window.monitor
-    open_view(window, "Overview")
-    grid = monitor.charts_view.grid
-    assert grid.grid.indexOf(monitor.reward_card_frame) != -1
-    assert grid.grid.indexOf(grid.cards["losses/total_loss"]) != -1
+    assert grid.lead is None
+    reward = grid.cards["eval/reward"]
+    assert grid.grid.indexOf(reward) != -1
     grid.toggle_group("eval")
-    monitor.refresh_live()
-    assert grid.grid.indexOf(monitor.reward_card_frame) == -1
+    assert grid.grid.indexOf(reward) == -1
 
 
-def test_the_eval_section_is_open_even_when_it_is_the_only_section(window):
+def test_simulated_run_has_grouped_metrics(window):
     from frontend.model import new_run, sample, Config
-
-    run = new_run(window.config())  # simulated: its only chart is the headline one, so the grid has no cards
+    run = new_run(window.config())
     run["metrics"] = [sample(Config(**run["config"]), k + 1) for k in range(5)]
     window.runs.insert(0, run)
     window.refresh_runs()
     window.select_run(run)
     open_view(window, "Overview")
-    grid = window.monitor.charts_view.grid
-    assert grid.grid.indexOf(window.monitor.reward_card_frame) != -1
+    assert "eval/reward" in window.monitor.charts_view.grid.cards
 
 
 def test_the_status_row_opens_the_other_views_in_place_of_the_charts(window):
@@ -595,8 +566,8 @@ def test_the_status_row_shows_speed_while_training_and_the_last_write_after():
     lives = {"ppo": sample_live()}
     strip.show_run("running", lives, None, live=True, now=T0 + 50)
     shown = [key for key, field in strip.fields.items() if not field.isHidden()]
-    assert shown == ["elapsed", "speed", "eta"]
+    assert shown == []
     strip.show_run("running", lives, None, live=True, now=T0 + 43 + 600)  # stalled: say since when
     assert not strip.fields["updated"].isHidden()
     strip.show_run("completed", lives, None, live=False, now=T0 + 600)
-    assert [key for key, field in strip.fields.items() if not field.isHidden()] == ["elapsed", "updated"]
+    assert [key for key, field in strip.fields.items() if not field.isHidden()] == ["updated"]

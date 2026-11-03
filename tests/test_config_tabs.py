@@ -42,6 +42,25 @@ class TestConfigTabManager(unittest.TestCase):
         self.assertEqual(self.mgr.tabBar().tabData(0), "preview")
         self.assertEqual(self.mgr.current_viewer(), v)
 
+    def test_external_atomic_save_refreshes_open_form(self):
+        from PyQt6.QtTest import QTest
+        v = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)
+        replacement = self.f1.with_suffix(".tmp")
+        replacement.write_text("experiment_id: exp1\nseed: 123\n", encoding="utf-8")
+        replacement.replace(self.f1)
+        QTest.qWait(1200)
+        self.assertEqual(v.raw_data["seed"], 123)
+
+    def test_external_save_does_not_overwrite_dirty_form(self):
+        from PyQt6.QtTest import QTest
+        v = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)
+        v.is_dirty = True
+        v.raw_data["seed"] = 99
+        self.f1.write_text("experiment_id: exp1\nseed: 123\n", encoding="utf-8")
+        QTest.qWait(1200)
+        self.assertEqual(v.raw_data["seed"], 99)
+        self.assertTrue(v.is_dirty)
+
     def test_clean_preview_tab_is_reused_on_next_single_click(self):
         v1 = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=False)
         self.assertEqual(self.mgr.count(), 1)
@@ -68,6 +87,35 @@ class TestConfigTabManager(unittest.TestCase):
         self.assertEqual(self.mgr.tabBar().tabData(0), "pinned")
         self.assertEqual(self.mgr.tabBar().tabData(1), "preview")
         self.assertNotEqual(v1, v2)
+
+    def test_explicit_new_tab_duplicates_an_open_config_and_tracks_closing(self):
+        rel = "experiment/demo/exp1.yaml"
+        original = self.mgr.open_file(self.f1, rel, pinned=True)
+        duplicate = self.mgr.open_file(self.f1, rel, pinned=True, new_tab=True)
+        self.assertIsNot(original, duplicate)
+        self.assertEqual(self.mgr.count(), 2)
+        self.assertIs(self.mgr.current_viewer(), duplicate)
+        self.assertTrue(self.mgr.close_tab_by_index(0))
+        self.assertIs(self.mgr._tabs[rel], duplicate)
+        self.assertIs(self.mgr.open_file(self.f1, rel), duplicate)
+        self.assertTrue(self.mgr.close_tab_by_index(0))
+        self.assertNotIn(rel, self.mgr._tabs)
+
+    def test_reusing_preview_preserves_tracking_of_duplicate(self):
+        rel = "experiment/demo/exp1.yaml"
+        self.mgr.open_file(self.f1, rel)
+        duplicate = self.mgr.open_file(self.f1, rel, new_tab=True)
+        self.mgr.open_file(self.f2, "experiment/demo/exp2.yaml")
+        self.assertIs(self.mgr._tabs[rel], duplicate)
+        self.assertIs(self.mgr.open_file(self.f1, rel), duplicate)
+
+    def test_new_tab_does_not_overwrite_dirty_open_config(self):
+        rel = "experiment/demo/exp1.yaml"
+        original = self.mgr.open_file(self.f1, rel, pinned=True)
+        original.is_dirty = True
+        duplicate = self.mgr.open_file(self.f1, rel, pinned=True, new_tab=True)
+        self.assertTrue(original.is_dirty)
+        self.assertIsNot(original, duplicate)
 
     def test_pin_tab_method_converts_preview_to_pinned(self):
         self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=False)
@@ -147,6 +195,15 @@ class TestConfigTabManager(unittest.TestCase):
         self.assertTrue(closed)
         self.assertEqual(self.mgr.count(), 1)
         self.assertEqual(self.mgr.tabText(0), "exp1")
+
+    def test_close_signal_keeps_remaining_tab_permanent(self):
+        self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)
+        self.mgr.open_file(self.f2, "experiment/demo/exp2.yaml", pinned=True)
+        self.mgr.tabCloseRequested.emit(1)
+        self.assertEqual(self.mgr.count(), 1)
+        self.assertEqual(self.mgr.tabBar().tabData(0), "pinned")
+        self.mgr.open_file(self.f3, "experiment/demo/exp3.yaml")
+        self.assertEqual(self.mgr.count(), 2)
 
     def test_close_tabs_matching(self):
         self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)

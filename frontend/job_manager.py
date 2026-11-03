@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import codecs
 import json
+import json
 import sys
 import time
 import uuid
@@ -66,6 +67,8 @@ class JobManager(QObject):
         self._logs: dict[str, list[str]] = {}
         self._log_files: dict[str, Any] = {}
         self._feeds: dict[tuple[str, str], AgentFeed] = {}
+        self._focused_replicates: dict[str, str] = {}
+        self._execution_signatures: dict[str, tuple] = {}
         self._last_hardware: dict[str, float] = {}
         self._streamed_hardware: set[str] = set()  # jobs whose training process reports its own resource use
         self.watcher = QFileSystemWatcher(self)
@@ -126,13 +129,53 @@ class JobManager(QObject):
         """The active job(s), queued jobs in run order, and the ten most recent finished jobs."""
         finished = sorted((j for j in self.jobs.values() if j.get("status") in FINAL_STATUSES),
                           key=lambda j: j.get("finished") or 0, reverse=True)[:10]
+        active = [item for job in self.active_jobs() for item in self._execution_queue_items(job)]
         return {
             "running": self.queue_running,
-            "active": self.active_jobs(),
+            "active": active,
             "queued": [dict(self.public(self.jobs[job_id]), position=n)
                        for n, job_id in enumerate(self.queue_order) if job_id in self.jobs],
             "finished": [self.public(j) for j in finished],
         }
+
+    def _execution_queue_items(self, job):
+        """Expand one pipeline job into its visible replicate cards when a manifest exists."""
+        root = self.project_root / "results" / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
+        items = []
+        for path in root.glob("*/manifest.json"):
+            try:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for replicate in manifest.get("runs", []):
+                if replicate.get("status") in ("completed", "failed", "cancelled"):
+                    continue
+                method = str(replicate.get("method", "run"))
+                label = f"{method} · seed {replicate.get('training_seed')}"
+                item = dict(job)
+                item.update(status=replicate.get("status", "queued"),
+                            experiment_id=manifest.get("result_experiment_id", job.get("experiment_id")),
+                            agents=[label], description=f"Replicate {replicate.get('version', '')}".strip())
+                items.append(item)
+        return items or [job]
+
+    def replicate(self, job_id: str, replicate_label: str) -> dict[str, Any] | None:
+        """Find a replicate and its stamped result ID from an active execution manifest."""
+        job = self.jobs.get(job_id)
+        if not job:
+            return None
+        root = self.project_root / "results" / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
+        for path in root.glob("*/manifest.json"):
+            try:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for item in manifest.get("runs", []):
+                label = f"{item.get('method', 'run')} · seed {item.get('training_seed')}"
+                if label == str(replicate_label):
+                    return {**item, "group": manifest.get("group", job.get("group")),
+                            "result_experiment_id": manifest.get("result_experiment_id", job.get("experiment_id"))}
+        return None
 
     def _emit_queue(self):
         self.store.set_queue(self.queue_order)
@@ -203,6 +246,7 @@ class JobManager(QObject):
         job["pid"] = int(process.processId())
         self._save(job)
         self._watch(job)
+        self._execution_signatures[job_id] = self._execution_status_signature(job)
         self._emit_queue()
 
     # ── Process events ───────────────────────────────────────────────────────
@@ -285,13 +329,44 @@ class JobManager(QObject):
     def _run_dir(self, job: dict[str, Any]) -> Path:
         return self.logs_dir / job["group"] / job["experiment_id"]
 
-    def _watch(self, job: dict[str, Any]):
+    def _run_sources(self, job: dict[str, Any]):
+        """Telemetry sources for a normal run or each replicate in its execution manifest."""
+        sources = []
+        execution_root = self.project_root / "results" / "executions" / job["group"] / job["experiment_id"]
+        for manifest_path in execution_root.glob("*/manifest.json"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for replicate in manifest.get("runs", []):
+                run_dir = Path(replicate.get("logs", ""))
+                if not run_dir.is_absolute():
+                    run_dir = self.project_root / run_dir
+                method = str(replicate.get("method", "run"))
+                agent_dir_name = str(replicate.get("agent") or method.replace("/", "_"))
+                label = f"{method} · seed {replicate.get('training_seed')}"
+                version = replicate.get("version")
+                if version is None:  # adapt manifests created before runs shared one experiment folder
+                    sources.append((label, run_dir, agent_dir_name, "", replicate.get("status", "queued")))
+                else:
+                    sources.append((label, run_dir, agent_dir_name, str(version), replicate.get("status", "queued")))
+        if sources:
+            return sources
         run_dir = self._run_dir(job)
-        paths = [self.logs_dir, run_dir.parent, run_dir]
-        for agent in job.get("agents", []):
+        return [(str(agent), run_dir, str(agent), "", job.get("status", "running")) for agent in job.get("agents", [])]
+
+    def _watch(self, job: dict[str, Any]):
+        paths = [self.logs_dir, self._run_dir(job).parent]
+        execution_root = self.project_root / "results" / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
+        if execution_root.exists():
+            paths.append(execution_root)
+            paths.extend(execution_root.glob("*/manifest.json"))
+        for _label, run_dir, agent, explicit_version, _status in self._run_sources(job):
+            paths.extend([run_dir.parent, run_dir])
             agent_dir = run_dir / agent
             paths.append(agent_dir)
-            for version_dir in agent_dir.glob("version_*"):
+            version_dirs = [agent_dir / explicit_version] if explicit_version else list(agent_dir.glob("version_*"))
+            for version_dir in version_dirs:
                 paths.extend([version_dir, version_dir / "events.jsonl", version_dir / "metrics.csv"])
         existing = {str(p) for p in paths if Path(p).exists()}
         watched = set(self.watcher.directories()) | set(self.watcher.files())
@@ -300,38 +375,64 @@ class JobManager(QObject):
             self.watcher.addPaths(new)
 
     def _unwatch(self, job: dict[str, Any]):
-        run_dir = str(self._run_dir(job))
-        stale = [p for p in self.watcher.directories() + self.watcher.files() if p.startswith(run_dir)]
+        roots = [str(run_dir) for _, run_dir, _, _, _ in self._run_sources(job)]
+        roots.append(str(self._run_dir(job)))
+        stale = [p for p in self.watcher.directories() + self.watcher.files()
+                 if any(p.startswith(root) for root in roots)]
         if stale:
             self.watcher.removePaths(stale)
         for key in [k for k in self._feeds if k[0] == job["job_id"]]:
             del self._feeds[key]
         self._streamed_hardware.discard(job["job_id"])
+        self._execution_signatures.pop(job["job_id"], None)
 
     def _on_path_changed(self, _path: str):
+        queue_changed = False
         for job_id, job in self.jobs.items():
             if job.get("status") == "running":
+                before = self._execution_signatures.get(job_id, ())
                 self._watch(job)  # folders created since the last change (agent, version_N, metrics.csv)
                 self._scan_metrics(job_id)
+                after = self._execution_status_signature(job)
+                self._execution_signatures[job_id] = after
+                if before != after:
+                    queue_changed = True
+        if queue_changed:
+            self._emit_queue()
+
+    def _execution_status_signature(self, job):
+        root = self.project_root / "results" / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
+        signature = []
+        for path in root.glob("*/manifest.json"):
+            try:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+                signature.extend((run.get("run_id"), run.get("status")) for run in manifest.get("runs", []))
+            except (OSError, ValueError):
+                continue
+        return tuple(signature)
 
     def _scan_metrics(self, job_id: str):
         """Read what each agent's run appended since the last scan and signal it."""
         job = self.jobs.get(job_id)
         if not job:
             return
-        run_dir = self._run_dir(job)
-        for agent in job.get("agents", []):
-            feed = self._feeds.get((job_id, agent))
+        sources = self._run_sources(job)
+        for source in sources:
+            if source[4] == "queued":
+                continue
+            label, run_dir, agent_dir, version, _status = source
+            feed = self._feeds.get((job_id, label))
             if feed is None:
-                feed = self._feeds[(job_id, agent)] = AgentFeed(run_dir / agent)
+                feed_path = run_dir / agent_dir
+                self._feeds[(job_id, label)] = feed = AgentFeed(feed_path, version=version or None)
             records, reset = feed.read()
             if not records and not reset:
                 continue
-            self.job_records.emit(job_id, agent, records, reset)
+            self.job_records.emit(job_id, label, records, reset)
             rows = [metrics_row(r) for r in records if r.get("type") == "metrics"]
             rows = [row for row in rows if row]
             if rows or reset:
-                self.job_metrics.emit(job_id, agent, rows, reset)
+                self.job_metrics.emit(job_id, label, rows, reset)
             samples = [r["data"] for r in records if r.get("type") == "system" and r.get("data")]
             if samples:
                 self._streamed_hardware.add(job_id)
@@ -339,6 +440,11 @@ class JobManager(QObject):
                 if "rss_mb" in latest:
                     latest["memory_mb"] = latest["rss_mb"]  # the name job_hardware has always used
                 self.job_hardware.emit(job_id, latest)
+
+    def focus_replicate(self, job_id: str, replicate_label: str):
+        """Follow one replicate's live feed while sibling runs continue independently."""
+        self._focused_replicates[job_id] = str(replicate_label)
+        self._scan_metrics(job_id)
 
     # ── Stopping and the queue ───────────────────────────────────────────────
 
@@ -360,9 +466,12 @@ class JobManager(QObject):
         self._save(job)
         process = self._processes.get(job_id)
         if process is not None and process.state() != QProcess.ProcessState.NotRunning:
-            kill_process_tree(int(process.processId()))
+            process_id = int(process.processId())
+            kill_process_tree(process_id)
             if process.state() != QProcess.ProcessState.NotRunning:
                 process.kill()
+            from src.app.pipeline.variability import mark_cancelled
+            mark_cancelled(job.get("group", ""), job.get("experiment_id", ""), process_id)
         return self.public(job)
 
     def start_queue(self) -> dict[str, Any]:

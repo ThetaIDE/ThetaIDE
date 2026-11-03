@@ -76,6 +76,14 @@ class LocalBackend(QObject):
     def list_runs(self, callback: Callback):
         self._submit(lambda: {"runs": catalog.list_runs()}, callback=callback)
 
+    def list_executions(self, callback: Callback):
+        from src.app.services.executions import list_executions
+        self._submit(list_executions, callback=callback)
+
+    def read_execution(self, path: str, callback: Callback):
+        from src.app.services.executions import read_execution
+        self._submit(read_execution, path, callback=callback)
+
     def archive_run(self, group: str, experiment_id: str, destination: str, callback: Callback):
         self._submit(catalog.archive_run, group, experiment_id, destination, callback=callback)
 

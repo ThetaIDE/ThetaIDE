@@ -269,7 +269,8 @@ class Window(QMainWindow):
         self.backend_connected = False  # True once the training pipeline imports and composes in-process
         self.active_runs: list[dict] = []  # runs training now (several when the queue runs N at once)
         self.selected = None
-        self.pinned_baseline_run = None
+        self._replicate_views: dict[tuple[str, str], dict] = {}
+        self._replicate_metrics: dict[tuple[str, str], list[dict]] = {}
         self.timer = QTimer(self)
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.tick)
@@ -571,7 +572,7 @@ class Window(QMainWindow):
 
     def on_config_file_opened(self, file_path, rel_path):
         if hasattr(self, "config_tab_manager"):
-            self.config_tab_manager.open_file(file_path, rel_path, pinned=True)
+            self.config_tab_manager.open_file(file_path, rel_path, pinned=True, new_tab=True)
 
     def on_config_file_deleted(self, rel_path):
         norm = Path(rel_path).as_posix()
@@ -1238,7 +1239,7 @@ class Window(QMainWindow):
                 "config",
             )
             manager = getattr(self, "config_tab_manager", None)
-            open_configs = list(manager._tabs) if manager else []
+            open_configs = [manager.widget(i).current_rel_path for i in range(manager.count())] if manager else []
             current_viewer = manager.current_viewer() if manager else None
             active_config = current_viewer.current_rel_path if current_viewer else ""
             session = {
@@ -1274,7 +1275,7 @@ class Window(QMainWindow):
                 if valid:
                     manager.close_tabs_matching(lambda _path: True)
                     for rel_path in valid:
-                        manager.open_file(self.config_tree.root_dir / rel_path, rel_path, pinned=True)
+                        manager.open_file(self.config_tree.root_dir / rel_path, rel_path, pinned=True, new_tab=True)
                     active = sm.get("session", "active_config", default="")
                     if active in manager._tabs:
                         manager.setCurrentWidget(manager._tabs[active])
@@ -2155,8 +2156,9 @@ class Window(QMainWindow):
 
     def on_job_output(self, job_id, lines):
         run = self.run_for_job(job_id)
-        if run is not None and run is self.selected and hasattr(self, "monitor"):
-            self.monitor.append_log(run, lines)
+        selected_job = (self.selected or {}).get("backend", {}).get("job_id")
+        if run is not None and (run is self.selected or selected_job == job_id) and hasattr(self, "monitor"):
+            self.monitor.append_log(self.selected if selected_job == job_id else run, lines)
         if run is None or not any(r is run for r in self.active_runs):
             return
         prefix = f"{run['backend'].get('experiment_id', '')} " if len(self.active_runs) > 1 else ""
@@ -2168,6 +2170,21 @@ class Window(QMainWindow):
     def on_job_metrics(self, job_id, agent, rows, reset):
         run = self.run_for_job(job_id)
         if run is None:
+            return
+        if " · seed " in str(agent):
+            key = (job_id, str(agent))
+            history = self._replicate_metrics.setdefault(key, [])
+            if reset:
+                history.clear()
+            points = metric_points(rows) if rows else []
+            history.extend(points)
+            view = self._replicate_views.get(key)
+            if view is not None:
+                if reset:
+                    view["metrics"] = []
+                view["metrics"].extend(points)
+                if self.selected is view:
+                    self.render_run()
             return
         if reset:
             run["metrics"] = []
@@ -2193,7 +2210,8 @@ class Window(QMainWindow):
             live = self.live_runs[(job_id, agent)] = LiveRun(budget=budget)
         events = live.add(records, reset)
         run = self.run_for_job(job_id)
-        if run is not None and run is self.selected and hasattr(self, "monitor"):
+        selected_job = (self.selected or {}).get("backend", {}).get("job_id")
+        if run is not None and (run is self.selected or selected_job == job_id) and hasattr(self, "monitor"):
             self.monitor.live_changed()
         if run is not None and any(r is run for r in self.active_runs):
             marks = {"warning": "⚠", "error": "✖"}
@@ -2249,6 +2267,10 @@ class Window(QMainWindow):
         if run is None:
             return
         status = {"pending": "starting"}.get(job.get("status"), job.get("status"))
+        selected = self.selected
+        if selected and selected.get("_replicate_view") and selected.get("backend", {}).get("job_id") == job["job_id"]:
+            selected["status"] = status
+            self.render_run()
         if run["status"] == "queued" and status in ("starting", "running"):
             self.log(f"Queue: {run['backend']['experiment_id']} started.")
             run["status"] = status
@@ -2532,17 +2554,15 @@ class Window(QMainWindow):
         if hasattr(self, "monitor"):
             self.monitor.show_selected(run)
         self.render_run()
-        self.backfill_metrics(run)
-        self.load_disk_metrics(run)
+        if not run.get("_replicate_view"):
+            self.backfill_metrics(run)
+            self.load_disk_metrics(run)
 
     # ── Training monitor (widgets and drawing live in MonitorPanel) ──────────
 
     def render_run(self):
         if hasattr(self, "monitor"):
             self.monitor.render()
-
-    def toggle_pin_baseline(self):
-        self.monitor.toggle_pin_baseline()
 
     def backfill_metrics(self, run):
         """Fetch the full metrics of a finished trained run recorded before all metrics were kept."""
@@ -2611,7 +2631,7 @@ class Window(QMainWindow):
 
     def load_disk_metrics(self, run):
         """Fetch the metrics of a run found in results/logs (the app has none recorded for it)."""
-        if run.get("origin") != "cli" or run["metrics"] or run.get("metrics_requested"):
+        if run.get("_replicate_view") or run.get("origin") != "cli" or run["metrics"] or run.get("metrics_requested"):
             return
         agents = run["backend"].get("agents") or []
         if not agents:

@@ -118,6 +118,18 @@ class TestConfigTree(unittest.TestCase):
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0][1], "experiment/cartpole/exp1.yaml")
 
+    def test_click_selects_and_double_click_opens_a_new_tab(self):
+        selected, opened = [], []
+        self.tree_widget.file_selected.connect(lambda path, rel: selected.append(rel))
+        self.tree_widget.file_opened.connect(lambda path, rel: opened.append(rel))
+        self.tree_widget.select_file("experiment/cartpole/exp1.yaml", emit_signal=False)
+        item = self.tree_widget.tree.currentItem()
+        self.tree_widget._on_item_clicked(item, 0)
+        self.assertEqual(selected, ["experiment/cartpole/exp1.yaml"])
+        self.tree_widget._on_item_double_clicked(item, 0)
+        self.tree_widget._on_item_double_clicked(item, 0)
+        self.assertEqual(opened, ["experiment/cartpole/exp1.yaml"] * 2)
+
     def test_filter_tree(self):
         self.tree_widget.filter_tree("exp1")
         # exp1 item should be visible
@@ -701,7 +713,7 @@ class TestConfigViewer(unittest.TestCase):
         menu_labels = [action.text() for action in self.viewer.btn_add_block.menu().actions()]
         self.assertIn("Data Loaders", menu_labels)
         self.assertIn("Evaluators", menu_labels)
-        self.assertIn("Figures", menu_labels)
+        self.assertIn("Figures and Tables", menu_labels)
         self.assertIn("Checkpoint Settings", menu_labels)
         self.assertIn("Recorded Metrics", menu_labels)
 
@@ -717,11 +729,75 @@ class TestConfigViewer(unittest.TestCase):
         action.trigger()
         self.assertEqual(self.viewer.raw_data["tuning"]["n_trials"], 40)
         self.assertIsNotNone(self.viewer.findChild(QLineEdit, "sweepMetric"))
+        from frontend.widgets import ToggleSlider
+        enabled = self.viewer.findChild(ToggleSlider, "sweepEnabled")
+        self.assertIsNotNone(enabled)
+        enabled.setChecked(False)
+        self.assertIs(self.viewer.raw_data["tuning"]["enabled"], False)
+        enabled.setChecked(True)
+        self.assertIs(self.viewer.raw_data["tuning"]["enabled"], True)
         titles = [widget.text() for widget in self.viewer.findChildren(QLabel)]
         self.assertEqual(titles.count("Hyperparameter Sweep"), 1)
         self.assertNotIn("tuning", titles)
         self.viewer.remove_block("tuning")
         self.assertNotIn("tuning", self.viewer.raw_data)
+
+    def test_optuna_component_settings_are_saved_in_its_options(self):
+        from PyQt6.QtWidgets import QComboBox
+        from frontend.widgets import SpinBox
+
+        self.viewer.add_block("tuning")
+        selector = self.viewer.findChild(QComboBox, "sweepComponent")
+        self.assertEqual(selector.currentText(), "optuna")
+        sampler = self.viewer.findChild(QComboBox, "sweep_sampler")
+        sampler.setCurrentText("random")
+        seed = self.viewer.findChild(SpinBox, "sweep_seed")
+        seed.setValue(17)
+        options = self.viewer.raw_data["tuning"]["options"]["optuna"]
+        self.assertEqual(options["sampler"], "random")
+        self.assertEqual(options["seed"], 17)
+        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
+        self.viewer.findChild(QComboBox, "sweep_sampler").setCurrentText("tpe")
+        self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
+        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_pruner_startup_trials"))
+        self.viewer.findChild(QComboBox, "sweep_pruner").setCurrentText("median")
+        self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_pruner_startup_trials"))
+
+    def test_tuner_component_supplies_its_own_editor_fields(self):
+        from PyQt6.QtWidgets import QComboBox, QLineEdit
+
+        class OtherTuner:
+            api_version = 1
+            def settings(self):
+                return [{"key": "profile", "label": "Profile", "type": "text", "default": "fast"}]
+            def validate_config(self, cfg): pass
+            def validate_dimension(self, target, dimension): pass
+            def compile(self, overrides, **context): return overrides
+            def job_entrypoint(self, cfg, method_cfg, script, python): return script, python
+            def study_name(self, cfg, method): return "study"
+            def prepare(self, cfg, storage, study): pass
+            def finalize(self, group, experiment, method, storage, study): pass
+            def storage(self, cfg): return None
+
+        with patch("src.app.core.plugin_discovery.discover_entry_points", return_value={"other": OtherTuner}):
+            self.viewer.add_block("tuning")
+            self.viewer.findChild(QComboBox, "sweepComponent").setCurrentText("other")
+            profile = self.viewer.findChild(QLineEdit, "sweep_profile")
+            self.assertEqual(profile.text(), "fast")
+            profile.setText("thorough")
+            self.assertEqual(self.viewer.raw_data["tuning"]["options"]["other"]["profile"], "thorough")
+            self.viewer.findChild(QComboBox, "sweepComponent").setCurrentText("optuna")
+            self.assertEqual(self.viewer.raw_data["tuning"]["options"]["other"]["profile"], "thorough")
+
+    def test_invalid_tuner_values_remain_visible_for_correction(self):
+        from PyQt6.QtWidgets import QComboBox, QLineEdit
+
+        self.viewer.add_block("tuning")
+        self.viewer.raw_data["tuning"]["options"] = {"optuna": {"sampler": "unknown", "seed": "bad"}}
+        self.viewer._render_boxes()
+        self.assertEqual(self.viewer.findChild(QComboBox, "sweep_sampler").currentText(), "unknown")
+        self.assertEqual(self.viewer.findChild(QLineEdit, "sweep_seed").text(), "bad")
+        self.assertEqual(self.viewer.raw_data["tuning"]["options"]["optuna"]["seed"], "bad")
 
     def test_parameter_sweep_range_edit_and_remove(self):
         from PyQt6.QtWidgets import QComboBox, QLineEdit, QToolButton

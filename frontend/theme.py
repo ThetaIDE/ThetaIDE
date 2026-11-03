@@ -213,6 +213,9 @@ QToolButton#sideTabBin:checked { color: #fabd2f; }
 QLineEdit#sideTabBinEditor { font-size: 10px; padding: 1px 3px; border: 1px solid #fabd2f; border-radius: 4px; background: #1d2021; color: #ebdbb2; }
 QFrame#monitorProblemBar { background: #1d2021; border: 1px solid #3c3836; border-radius: 6px; }
 QPushButton#monitorViewButton { padding: 4px 10px; }
+QPushButton#monitorMethodTitle { background: transparent; border: 0; padding: 0; font-size: 23px; font-weight: 600; text-align: left; }
+QPushButton#monitorMethodTitle:hover { background: transparent; text-decoration: underline; }
+QPushButton#monitorMethodTitle::menu-indicator { image: none; width: 0; }
 QFrame#resultsChartCard { border: 1px solid #3c3836; border-radius: 5px; }
 QFrame#resultsChartCard[flat="true"] { border: 0; }
 QWidget#resultsCardCorner, QLabel#resultsCardValue { background: transparent; }
