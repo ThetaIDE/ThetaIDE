@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -151,7 +152,8 @@ def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any) -> 
 
 
 def run_experiment(
-    overrides, site_cfg=None, script_entrypoint: str | None = None, python_executable: str | None = None
+    overrides, site_cfg=None, script_entrypoint: str | None = None, python_executable: str | None = None,
+    output_log: str | Path | None = None,
 ):
     """Run target training script as a subprocess with the given Hydra overrides."""
     from src.app.pipeline.runtime import get_subprocess_env
@@ -160,9 +162,30 @@ def run_experiment(
 
     venv_python = python_executable or get_python_executable(site_cfg)
     target_script = script_entrypoint or "src/app/train.py"
-    cmd = [venv_python, str(target_script)] + list(overrides)
+    cmd = [venv_python, "-u", str(target_script)] + list(overrides)
     print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, env=env)
+    if output_log is None:
+        subprocess.run(cmd, check=True, env=env)
+        return
+
+    # Preserve live console output while retaining a per-run copy for the
+    # execution manifest and later debugging.
+    output_path = Path(output_log)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", errors="replace") as log_file:
+        process = subprocess.Popen(
+            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            log_file.write(line)
+            log_file.flush()
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        return_code = process.wait()
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, cmd)
 
 
 def run_plotting(experiment, style=None, base_experiment=None, site_cfg=None, wipe=False, use_cache=False):

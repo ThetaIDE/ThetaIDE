@@ -28,6 +28,7 @@ THETA_ENTRY_POINTS = {
     "evaluators": "theta.evaluators",
     "plugins": "theta.plugins",
     "components": "theta.components",
+    "tuners": "theta.tuners",
 }
 
 _DISCOVERY_CACHE: Dict[str, Dict[str, Any]] = {}

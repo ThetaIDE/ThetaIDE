@@ -104,6 +104,9 @@ temp/
 !/in/config/data/.gitkeep
 /in/config/plot/*
 !/in/config/plot/.gitkeep
+!/in/config/plot/thetalib/
+/in/config/plot/thetalib/*
+!/in/config/plot/thetalib/tuning.yaml
 /src/usr/methods/*
 !/src/usr/methods/.gitkeep
 /src/usr/models/*

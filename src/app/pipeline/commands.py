@@ -3,46 +3,10 @@
 Builds Hydra override lists from structured method config dicts.
 """
 
-from src.app.pipeline.config import normalize_agent_name
-from src.app.pipeline.validation import paradigm_uses_agents, paradigm_uses_static_dataset
-import math
 import json
 
-
-def _sweep_expression(target, dimension):
-    """Compile a typed dimension, preserving legacy Hydra expressions."""
-    if isinstance(dimension, str):
-        return dimension.strip()
-    if not hasattr(dimension, "get"):
-        raise ValueError(f"Sweep dimension {target!r} must be a mapping or expression")
-    kind = dimension.get("type")
-    if kind == "choice":
-        values = dimension.get("values")
-        if not isinstance(values, (list, tuple)) or not values or any(v is None or v == "" for v in values):
-            raise ValueError(f"Sweep dimension {target!r} requires non-empty choices")
-        return "choice(" + ",".join(json.dumps(v) for v in values) + ")"
-    if kind not in ("int", "float", "log_float"):
-        raise ValueError(f"Sweep dimension {target!r} has unsupported type {kind!r}")
-    low, high, step = dimension.get("low"), dimension.get("high"), dimension.get("step")
-    def valid_number(value):
-        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-    if not valid_number(low) or not valid_number(high) or low > high:
-        raise ValueError(f"Sweep dimension {target!r} requires ordered finite bounds")
-    if kind == "int" and (not isinstance(low, int) or not isinstance(high, int)):
-        raise ValueError(f"Sweep dimension {target!r} requires integer bounds")
-    if step is not None and (not valid_number(step) or step <= 0 or (kind == "int" and not isinstance(step, int))):
-        raise ValueError(f"Sweep dimension {target!r} requires a positive compatible step")
-    if kind == "log_float":
-        if low <= 0 or step is not None:
-            raise ValueError(f"Sweep dimension {target!r} requires positive log bounds and no step")
-        return f"tag(log, interval({low}, {high}))"
-    if kind == "int":
-        # The installed Hydra Optuna plugin treats range.stop as an inclusive
-        # Optuna bound (unlike Python's range).
-        return f"range({low}, {high}, {step or 1})"
-    if step is not None:
-        raise ValueError(f"Sweep dimension {target!r}: stepped float ranges are not supported by the Hydra backend")
-    return f"interval({low}, {high})"
+from src.app.pipeline.config import normalize_agent_name
+from src.app.pipeline.validation import paradigm_uses_agents, paradigm_uses_static_dataset
 
 
 def _format_hydra_val(x):
@@ -87,6 +51,12 @@ def build_method_overrides(
         else:
             method_cfg = dict(method_cfg)
 
+    from src.app.pipeline.tuning_config import require_runnable_tuning
+
+    require_runnable_tuning(cfg, {method_name: method_cfg})
+    if method_cfg.get("tune") or method_cfg.get("search_space"):
+        is_sweep = True
+
     paradigm = cfg.get("paradigm", "offline_rl") if cfg is not None else "offline_rl"
     # Asked once: a paradigm with no allowed agents drives its methods by model.
     uses_agents = paradigm_uses_agents(paradigm)
@@ -121,6 +91,13 @@ def build_method_overrides(
         f"paradigm={paradigm}",
         f"model={model_arch}",
     ]
+    # The orchestrator may derive these from the experiment path, so the
+    # experiment YAML itself need not contain them. Jobs and artifact promotion
+    # must nevertheless use the same resolved identifiers.
+    for key in ("group", "experiment_id"):
+        value = cfg.get(key) if cfg is not None else None
+        if value is not None:
+            overrides.append(f"++{key}={json.dumps(str(value))}")
 
     def _flatten_overrides(prefix, val):
         if isinstance(val, dict):
@@ -181,6 +158,13 @@ def build_method_overrides(
         "tune",
         "search_space",
         "from_study",
+        "entrypoint",
+        "runner",
+        "script",
+        "engine",
+        "python",
+        "venv_python",
+        "venv",
     }
     _MODEL_KEYS = {
         "architecture",
@@ -229,51 +213,14 @@ def build_method_overrides(
                 ):
                     overrides.append(f"++{k}={_format_hydra_val(v)}")
 
-    # Optuna Sweeper overrides (active ONLY if is_sweep is True or study_name is provided)
+    # The selected tuning component compiles its own job overrides.
     if is_sweep or study_name:
-        has_sweeper_override = extra_args and any("hydra/sweeper" in a or "hydra.sweeper" in a for a in extra_args)
-        if not has_sweeper_override:
-            sweeper_group = "hydra/sweeper=optuna_online" if paradigm == "online_rl" else "hydra/sweeper=optuna_offline"
-            overrides.append(sweeper_group)
+        from src.app.pipeline.tuners import get_tuner
 
-        if study_name:
-            overrides.append(f"++hydra.sweeper.study_name={study_name}")
-
-        tuning_cfg = cfg.get("tuning", {}) if cfg is not None and hasattr(cfg, "get") else {}
-        if tuning_cfg:
-            if tuning_cfg.get("n_trials"):
-                overrides.append(f"++hydra.sweeper.n_trials={tuning_cfg['n_trials']}")
-            if tuning_cfg.get("n_jobs"):
-                overrides.append(f"++hydra.sweeper.n_jobs={tuning_cfg['n_jobs']}")
-            if tuning_cfg.get("storage"):
-                overrides.append(f"++hydra.sweeper.storage={tuning_cfg['storage']}")
-            direction = tuning_cfg.get("direction") or get_sweep_direction(cfg, paradigm)
-            overrides.append(f"++hydra.sweeper.direction={direction}")
-            if tuning_cfg.get("monitor_metric"):
-                overrides.append(f"++env.monitor_metric={tuning_cfg['monitor_metric']}")
-
-        # Method-specific search space parameters
-        tune_dict = method_cfg.get("tune") or method_cfg.get("search_space") or {}
-        for k, v in tune_dict.items():
-            if not isinstance(v, str) and (not isinstance(k, str) or not k.startswith(("agent.", "model.", "config."))):
-                raise ValueError(f"Typed sweep dimension {k!r} requires an explicit agent, model, or config path")
-            if k.startswith("config."):
-                full_k = k[len("config."):]
-            elif "." in k:
-                full_k = k
-            elif not uses_agents:
-                full_k = f"model.{k}"
-            elif k in _MODEL_KEYS:
-                full_k = f"model.{k}"
-            else:
-                full_k = f"agent.{k}"
-            # Hydra's sweeper prepends sampled values to the job overrides.
-            # A later fixed override for the same key would silently win.
-            overrides = [arg for arg in overrides if arg.split("=", 1)[0].lstrip("+") != full_k]
-            overrides.append(f"{full_k}={_sweep_expression(k, v)}")
-
-        if "--multirun" not in overrides and "-m" not in overrides:
-            overrides.insert(0, "--multirun")
+        overrides = get_tuner(cfg).compile(
+            overrides, cfg=cfg, method_cfg=method_cfg, extra_args=extra_args,
+            paradigm=paradigm, study_name=study_name, uses_agents=uses_agents, model_keys=_MODEL_KEYS,
+        )
 
     if extra_args:
         if not is_sweep and not study_name:

@@ -25,6 +25,7 @@ from omegaconf import DictConfig, OmegaConf
 logger = logging.getLogger(__name__)
 
 MODEL_REGISTRY: dict[str, Any] = {}
+_MODEL_CANDIDATES: dict[str, list[Any]] = {}
 
 
 def register_model(*names: str):
@@ -39,6 +40,9 @@ def register_model(*names: str):
     def decorator(cls_or_fn: Any):
         for name in names:
             MODEL_REGISTRY[name.lower()] = cls_or_fn
+            candidates = _MODEL_CANDIDATES.setdefault(name.lower(), [])
+            if cls_or_fn not in candidates:
+                candidates.append(cls_or_fn)
         return cls_or_fn
 
     return decorator
@@ -65,10 +69,31 @@ def get_model_class(model_name: str) -> Any:
         auto_discover_models()
 
     clean_name = model_name.lower().strip()
+    basename = clean_name.split("/")[-1]
+    # Prefer the component with the requested name over another component that
+    # happens to register the same alias. Discovery order must not choose the model.
+    models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "usr", "models")
+    if basename.isidentifier() and os.path.isdir(os.path.join(models_dir, basename)):
+        try:
+            importlib.import_module(f"src.usr.models.{basename}")
+        except ImportError:
+            pass
+        module_prefix = f"src.usr.models.{basename}."
+        matches = [candidate for candidate in _MODEL_CANDIDATES.get(basename, [])
+                   if getattr(candidate, "__module__", "").startswith(module_prefix)]
+        if len(matches) == 1:
+            return matches[0]
     if clean_name in MODEL_REGISTRY:
         return MODEL_REGISTRY[clean_name]
 
-    basename = clean_name.split("/")[-1]
+    if basename in MODEL_REGISTRY:
+        return MODEL_REGISTRY[basename]
+
+    # A composite model may register itself before requesting a child.  A
+    # nonempty registry does not imply that the remaining plugins were loaded.
+    auto_discover_models()
+    if clean_name in MODEL_REGISTRY:
+        return MODEL_REGISTRY[clean_name]
     if basename in MODEL_REGISTRY:
         return MODEL_REGISTRY[basename]
 

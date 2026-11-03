@@ -318,7 +318,7 @@ class TestBuildMethodOverrides:
         assert "--multirun" in overrides
         assert overrides[0] == "--multirun"
         assert "hydra/sweeper=optuna_offline" in overrides
-        assert "++hydra.sweeper.study_name=study_cql_v1" in overrides
+        assert '++hydra.sweeper.study_name="study_cql_v1"' in overrides
         assert "++hydra.sweeper.n_trials=25" in overrides
         assert "++hydra.sweeper.direction=minimize" in overrides
         assert "agent.lr=interval(1e-4, 1e-2)" in overrides
@@ -336,6 +336,21 @@ class TestBuildMethodOverrides:
         assert "agent.lr=tag(log, interval(0.0001, 0.01))" in overrides
         assert "model.width=range(2, 6, 2)" in overrides
         assert "agent.enabled=choice(true,false)" in overrides
+
+    def test_stepped_float_sweep_compiles_without_integer_truncation(self):
+        method = {"agent": "ppo", "model": "dnn", "tune": {
+            "agent.lr": {"type": "float", "low": 0.1, "high": 0.5, "step": 0.2},
+        }}
+        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl"})
+        assert "agent.lr=range(0.1, 0.5, 0.2)" in overrides
+
+    def test_setting_sweeper_option_still_selects_the_optuna_sweeper(self):
+        method = {"agent": "cql", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
+        overrides = build_method_overrides(
+            "cql", method, cfg={"paradigm": "offline_rl"}, is_sweep=True,
+            extra_args=["hydra.sweeper.n_trials=5"],
+        )
+        assert "hydra/sweeper=optuna_offline" in overrides
 
     def test_sweep_does_not_override_sample_with_base_value(self):
         method = {"agent": "cql", "model": "dnn", "lr": 0.001,

@@ -1,4 +1,5 @@
 import os
+import json
 import time
 from pathlib import Path
 
@@ -18,6 +19,7 @@ class EnvironmentEvaluatorCallback(L.Callback):
         self.last_eval_step = -1
         self.train_start_time = None
         self.cumulative_eval_time = 0
+        self.eval_event_index = 0
 
     def on_train_start(self, trainer, pl_module):
         self.train_start_time = time.time()
@@ -60,6 +62,23 @@ class EnvironmentEvaluatorCallback(L.Callback):
         eval_duration = eval_end - eval_start
         self.cumulative_eval_time += eval_duration
         transitions = int(round(transitions))
+
+        if self.cfg is not None and self.cfg.get("variability_run_id"):
+            event_path = (Path("results/logs") / str(self.cfg.group) / str(self.cfg.experiment_id)
+                          / str(self.cfg.get("variability_method", "run")).replace("/", "_")
+                          / str(self.cfg.get("variability_version", "version_0")) / "evaluation_events.jsonl")
+            event_path.parent.mkdir(parents=True, exist_ok=True)
+            event = {"schema_version": 1, "run_id": str(self.cfg.variability_run_id),
+                     "method": str(self.cfg.variability_method), "event_index": self.eval_event_index,
+                     "training_step": transitions, "checkpoint": "in-memory policy",
+                     "metric": "eval/reward", "episode_count": len(self._episode_rewards),
+                     "evaluation_seed": self._evaluation_seed,
+                     "seed_policy": ("(base plus event index) modulo (2^32 minus worker count); vector workers derive their streams"
+                                     if self._evaluation_seed is not None else "runner's existing evaluation seed policy"),
+                     "deterministic_actions": None, "episode_outcomes": self._episode_rewards}
+            with event_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(event, allow_nan=False) + "\n")
+            self.eval_event_index += 1
 
         metrics = {"eval/reward": avg_reward, "eval/reward_std": std_reward, "transitions": float(transitions)}
 
@@ -112,14 +131,16 @@ class EnvironmentEvaluatorCallback(L.Callback):
             self.eval_env = VectorizedBaseEnv.from_name(
                 cfg.env.name,
                 n_envs=target_n_envs,
-                seed=cfg.seed + 100,
+                seed=cfg.get("variability_evaluation_seed", cfg.seed + 100),
             )
 
         eval_total_rewards = []
         n_eval_envs = self.eval_env.n_envs
         eval_cumulative_rewards = np.zeros(n_eval_envs)
 
-        obs = self.eval_env.reset()
+        seed_base = cfg.get("variability_evaluation_seed")
+        self._evaluation_seed = (int(seed_base) + self.eval_event_index) % (2**32 - n_eval_envs) if seed_base is not None else None
+        obs = self.eval_env.reset(seed=self._evaluation_seed) if seed_base is not None else self.eval_env.reset()
         if isinstance(obs, tuple):
             obs = obs[0]
         obs = torch.as_tensor(obs, dtype=torch.float32, device=pl_module.device)
@@ -146,6 +167,7 @@ class EnvironmentEvaluatorCallback(L.Callback):
                     if len(eval_total_rewards) >= cfg.eval_episodes:
                         break
 
+        self._episode_rewards = [float(value) for value in eval_total_rewards]
         return np.mean(eval_total_rewards), np.std(eval_total_rewards)
 
     def on_fit_end(self, trainer, pl_module):

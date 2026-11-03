@@ -172,17 +172,20 @@ def init(
     agent: str | None = None,
     *,
     version_dir: str | Path | None = None,
+    version: str | None = None,
     base_dir: str | Path = "results/logs",
     sinks: Iterable[str | Sink] | None = None,
     config: dict[str, Any] | None = None,
     system_interval: float = DEFAULT_INTERVAL,
     metrics: MetricSelection | None = None,
 ) -> Run:
-    """Start a run in `version_dir`, or in the next version_N folder of group/experiment_id/agent."""
+    """Start a run in an explicit directory or version under its agent folder."""
     if version_dir is None:
         if not (group and experiment_id and agent):
             raise ValueError("telemetry.init needs version_dir, or group, experiment_id and agent")
-        version_dir = version_dir_for(group, experiment_id, agent, base_dir)
+        version_dir = version_dir_for(group, experiment_id, agent, base_dir, version=version)
+    elif version is not None:
+        raise ValueError("Specify either version_dir or version, not both")
     meta = {k: v for k, v in (("group", group), ("experiment_id", experiment_id), ("agent", agent)) if v}
     return Run(version_dir, DEFAULT_SINKS if sinks is None else sinks, config, meta, system_interval, metrics)
 

@@ -79,6 +79,21 @@ class OptimizerGroupsProtocol(Protocol):
         ...
 
 
+@runtime_checkable
+class ModelMonitoringProtocol(Protocol):
+    """Optional observation-based scalar and sampled diagnostics, owned by a model.
+
+    Return namespaced scalar metrics and a mapping of batch-aligned sample arrays.
+    Runners decide when to call this hook, add train/eval to metric names, and may
+    persist samples only when enabled by configuration. Optional attributes
+    ``monitoring_namespace`` and ``monitoring_metadata()`` allow selection and
+    metadata for a saved sample artifact.
+    """
+
+    def collect_monitoring(self, obs: torch.Tensor) -> tuple[dict[str, float], dict[str, Any]]:
+        ...
+
+
 def walk_model_modules(root: Any) -> list[Any]:
     """Recursively collect a model and all constituent sub-models.
 

@@ -209,7 +209,7 @@ def prepare_launch(
 
     cfg = composed.cfg
     log_dir = LOGS_DIR / cfg.group / cfg.experiment_id
-    if log_dir.exists() and any(log_dir.iterdir()) and not overwrite and not cfg.get("recover", False):
+    if cfg.get("variability") is None and log_dir.exists() and any(log_dir.iterdir()) and not overwrite and not cfg.get("recover", False):
         raise LaunchError(
             f"Results already exist for {cfg.group}/{cfg.experiment_id}; launching would delete them. "
             "Choose another experiment_id.",
@@ -219,7 +219,7 @@ def prepare_launch(
         (j for j in (active_jobs or []) if (j.get("group"), j.get("experiment_id")) == (cfg.group, cfg.experiment_id)),
         None,
     )
-    if clash:
+    if clash and cfg.get("variability") is None:
         raise LaunchError(
             f"Job {clash['job_id']} ({clash['status']}) already uses {cfg.group}/{cfg.experiment_id}; "
             "running both would overwrite one run's results with the other's.",

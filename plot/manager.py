@@ -12,7 +12,7 @@ import importlib
 import pkgutil
 import shutil
 
-from plot.base import BasePlotter
+from plot.base import BasePlotter, deep_update
 from src.app.core.plotter_registry import (
     PLOTTER_REGISTRY,
     auto_discover_plotters,
@@ -20,22 +20,7 @@ from src.app.core.plotter_registry import (
     list_registered_plotters,
 )
 
-FALLBACK_PLOTS = ["convergence", "losses", "reports"]
-GENERAL_PLOT_OPTIONS = {
-    "output_dir",
-    "title",
-    "xlabel",
-    "ylabel",
-    "figsize",
-    "dpi",
-    "style",
-    "smoothing_window",
-    "x_axis",
-    "metrics",
-    "filename_prefix",
-    "output_subdir",
-    "use_cache",
-}
+from src.app.pipeline.plot_config import GENERAL_PLOT_OPTIONS, requested_plots
 
 
 def discover_plotters() -> dict:
@@ -45,36 +30,8 @@ def discover_plotters() -> dict:
 
 
 def get_requested_plots(exp_cfg: dict, exp_id: str) -> dict:
-    """Determine which plots to generate based on experiment config.
-
-    Priority:
-      1. Explicit `plots:` section in experiment YAML (list or dict form)
-      2. Environment-based defaults from env config (`default_plots`)
-      3. FALLBACK_PLOTS
-    """
-    plots_val = exp_cfg.get("plots", None)
-    if plots_val is not None:
-        if isinstance(plots_val, list):
-            return {name: {} for name in plots_val}
-        elif isinstance(plots_val, dict):
-            requested = {
-                name: options
-                for name, options in plots_val.items()
-                if name not in GENERAL_PLOT_OPTIONS and options is not None
-            }
-            if requested or not plots_val:
-                return requested
-
-    # Fall back to env-based defaults
-    env_val = exp_cfg.get("env", {})
-    if isinstance(env_val, dict):
-        defaults = env_val.get("default_plots", FALLBACK_PLOTS)
-    else:
-        defaults = FALLBACK_PLOTS
-
-    result = {name: {} for name in defaults}
-
-    return result
+    """Return the plotters explicitly selected by the composed experiment."""
+    return requested_plots(exp_cfg)
 
 
 def run_experiment_plots(
@@ -90,6 +47,10 @@ def run_experiment_plots(
 
     dummy_plotter = BasePlotter("manager")
     exp_cfg = dummy_plotter.get_experiment_config(exp_id, exp_config_name=exp_config_name)
+    requested_modules = get_requested_plots(exp_cfg, exp_id)
+    if not requested_modules:
+        print("No figures or tables configured; skipping plotting.")
+        return
     group = dummy_plotter.get_group(exp_id, exp_cfg)
     clean_exp = Path(exp_id).stem
     plots_sec = exp_cfg.get("plots", {})
@@ -108,8 +69,6 @@ def run_experiment_plots(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     registry = discover_plotters()
-    requested_modules = get_requested_plots(exp_cfg, exp_id)
-
     effective_use_cache = use_cache or bool(exp_cfg.get("use_cache", False))
 
     for module_name, overrides in requested_modules.items():
@@ -117,7 +76,10 @@ def run_experiment_plots(
             plotter_cls = registry[module_name]
             plotter = plotter_cls()
             try:
-                plot_overrides = overrides if isinstance(overrides, dict) else {}
+                plot_overrides = dict(overrides) if isinstance(overrides, dict) else {}
+                configured = exp_cfg.get("plot_overrides", {})
+                if isinstance(configured, dict) and isinstance(configured.get(module_name), dict):
+                    plot_overrides = deep_update(plot_overrides, configured[module_name])
                 if style:
                     plot_overrides["style"] = style
                 if effective_use_cache:

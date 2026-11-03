@@ -29,7 +29,6 @@ from src.app.pipeline.compose import CONFIG_DIR, compose_experiment, validate_co
 from src.app.pipeline.config import normalize_agent_name, parse_methods_dict, resolve_experiment_config_name
 from src.app.pipeline.datasets import run_plotting
 from src.app.pipeline.exceptions import ConfigurationError
-from src.app.pipeline.optuna_utils import launch_optuna_dashboard
 from src.app.pipeline.slurm import generate_sbatch_header, submit_sbatch
 
 
@@ -162,6 +161,10 @@ def main():
         sys.exit(0)
 
     if cfg.get("plot_only", False):
+        from src.app.pipeline.plot_config import should_run_plotting
+        if not should_run_plotting(cfg):
+            print("No figures or tables configured; skipping plotting.")
+            sys.exit(0)
         print(f"\n=== Running Plotting Phase Only for '{experiment_arg}' ===")
         run_plotting(
             experiment=experiment_arg,
@@ -201,29 +204,17 @@ def main():
     is_interactive = site_name == "local"
     print(f"Execution Mode: {'Interactive (Local CLI)' if is_interactive else f'Slurm Cluster ({site_name})'}")
 
-    storage_url = None
-    if "hydra" in cfg and "sweeper" in cfg.hydra and "storage" in cfg.hydra.sweeper:
-        storage_url = cfg.hydra.sweeper.storage
-    if (
-        not storage_url
-        and hasattr(cfg, "tuning")
-        and cfg.tuning
-        and hasattr(cfg.tuning, "get")
-        and cfg.tuning.get("storage")
-    ):
-        storage_url = cfg.tuning.storage
-    if not storage_url:
-        from src.app.pipeline.optuna_utils import DEFAULT_OPTUNA_DB_URL
+    methods_dict = parse_methods_dict(cfg)
+    from src.app.pipeline.tuners import get_tuner, tuner_name
 
-        storage_url = DEFAULT_OPTUNA_DB_URL
-    if storage_url:
-        storage_url = str(storage_url).replace("${experiment_id}", cfg.experiment_id)
-    import os
-
-    os.makedirs("results/optuna", exist_ok=True)
-
+    uses_tuning = is_sweep or any(m.get("tune") or m.get("search_space") for m in methods_dict.values())
+    tuner = get_tuner(cfg) if uses_tuning or cfg.get("dash") or cfg.get("dash_only") else None
+    storage_url = tuner.storage(cfg) if tuner else None
     if is_interactive and storage_url and (cfg.get("dash") or cfg.get("dash_only")):
-        launch_optuna_dashboard(storage_url)
+        dashboard = getattr(tuner, "launch_dashboard", None)
+        if not callable(dashboard):
+            raise ConfigurationError(f"Tuning component {tuner_name(cfg)!r} does not provide a dashboard.")
+        dashboard(storage_url)
         if cfg.get("dash_only"):
             print("Dashboard running in persistent mode. Press Ctrl+C to exit.")
             import time
@@ -235,11 +226,10 @@ def main():
                 sys.exit(0)
 
     if cfg.get("dash_only"):
-        print("Error: Could not find Optuna storage URL in configuration.")
+        print("Error: Could not find tuning storage URL in configuration.")
         sys.exit(1)
 
     # Parse structured methods: dict with shared params support
-    methods_dict = parse_methods_dict(cfg)
     if not methods_dict:
         raise ConfigurationError(
             f"[ConfigurationError] Experiment '{experiment_arg}' has no runnable methods declared under 'methods:'. "
@@ -254,12 +244,11 @@ def main():
             )
 
     print("Declared Methods:")
-    has_any_tune = is_sweep
+    from src.app.pipeline.tuning_config import tuning_disabled
+
     for name, mcfg in methods_dict.items():
         agent_str = f"agent={mcfg.get('agent')}, " if mcfg.get("agent") else ""
-        tune_str = " [Optuna Sweep]" if (is_sweep or mcfg.get("tune")) else ""
-        if mcfg.get("tune"):
-            has_any_tune = True
+        tune_str = f" [{tuner_name(cfg)} sweep]" if (is_sweep or ((mcfg.get("tune") or mcfg.get("search_space")) and not tuning_disabled(cfg))) else ""
         print(f"  {name}: {agent_str}model={mcfg.get('model')}{tune_str}")
 
     # Build context for tasks
@@ -269,10 +258,14 @@ def main():
         "site_name": site_name,
         "sanitized_extra_args": sanitized_extra_args,
         "storage_url": storage_url,
-        "is_sweep": is_sweep or has_any_tune,
+        "is_sweep": is_sweep,
         "methods": methods_dict,
         "paradigm_def": paradigm_def,
     }
+
+    from src.app.pipeline.variability import make_plan, run_execution
+
+    variability_plan = make_plan(cfg, context)
 
     # Warn if stale task: key is present in config
     stale_task = cfg.get("task", None)
@@ -285,7 +278,9 @@ def main():
 
     # Dispatch: workflow engine or direct paradigm runner
     workflow_id = cfg.get("workflow", None)
-    if workflow_id:
+    if variability_plan is not None:
+        run_execution(cfg, context, variability_plan)
+    elif workflow_id:
         from src.app.pipeline.workflow.executor import run_workflow
 
         from src.app.pipeline.experiment_snapshot import save_run_config

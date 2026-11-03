@@ -83,7 +83,7 @@ that ID. Pass `experiment_id=<new name>` to keep both. (In the IDE, enable Times
 
 ### Component overrides in experiments
 
-Open a group default or individual experiment in the **Experiment** panel and use the **Data Loaders**, **Evaluators**, and **Figures** boxes to choose components. Selecting a component fills its first level of parameters from the installed profile; you can edit those defaults or add custom parameters. Inherited selectors show the resolved component name. Individual recipes inherit group values until they add an override. The same fields can be written directly in an experiment YAML:
+Open a group default or individual experiment in the **Experiment** panel and use the **Data Loaders**, **Evaluators**, and **Figures and Tables** boxes to choose components. Add **Figures and Tables** from **Add Overrides** to enable plotting; without a selection, the pipeline skips plotting. Use the plus beside the title to add an installed plotter, then edit its parameters in its card or use the card’s plus to add parameters. Selecting a component fills its first level of parameters from the installed profile; you can edit those defaults or add custom parameters. Inherited selectors show the resolved component name. Individual recipes inherit group values until they add an override. The same fields can be written directly in an experiment YAML:
 
 ```yaml
 data_module:

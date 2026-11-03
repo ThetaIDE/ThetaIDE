@@ -64,7 +64,8 @@ uv pip install -e ".[dev,gui]"
 | Extra | Adds |
 |---|---|
 | `gui` | The desktop IDE: PyQt6, PyQt6-WebEngine, psutil, pywinpty (Windows), and `arxiv` and `truststore` for the arXiv panel |
-| `dev` | pytest (with coverage and timeouts), ruff, mypy and pre-commit |
+| `dev` | pytest (with coverage and timeouts), ruff, mypy, pre-commit, and the Optuna test dependencies |
+| `optuna` | Optuna hyperparameter tuning and the Hydra Optuna adapter |
 | `atari` | OCAtari and HackAtari, for object-centric Atari environments |
 | `video` | pygame, vidmaker and OpenCV, for rendering and recording NUDGE environments |
 | `all` | All of the above |

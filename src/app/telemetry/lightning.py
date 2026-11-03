@@ -120,4 +120,8 @@ class TelemetryCallback(Callback):
 
     def on_exception(self, trainer, pl_module, exception: BaseException) -> None:
         if trainer.is_global_zero:
+            if getattr(exception, "theta_trial_status", None) == "pruned":
+                self.logger.run.event("stage", str(exception), stage="pruned")
+                self.logger.run.finish(status="pruned")
+                return
             self.logger.run.event("error", f"{type(exception).__name__}: {exception}", level="error")

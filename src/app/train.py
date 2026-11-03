@@ -202,15 +202,25 @@ def main(cfg: DictConfig):
 
     trainer, ckpt_dir, ckpt_path = build_trainer(cfg, model)
 
+    from src.app.telemetry.lightning import finish_telemetry
+
     start_time = time.time()
-    trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
+    try:
+        trainer.fit(model, datamodule=datamodule, ckpt_path=ckpt_path)
+    except Exception as exc:
+        if getattr(exc, "theta_trial_status", None) == "pruned":
+            finish_telemetry(trainer, status="pruned")
+            return {"theta_trial_status": "pruned"}
+        raise
     end_time = time.time()
     training_time = end_time - start_time
     print(f"\n[Training Complete] Total execution time: {training_time:.2f} seconds ({training_time / 60:.2f} minutes)")
 
-    metric = finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_time)
-    from src.app.telemetry.lightning import finish_telemetry
-
+    try:
+        metric = finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_time)
+    except Exception:
+        finish_telemetry(trainer, status="failed")
+        raise
     finish_telemetry(trainer)  # after finalize_training, whose last values (training time, GPU) are streamed too
     return metric
 

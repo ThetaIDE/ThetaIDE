@@ -161,13 +161,17 @@ class AgentFeed:
     appeared next to a CSV already being read, or a file was rewritten.
     """
 
-    def __init__(self, agent_dir: Path):
+    def __init__(self, agent_dir: Path, version: str | None = None):
         self.agent_dir = Path(agent_dir)
+        self.version = str(version) if version else None
         self.version_dir: Path | None = None
         self.kind: str | None = None  # "stream" or "csv"
         self._tail = None
 
     def newest_version(self) -> Path | None:
+        if self.version is not None:
+            path = self.agent_dir / self.version
+            return path if (path / "events.jsonl").exists() or (path / "metrics.csv").exists() else None
         candidates = [
             d for d in self.agent_dir.glob("version_*") if (d / "events.jsonl").exists() or (d / "metrics.csv").exists()
         ]

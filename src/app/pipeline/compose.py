@@ -17,6 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.app.pipeline.config import resolve_experiment_config_name
 from src.app.pipeline.validation import validate_experiment_config
+from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
 
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "in" / "config"
 
@@ -81,15 +82,31 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
     if not any("group=" in arg for arg in launch_args):
         launch_args.append(f"++group={cfg.group}")
 
-    is_sweep = ("tuning" in cfg and cfg.get("tuning") is not None) or bool(cfg.get("sweep", False)) or "--multirun" in launch_args or "-m" in launch_args
+    is_sweep = not tuning_disabled(cfg) and (
+        tuning_enabled(cfg) or bool(cfg.get("sweep", False)) or "--multirun" in launch_args or "-m" in launch_args
+    )
     launch_args = [a for a in launch_args if a not in ("--multirun", "-m")]
+    if tuning_disabled(cfg):
+        launch_args = [
+            arg for arg in launch_args
+            if not arg.lstrip("+").startswith(("hydra/sweeper=", "hydra.sweeper."))
+        ]
 
     return ComposedExperiment(experiment, cfg, extra_args, launch_args, is_sweep)
 
 
 def validate_composed(composed: ComposedExperiment) -> list[str]:
     """Run pre-flight paradigm validation. Returns notices; raises ConfigurationError."""
-    return validate_experiment_config(composed.cfg, composed.experiment, is_sweep=composed.is_sweep)
+    notices = validate_experiment_config(composed.cfg, composed.experiment, is_sweep=composed.is_sweep)
+    if composed.cfg.get("variability") is not None:
+        from src.app.pipeline.config import parse_methods_dict
+        from src.app.pipeline.variability import make_plan
+
+        choices = composed.cfg.get("hydra", {}).get("runtime", {}).get("choices", {})
+        site = choices.get("site") or (composed.cfg.get("site") or {}).get("name") or "local"
+        make_plan(composed.cfg, {"methods": parse_methods_dict(composed.cfg),
+                                 "is_sweep": composed.is_sweep, "is_interactive": site == "local"})
+    return notices
 
 
 def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
@@ -103,10 +120,14 @@ def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
 
     plans = {}
     for name, settings in parse_methods_dict(composed.cfg).items():
+        method_sweeps = not tuning_disabled(composed.cfg) and (
+            composed.is_sweep or bool(settings.get("tune") or settings.get("search_space"))
+        )
         plans[name] = {
             "settings": settings,
             "train_overrides": build_method_overrides(
-                method_name=name, method_cfg=settings, extra_args=composed.launch_args, cfg=composed.cfg
+                method_name=name, method_cfg=settings, extra_args=composed.launch_args, cfg=composed.cfg,
+                is_sweep=method_sweeps,
             ),
         }
     return plans

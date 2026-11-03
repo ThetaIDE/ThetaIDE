@@ -58,6 +58,16 @@ def test_builder_command_is_a_valid_pipeline_invocation():
     validate_composed(gui_compose(config))
 
 
+def test_disabled_tuning_does_not_compile_as_a_sweep():
+    composed = compose_experiment(
+        BASE_EXPERIMENT,
+        ["++tuning.enabled=false", "sweep=true", "--multirun", "hydra/sweeper=optuna_online"],
+    )
+    assert not composed.is_sweep
+    assert "--multirun" not in composed.launch_args
+    assert not any(arg.startswith("hydra/sweeper=") for arg in composed.launch_args)
+
+
 def test_default_builder_matches_hand_written_reference():
     # The clean IDE has no algorithm/model defaults. Supply test-only profiles
     # here so the integration test exercises composition without installed plugins.

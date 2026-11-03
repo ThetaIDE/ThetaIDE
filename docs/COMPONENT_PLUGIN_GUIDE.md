@@ -34,6 +34,58 @@ In Theta-IDE, all components are cleanly decoupled through declarative runtime p
 
 ## 2. Component Plugin Archetypes & Protocols Reference
 
+### Tuning components
+
+Tuning components are Python entry points in the `theta.tuners` group. An
+experiment selects one with `tuning.component`; omitted means `optuna`. The
+component owns its own settings, validation, job compilation, study setup and
+result finalization. Its options are stored under
+`tuning.options.<component>`, so switching components preserves their settings.
+Older Optuna experiments with `tuning.n_trials`, `tuning.n_jobs`, or
+`tuning.storage` remain supported.
+
+The Optuna component optionally contributes a Lightning validation callback
+for median pruning through `training_callbacks(cfg)`. It reports the selected
+objective at validation epochs and records pruned trials separately from
+failed trials. SB3 and multi-process Lightning do not yet support this
+pruning path. Its time budget is checked between batches; already running
+trials are allowed to finish.
+
+```toml
+[project.entry-points."theta.tuners"]
+my_tuner = "my_package.tuning:MyTuner"
+```
+
+The entry point supplies a no-argument factory declaring `api_version = 1` and implementing
+`src.app.pipeline.tuners.Tuner`. `settings()` returns field descriptions for the
+editor (`key`, `label`, `type`, `default`, and, where applicable, `min`, `max`,
+or `choices`). Supported field types are `int`, `float`, `text`, `choice`,
+and `bool`. A field may declare `when: {other_key: value}` to show it only
+when another setting has that value. `validate_config` and `validate_dimension` reject unsupported
+settings or spaces. `compile` receives the base overrides and method context;
+`job_entrypoint` may replace the training script or interpreter with a tuner
+runner. `study_name`, `storage`, `prepare`, and `finalize` manage the run.
+For Slurm, the component must be installed in the submission and execution
+environments; `prepare` runs at submission and `finalize` runs in the job.
+
+Tuning jobs must report a finite objective and should export a version 1
+`tuning_summary.json` in each method's checkpoint directory. The built-in
+`tuning` PlotMan figure consumes that summary without opening the component's
+database. The Optuna implementation in `src/app/tuners/optuna/component.py`
+and `tests/test_tuner_components.py` are working examples of the contract.
+The summary contains `schema_version`, `component`, `study`, `direction`,
+`objective_metric`, `best_trial_id` (null until one completes), and `trials`.
+Each trial contains `id`, `state`, `value`, `parameters`, and `checkpoint`;
+optional `intermediate_values` maps zero-based validation epochs to values.
+An optional `stop_reason` records whether the latest run reached its trial
+limit, time budget, failure limit, or encountered an interruption or launch error.
+
+For Lightning jobs, an optional `training_callbacks(cfg)` method can supply
+callbacks when the job sets `theta_tuning.component` to the component name.
+A callback can signal a clean prune with an exception whose
+`theta_trial_status` attribute is `"pruned"`; `train.py` returns a corresponding
+status object for the tuner to interpret, and telemetry records a pruned run.
+
 ### Declaring parameter domains for the GUI
 
 Components declare an optional `parameter_schema` JSON Schema object in their
@@ -426,3 +478,27 @@ class BlenderActorCritic(nn.Module):
    - **Local / Hub package**: Include `.theta_component.json` and export via `python run_pipeline.py export`.
    - **PyPI Python package**: Declare entry points under `[project.entry-points."theta.*"]` in `pyproject.toml`.
 5. **Verify with test suite**: Run `pytest tests/test_plugin_discovery.py` to verify protocol conformance.
+
+### SB3 policies and symbolic observations
+
+SB3's DQN adapter calls the selected model's `get_q_values(obs)`; PPO and A2C
+call `get_action_probs(obs)` and `get_action_and_value(obs, action=None)`. A
+missing method is reported as a compatibility error. The selected model is
+saved inside the SB3 policy checkpoint, and its class is recorded in run
+metadata. Custom model authors can implement the methods required by the
+algorithms they want to support.
+
+BlendRL builds its symbolic input itself. For vector observations it looks for
+`model.symbolic.observation_builder`, then
+`env.symbolic_observation_builder`: each names a Python callable as
+`module:function`. The callable accepts a batched observation tensor and
+returns a batched tensor for the reasoner. Without a builder, BlendRL rejects
+vector inputs rather than guessing their symbolic structure. An already
+object-centric tensor can be supplied directly. An environment also provides
+its `symbolic_name` (used to locate its rules and valuations) and
+`action_meanings` in action-index order; when available, SB3 can obtain action
+names from the Gymnasium environment's `get_action_meanings()` method instead.
+
+For example, the CartPole plugin supplies its own builder, rule valuations,
+and the action names `left` and `right`. Other environments can supply their
+own domain-specific functions without modifying the SB3 adapter.

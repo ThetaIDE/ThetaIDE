@@ -290,10 +290,30 @@ def list_runs() -> list[dict[str, Any]]:
     runs = []
     if not LOGS_DIR.exists():
         return runs
+    # Older repeated executions gave every replicate its own experiment ID.
+    # They remain available in the Executions browser, but should not flood the
+    # ordinary experiment list as if every seed were a separate experiment.
+    replicate_experiments = set()
+    execution_root = LOGS_DIR.parent / "executions"
+    for manifest_path in execution_root.glob("*/*/*/manifest.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            result_id = manifest.get("result_experiment_id")
+            if result_id:
+                continue
+            group = manifest.get("group")
+            for replicate in manifest.get("runs", []):
+                experiment_id = replicate.get("experiment_id")
+                if experiment_id and experiment_id != manifest.get("experiment_id"):
+                    replicate_experiments.add((group, experiment_id))
+        except (OSError, ValueError):
+            continue
     _load_persisted_summaries()
     seen: dict[str, set[Path]] = {name: set() for name in _PERSISTED_CACHES}
     for run_dir in LOGS_DIR.glob("*/*"):
         if not run_dir.is_dir():
+            continue
+        if (run_dir.parent.name, run_dir.name) in replicate_experiments:
             continue
         metadata = _cached_by_stamp(_RUN_METADATA_CACHE, run_dir / "runtime.json", _read_run_metadata)
         agent_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir())

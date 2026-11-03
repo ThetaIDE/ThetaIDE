@@ -227,6 +227,9 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     Returns a list of non-fatal notice strings.
     Raises ConfigurationError on any fatal paradigm incompatibility.
     """
+    from src.app.pipeline.tuning_config import require_runnable_tuning
+
+    require_runnable_tuning(cfg, parse_methods_dict(cfg))
     notices: list[str] = []
 
     env_name = getattr(cfg.env, "name", "unknown") if hasattr(cfg, "env") else "unknown"
@@ -268,7 +271,10 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     env = cfg.get("env") if hasattr(cfg, "get") else None
     env_monitor = env.get("monitor_metric") if env is not None and hasattr(env, "get") else None
     monitor = paradigm_def.get("monitor_metric") or env_monitor
-    for problem in selection_errors(cfg, monitor):
+    tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
+    if is_sweep and hasattr(tuning, "get"):
+        monitor = tuning.get("metric") or monitor
+    for problem in selection_errors(cfg, monitor, is_sweep=is_sweep):
         raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}': {problem}")
 
     # --- Paradigm-Method/Agent Validation ---
@@ -283,7 +289,9 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
         )
 
     # New-style sweep settings are validated before either launcher starts work.
-    if "tuning" in cfg and cfg.get("tuning") is not None:
+    from src.app.pipeline.tuning_config import tuning_enabled
+
+    if tuning_enabled(cfg):
         _validate_tuning(cfg)
 
     # --- Optuna sweep direction notice ---
@@ -307,7 +315,7 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
 
 
 def _validate_tuning(cfg: Any) -> None:
-    from src.app.pipeline.commands import _sweep_expression
+    from src.app.pipeline.tuners import get_tuner
 
     tuning = cfg.get("tuning")
     if not hasattr(tuning, "get"):
@@ -316,21 +324,26 @@ def _validate_tuning(cfg: Any) -> None:
         raise ConfigurationError("Sweep tuning requires an objective metric.")
     if tuning.get("direction") not in ("minimize", "maximize"):
         raise ConfigurationError("Sweep direction must be 'minimize' or 'maximize'.")
-    for key, default in (("n_trials", 40), ("n_jobs", 1)):
-        value = tuning.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ConfigurationError(f"Sweep {key} must be a positive integer.")
+    tuner = get_tuner(cfg)
+    try:
+        tuner.validate_config(cfg)
+    except ValueError as exc:
+        raise ConfigurationError(str(exc)) from exc
     missing = []
     for name, method in parse_methods_dict(cfg).items():
+        validate_method = getattr(tuner, "validate_method", None)
+        if callable(validate_method):
+            try:
+                validate_method(cfg, name, method)
+            except ValueError as exc:
+                raise ConfigurationError(f"Method '{name}': {exc}") from exc
         dimensions = method.get("tune") or method.get("search_space") or {}
         if not dimensions:
             missing.append(name)
             continue
         for target, dimension in dimensions.items():
             try:
-                if not isinstance(dimension, str) and not str(target).startswith(("agent.", "model.", "config.")):
-                    raise ValueError(f"Typed sweep dimension {target!r} requires an explicit agent, model, or config path")
-                _sweep_expression(target, dimension)
+                tuner.validate_dimension(target, dimension)
                 if str(target).startswith("agent."):
                     agent = method.get("agent")
                     if isinstance(agent, dict):

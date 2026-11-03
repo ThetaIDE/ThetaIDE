@@ -16,6 +16,11 @@ from omegaconf import DictConfig, OmegaConf
 logger = logging.getLogger(__name__)
 
 
+def _exit_on_signal(signum, frame):
+    print(f"\n[Signal {signum}] Training interrupted.")
+    raise SystemExit(128 + signum)
+
+
 def get_method_name(cfg) -> str:
     """Resolve method/agent/model identifier safely from config across all paradigms."""
     if hasattr(cfg, "agent") and cfg.agent is not None:
@@ -41,6 +46,9 @@ class SaveInitialCheckpointCallback(Callback):
         os.makedirs(self.ckpt_dir, exist_ok=True)
         init_ckpt = os.path.join(self.ckpt_dir, "best_model.ckpt")
         trainer.save_checkpoint(init_ckpt)
+        if self.cfg.get("theta_tuning"):
+            trainer.save_checkpoint(os.path.join(self.ckpt_dir, "epoch_000.ckpt"))
+            return
         from hydra.utils import get_original_cwd
 
         try:
@@ -231,7 +239,10 @@ def setup_loggers(cfg, base_root):
         cfg.get("experiment_id", "default_exp") if hasattr(cfg, "get") else getattr(cfg, "experiment_id", "default_exp")
     )
     log_dir = os.path.join(base_root, "results/logs", group_name, exp_id)
-    loggers = [_record_only(CSVLogger(log_dir, name=method_name), selection)]
+    logger_kwargs = {}
+    if cfg.get("variability_run_id"):
+        logger_kwargs["version"] = str(cfg.get("variability_version", "version_0")).removeprefix("version_")
+    loggers = [_record_only(CSVLogger(log_dir, name=method_name, **logger_kwargs), selection)]
     run_context = RunLoggerContext(
         base_root=Path(base_root).resolve(),
         group_name=group_name,
@@ -313,17 +324,21 @@ def build_trainer(cfg, model=None):
     exp_id = str(
         cfg.get("experiment_id", "default_exp") if hasattr(cfg, "get") else getattr(cfg, "experiment_id", "default_exp")
     )
-    ckpt_dir = os.path.join(base_root, "results/checkpoints", group_name, exp_id, method_name, trial_id)
+    if cfg.get("variability_run_id"):
+        ckpt_dir = os.path.join(base_root, "results/checkpoints", group_name, exp_id, method_name,
+                                str(cfg.get("variability_version", "version_0")))
+    else:
+        ckpt_dir = os.path.join(base_root, "results/checkpoints", group_name, exp_id, method_name, trial_id)
+    from src.app.pipeline.trial_artifacts import trial_checkpoint_dir_from_config
 
-    def graceful_shutdown(signum, frame):
-        print(f"\n[SIGTERM] Received termination signal {signum}. Attempting graceful shutdown...")
-        # Since trainer is constructed here, we need a global reference or just sys.exit(0)
-        # We will handle it by just capturing SIGTERM for basic shutdown
-        sys.exit(0)
+    method_root = Path(base_root) / "results/checkpoints" / group_name / exp_id / method_name
+    trial_dir = trial_checkpoint_dir_from_config(method_root, cfg)
+    if trial_dir is not None:
+        ckpt_dir = str(trial_dir)
 
     try:
-        signal.signal(signal.SIGTERM, graceful_shutdown)
-        signal.signal(signal.SIGUSR1, graceful_shutdown)
+        signal.signal(signal.SIGTERM, _exit_on_signal)
+        signal.signal(signal.SIGUSR1, _exit_on_signal)
     except (ValueError, AttributeError, OSError) as e:
         logger.debug("Could not register shutdown signal handlers: %s", e)
     except Exception as e:
@@ -336,6 +351,9 @@ def build_trainer(cfg, model=None):
     callbacks = [SaveInitialCheckpointCallback(ckpt_dir, cfg)]
     if evaluates:
         callbacks.extend(configured_evaluator_callbacks(cfg))
+    from src.app.pipeline.tuners import training_callbacks
+
+    callbacks.extend(training_callbacks(cfg))
 
     has_explicit_ckpt = "checkpoint" in cfg and cfg.get("checkpoint") is not None
     ckpt_cfg = cfg.get("checkpoint") if has_explicit_ckpt else None
@@ -413,10 +431,10 @@ def build_trainer(cfg, model=None):
         from src.app.core.callbacks import EnvironmentEvaluatorCallback, PeriodicCheckpointCallback
         from src.app.core.checkpoints import checkpoint_interval
 
-        if evaluates:
+        if evaluates and (not cfg.get("variability_run_id") or int(cfg.get("eval_episodes", 0) or 0) > 0):
             callbacks.append(EnvironmentEvaluatorCallback(cfg))
-        else:  # telemetry.metrics has no eval/ entry: skip evaluation episodes; finalize_training saves the model
-            print("[Metrics] No eval/ metric is recorded: evaluation episodes are skipped.")
+        else:
+            print("[Metrics] Evaluation episodes are disabled or no eval/ metric is recorded; skipping evaluation.")
 
         interval = checkpoint_interval(cfg)
         if interval:
@@ -631,7 +649,7 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
         print(f"Notice: Could not save logger config.yaml: {e}")
 
     final_ckpt_target = os.path.join(ckpt_dir, "best_model.ckpt")
-    if not os.path.exists(final_ckpt_target):
+    if cfg.get("theta_tuning") or not os.path.exists(final_ckpt_target):
         print(f"Saving final trained model checkpoint to: {final_ckpt_target}")
         trainer.save_checkpoint(final_ckpt_target)
 
@@ -655,6 +673,14 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
         if (env_cfg and hasattr(env_cfg, "get"))
         else ("eval/reward" if is_online else "val/loss")
     )
+    is_sweep = False
+    if HydraConfig.initialized():
+        is_sweep = HydraConfig.get().mode.name == "MULTIRUN"
+    if is_sweep:
+        from src.app.pipeline.objective import objective_metric, objective_value
+
+        metric_name = objective_metric(cfg, metric_name)
+        return objective_value(trainer.callback_metrics, metric_name)
     if metric_name in trainer.callback_metrics:
         return trainer.callback_metrics[metric_name].item()
     return 0.0
