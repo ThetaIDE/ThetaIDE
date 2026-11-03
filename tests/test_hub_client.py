@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from zipfile import ZipFile
+from unittest.mock import patch
+from io import BytesIO
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
@@ -97,6 +99,31 @@ class TestHubClientAndInstaller(unittest.TestCase):
         self.client.components = [suite, internal]
 
         assert self.client.installer.lookup_component("conformance-probe") is suite
+
+    def test_remote_catalog_and_archive_are_not_shadowed_by_sibling_hub(self):
+        sibling = self.workspace_dir.parent / "theta-hub"
+        (sibling / "dist").mkdir(parents=True)
+        (sibling / "dist/index.json").write_text('{"components": []}')
+        (sibling / "packages").mkdir()
+        (sibling / "packages/component.zip").write_bytes(b"stale")
+        registry = {"components": [{"id": "remote", "name": "Remote", "kind": "model", "version": "1"}]}
+
+        class Response(BytesIO):
+            headers = {}
+
+        def fetch(request, timeout):
+            if request.full_url.endswith("index.json"):
+                return Response(json.dumps(registry).encode())
+            return Response(b"remote archive")
+
+        with patch("urllib.request.urlopen", side_effect=fetch) as network:
+            assert self.client.fetch_index_sync()[0].id == "remote"
+            path = self.client.installer.download_and_verify("https://example.org/component.zip")
+            try:
+                assert path.read_bytes() == b"remote archive"
+            finally:
+                path.unlink()
+            assert network.call_count == 2
 
     def test_search_and_filtering(self):
         c1 = HubComponent.from_dict({

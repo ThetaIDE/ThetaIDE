@@ -108,39 +108,21 @@ class HubInstaller:
         return None
 
     def lookup_component(self, component_id: str) -> Optional[HubComponent]:
-        """Look up a HubComponent by ID from lookup_component_fn, local index cache, or candidate directories."""
+        """Look up a component in the active catalog or its cached index."""
         if self.lookup_component_fn is not None:
             comp = self.lookup_component_fn(component_id)
             if comp:
-                # Internal registry entries describe capabilities that are
-                # supplied by a parent package.  A dependency on one must
-                # install its provider, not attempt to fetch a standalone
-                # archive that does not exist.
                 if comp.suite:
                     provider = self.lookup_component_fn(comp.suite)
                     if provider:
-                        return provider
+                        # Some suite entries have real, separately versioned
+                        # archives. Prefer those; otherwise an older suite can
+                        # silently overwrite a newer requested component.
+                        release = comp.releases.get(comp.version)
+                        provider_release = provider.releases.get(provider.version)
+                        if not release or not release.url or (provider_release and release.url == provider_release.url):
+                            return provider
                 return comp
-
-        hub_candidates = [
-            self.workspace_dir.resolve().parent / "theta-hub",
-            Path(__file__).resolve().parents[3] / "theta-hub",
-        ]
-        for hub_dir in hub_candidates:
-            if not hub_dir.is_dir():
-                continue
-            for json_path in hub_dir.glob(f"registry/*/{component_id}.json"):
-                try:
-                    data = json.loads(json_path.read_text(encoding="utf-8"))
-                    comp = HubComponent.from_dict(data)
-                    for ver, rel in list(comp.releases.items()):
-                        zip_stem = Path(rel.url).name
-                        local_zip = hub_dir / "packages" / zip_stem
-                        if local_zip.is_file():
-                            rel.url = local_zip.as_uri()
-                    return comp
-                except Exception:
-                    continue
 
         cache_index = self.data_dir / "cache" / "hub" / "index.json"
         if cache_index.is_file():
@@ -208,22 +190,9 @@ class HubInstaller:
         total_downloaded = 0
 
         try:
-            local_candidates = [
-                self.workspace_dir.resolve().parent / "theta-hub" / "packages" / Path(url).name,
-                Path(__file__).resolve().parents[3] / "theta-hub" / "packages" / Path(url).name,
-            ]
-            matching_local = next((p for p in local_candidates if p.is_file()), None)
-
             if url.startswith("file://"):
                 local_source = Path(url[7:])
                 content = local_source.read_bytes()
-                hasher.update(content)
-                tmp_path.write_bytes(content)
-                total_downloaded = len(content)
-                if progress_callback:
-                    progress_callback(total_downloaded, total_downloaded)
-            elif matching_local is not None:
-                content = matching_local.read_bytes()
                 hasher.update(content)
                 tmp_path.write_bytes(content)
                 total_downloaded = len(content)
@@ -954,29 +923,15 @@ class HubInstaller:
         # provider components, then recover their installed tracking metadata
         # when available.
         registry_components: dict[str, HubComponent] = {}
-        hub_dirs = [
-            self.workspace_dir.resolve().parent / "theta-hub",
-            Path(__file__).resolve().parents[3] / "theta-hub",
-        ]
-        for hub_dir in hub_dirs:
-            registry_root = hub_dir / "registry"
-            if registry_root.is_dir():
-                for registry_file in registry_root.rglob("*.json"):
-                    try:
-                        child = HubComponent.from_dict(json.loads(registry_file.read_text(encoding="utf-8")))
-                    except Exception:
-                        continue
+        index_file = self.data_dir / "cache" / "hub" / "index.json"
+        if index_file.is_file():
+            try:
+                for item in json.loads(index_file.read_text(encoding="utf-8")).get("components", []):
+                    child = HubComponent.from_dict(item)
                     if child.suite == component_id:
                         registry_components[child.id] = child
-            index_file = self.data_dir / "cache" / "hub" / "index.json"
-            if index_file.is_file():
-                try:
-                    for item in json.loads(index_file.read_text(encoding="utf-8")).get("components", []):
-                        child = HubComponent.from_dict(item)
-                        if child.suite == component_id:
-                            registry_components[child.id] = child
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         found_by_id = {str(item.get("id")): item for item in found}
         for child_id, child in registry_components.items():

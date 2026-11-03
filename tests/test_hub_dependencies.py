@@ -10,6 +10,20 @@ from frontend.hub.installer import HubInstaller
 from frontend.hub.models import AuthorInfo, HubComponent, ReleaseInfo
 
 
+def test_dependency_prefers_own_release_and_falls_back_to_suite(tmp_path):
+    provider = HubComponent(id="suite", name="Suite", kind="plugin", version="1",
+                            releases={"1": ReleaseInfo(tag="1", url="https://example.org/suite.zip", sha256="")})
+    child = HubComponent(id="child", name="Child", kind="model", version="2", extra={"suite": "suite"},
+                         releases={"2": ReleaseInfo(tag="2", url="https://example.org/child.zip", sha256="")})
+    catalog = {"suite": provider, "child": child}
+    installer = HubInstaller(tmp_path, tmp_path / "state", lookup_component_fn=catalog.get)
+    assert installer.lookup_component("child") is child
+    child.releases["2"].url = provider.releases["1"].url
+    assert installer.lookup_component("child") is provider
+    child.releases.clear()
+    assert installer.lookup_component("child") is provider
+
+
 def _create_mock_zip(out_zip: Path, meta: dict, files: dict[str, str]):
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_zip, "w") as zf:
@@ -198,6 +212,19 @@ def _can_read_hub(hub_dir: Path, comp_id: str) -> bool:
         return False
 
 
+def _local_catalog(hub_dir):
+    """Explicitly opt package integration tests into local fixtures."""
+    catalog = {}
+    for path in (hub_dir / "registry").glob("*/*.json"):
+        comp = HubComponent.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        for release in comp.releases.values():
+            archive = hub_dir / "packages" / Path(release.url).name
+            if archive.is_file():
+                release.url = archive.as_uri()
+        catalog[comp.id] = comp
+    return catalog
+
+
 def test_real_hub_candidate_atari_installation(tmp_path):
     """Verify that installing atari-env via local theta-hub auto-resolves and installs image-data."""
     hub_dir = Path(__file__).resolve().parents[2] / "theta-hub"
@@ -209,6 +236,7 @@ def test_real_hub_candidate_atari_installation(tmp_path):
     installer = HubInstaller(
         workspace_dir=target_ws,
         data_dir=tmp_path / ".thetaide",
+        lookup_component_fn=_local_catalog(hub_dir).get,
     )
 
     comp = installer.lookup_component("atari-env")
@@ -236,6 +264,7 @@ def test_real_hub_candidate_mimic_env_installation(tmp_path):
     installer = HubInstaller(
         workspace_dir=target_ws,
         data_dir=tmp_path / ".thetaide",
+        lookup_component_fn=_local_catalog(hub_dir).get,
     )
 
     comp = installer.lookup_component("mimic-env")
@@ -267,6 +296,7 @@ def test_real_hub_candidate_pyrenees_env_installation(tmp_path):
     installer = HubInstaller(
         workspace_dir=target_ws,
         data_dir=tmp_path / ".thetaide",
+        lookup_component_fn=_local_catalog(hub_dir).get,
     )
 
     comp = installer.lookup_component("pyrenees-env")

@@ -11,7 +11,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from .installer import HubInstaller
 from .models import AuthorInfo, HubComponent, ReleaseInfo
 
-DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/CameronEgb/theta-hub/main/dist/index.json"
+DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/ThetaIDE/ThetaHub/main/dist/index.json"
 
 class HubClient(QObject):
     """Client for browsing, searching, and installing community hub items."""
@@ -94,17 +94,8 @@ class HubClient(QObject):
                 data = json.loads(local_file.read_text(encoding="utf-8"))
         else:
             candidates = [self.registry_url]
-            local_hub_candidates = [
-                self.workspace_dir.resolve().parent / "theta-hub" / "dist" / "index.json",
-                self.workspace_dir.resolve().parent / "theta-hub" / "index.json",
-                Path(__file__).resolve().parents[3] / "theta-hub" / "dist" / "index.json",
-                Path(__file__).resolve().parents[3] / "theta-hub" / "index.json",
-            ]
-            matching_hub = next((p for p in local_hub_candidates if p.is_file()), None)
-            if matching_hub is not None:
-                candidates.insert(0, f"file://{matching_hub}")
-
             for alt in [
+                "https://thetaide.github.io/ThetaHub/index.json",
                 "https://raw.githubusercontent.com/CameronEgb/theta-hub/main/dist/index.json",
                 "https://cameronegb.github.io/theta-hub/index.json",
                 "https://cdn.jsdelivr.net/gh/CameronEgb/theta-hub@main/dist/index.json",
