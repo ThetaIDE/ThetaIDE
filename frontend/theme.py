@@ -214,12 +214,17 @@ QLineEdit#sideTabBinEditor { font-size: 10px; padding: 1px 3px; border: 1px soli
 QFrame#monitorProblemBar { background: #1d2021; border: 1px solid #3c3836; border-radius: 6px; }
 QPushButton#monitorViewButton { padding: 4px 10px; }
 QPushButton#monitorMethodTitle { background: transparent; border: 0; padding: 0; font-size: 23px; font-weight: 600; text-align: left; }
-QPushButton#monitorMethodTitle:hover { background: transparent; text-decoration: underline; }
+QPushButton#monitorMethodTitle:hover, QPushButton#monitorMethodTitle:pressed, QPushButton#monitorMethodTitle:open { background: #504945; }
+QMenu#monitorTitleMenu { background: #282828; border: 1px solid #504945; }
+QMenu#monitorTitleMenu::item { font-size: 23px; font-weight: 600; padding: 5px 14px 5px 30px; }
+QMenu#monitorTitleMenu::item:selected { background: #504945; }
 QPushButton#monitorMethodTitle::menu-indicator { image: none; width: 0; }
 QFrame#resultsChartCard { border: 1px solid #3c3836; border-radius: 5px; }
 QFrame#resultsChartCard[flat="true"] { border: 0; }
 QWidget#resultsCardCorner, QLabel#resultsCardValue { background: transparent; }
 QLabel#resultsCardValue { font-weight: 600; }
+QToolButton#monitorPlotHide { background: transparent; border: 0; border-radius: 3px; color: #928374; font-size: 15px; font-weight: 500; padding: 0 5px; }
+QToolButton#monitorPlotHide:hover { background: #32302f; color: #ebdbb2; }
 QToolButton#resultsSection { background: transparent; border: 0; border-bottom: 1px solid #3c3836; border-radius: 0; color: #83a598; font-size: 10px; font-weight: 700; padding: 6px 2px; text-align: left; }
 QToolButton#resultsSection:hover { color: #ebdbb2; }
 QWidget#resultsKpiStrip { background: transparent; }

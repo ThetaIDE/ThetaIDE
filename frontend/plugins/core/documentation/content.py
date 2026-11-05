@@ -1350,11 +1350,12 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
     <td>What you can change</td>
   </tr>
   <tr><td><b>Appearance</b></td><td>Color theme, display zoom, which sidebar panels are shown, auto-hide sidebar, <b>Experiment Panel Configuration</b> (show resolved defaults, algorithm and model defaults in methods, the visual layer editor), and the Results panel layout</td></tr>
-  <tr><td><b>Core Plugins</b></td><td>Turn built-in plugins (Documentation, TensorBoard, arXiv Papers, Visual Model Builder) on or off</td></tr>
+  <tr><td><b>Core Plugins</b></td><td>Turn built-in plugins (Text Editor, Documentation, TensorBoard, arXiv Papers, Visual Model Builder) on or off</td></tr>
   <tr><td><b>Community Plugins</b></td><td>Install, configure, or remove plugins from the Theta Hub</td></tr>
   <tr><td><b>Hotkeys</b></td><td>Action key, terminal precedence, the <code>Action + digit</code> pane mapping, and menu shortcuts</td></tr>
   <tr><td><b>Training Pipeline</b></td><td>The Python environment that composes configs and runs training, with a <b>Check pipeline</b> button</td></tr>
   <tr><td><b>Terminal</b></td><td>The shell the Terminal tab starts, and whether the project venv comes first on PATH</td></tr>
+  <tr><td><b>Text Editor</b></td><td>Default text editor for files opened inside Theta, and line wrapping. Enable the Text Editor core plugin for the built-in CodeMirror 6 Editor panel.</td></tr>
   <tr><td><b>Workspace &amp; Storage</b></td><td>Data and database locations, open the settings file, and reset the UI layout</td></tr>
 </table>
 
@@ -1378,6 +1379,7 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
   <tr><td><code>[components]</code></td><td><code>confirm_delete</code></td></tr>
   <tr><td><code>[hotkeys]</code></td><td><code>enabled</code>, <code>action_key</code>, <code>leader_timeout</code>, <code>terminal_precedence</code>, <code>panes</code></td></tr>
   <tr><td><code>[terminal]</code></td><td><code>shell</code>, <code>cwd</code>, <code>activate_venv</code></td></tr>
+  <tr><td><code>[editor]</code></td><td><code>default_text_editor</code> (<code>system</code> or <code>text_editor</code>), <code>wrap_lines</code></td></tr>
   <tr><td><code>[results]</code></td><td><code>hidden_plots</code></td></tr>
   <tr><td><code>[shortcuts]</code></td><td>Menu and training shortcut overrides, e.g. <code>launch_training = "F6"</code></td></tr>
 </table>

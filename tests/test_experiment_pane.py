@@ -731,11 +731,9 @@ class TestConfigViewer(unittest.TestCase):
         self.assertIsNotNone(self.viewer.findChild(QLineEdit, "sweepMetric"))
         from frontend.widgets import ToggleSlider
         enabled = self.viewer.findChild(ToggleSlider, "sweepEnabled")
-        self.assertIsNotNone(enabled)
-        enabled.setChecked(False)
-        self.assertIs(self.viewer.raw_data["tuning"]["enabled"], False)
-        enabled.setChecked(True)
-        self.assertIs(self.viewer.raw_data["tuning"]["enabled"], True)
+        self.assertIsNone(enabled)
+        self.assertNotIn("enabled", self.viewer.raw_data["tuning"])
+        self.assertNotIn("n_jobs", self.viewer.raw_data["tuning"])
         titles = [widget.text() for widget in self.viewer.findChildren(QLabel)]
         self.assertEqual(titles.count("Hyperparameter Sweep"), 1)
         self.assertNotIn("tuning", titles)
@@ -751,6 +749,7 @@ class TestConfigViewer(unittest.TestCase):
         self.assertEqual(selector.currentText(), "optuna")
         sampler = self.viewer.findChild(QComboBox, "sweep_sampler")
         sampler.setCurrentText("random")
+        self.viewer._add_tuner_option("optuna", "seed", 42)
         seed = self.viewer.findChild(SpinBox, "sweep_seed")
         seed.setValue(17)
         options = self.viewer.raw_data["tuning"]["options"]["optuna"]
@@ -758,9 +757,12 @@ class TestConfigViewer(unittest.TestCase):
         self.assertEqual(options["seed"], 17)
         self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
         self.viewer.findChild(QComboBox, "sweep_sampler").setCurrentText("tpe")
+        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
+        self.viewer._add_tuner_option("optuna", "tpe_candidates", 24)
         self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
         self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_pruner_startup_trials"))
-        self.viewer.findChild(QComboBox, "sweep_pruner").setCurrentText("median")
+        self.viewer._add_tuner_option("optuna", "pruner", "median")
+        self.viewer._add_tuner_option("optuna", "pruner_startup_trials", 5)
         self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_pruner_startup_trials"))
 
     def test_tuner_component_supplies_its_own_editor_fields(self):

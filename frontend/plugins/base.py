@@ -48,6 +48,10 @@ class Plugin(ABC):
         """
         pass
 
+    def can_deactivate(self) -> bool:
+        """Allow a plugin with unsaved work to cancel disabling or app shutdown."""
+        return True
+
     def get_settings_widget(self, context: PluginContext):
         """Return a custom QWidget for configuring this plugin's settings.
         

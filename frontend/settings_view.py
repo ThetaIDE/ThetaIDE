@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QSpinBox,
     QStackedWidget,
     QStyle,
     QToolButton,
@@ -116,6 +117,12 @@ TAB_SPECS = [
         "icon": "terminal",
     },
     {
+        "id": "editor",
+        "title": "Text Editor",
+        "subtitle": "Default editor and text editing preferences",
+        "icon": "editor",
+    },
+    {
         "id": "storage",
         "title": "Workspace & Storage",
         "subtitle": "Data roots, UI layout reset, and settings.toml",
@@ -167,10 +174,11 @@ ACTION_KEY_PRESETS = [
 DEFAULT_MENU_SHORTCUTS = [
     ("launch_training", "Launch training", "F5"),
     ("stop_run", "Stop training", "Shift+F5"),
-    ("new_experiment", "New experiment", "Ctrl+N"),
+    ("new_experiment", "New document / experiment", "Ctrl+N"),
+    ("open_text_file", "Open text file", "Ctrl+O"),
     ("reload_components", "Reload component code", "Ctrl+Alt+R"),
-    ("export_config", "Export draft YAML…", "Ctrl+Shift+S"),
-    ("save_config", "Save configuration", "Ctrl+S"),
+    ("export_config", "Save As / Export YAML…", "Ctrl+Shift+S"),
+    ("save_config", "Save document / configuration", "Ctrl+S"),
     ("add_to_queue", "Add to queue", "Ctrl+Shift+Q"),
     ("toggle_queue", "Start or pause queue", "Ctrl+Shift+R"),
     ("start_demo", "Start simulated demo", "Ctrl+F5"),
@@ -727,6 +735,10 @@ class SettingsView(QWidget):
         p_terminal = self._build_terminal_page()
         stack.addWidget(p_terminal)
         self.page_widgets["terminal"] = p_terminal
+
+        p_editor = self._build_editor_page()
+        stack.addWidget(p_editor)
+        self.page_widgets["editor"] = p_editor
 
         # Page 6: Workspace & Storage
         p_storage = self._build_storage_page()
@@ -2112,9 +2124,105 @@ class SettingsView(QWidget):
         bc_layout.addWidget(tip_lbl)
 
         layout.addWidget(backend_card)
+        layout.addWidget(self._build_resource_budget_card())
         layout.addWidget(self._build_run_notifications_card())
         layout.addStretch()
         return container
+
+    def _build_resource_budget_card(self):
+        from src.app.services.resource_budget import ResourceBudget, host_capacity, learned_usage, GIB
+        card = QFrame()
+        card.setObjectName('card')
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.addWidget(label('System usage limits', 'cardTitle'))
+        description = label(
+            'Choose how much of your system Theta can use. Job and trial sizes are estimated automatically '
+            'from the workload and learned usage. New work starts as capacity becomes available.', 'muted')
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        settings = self.window.settings_manager
+        self.resource_controls = {}
+        for key, title, default, minimum, maximum, suffix in (
+            ('cpu_percent', 'Theta CPU budget (% of system)', 75, 1, 100, '%'),
+            ('memory_percent', 'Theta RAM budget (% of system)', 75, 10, 95, '%'),
+        ):
+            row = QHBoxLayout()
+            row.addWidget(label(title), 1)
+            control = QSpinBox()
+            control.setRange(minimum, maximum)
+            control.setSuffix(suffix)
+            try:
+                value = float(settings.get('training', key, default=default))
+                control.setValue(int(value))
+            except (TypeError, ValueError, OverflowError):
+                control.setValue(default)
+            control.setObjectName('training_' + key)
+            row.addWidget(control)
+            layout.addLayout(row)
+            self.resource_controls[key] = control
+            control.valueChanged.connect(lambda value, k=key: settings.set('training', k, value))
+        self.resource_budget_summary = label('', 'muted')
+        self.resource_budget_summary.setWordWrap(True)
+        layout.addWidget(self.resource_budget_summary)
+        def refresh():
+            for key, control in self.resource_controls.items():
+                try:
+                    value = float(settings.get('training', key, default=control.value()))
+                    value = int(value)
+                    control.blockSignals(True)
+                    control.setValue(value)
+                except (TypeError, ValueError, OverflowError):
+                    pass
+                finally:
+                    control.blockSignals(False)
+            values = {k: c.value() for k, c in self.resource_controls.items()}
+            budget = ResourceBudget.from_settings(values)
+            try:
+                cores, total, available = host_capacity()
+            except Exception:
+                self.resource_budget_summary.setText('System measurements are unavailable. New jobs will wait.')
+                return
+            profiles, typical_memory, typical_cpu = 0, .75 * GIB, 1.
+            active, used_memory, used_cpu = 0, 0, 0
+            jobs = getattr(self.window, 'jobs', None)
+            if jobs is not None:
+                try:
+                    usage = learned_usage(jobs.jobs_dir / 'resource_usage.db')
+                    profiles, typical_memory, typical_cpu = usage['profiles'], usage['memory'], usage['cpu']
+                    active, used_memory, used_cpu = usage['active'], usage['used_memory'], usage['used_cpu']
+                except Exception:
+                    pass  # the first run has no profile database yet
+            room = max(0, min(total * budget.memory_percent / 100 - used_memory, available - total * .05))
+            slots = max(0, min(int((budget.cpu_slots(cores) - used_cpu) / typical_cpu), int(room // typical_memory)))
+            source = f'Learned estimate ({profiles} workload profiles)' if profiles else 'Initial estimate'
+            self.resource_budget_summary.setText(
+                f'{source}: room for approximately {slots} more typical CPU tasks · '
+                f'{total * budget.memory_percent / 100 / GIB:.1f} GiB Theta RAM target. '
+                'Actual concurrency adjusts to measured workload sizes and other applications. '
+                'Unknown workloads start a few seconds apart while Theta learns their usage.')
+        for control in self.resource_controls.values():
+            control.valueChanged.connect(refresh)
+        from PyQt6.QtCore import QTimer
+        self.resource_budget_timer = QTimer(card)
+        self.resource_budget_timer.timeout.connect(refresh)
+        self.resource_budget_timer.start(2000)
+        refresh()
+        actions = QHBoxLayout()
+        for title, method in (('Pause new starts', 'pause_queue'), ('Resume waiting jobs', 'start_queue')):
+            button = QPushButton(title)
+            button.clicked.connect(lambda _checked=False, m=method: getattr(self.window.jobs, m)())
+            actions.addWidget(button)
+        actions.addStretch()
+        layout.addLayout(actions)
+        note = label('Targets are soft, with 5 percentage points of tolerance. Brief overshoots hold new starts; '
+                     'running tasks continue. If available system RAM stays below 5%, Theta stops the newest job '
+                     'and pauses the queue. Budgets apply to Theta; free system memory is checked separately. '
+                     'Accelerator tasks remain exclusive. These controls apply to local '
+                     'work in this workspace; they are not OS quotas or GPU VRAM limits.', 'muted')
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        return card
 
     def _build_run_notifications_card(self) -> QFrame:
         """Build controls for the completion toast and its chime."""
@@ -2160,6 +2268,63 @@ class SettingsView(QWidget):
             notifier.show(describe("completed", "example_run"), run)
         if self.window.settings_manager.get("notifications", "sound", default=True):
             notifier.play("completed")
+
+    def _build_editor_page(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(6, 6, 6, 6)
+        card = QFrame()
+        card.setObjectName("card")
+        content = QVBoxLayout(card)
+        content.setContentsMargins(18, 16, 18, 16)
+        content.setSpacing(12)
+        content.addWidget(label("Text Editor", "cardTitle"))
+        hint = label("Choose the editor Theta uses when opening text files. Enable the Text Editor core plugin to edit files in an Editor panel.", "muted")
+        hint.setWordWrap(True)
+        content.addWidget(hint)
+        row = QHBoxLayout()
+        row.addWidget(label("Default text editor:"))
+        self.default_editor_combo = QComboBox()
+        self.default_editor_combo.setMinimumWidth(240)
+        row.addWidget(self.default_editor_combo, 1)
+        content.addLayout(row)
+        wrap_row = QHBoxLayout()
+        wrap_row.addWidget(label("Wrap long lines"), 1)
+        self.editor_wrap_toggle = ToggleSlider()
+        wrap_row.addWidget(self.editor_wrap_toggle)
+        content.addLayout(wrap_row)
+        self.default_editor_combo.currentIndexChanged.connect(self._select_default_editor)
+        self.editor_wrap_toggle.toggled.connect(lambda value: self.window.settings_manager.set("editor", "wrap_lines", value))
+        manage = QPushButton("Manage core plugins")
+        manage.clicked.connect(lambda: self.show_tab("core_plugins"))
+        content.addWidget(manage)
+        layout.addWidget(card)
+        layout.addStretch()
+        self.window.editor_service.providersChanged.connect(self._refresh_editor_settings)
+        self.window.settings_manager.changed.connect(self._refresh_editor_settings)
+        self._refresh_editor_settings()
+        return container
+
+    def _refresh_editor_settings(self):
+        sm = self.window.settings_manager
+        self.default_editor_combo.blockSignals(True)
+        self.default_editor_combo.clear()
+        for provider_id, name in self.window.editor_service.providers():
+            self.default_editor_combo.addItem(name, provider_id)
+        selected = self.default_editor_combo.findData(sm.default_text_editor)
+        if selected < 0:
+            self.default_editor_combo.addItem(f"{sm.default_text_editor} (unavailable; uses system editor)", sm.default_text_editor)
+            selected = self.default_editor_combo.count() - 1
+        self.default_editor_combo.setCurrentIndex(selected)
+        self.default_editor_combo.blockSignals(False)
+        self.editor_wrap_toggle.blockSignals(True)
+        self.editor_wrap_toggle.setChecked(bool(sm.get("editor", "wrap_lines", default=False)))
+        self.editor_wrap_toggle.blockSignals(False)
+
+    def _select_default_editor(self, index):
+        value = self.default_editor_combo.itemData(index)
+        if value:
+            self.window.settings_manager.default_text_editor = value
 
     def _build_storage_page(self) -> QWidget:
         container = QWidget()

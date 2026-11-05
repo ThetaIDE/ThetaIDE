@@ -181,7 +181,8 @@ class PluginManager(QObject):
             self.window.log(f"Cannot uninstall core plugin: {plugin_id}")
             return
 
-        self.disable_plugin(plugin_id)
+        if not self.disable_plugin(plugin_id):
+            return
         manifest = self.manifests.pop(plugin_id, None)
         self.enabled_states.pop(plugin_id, None)
 
@@ -312,6 +313,9 @@ class PluginManager(QObject):
         if plugin_id not in self.manifests:
             return False
 
+        instance = self.instances.get(plugin_id)
+        if instance and not instance.can_deactivate():
+            return False
         instance = self.instances.pop(plugin_id, None)
         context = self.contexts.pop(plugin_id, None)
 
@@ -328,13 +332,21 @@ class PluginManager(QObject):
                 self.window.log(f"Error cleaning up context for {plugin_id}: {exc}")
 
         self.enabled_states[plugin_id] = False
+        if self._settings is not None and self._settings.default_text_editor == plugin_id:
+            self._settings.default_text_editor = "system"
         self.save_states()
         self.pluginStateChanged.emit(plugin_id, False)
         self.window.log(f"Plugin deactivated: {self.manifests[plugin_id].name} ({plugin_id})")
         return True
 
-    def shutdown(self) -> None:
+    def can_shutdown(self) -> bool:
+        """Resolve unsaved work before the host starts tearing down any resources."""
+        return all(instance.can_deactivate() for instance in list(self.instances.values()))
+
+    def shutdown(self, *, check: bool = True) -> bool:
         """Safely deactivate all running plugins on application exit without changing saved enabled states."""
+        if check and not self.can_shutdown():
+            return False
         for pid in list(self.instances.keys()):
             instance = self.instances.pop(pid, None)
             context = self.contexts.pop(pid, None)
@@ -350,6 +362,7 @@ class PluginManager(QObject):
                     self.window.log(f"Error cleaning up context during shutdown for {pid}: {exc}")
         self.instances.clear()
         self.contexts.clear()
+        return True
 
     # ── Events ───────────────────────────────────────────────────────────────
 

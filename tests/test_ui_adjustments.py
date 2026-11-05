@@ -185,7 +185,7 @@ class TestUIAdjustments(unittest.TestCase):
         app_mock.active = {"status": "running", "simulated": False, "backend": {"experiment_id": "cartpole/cp_test"}}
         app_mock.active_runs = [app_mock.active]
         Window.update_launch_state(app_mock)
-        self.assertIn("A run is currently active", app_mock.start_button.toolTip())
+        self.assertIn("Validation error: agent ppo forbids offline_rl", app_mock.start_button.toolTip())
 
         app_mock.jobs.max_parallel = 2  # room for one more: launching is offered again
         app_mock.compose_error, app_mock.compose_valid = None, True
@@ -193,7 +193,8 @@ class TestUIAdjustments(unittest.TestCase):
         self.assertNotIn("Cannot run", app_mock.start_button.toolTip())
         app_mock.active_runs = [app_mock.active, dict(app_mock.active)]
         Window.update_launch_state(app_mock)
-        self.assertIn("2 runs are training, the most at once", app_mock.start_button.toolTip())
+        self.assertTrue(app_mock.start_button.isEnabled())
+        self.assertIn("queue", app_mock.start_button.toolTip())
 
     def test_single_click_title_editing(self):
         """Single click triggers inline editing for experiment title, group badge, and method title."""

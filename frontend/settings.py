@@ -103,6 +103,12 @@ enabled = []
 # Prompt for confirmation when deleting a component from the components panel.
 confirm_delete = true
 
+[editor]
+# Default editor for files opened within Theta. Enabling Text Editor selects "text_editor".
+# "system" opens files using the operating system's file association.
+default_text_editor = "system"
+wrap_lines = false
+
 [hotkeys]
 # Enable custom keyboard shortcuts.
 enabled = true
@@ -154,6 +160,11 @@ cwd = ""
 # Put the backend venv (venv/) first on PATH, so python, pytest and run_pipeline.py
 # use the project's environment without activating it by hand.
 activate_venv = true
+
+[training]
+# Local soft targets. Workload demand is estimated and learned automatically.
+cpu_percent = 75
+memory_percent = 75
 
 [shortcuts]
 # Application-wide keyboard shortcuts (customizable in Settings -> Hotkeys).
@@ -476,6 +487,15 @@ class SettingsManager(QObject):
     def plugins_enabled(self) -> list[str]:
         v = self.get("plugins", "enabled", default=[])
         return list(v) if isinstance(v, list) else []
+
+    @property
+    def default_text_editor(self) -> str:
+        value = self.get("editor", "default_text_editor", default="system")
+        return value if isinstance(value, str) and value else "system"
+
+    @default_text_editor.setter
+    def default_text_editor(self, value: str) -> None:
+        self.set("editor", "default_text_editor", value)
 
     @property
     def confirm_delete_component(self) -> bool:

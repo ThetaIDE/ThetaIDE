@@ -52,7 +52,7 @@ class MetricPicker(QWidget):
 
     changed = pyqtSignal(list)
 
-    def __init__(self, selected: list[str], known: list[str], parent=None):
+    def __init__(self, selected: list[str], known: list[str], parent=None, *, row_factory=None, indent=18):
         super().__init__(parent)
         selected = list(selected or [])
         # Metrics without a section slash are valid names too. Keep them in a
@@ -60,7 +60,7 @@ class MetricPicker(QWidget):
         # indexing a missing second part below (e.g. the malformed fixture's
         # integer value is displayed as "42" so validation can explain it).
         unsectioned = [name for name in known if "/" not in name]
-        sections = list(SECTIONS) + sorted({section_of(n) for n in known if "/" in n} - set(SECTIONS))
+        sections = list(SECTIONS) + sorted({section_of(n) for n in known + selected if "/" in n} - set(SECTIONS))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -81,16 +81,16 @@ class MetricPicker(QWidget):
             whole.setChecked(f"{section}/" in selected)
             whole.toggled.connect(lambda _on, s=section: self._section_toggled(s))
             self.section_boxes[section] = whole
-            column.addWidget(whole)
+            column.addWidget(row_factory(section + "/", whole, True) if row_factory else whole)
             for name in (n for n in known if "/" in n and section_of(n) == section):
                 box = QCheckBox(name.split("/", 1)[1])
                 box.setToolTip(name)
                 box.setChecked(name in selected or whole.isChecked())
                 box.setEnabled(not whole.isChecked())
-                box.setStyleSheet("margin-left: 18px;")
+                box.setStyleSheet(f"margin-left: {indent}px;")
                 box.toggled.connect(lambda _on: self._emit())
                 self.metric_boxes[name] = box
-                column.addWidget(box)
+                column.addWidget(row_factory(name, box, False) if row_factory else box)
             column.addStretch(1)
         if unsectioned:
             other = QVBoxLayout()
@@ -102,7 +102,7 @@ class MetricPicker(QWidget):
                 box.setChecked(name in selected)
                 box.toggled.connect(lambda _on: self._emit())
                 self.metric_boxes[name] = box
-                other.addWidget(box)
+                other.addWidget(row_factory(name, box, False) if row_factory else box)
             other.addStretch(1)
             layout.addLayout(other)
         if row_layout is not None:
