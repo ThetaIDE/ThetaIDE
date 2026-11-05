@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -64,8 +64,6 @@ ARTIFACT_TABS = {
     "Reports": (("report",), "The ticked runs have no reports yet."),
     "Config": (("config",), "The selected runs have no saved experiment YAML or resolved config."),
 }
-POLL_MS = 2000  # how often ticked runs that are still training fetch their new rows
-RELIST_EVERY = 15  # polls between re-listing runs (~30 s): learns which runs finished or started
 AXIS_LABELS = {
     "transitions": "Environment steps",
     "step": "Logged step",
@@ -184,6 +182,10 @@ class ResultsPanel(QWidget):
         self.summary = SummaryView()
         self.summary.changed.connect(self.update_summary)
         self.tabs.addTab(self.summary, "Summary")
+        self.sweeps_page = QWidget()
+        QVBoxLayout(self.sweeps_page).setContentsMargins(0, 0, 0, 0)
+        self.sweeps_view = None
+        self.tabs.addTab(self.sweeps_page, "Sweeps")
         # Artifact tabs start empty and build their browser when first opened: each one is hundreds of
         # widgets, and the app restyles every widget when its theme is applied.
         self.browsers: dict[str, ArtifactBrowser] = {}
@@ -213,17 +215,11 @@ class ResultsPanel(QWidget):
         self.loader.table_loaded.connect(lambda _source: self.redraw())
         self.loader.failed.connect(lambda message: self.status.setText(f"Could not load: {message}"))
 
-        # Live updates: while the panel is on screen, ticked runs that are still training are
-        # polled for new rows, and the run list is refreshed now and then.
-        self.unfinished: set[str] = set()  # run keys without a recorded end time
+        self.unfinished: set[str] = set()
         self.run_count = 0
         self._listing: tuple = ()
         self._pending_open_run = None
-        self._polls = 0
-        self.poll_timer = QTimer(self)
-        self.poll_timer.setInterval(POLL_MS)
-        self.poll_timer.timeout.connect(self.poll)
-        self.poll_timer.start()
+        self._pending_log = None
         self.browser("Files")
         self.redraw()
 
@@ -261,8 +257,11 @@ class ResultsPanel(QWidget):
         self.curves_page.layout().addWidget(self.curves_body)
         self.root.insertWidget(0, self.frame, 1)
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setChildrenCollapsible(False)
         split.addWidget(self.explorer)
         split.addWidget(self.tabs)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
         split.setSizes([260, 900])
         frame.addWidget(split, 1)
         controls = QHBoxLayout()
@@ -289,7 +288,8 @@ class ResultsPanel(QWidget):
         # The tree keeps its ticks when the run list is unchanged, so nothing else re-reads what is
         # ticked: without this the next redraw (e.g. changing Versions) would find no data at all.
         for source in self.sources:
-            self.loader.load_table(source)
+            if source.agent:
+                self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
 
     def _archive_run(self, group, experiment):
@@ -354,46 +354,35 @@ class ResultsPanel(QWidget):
             '(pip install -e ".[gui]" then python -m frontend).'
         )
 
-    def open_run(self, group, experiment):
+    def open_run(self, group, experiment, failure=False, job_id=None):
         """Show a run on the Curves tab once its catalog listing arrives."""
         self._pending_open_run = (group, experiment)
-        self.tabs.setCurrentWidget(self.curves_page)
+        self._pending_log = (f"{group}/{experiment}", job_id) if failure else None
+        self.tabs.setCurrentWidget(self._pages["Files"] if failure else self.curves_page)
         self.refresh()
 
     def _runs_listed(self, entries):
         listing = tuple(
             sorted(
-                (e["group"], e["experiment_id"], tuple(a.get("name") for a in e.get("agents") or [])) for e in entries
+                (e["group"], e["experiment_id"], tuple(a.get("name") for a in e.get("agents") or []),
+                 bool(e.get("has_run_logs")),
+                 tuple((name, tuple(versions)) for name, versions in sorted(e.get("completed_versions", {}).items())))
+                for e in entries if e.get("finished")
             )
         )
         if listing != self._listing:  # rebuild the tree only when runs or agents changed, not on every re-list
             self._listing = listing
-            self.explorer.set_runs(entries)
+            self.explorer.set_runs([e for e in entries if e.get("finished")])
         if self._pending_open_run and self.explorer.select_run(*self._pending_open_run):
             self._pending_open_run = None
-        self.unfinished = {
-            f"{e['group']}/{e['experiment_id']}" for e in entries if e.get("agents") and not e.get("finished")
-        }
+        self.unfinished = {f"{e['group']}/{e['experiment_id']}" for e in entries if e.get("in_progress")}
         self.run_count = sum(1 for e in entries if e.get("agents"))
-
-    def live_sources(self) -> list[Source]:
-        """Ticked sources whose run is still training (no recorded end time)."""
-        return [s for s in self.sources if s.run_key in self.unfinished]
-
-    def poll(self):
-        """One live-update tick: new rows for ticked runs still training; now and then, re-list runs."""
-        if not self.isVisible():
-            return
-        for source in self.live_sources():
-            self.loader.poll_table(source)
-        self._polls += 1
-        if self._polls % RELIST_EVERY == 0:
-            self.loader.list_runs()
 
     def _selection_changed(self, sources):
         self.sources = sources
         for source in sources:
-            self.loader.load_table(source)
+            if source.agent:
+                self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
         self.redraw()
         self.update_artifacts()
@@ -416,6 +405,12 @@ class ResultsPanel(QWidget):
 
     def _tab_opened(self, index):
         name = self.tabs.tabText(index)
+        if name == "Sweeps":
+            if self.sweeps_view is None:
+                from .sweeps import SweepResultsView
+                self.sweeps_view = SweepResultsView(self.loader, self._open_sweep_metrics)
+                self.sweeps_page.layout().addWidget(self.sweeps_view)
+            self.sweeps_view.set_manifests(self.manifests())
         if name == "Executions":
             self.executions_view.refresh()
         if name in ARTIFACT_TABS:
@@ -427,6 +422,8 @@ class ResultsPanel(QWidget):
 
     def update_artifacts(self):
         manifests = self.manifests()
+        if self.sweeps_view is not None:
+            self.sweeps_view.set_manifests(manifests)
         for name, browser in self.browsers.items():
             if name == "Config":
                 from .data import Manifest
@@ -443,6 +440,30 @@ class ResultsPanel(QWidget):
                     browser.select(files[0][0], files[0][1]["path"])
             else:
                 browser.set_manifests(manifests)
+                if name == "Files" and self._pending_log:
+                    key, job_id = self._pending_log
+                    candidates = [a for run, a in browser.artifacts() if run == key and job_id and
+                                  a["path"].endswith((f"/{job_id}.stderr.log", f"/{job_id}.stdout.log"))]
+                    candidates.sort(key=lambda a: (not bool(a.get("size")), not a["path"].endswith(".stderr.log")))
+                    if candidates and browser.select(key, candidates[0]["path"]):
+                        self._pending_log = None
+
+    def _open_sweep_metrics(self, run_key, path):
+        from pathlib import PurePosixPath
+        parts = PurePosixPath(path.removeprefix(f"logs/{run_key}/")).parts
+        manifest = self.loader.manifests.get(run_key)
+        if manifest and len(parts) == 3:
+            agent, version, _ = parts
+            details = manifest.version_details.get(agent, {})
+            if any(info.get("trial_version") == version for info in details.values()):
+                if self.explorer.select_version(run_key, agent, version):
+                    self.tabs.setCurrentWidget(self.curves_page)
+                    return
+        browser = self.browser("Files")
+        if browser.select(run_key, path):
+            self.tabs.setCurrentWidget(self._pages["Files"])
+        else:
+            self.status.setText("The selected trial's metrics file is not available in this run.")
 
     # ── Point inspector ──────────────────────────────────────────────────────
 

@@ -31,22 +31,34 @@ class ResultsLoader(QObject):
         self.table_versions: dict[Source, str | None] = {}  # version folder each table was read from
         self.files: dict[tuple[str, str], bytes] = {}
         self._pending: set = set()
+        self._generation = 0
+
+    def _current(self, callback):
+        """Ignore replies to requests from before the most recent refresh."""
+        generation = self._generation
+
+        def received(*args):
+            if generation == self._generation:
+                callback(*args)
+
+        return received
 
     def list_runs(self):
-        self.backend.list_runs(self._runs_received)
+        self.backend.list_runs(self._current(self._runs_received), completed_only=True)
 
     def _runs_received(self, data, error):
         if error:
             self.failed.emit(error)
             return
-        self.runs_listed.emit(list((data or {}).get("runs") or []))
+        self.runs_listed.emit([entry for entry in (data or {}).get("runs") or [] if entry.get("finished")])
 
     def load_manifest(self, group: str, experiment_id: str):
         key = f"{group}/{experiment_id}"
         if key in self.manifests or ("manifest", key) in self._pending:
             return
         self._pending.add(("manifest", key))
-        self.backend.run_manifest(group, experiment_id, lambda data, error: self._manifest_received(key, data, error))
+        self.backend.run_manifest(group, experiment_id, self._current(lambda data, error: self._manifest_received(key, data, error)),
+                                  completed_only=True)
 
     def _manifest_received(self, key, data, error):
         self._pending.discard(("manifest", key))
@@ -65,11 +77,11 @@ class ResultsLoader(QObject):
         if source in self._pending:
             return
         self._pending.add(source)
-        self._fetch_metrics(source, 0, lambda data, error: self._table_received(source, data, error))
+        self._fetch_metrics(source, 0, self._current(lambda data, error: self._table_received(source, data, error)))
 
     def _fetch_metrics(self, source: Source, since: int, callback):
         self.backend.run_metrics(source.group, source.experiment_id, source.agent, callback,
-                                 version=source.version or None, since=since)
+                                 version=source.version or None, since=since, completed_only=True)
 
     def _table_received(self, source, data, error):
         self._pending.discard(source)
@@ -79,39 +91,6 @@ class ResultsLoader(QObject):
         self.tables[source] = MetricTable.from_rows(data.get("metrics") or [], data.get("columns"))
         self.table_versions[source] = data.get("version")
         self.table_loaded.emit(source)
-
-    def poll_table(self, source: Source):
-        """Fetch only the rows a still-training run logged since the last fetch (run_metrics(since=N)).
-
-        The last row already held is fetched again and replaced: loggers rewrite metrics.csv while
-        training, so it may have been read half-written. If the newest version folder changed
-        meanwhile (a new version_N started), the table is refetched whole.
-        """
-        table = self.tables.get(source)
-        key = ("poll", source)
-        if table is None or key in self._pending or source in self._pending:
-            return
-        self._pending.add(key)
-        since = max(0, table.row_count - 1)
-        self._fetch_metrics(source, since, lambda data, error: self._poll_received(source, since, data, error))
-
-    def _poll_received(self, source, since, data, error):
-        self._pending.discard(("poll", source))
-        table = self.tables.get(source)
-        if error or table is None:
-            return  # a failed poll is retried on the next tick; the data shown stays valid
-        if data.get("version") != self.table_versions.get(source):
-            del self.tables[source]
-            self.load_table(source)
-            return
-        rows = data.get("metrics") or []
-        if not rows:
-            return
-        previous_last = table.row(since) if since < table.row_count else None
-        table.truncate(since)
-        table.extend(rows)
-        if len(rows) > 1 or table.row(since) != previous_last:
-            self.table_loaded.emit(source)  # redraw only when something actually changed
 
     def load_file(self, run_key: str, path: str):
         """Fetch one artifact's bytes (`path` as its manifest lists it); file_loaded fires when ready."""
@@ -123,7 +102,7 @@ class ResultsLoader(QObject):
             return
         self._pending.add(key)
         group, experiment_id = run_key.split("/", 1)
-        self.backend.run_file(group, experiment_id, path, lambda data, error: self._file_received(key, data, error))
+        self.backend.run_file(group, experiment_id, path, self._current(lambda data, error: self._file_received(key, data, error)))
 
     def _file_received(self, key, data, error):
         self._pending.discard(key)
@@ -137,6 +116,8 @@ class ResultsLoader(QObject):
 
     def clear(self):
         """Forget cached data, so the next requests re-read results/ (e.g. after Refresh)."""
+        self._generation += 1
+        self._pending.clear()
         self.manifests.clear()
         self.tables.clear()
         self.table_versions.clear()

@@ -216,6 +216,18 @@ def test_series_groups_combine_an_agents_versions():
     assert series_groups([a0, a1, b], combine=True) == [("e / ppo (mean of 2)", [a0, a1]), (b.label, [b])]
 
 
+def test_seed_curves_from_different_trials_are_never_combined():
+    from frontend.results.data import series_groups
+
+    sources = [Source("g", "e", "ppo", f"version_{trial}_{seed}",
+                      f"search · trial {trial} · seed {seed}", f"trial_{trial}")
+               for trial in (35, 36) for seed in (11, 22)]
+    groups = series_groups(sources, combine=True)
+    assert len(groups) == 2
+    assert groups[0] == ("e / ppo (search · trial 35 · mean of 2)", sources[:2])
+    assert groups[1] == ("e / ppo (search · trial 36 · mean of 2)", sources[2:])
+
+
 def test_combined_points_and_first_reaching():
     from frontend.results.data import SPREAD, combined_points, first_reaching
 

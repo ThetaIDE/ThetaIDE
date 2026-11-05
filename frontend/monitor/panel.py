@@ -1,9 +1,11 @@
-"""Training monitor panel: live and historic curves for the selected run.
+"""Training monitor panel: live training curves for the selected run.
 
 The panel owns its widgets and drawing. Run state (the run list, the selected and active runs,
 the queue) stays on the host window, which the rest of the app also reads.
 """
 from __future__ import annotations
+
+from ..method_labels import monitor_method_label, parent_trial_label
 
 from typing import TYPE_CHECKING
 from html import escape
@@ -140,7 +142,8 @@ def second_metric_text(key: str) -> tuple[str, str, str, str]:
 
 
 def run_display_name(run) -> str:
-    return run.get("display_name") or (run["config"]["name"] if run["simulated"] else run["backend"]["experiment_id"])
+    return (run.get("display_name") or (run.get("backend") or {}).get("experiment_id")
+            or (run.get("config") or {}).get("name") or run.get("id", "Experiment"))
 
 
 class MonitorPanel(QWidget):
@@ -182,13 +185,34 @@ class MonitorPanel(QWidget):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(0)
         title_row.addWidget(self.run_title)
+        self.run_title.hide()
+        self.group_button = QPushButton()
+        self.experiment_button = QPushButton()
+        for button, tooltip in ((self.group_button, "Choose an experiment group"),
+                                (self.experiment_button, "Choose an experiment to monitor")):
+            button.setObjectName("monitorMethodTitle")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setToolTip(tooltip)
+            button.setMenu(QMenu(button))
+            button.menu().setObjectName("monitorTitleMenu")
+            button.menu().aboutToShow.connect(self._refresh_run_selectors)
+            title_row.addWidget(button)
         self.method_button = QPushButton()
         self.method_button.setObjectName("monitorMethodTitle")
         self.method_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.method_button.setToolTip("Choose the method shown in front")
+        self.method_button.setToolTip("Choose a method to monitor")
         self.method_button.setMenu(QMenu(self.method_button))
+        self.method_button.menu().setObjectName("monitorTitleMenu")
         self.method_button.hide()
         title_row.addWidget(self.method_button)
+        self.trial_button = QPushButton()
+        self.trial_button.setObjectName("monitorMethodTitle")
+        self.trial_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.trial_button.setToolTip("Choose the sweep overview or a trial")
+        self.trial_button.setMenu(QMenu(self.trial_button))
+        self.trial_button.menu().setObjectName("monitorTitleMenu")
+        self.trial_button.hide()
+        title_row.addWidget(self.trial_button)
         title_row.addStretch()
         title_layout.addLayout(title_row)
         self.method_legend = QLabel()
@@ -231,13 +255,20 @@ class MonitorPanel(QWidget):
         self.pipeline_strip = PipelineStrip(content)
         self.pipeline_strip.segment_clicked.connect(self.focus_agent)
         self.pipeline_strip.hide()
+        self.trial_details = QLabel()
+        self.trial_details.setWordWrap(True)
+        self.trial_details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.trial_details.hide()
+        layout.addWidget(self.trial_details)
         self.queue_overlay = QFrame(content)
         self.queue_overlay.setObjectName("card")
         self.queue_overlay.setFrameShape(QFrame.Shape.StyledPanel)
         self.queue_layout = QVBoxLayout(self.queue_overlay)
         self.queue_layout.setContentsMargins(0, 0, 0, 0)
         self.queue_preview = QueuePanel(self._open_queue_job, split_methods=True,
-                                        lives_for_job=self._queue_lives_for_job)
+                                        lives_for_job=self._queue_lives_for_job,
+                                        on_cancel=getattr(getattr(host, "jobs", None), "cancel", None))
+        self.queue_preview.structure_changed.connect(self._place_queue_overlay)
         self.queue_layout.addWidget(self.queue_preview)
         self.queue_overlay.hide()
         if hasattr(host, "jobs"):
@@ -252,6 +283,7 @@ class MonitorPanel(QWidget):
         self.yaml_overlay.hide()
         QApplication.instance().installEventFilter(self)
         self.focused_agent: str | None = None
+        self._focused_sweep: str | None = None
         self._focus_run_id: str | None = None  # the run whose method is focused
 
         # One grouped chart for each logged metric.
@@ -264,9 +296,12 @@ class MonitorPanel(QWidget):
         self.log_view = LogView()
         self.feed_view = FeedView()
         self.files_view = FilesView()
+        from .sweep_view import SweepView
+        self.sweep_view = SweepView()
+        self.sweep_view.trial_selected.connect(self._open_sweep_trial)
         self.views = QStackedWidget()
         self._views = {"Overview": self.charts_view, "System": self.system_view, "Logs": self.log_view,
-                       "Feed": self.feed_view, "Files": self.files_view}
+                       "Feed": self.feed_view, "Files": self.files_view, "Sweep": self.sweep_view}
         for view in self._views.values():
             self.views.addWidget(view)
         self.views.currentChanged.connect(lambda _: self.refresh_live())
@@ -346,8 +381,10 @@ class MonitorPanel(QWidget):
             self.queue_overlay.hide()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.MouseButtonPress:
-            widget = watched if isinstance(watched, QWidget) else None
+        # Native clicks reach the QWindow before Qt dispatches them to a widget.
+        # Dismissing at that stage hides the card before it can receive the click.
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(watched, QWidget):
+            widget = watched
             ancestor = widget
             while ancestor is not None and ancestor not in (self.queue_button, self.yaml_button):
                 ancestor = ancestor.parentWidget()
@@ -371,12 +408,13 @@ class MonitorPanel(QWidget):
     def _refresh_queue_overlay(self):
         data = self.host.jobs.queue_state()
         jobs = []
-        for job in [*data.get("active", []), *data.get("queued", [])]:
+        for job in [*data.get("active", []), *[dict(item, queue_root=True) for item in data.get("queued", [])]]:
             job = dict(job)
             run = self.host.run_for_job(job.get("job_id"))
-            job["description"] = run.get("description", "") if run else ""
+            if not (job.get("sweep_parent") or job.get("sweep_trial")):
+                job["description"] = run.get("description", "") if run else ""
             jobs.append(job)
-        self.queue_preview.set_data({"active": jobs})
+        self.queue_preview.set_data(dict(data, active=jobs))
         self.queue_preview.empty.setText("No running or queued jobs")
         self._place_queue_overlay()
 
@@ -424,9 +462,67 @@ class MonitorPanel(QWidget):
     def set_runs(self, runs, selected=None):
         """Refill the runs list (its ticks are kept)."""
         self.sidebar.set_runs(runs)
+        self._refresh_run_selectors()
+
+    def _monitor_runs(self):
+        runs = [run for run in getattr(self.host, "runs", [])
+                if run.get("status") in (*LIVE_STATUSES, "queued")]
+        selected = self.host.selected
+        if (selected and selected.get("status") in (*LIVE_STATUSES, "queued")
+                and not any(run.get("id") == selected.get("id") for run in runs)):
+            runs.append(selected)
+        return runs
+
+    def _current_run(self):
+        selected = self.host.selected
+        if selected and selected.get("status") in (*LIVE_STATUSES, "queued"):
+            return selected
+        return next(iter(self._monitor_runs()), None)
+
+    def _refresh_run_selectors(self):
+        selected = self._current_run()
+        if not selected:
+            self.group_button.hide()
+            self.experiment_button.hide()
+            self.run_title.show()
+            return
+        self.run_title.hide()
+        self.group_button.show()
+        self.experiment_button.show()
+        group_for = lambda run: (run.get("backend") or {}).get("group") or "Ungrouped"
+        group = group_for(selected)
+        self.group_button.setText(group)
+        self.experiment_button.setText(f" / {run_display_name(selected)}")
+        runs = self._monitor_runs()
+        menu = self.group_button.menu()
+        if not menu.isVisible():
+            menu.clear()
+        for name in (() if menu.isVisible() else dict.fromkeys(group_for(run) for run in runs)):
+            target = selected if name == group else next(run for run in runs if group_for(run) == name)
+            action = menu.addAction(name)
+            action.setCheckable(True)
+            action.setChecked(name == group)
+            action.triggered.connect(lambda checked=False, r=target: self._select_monitor_run(r))
+        menu = self.experiment_button.menu()
+        if not menu.isVisible():
+            menu.clear()
+        for run in (() if menu.isVisible() else runs):
+            if group_for(run) != group:
+                continue
+            action = menu.addAction(f"{run_display_name(run)} · {run.get('status', '')}")
+            action.setCheckable(True)
+            action.setChecked(run.get("id") == selected.get("id"))
+            action.triggered.connect(lambda checked=False, r=run: self._select_monitor_run(r))
+
+    def _select_monitor_run(self, run):
+        self.host.select_run(run)
+        self.focus_agent("")
+        self.show_view("Overview")
+        self._refresh_run_selectors()
 
     def show_selected(self, run):
         """`run` is now the one shown here."""
+        self._refresh_run_selectors()
         if run and run.get("id") != self._log_run_id:
             self._log_run_id = None  # its output may have grown while another run was shown: read it again
         if self.yaml_overlay.isVisible():
@@ -458,9 +554,11 @@ class MonitorPanel(QWidget):
 
     def render(self):
         host = self.host
-        run = host.selected
+        run = self._current_run()
         if not run:
+            self.refresh_live()
             return
+        self._refresh_run_selectors()
         config = run["config"]
         metrics = run["metrics"]
         live = not run["simulated"]
@@ -508,9 +606,39 @@ class MonitorPanel(QWidget):
 
     def refresh_live(self):
         """Draw the status strip and the open live view for the selected run."""
-        run = self.host.selected
+        run = self._current_run()
         if not run:
+            self._refresh_run_selectors()
+            self.run_title.setText("No live training")
+            self.method_legend.clear()
+            self.method_legend.hide()
+            self.method_button.hide()
+            self.trial_button.hide()
+            self.trial_details.hide()
+            self.problem_bar.hide()
+            self.focused_agent = self.pipeline_strip.focused = None
+            self.pipeline_strip.segments = []
+            self.status_strip.show_run("", {}, None, False)
+            self.charts_view.show_lives({})
+            self.system_view.show_lives({})
+            self.feed_view.show_lives({})
+            self.files_view.show_lives({}, None)
+            self.log_view.set_lines([], "Completed training is available in Results.")
+            self.sweep_view.set_studies([])
+            self.sweep_view.set_lives({})
+            self._log_run_id = None
             return
+        from .sweep_view import study_summaries
+        jobs = getattr(self.host, "jobs", None)
+        project_root = getattr(jobs, "project_root", None)
+        lookup = getattr(jobs, "job", None)
+        source = getattr(jobs, "_sweep_summaries", None)
+        active_job = lookup((run.get("backend") or {}).get("job_id")) if callable(lookup) else None
+        studies = (source(active_job) if active_job is not None and callable(source) else
+                   study_summaries(project_root, run) if project_root is not None else [])
+        studies = [(method, study) for method, study in studies
+                   if study.get("stop_reason", "running") == "running"]
+        dashboard_studies = studies
         view = self.views.currentWidget()
         lives = self.host.live_for_run(run, load=True)  # the Overview charts every metric
         if run.get("simulated"):
@@ -520,7 +648,34 @@ class MonitorPanel(QWidget):
                           for k, v in point.items() if v is not None} for point in run.get("metrics", [])]
             lives = {run_display_name(run): demo}
         live = self._run_is_live(run)
-        if self.focused_agent and run["id"] != self._focus_run_id:  # another run: its methods are others
+        trial_states = {
+            f"{method} · {study['study']} · trial {trial['id']}": trial.get("state")
+            for method, study in studies for trial in study.get("trials", [])
+        }
+        lives = {name: item for name, item in lives.items()
+                 if (item.start or item.rows) and not item.is_finished()
+                 and trial_states.get(parent_trial_label(name), "running") == "running"}
+        # Optuna also calls a sampled, resource-waiting trial "running".
+        # Only a worker start or its actual telemetry admits it to this monitor.
+        studies = [(method, {**study, "trials": [
+            trial for trial in study.get("trials", [])
+            if trial.get("state") == "running" and (
+                trial.get("execution_started")
+                or any(parent_trial_label(name) == f"{method} · {study['study']} · trial {trial['id']}" for name in lives))]})
+            for method, study in studies]
+        studies = [(method, study) for method, study in studies if study["trials"]]
+        if view is self.sweep_view:
+            active_keys = {(method, study['study']) for method, study in studies}
+            dashboard_studies = [(method, study) for method, study in dashboard_studies
+                                 if (method, study['study']) in active_keys]
+            self.sweep_view.set_studies(dashboard_studies)
+            if self._focused_sweep:
+                for index, (method, study) in enumerate(dashboard_studies):
+                    if f"{method}:{study['study']}" == self._focused_sweep:
+                        self.sweep_view.selector.setCurrentIndex(index)
+                        break
+            self.sweep_view.set_lives(lives)
+        if self.focused_agent and (run["id"] != self._focus_run_id or self.focused_agent not in lives):
             self.focused_agent = self.pipeline_strip.focused = None
         self.status_strip.show_run(run.get("status", ""), lives, None, live)
         methods = list(lives)
@@ -528,19 +683,78 @@ class MonitorPanel(QWidget):
             self.focused_agent = methods[0] if methods else None
             self._focus_run_id = run["id"]
         menu = self.method_button.menu()
-        menu.clear()
-        for name in methods:
+        trial_menu = self.trial_button.menu()
+        if not menu.isVisible():
+            menu.clear()
+        if not trial_menu.isVisible():
+            trial_menu.clear()
+        sweep_methods = {}
+        for method, study in studies:
+            sweep_methods.setdefault(method, []).append(study)
+        trial_methods = {
+            f"{method} · {study['study']} · trial {trial['id']}": method
+            for method, study in studies for trial in study.get("trials", [])
+        }
+        selected_method = trial_methods.get(parent_trial_label(self.focused_agent or ""), self.focused_agent or "")
+        selected_study = None
+        if self._focused_sweep and view is self.sweep_view:
+            for method, study in studies:
+                if f"{method}:{study['study']}" == self._focused_sweep:
+                    selected_method, selected_study = method, study
+                    break
+        method_names = list(dict.fromkeys(
+            [trial_methods.get(parent_trial_label(name), name) for name in methods] + list(sweep_methods)))
+        if selected_method not in method_names:
+            selected_method = method_names[0] if method_names else ""
+        for name in (() if menu.isVisible() else method_names):
             action = menu.addAction(str(name))
             action.setCheckable(True)
-            action.setChecked(name == self.focused_agent)
-            action.triggered.connect(lambda checked=False, n=name: self.focus_agent(n))
-        self.method_button.setText(f" / {self.focused_agent}" if self.focused_agent else "")
-        self.method_button.setVisible(bool(methods))
+            action.setChecked(name == selected_method)
+            if name in sweep_methods:
+                study = sweep_methods[name][0]
+                key = f"{name}:{study['study']}"
+                action.triggered.connect(lambda checked=False, k=key: self.focus_sweep(k))
+            else:
+                action.triggered.connect(lambda checked=False, n=name: self._open_sweep_trial(n))
+        method_studies = sweep_methods.get(selected_method, [])
+        for study in (() if trial_menu.isVisible() else method_studies):
+            key = f"{selected_method}:{study['study']}"
+            action = trial_menu.addAction("Sweep")
+            action.setCheckable(True)
+            action.setChecked(study is selected_study)
+            action.triggered.connect(lambda checked=False, k=key: self.focus_sweep(k))
+            for trial in study.get("trials", []):
+                name = f"{selected_method} · {study['study']} · trial {trial['id']}"
+                if not live or trial.get("state") != "running":
+                    continue
+                for source in lives:
+                    if parent_trial_label(source) != name or lives[source].finish:
+                        continue
+                    suffix = " / Seed " + source.split(" · seed ", 1)[1] if " · seed " in source else ""
+                    action = trial_menu.addAction(f"Trial {trial['id']}" + suffix)
+                    action.setCheckable(True)
+                    action.setChecked(source == self.focused_agent and selected_study is None)
+                    action.triggered.connect(lambda checked=False, n=source: self._open_sweep_trial(n))
+        trial_label = "Sweep" if selected_study is not None else (
+            "Trial " + self.focused_agent.split(" · trial ", 1)[1]
+            if self.focused_agent and " · trial " in self.focused_agent else "Sweep")
+        self.method_button.setText(f" / {selected_method}" if selected_method else "")
+        self.method_button.setVisible(bool(method_names))
+        self.trial_button.setText(f" / {trial_label}")
+        self.trial_button.setVisible(bool(method_studies))
+        trial_states = {
+            f"{method} · {study['study']} · trial {trial['id']}": trial.get("state")
+            for method, study in studies for trial in study.get("trials", [])
+        }
+        selectable_methods = [name for name in methods if " · trial " not in name or (
+            live and trial_states.get(parent_trial_label(name), "running") == "running" and not lives[name].finish)]
+        self._show_trial_details(run, lives)
         colors = {name: PALETTE[i % len(PALETTE)] for i, name in enumerate(methods)}
         self.method_legend.setText(" &nbsp; ".join(
-            f'<span style="color:{theme_color(colors[name])}">●</span> {escape(str(name))}' for name in methods
+            f'<span style="color:{theme_color(colors[name])}">●</span> {escape(monitor_method_label(name))}'
+            for name in selectable_methods
         ))
-        self.method_legend.setVisible(bool(methods))
+        self.method_legend.setVisible(bool(selectable_methods))
         self.pipeline_strip.segments = pipeline_segments(list((run.get("backend") or {}).get("agents") or []), lives)
         # The bottom bar: the newest warning or error (with the log), else what the run is waiting for.
         problem = latest_problem(lives)
@@ -571,14 +785,56 @@ class MonitorPanel(QWidget):
 
         Runs ticked in the runs list are not drawn here: they are compared in the Plots tab.
         """
+        if self.focused_agent and " · trial " in self.focused_agent:
+            return {self.focused_agent: lives[self.focused_agent]} if self.focused_agent in lives else {}
         return {name: lives[name] for name in lives if name != self.focused_agent} | (
             {self.focused_agent: lives[self.focused_agent]} if self.focused_agent in lives else {})
 
     def focus_agent(self, agent: str):
         """Draw the selected method over its siblings."""
         self.focused_agent = agent or None
-        self._focus_run_id = (self.host.selected or {}).get("id")
+        self._focused_sweep = None
+        self._focus_run_id = (self._current_run() or {}).get("id")
         self.refresh_live()
+
+    def focus_sweep(self, key: str):
+        """Open the dashboard for the selected sweep job."""
+        self._focused_sweep = key
+        self._focus_run_id = (self._current_run() or {}).get("id")
+        self.show_view("Sweep")
+        self.refresh_live()
+
+    def _open_sweep_trial(self, name):
+        lookup = getattr(self.host, "live_for_run", None)
+        if callable(lookup):
+            lives = lookup(self._current_run(), load=True)
+            if name not in lives:
+                name = next((source for source in lives if parent_trial_label(source) == name), name)
+        self.focus_agent(name)
+        self.show_view("Overview")
+
+    def _show_trial_details(self, run, lives):
+        from .sweep_view import study_summaries
+        selected = self.focused_agent or ""
+        if " · trial " not in selected:
+            self.trial_details.hide()
+            return
+        for method, study in study_summaries(self.host.jobs.project_root, run):
+            for trial in study.get("trials", []):
+                if parent_trial_label(selected) == f"{method} · {study['study']} · trial {trial['id']}":
+                    metric = study.get("objective_metric") or "Objective"
+                    value = trial.get("value")
+                    live = lives.get(selected)
+                    if value is None and live is not None:
+                        value = live.latest(metric)
+                    waiting = "Awaiting completed seed panel" if metric.startswith("objective/") else "Awaiting metric"
+                    formatted = f"{value:.5g}" if isinstance(value, (int, float)) else waiting
+                    seed = " · Seed " + selected.split(" · seed ", 1)[1] if " · seed " in selected else ""
+                    self.trial_details.setText(f"Trial {trial['id']}{seed} · {str(trial.get('state', 'unknown')).capitalize()}   |   {metric}: {formatted}")
+                    self.trial_details.setToolTip("\n".join(f"{key}: {val}" for key, val in trial.get("parameters", {}).items()))
+                    self.trial_details.show()
+                    return
+        self.trial_details.hide()
 
     def append_log(self, run, lines):
         """New output of `run`: shown at once if its log is the one loaded (otherwise read when opened)."""
@@ -586,6 +842,6 @@ class MonitorPanel(QWidget):
             self.log_view.append(lines)
 
     def _tick_status(self):
-        run = self.host.selected
-        if self.isVisible() and self._run_is_live(run):
-            self.status_strip.show_run(run.get("status", ""), self.host.live_for_run(run, load=False), None, True)
+        run = self._current_run()
+        if self.isVisible():
+            self.refresh_live()

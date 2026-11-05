@@ -102,7 +102,7 @@ def test_queue_preview_uses_process_cards_for_each_method():
     monitor.resize(1000, 700)
     monitor.show()
     QTest.mouseClick(monitor.queue_button, Qt.MouseButton.LeftButton)
-    assert list(monitor.queue_preview.cards) == ["one:ppo", "one:dqn", "two:sac"]
+    assert list(monitor.queue_preview.cards) == ["one:ppo", "one:dqn", "two:experiment", "two:sac"]
     assert monitor.queue_preview.cards["one:ppo"].description.text() == "My run"
     assert monitor.queue_preview.cards["two:sac"].elapsed.text() == "Waiting"
     assert monitor.queue_preview.cards["one:ppo"].progress_fraction == 0.4
@@ -116,7 +116,7 @@ def test_queue_preview_uses_process_cards_for_each_method():
     monitor.queue_preview._update_times()
     assert monitor.queue_preview.cards["one:ppo"].progress_fraction == 0.75
     jobs.queue_changed.emit({})
-    assert list(monitor.queue_preview.cards) == ["one:ppo", "one:dqn", "two:sac"]
+    assert list(monitor.queue_preview.cards) == ["one:ppo", "one:dqn", "two:experiment", "two:sac"]
     QTest.mouseClick(monitor.queue_preview.cards["one:dqn"], Qt.MouseButton.LeftButton)
     assert opened == [("one", "dqn")]
     assert not monitor.queue_overlay.isVisible()
@@ -148,6 +148,37 @@ def test_queue_and_config_buttons_dismiss_open_menu_without_reopening():
         assert not monitor.yaml_overlay.isVisible()
         assert not monitor.queue_button.isChecked()
         assert not monitor.yaml_button.isChecked()
+    monitor.close()
+
+
+def test_queue_card_receives_click_dispatched_through_window():
+    class Jobs(QObject):
+        queue_changed = pyqtSignal(dict)
+
+        def queue_state(self):
+            return {"active": [{"job_id": "job", "status": "running", "agents": ["ppo"]}]}
+
+    opened = []
+    host = SimpleNamespace(jobs=Jobs(), selected=None, run_for_job=lambda _: None,
+                           open_job=lambda *args: opened.append(args))
+    monitor = MonitorPanel(host)
+    monitor.resize(1000, 700)
+    monitor.show()
+    app.processEvents()
+    button_position = monitor.queue_button.mapTo(monitor, monitor.queue_button.rect().center())
+    QTest.mouseClick(monitor.windowHandle(), Qt.MouseButton.LeftButton, pos=button_position)
+    app.processEvents()
+    assert monitor.queue_overlay.isVisible()
+    card = monitor.queue_preview.cards["job:ppo"]
+    position = card.mapTo(monitor, card.rect().center())
+    QTest.mouseClick(monitor.windowHandle(), Qt.MouseButton.LeftButton, pos=position)
+    assert opened == [("job", "ppo")]
+    assert not monitor.queue_overlay.isVisible()
+    QTest.mouseClick(monitor.windowHandle(), Qt.MouseButton.LeftButton, pos=button_position)
+    assert monitor.queue_overlay.isVisible()
+    QTest.mouseClick(monitor.windowHandle(), Qt.MouseButton.LeftButton, pos=monitor.rect().topLeft())
+    assert not monitor.queue_overlay.isVisible()
+    assert not monitor.queue_button.isChecked()
     monitor.close()
 
 
@@ -204,6 +235,7 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
 
     monkeypatch.setattr(app, "theta_theme", BUILTINS["Nord"], raising=False)
     run = sb3_run()
+    run["status"] = "running"
     run["backend"]["agents"] = ["ppo", "dqn"]
     dqn = LiveRun()
     dqn.rows = [{"step": 1, "eval/reward": 42.0}]
@@ -214,13 +246,267 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     monitor.render()
     monitor.refresh_live()
     assert monitor.run_title.text() == "sb3 / cartpole_sb3_ppo"
-    assert "ppo" in monitor.method_legend.text() and "dqn" in monitor.method_legend.text()
-    assert theme_color(PALETTE[1]) in monitor.method_legend.text()
-    assert monitor.charts_view._series_colors["dqn"] == PALETTE[1]
+    assert "ppo" not in monitor.method_legend.text() and "dqn" in monitor.method_legend.text()
+    assert theme_color(PALETTE[0]) in monitor.method_legend.text()
+    assert monitor.charts_view._series_colors["dqn"] == PALETTE[0]
     reward = monitor.charts_view.grid.cards["eval/reward"].chart
     assert reward.series[0][0] == "dqn"
-    assert theme_color(reward.series[0][2]) == theme_color(PALETTE[1])
+    assert theme_color(reward.series[0][2]) == theme_color(PALETTE[0])
     assert not monitor.charts_view.grid.lead_hidden
     monitor.focus_agent("dqn")
-    assert monitor.charts_view._series_colors["dqn"] == PALETTE[1]
+    assert monitor.charts_view._series_colors["dqn"] == PALETTE[0]
     monitor.close()
+
+
+def test_method_and_trial_dropdowns_route_multiple_sweeps(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from frontend.live_run import LiveRun
+    from frontend.monitor import sweep_view
+
+    study = {"study": "search", "trials": [{"id": 1, "state": "running"},
+                                             {"id": 2, "state": "complete"}]}
+    other = {"study": "other", "trials": [{"id": 0, "state": "running", "execution_started": 1}]}
+    monkeypatch.setattr(sweep_view, "study_summaries", lambda *_: [("ppo", study), ("dqn", other)])
+    active = "ppo · search · trial 1"
+    completed = "ppo · search · trial 2"
+    lives = {name: LiveRun() for name in (active, completed)}
+    lives[active].start = {"type": "start"}
+    host = SimpleNamespace(selected=sb3_run(), live_for_run=lambda *a, **kw: lives,
+                           jobs=SimpleNamespace(project_root=tmp_path, queue_changed=Mock()))
+    host.selected["status"] = "running"
+    monitor = MonitorPanel(host)
+    monitor.refresh_live()
+    assert "Sweep" not in monitor.view_buttons
+    method_menu = monitor.method_button.menu()
+    method_menu.popup(monitor.mapToGlobal(monitor.rect().center()))
+    app.processEvents()
+    actions = {action.text(): action for action in method_menu.actions()}
+    monitor.refresh_live()
+    assert method_menu.isVisible()
+    assert method_menu.actions() == list(actions.values())
+    method_menu.hide()
+    assert set(actions) == {"ppo", "dqn"}
+    assert monitor.method_button.text() == " / ppo"
+    assert monitor.trial_button.text() == " / Trial 1"
+    assert [a.text() for a in monitor.trial_button.menu().actions()] == ["Sweep", "Trial 1"]
+    assert "ppo / Trial 1" in monitor.method_legend.text()
+    assert "Trial 2" not in monitor.method_legend.text()
+    actions["dqn"].trigger()
+    assert monitor.views.currentWidget() is monitor.sweep_view
+    assert monitor.sweep_view.selector.currentData() == ("dqn", "other")
+    actions = {action.text(): action for action in monitor.method_button.menu().actions()}
+    actions["ppo"].trigger()
+    assert monitor.method_button.text() == " / ppo"
+    assert monitor.trial_button.text() == " / Sweep"
+    trials = {a.text(): a for a in monitor.trial_button.menu().actions()}
+    assert "Trial 2" not in trials
+    trials["Trial 1"].trigger()
+    assert monitor.views.currentWidget() is monitor.charts_view
+    assert monitor.focused_agent == active
+    study["trials"][0]["state"] = "pruned"
+    monitor.refresh_live()
+    assert "Trial 1" not in [action.text() for action in monitor.trial_button.menu().actions()]
+    assert monitor.method_legend.text() == ""
+    assert monitor.method_legend.isHidden()
+    study["trials"][0]["state"] = "running"
+    lives[active].finish = {"status": "failed"}
+    monitor.refresh_live()
+    assert "Trial 1" not in [action.text() for action in monitor.trial_button.menu().actions()]
+    assert "ppo / Trial 1" not in monitor.method_legend.text()
+    assert active in lives  # history remains available from the sweep dashboard
+    lives[active].finish = None
+    monitor.refresh_live()
+    assert "ppo / Trial 1" in monitor.method_legend.text()
+    host.selected["status"] = "cancelled"
+    monitor.refresh_live()
+    assert monitor.method_legend.text() == ""  # parent can stop before trial telemetry finishes
+    assert monitor.method_legend.isHidden()
+    monitor.close()
+
+
+def test_sweep_queue_cards_keep_their_study_identity():
+    from frontend.queue_panel import QueuePanel
+
+    opened = []
+    panel = QueuePanel(lambda *args: opened.append(args))
+    panel.set_data({"active": [{"job_id": "job", "sweep_parent": True, "sweep_key": "ppo:search"},
+                                {"job_id": "job", "sweep_parent": True, "sweep_key": "dqn:other"}]})
+    QTest.mouseClick(panel.cards["job:dqn:other"], Qt.MouseButton.LeftButton)
+    assert opened == [("job", "sweep:dqn:other")]
+    panel.close()
+
+
+@pytest.mark.parametrize("method, expected", [("ppo", "Overview"),
+                                               ("ppo · search · trial 1", "Overview"),
+                                               ("sweep:ppo:search", "Sweep"), ("", "Overview")])
+def test_open_queue_job_switches_to_its_live_monitor(method, expected):
+    from unittest.mock import Mock
+
+    run = {"id": "run"}
+    monitor = SimpleNamespace(focus_agent=Mock(), focus_sweep=Mock(), show_view=Mock())
+    host = SimpleNamespace(run_for_job=lambda _: run, select_run=Mock(), monitor=monitor,
+                           _set_monitor_active=Mock(), tabs=SimpleNamespace(setCurrentWidget=Mock()),
+                           monitor_panel=object())
+    Window.open_job(host, "job", method)
+    host.select_run.assert_called_once_with(run)
+    if expected == "Sweep":
+        monitor.focus_sweep.assert_called_once_with("ppo:search")
+    else:
+        monitor.focus_agent.assert_called_once_with(method)
+        monitor.show_view.assert_called_once_with("Overview")
+    host.tabs.setCurrentWidget.assert_called_once_with(host.monitor_panel)
+
+
+def test_monitor_title_selects_groups_and_running_or_queued_experiments():
+    from copy import deepcopy
+
+    first = sb3_run()
+    first.update(id="first", status="running")
+    second, third = deepcopy(first), deepcopy(first)
+    second.update(id="second", status="queued")
+    second["backend"]["experiment_id"] = "second"
+    third["id"] = "third"
+    third["backend"].update(group="other", experiment_id="third")
+    host = SimpleNamespace(selected=first, runs=[first, second, third], live_for_run=lambda *a, **kw: {})
+    monitor = MonitorPanel(host)
+
+    def select(run):
+        host.selected = run
+        monitor.show_selected(run)
+
+    host.select_run = select
+    monitor.show_selected(first)
+    assert monitor.group_button.text() == "sb3"
+    menu = monitor.experiment_button.menu()
+    assert len(menu.actions()) == 2
+    menu.popup(monitor.mapToGlobal(monitor.rect().center()))
+    app.processEvents()
+    actions = menu.actions()
+    monitor.set_runs(host.runs)
+    assert menu.isVisible()
+    assert menu.actions() == actions
+    menu.hide()
+    actions[1].trigger()
+    assert host.selected is second
+    assert monitor.experiment_button.text() == " / second"
+    monitor.group_button.menu().actions()[1].trigger()
+    assert host.selected is third
+    assert monitor.group_button.text() == "other"
+    assert len(monitor.experiment_button.menu().actions()) == 1
+    second["status"] = "completed"
+    monitor.set_runs(host.runs)
+    monitor.group_button.menu().actions()[0].trigger()
+    assert host.selected is first
+    assert len(monitor.experiment_button.menu().actions()) == 1
+    monitor.close()
+
+
+def test_play_queues_before_starting_and_opens_the_queued_monitor():
+    from unittest.mock import Mock
+
+    calls = []
+    job = {"job_id": "new"}
+    host = SimpleNamespace(
+        check_missing_components=lambda: [], compose_valid=True,
+        config=lambda: SimpleNamespace(name="new", overrides=lambda: []), current_experiment="g/new",
+        jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: calls.append(("launch", kw)) or job)),
+        log=lambda *a: None, queued=lambda *a: calls.append(("record",)) or {"id": "new"},
+        open_job=lambda *a: calls.append(("monitor",)),
+        set_queue_running=lambda value: calls.append(("start", value)),
+        active_runs=[{"id": "already_running"}], launch_capacity=lambda: 1)
+    host.add_to_queue = lambda **kw: Window.add_to_queue(host, **kw)
+    Window.launch_training(host)
+    assert calls == [("launch", {"queue": True, "overwrite": True}), ("record",), ("monitor",), ("start", True)]
+
+
+def test_play_stays_enabled_when_training_capacity_is_full(monkeypatch):
+    from unittest.mock import Mock
+    from PyQt6.QtWidgets import QPushButton
+
+    monkeypatch.setattr(Window, "check_missing_components", lambda _: [])
+    run = {"status": "running", "backend": {"experiment_id": "first"}}
+    button = QPushButton()
+    host = SimpleNamespace(active_runs=[run], active=run, compose_valid=True,
+                           current_experiment="g/second", start_button=button, state_label=None)
+    Window.update_launch_state(host)
+    assert button.isEnabled()
+    assert "queue" in button.toolTip()
+    host.compose_valid = False
+    Window.update_launch_state(host)
+    assert not button.isEnabled()
+
+
+@pytest.mark.parametrize("capacity", [1, 2])
+def test_queued_experiments_wait_for_slots_and_start_in_order(tmp_path, monkeypatch, capacity):
+    from frontend.runner_manager import JobManager
+
+    manager = JobManager(store_path=tmp_path / "jobs.db", project_root=tmp_path,
+                         logs_dir=tmp_path / "logs")
+    started = []
+
+    def start(job):
+        job["status"] = "running"
+        started.append(job["experiment_id"])
+
+    monkeypatch.setattr(manager, "_start", start)
+    monkeypatch.setattr(manager, "_scan_metrics", lambda *_: None)
+    monkeypatch.setattr(manager, "_unwatch", lambda *_: None)
+    manager.max_parallel = capacity
+    jobs = []
+    for name in ("first", "second", "third"):
+        plan = {"experiment": f"g/{name}", "group": "g", "experiment_id": name,
+                "agents": [], "total_timesteps": 10, "effective_timesteps": 10, "run_in_parallel": False}
+        jobs.append(manager.launch(f"g/{name}", queue=True, _plan=plan))
+        manager.start_queue()
+    assert started == ["first", "second", "third"][:capacity]
+    assert len(manager.queue_order) == 3 - capacity
+    manager._finish(jobs[0]["job_id"], 0)
+    assert started == ["first", "second", "third"][:capacity + 1]
+
+
+@pytest.mark.parametrize("job_bucket", ["active", "queued"])
+def test_queue_updates_restore_hidden_monitor_even_when_job_state_is_unchanged(job_bucket):
+    from unittest.mock import Mock
+    from PyQt6.QtWidgets import QCheckBox, QWidget
+    from frontend.sidetabs import SideTabs
+
+    tabs = SideTabs()
+    config, monitor = QWidget(), QWidget()
+    tabs.addTab(config, "Config", tab_id="config")
+    tabs.addTab(monitor, "Monitor", tab_id="monitor")
+    slider = QCheckBox()
+    host = SimpleNamespace(tabs=tabs, pane_sliders={"monitor": slider}, active_runs=[], runs=[],
+                           _queue_has_active_jobs=None, queue_running=True,
+                           run_for_job=lambda _: None, update_pane_sliders_state=Mock())
+    host._set_monitor_active = lambda active: Window._set_monitor_active(host, active)
+    data = {"running": True, "active": [], "queued": []}
+    data[job_bucket] = [{"job_id": "job", "position": 0}]
+    Window.on_queue_changed(host, data)
+    assert tabs.is_tab_visible("monitor") and slider.isChecked()
+    # Reproduce restored settings hiding the entry while its page is open.
+    tabs.set_tab_visible("monitor", False)
+    slider.setChecked(False)
+    tabs.setCurrentWidget(monitor)
+    Window.on_queue_changed(host, data)
+    assert tabs.currentWidget() is monitor
+    assert tabs.is_tab_visible("monitor") and slider.isChecked()
+    tabs.close()
+
+
+def test_loading_saved_layout_keeps_monitor_visible_during_active_work():
+    from unittest.mock import Mock
+    from PyQt6.QtWidgets import QCheckBox, QWidget
+    from frontend.sidetabs import SideTabs
+
+    tabs = SideTabs()
+    tabs.addTab(QWidget(), "Config", tab_id="config")
+    tabs.addTab(QWidget(), "Monitor", tab_id="monitor")
+    slider = QCheckBox()
+    host = SimpleNamespace(tabs=tabs, pane_sliders={"monitor": slider}, _queue_has_active_jobs=True,
+                           settings_manager=SimpleNamespace(sidebar_order=["config", "monitor"],
+                                                            sidebar_visible=["config"], get=lambda *a, **kw: []),
+                           update_pane_sliders_state=Mock(), log=Mock())
+    Window.load_layout(host)
+    assert tabs.is_tab_visible("monitor") and slider.isChecked()
+    host.log.assert_not_called()
+    tabs.close()

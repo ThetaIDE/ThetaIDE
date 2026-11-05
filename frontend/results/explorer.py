@@ -174,8 +174,10 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         for entry in sorted(entries, key=lambda e: (e["group"], e["experiment_id"])):
             group, exp = entry["group"], entry["experiment_id"]
             agents = [a["name"] for a in entry.get("agents") or [] if a.get("name")]
-            if not agents:
+            if not agents and not entry.get("has_run_logs"):
                 continue
+            if not agents:
+                agents = [""]  # A run can fail before any agent writes metrics.
             if group not in groups:
                 groups[group] = self._item(self.tree.invisibleRootItem(), group, "group", group, _HEADING)
             name = _RUN_SUFFIX.sub("", exp)
@@ -189,7 +191,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             run_item.setToolTip(0, f"results/logs/{group}/{exp}")
             run_item.setIcon(0, folder_icon())
             for agent in agents:
-                self._item(run_item, agent, "agent", Source(group, exp, agent), _CHECKABLE)
+                self._item(run_item, agent or "Run files", "agent", Source(group, exp, agent), _CHECKABLE)
         for item in self._items():
             group = item.data(0, _KIND) == "group"
             if (group and item.data(0, _DATA) not in self._collapsed_groups) or (item.data(0, _KIND), item.data(0, _DATA)) in expanded:
@@ -241,16 +243,38 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             was_checked = item.checkState(0) != Qt.CheckState.Unchecked
             restored = {s.version for s in self._restore_sources if s.run_key == source.run_key and s.agent == source.agent}
             item.setFlags(_PARENT)
+            details = manifest.version_details.get(source.agent, {})
+            seeds = {}
             for version in versions:
+                parent = details.get(version, {}).get("trial_version")
+                if parent:
+                    seeds.setdefault(parent, []).append(version)
+            parents = list(dict.fromkeys([details.get(v, {}).get("trial_version") or v for v in versions]))
+            for version in parents:
+                seed_versions = seeds.get(version, [])
+                info = details.get(seed_versions[0], {}) if seed_versions else details.get(version, {})
+                title = f"{info.get('study')} · trial {info['trial_number']}" if seed_versions else version
                 child = self._item(
                     item,
-                    version,
+                    title,
                     "version",
                     Source(source.group, source.experiment_id, source.agent, version),
                     _CHECKABLE,
                 )
+                child.setToolTip(0, version)
                 # A ticked agent meant "its newest version": keep exactly that ticked.
-                if version in restored or (was_checked and not restored and version == versions[-1]):
+                selected = version in restored or (was_checked and not restored and version == parents[-1])
+                for seed_version in sorted(seed_versions, key=lambda v: details[v].get("seed") or 0):
+                    seed = details[seed_version].get("seed")
+                    leaf = self._item(child, f"Seed {seed}", "version",
+                                      Source(source.group, source.experiment_id, source.agent, seed_version,
+                                             f"{title} · seed {seed}", version), _CHECKABLE)
+                    leaf.setToolTip(0, seed_version)
+                    if selected or seed_version in restored:
+                        leaf.setCheckState(0, Qt.CheckState.Checked)
+                if seed_versions:
+                    self._sync_parent(child)
+                elif selected:
                     child.setCheckState(0, Qt.CheckState.Checked)
             self._sync_parent(item)
             self._sync_parent(item.parent())
@@ -258,6 +282,28 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self._updating = False
         self._emitting = True
         self._emit()
+
+    def select_version(self, run_key, agent, version):
+        target = next((item for item in self._items() if item.data(0, _KIND) == "version"
+                       and (source := item.data(0, _DATA)).run_key == run_key
+                       and source.agent == agent and source.version == version), None)
+        if target is None:
+            return False
+        self._updating = True
+        for leaf in self._leaves():
+            leaf.setCheckState(0, Qt.CheckState.Unchecked)
+        self._set_version(target, True)
+        # Children precede parents so every ancestor reflects the new selection.
+        for item in reversed(list(self._items_in_order())):
+            self._sync_parent(item)
+        self._updating = False
+        parent = target
+        while parent:
+            parent.setExpanded(True)
+            parent = parent.parent()
+        self.tree.setCurrentItem(target)
+        self._emit()
+        return True
 
     def _item(self, parent, text, kind, data, flags):
         item = QTreeWidgetItem(parent, [text])
@@ -345,8 +391,11 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self._set_method(item, enabled)
             self._sync_parent(item.parent())
         else:
-            self._sync_parent(item.parent())
-            self._sync_parent(item.parent().parent())
+            self._set_version(item, enabled)
+            parent = item.parent()
+            while parent:
+                self._sync_parent(parent)
+                parent = parent.parent()
         self._updating = False
         if enabled:
             run = self._run_for_item(item)
@@ -357,8 +406,12 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     def _set_method(self, item, enabled):
         if item.childCount():
             for i in range(item.childCount()):
-                item.child(i).setCheckState(0, Qt.CheckState.Checked if enabled and i == item.childCount() - 1
-                                            else Qt.CheckState.Unchecked)
+                self._set_version(item.child(i), enabled and i == item.childCount() - 1)
+        item.setCheckState(0, Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
+
+    def _set_version(self, item, enabled):
+        for i in range(item.childCount()):
+            self._set_version(item.child(i), enabled)
         item.setCheckState(0, Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked)
 
     def _sync_parent(self, item):

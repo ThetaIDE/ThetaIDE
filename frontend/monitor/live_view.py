@@ -56,8 +56,17 @@ SPEED_EASING = 0.7  # share of the previous speed kept at each reading: the stat
 
 def latest_problem(lives: dict[str, LiveRun]) -> tuple[str, dict] | None:
     """(agent, event) of the newest warning or error any agent reported, or None."""
-    problems = [(agent, e) for agent, e in merged(lives, "events") if e.get("level") in ("warning", "error")]
-    return problems[-1] if problems else None
+    newest = None
+    newest_time = float("-inf")
+    for agent, live in lives.items():
+        for event in live.events:
+            if event.get("level") not in ("warning", "error"):
+                continue
+            when = event.get("t") or 0
+            # Match the last entry of a stable time sort, including tied timestamps.
+            if when >= newest_time:
+                newest, newest_time = (agent, event), when
+    return newest
 
 
 def _system_title(key: str) -> str:
@@ -292,7 +301,8 @@ class ChartsView(QWidget):
         top.addWidget(self.show_all)
         layout.addLayout(top)
         self.grid = PlotGrid()
-        self.grid.configure(collapsible=True, header=header, lead=lead, toolbar=toolbar, group_columns=group_columns)
+        self.grid.configure(collapsible=True, header=header, lead=lead, toolbar=toolbar, group_columns=group_columns,
+                            compact_hide=True)
         self.grid.hide_requested.connect(self._hide)
         layout.addWidget(self.grid, 1)
         self.hidden: set[str] = set()
@@ -324,30 +334,37 @@ class ChartsView(QWidget):
         self._lives, self._colors, self._live = lives, colors, live
         self._comparing = colors is not None if comparing is None else comparing
         rows = {name: live.rows for name, live in lives.items()}
-        axis = "transitions" if any("transitions" in r for rs in rows.values() for r in rs) else "step"
+        # Telemetry rows are append-only; clear/reload replaces the list. Keep the
+        # lists alive as well as their lengths so identity cannot be recycled.
+        sources = [(name, rs, len(rs)) for name, rs in rows.items()]
+        previous = getattr(self, "_point_sources", [])
+        changed = len(sources) != len(previous) or any(
+            name != old_name or rs is not old_rows or size != old_size
+            for (name, rs, size), (old_name, old_rows, old_size) in zip(sources, previous)
+        )
+        if changed or not hasattr(self, "_point_axis"):
+            axis = "transitions" if any("transitions" in r for rs in rows.values() for r in rs) else "step"
+            self.points = {}
+            metrics: dict[str, None] = {}
+            for name, series_rows in rows.items():
+                per_metric: dict[str, list[tuple[float, float]]] = {}
+                for r in series_rows:
+                    for key, value in r.items():
+                        if key not in COUNTERS:
+                            metrics.setdefault(key)
+                            if axis in r:
+                                per_metric.setdefault(key, []).append((r[axis], value))
+                for values in per_metric.values():
+                    values.sort(key=lambda p: p[0])
+                self.points[name] = per_metric
+            self._point_sources = sources
+            self._point_axis, self._point_metrics = axis, metrics
+            self._drawn_points = {}
+        axis, metrics = self._point_axis, self._point_metrics
         self.axis_name = "environment steps" if axis == "transitions" else "logged step"
-        # Every series' points per metric, sorted by x: drawn (thinned) by the charts, read by the inspector.
-        self.points = {}
-        for name, series_rows in rows.items():
-            per_metric: dict[str, list[tuple[float, float]]] = {}
-            for r in series_rows:
-                if axis not in r:
-                    continue
-                for key, value in r.items():
-                    if key not in COUNTERS:
-                        per_metric.setdefault(key, []).append((r[axis], value))
-            for values in per_metric.values():
-                values.sort(key=lambda p: p[0])
-            self.points[name] = per_metric
         self._series_colors = {
             name: (colors or {}).get(name) or PALETTE[i % len(PALETTE)] for i, name in enumerate(rows)
         }
-        metrics: dict[str, None] = {}
-        for agent_rows in rows.values():
-            for row in agent_rows:
-                for key in row:
-                    if key not in COUNTERS:
-                        metrics.setdefault(key)
         shown = [m for m in metrics if m not in self.hidden]
         hidden = len(metrics) - len(shown)
         # Comparing runs, the lead chart (the selected run's alone) steps aside and every metric is charted.
@@ -373,7 +390,10 @@ class ChartsView(QWidget):
             for name in rows:
                 points = self.points[name].get(metric)
                 if points:
-                    series.append((name, thin(chart_points(points, metric), metric), self._series_colors[name]))
+                    key = (name, metric)
+                    if key not in self._drawn_points:
+                        self._drawn_points[key] = thin(chart_points(points, metric), metric)
+                    series.append((name, self._drawn_points[key], self._series_colors[name]))
             chart.set_metric(metric, chart_title(metric))
             chart.hold_y = live
             chart.live_series = training
@@ -395,6 +415,7 @@ class SystemView(QWidget):
         self.caption.setWordWrap(True)
         layout.addWidget(self.caption)
         self.grid = PlotGrid()
+        self.grid.configure(compact_hide=True)
         layout.addWidget(self.grid, 1)
 
     def show_lives(self, lives: dict[str, LiveRun], colors: dict[str, str] | None = None):
@@ -406,12 +427,12 @@ class SystemView(QWidget):
                 keys.setdefault(key)
         ordered = [k for k in SYSTEM_LABELS if k in keys] + sorted(k for k in keys if k not in SYSTEM_LABELS)
         names = [f"system/{key}" for key in ordered]
-        self.grid.set_metrics(
+        self.grid.show_metrics(
             names,
             "No resource samples. They come from the training process itself: this run predates the telemetry "
             "stream, or ran with telemetry.system_interval=0.",
         )
-        starts = {agent: min(t for a, t, _ in samples if a == agent) for agent in {a for a, _, _ in samples}}
+        starts = {agent: min(t for t, _ in run.system) for agent, run in lives.items() if run.system}
         longest = max((t - starts[a] for a, t, _ in samples), default=0.0)
         self.caption.setText(
             f"{len(samples)} samples over {format_duration(longest)}  ·  x-axis: seconds since each run's first sample"
@@ -423,7 +444,7 @@ class SystemView(QWidget):
             self.grid.cards[name].hide_button.hide()
             series = []
             for i, agent in enumerate(lives):
-                points = [(t - starts[agent], data[key]) for a, t, data in samples if a == agent and key in data]
+                points = [(t - starts[agent], data[key]) for t, data in lives[agent].system if key in data]
                 if points:
                     color = (colors or {}).get(agent) or PALETTE[i % len(PALETTE)]
                     series.append((agent, thin(chart_points(points, name), name), color))

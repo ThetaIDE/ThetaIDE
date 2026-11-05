@@ -220,6 +220,7 @@ class Manifest:
     agents: dict[str, list[str]]
     artifacts: list[dict]
     truncated: bool = False
+    version_details: dict[str, dict[str, dict]] = field(default_factory=dict)
 
     @classmethod
     def from_api(cls, data: dict) -> Manifest:
@@ -229,6 +230,7 @@ class Manifest:
             dict(data.get("agents") or {}),
             list(data.get("artifacts") or []),
             bool(data.get("truncated")),
+            dict(data.get("version_details") or {}),
         )
 
     @property
@@ -261,6 +263,8 @@ class Source:
     experiment_id: str
     agent: str
     version: str | None = None
+    display_version: str | None = field(default=None, compare=False)
+    trial_version: str | None = field(default=None, compare=False)
 
     @property
     def run_key(self) -> str:
@@ -270,7 +274,7 @@ class Source:
     def label(self) -> str:
         """Legend text: experiment / agent, plus the version when one is pinned."""
         text = f"{self.experiment_id} / {self.agent}"
-        return f"{text} ({self.version})" if self.version else text
+        return f"{text} ({self.display_version or self.version})" if self.version else text
 
 
 MAX_DRAWN_POINTS = 2000
@@ -374,17 +378,19 @@ COMBINE_MODES = {None: "Separate", "std": "Mean ± std", "sem": "Mean ± SEM"}
 def series_groups(sources: list[Source], combine: bool) -> list[tuple[str, list[Source]]]:
     """How ticked sources become plotted series: (legend label, the sources it covers).
 
-    When combining, every ticked version of one agent in one run becomes a single series:
-    the pipeline stores repeated runs (seeds) as version_N folders, as the plotters assume.
+    Combine repeated versions of each agent, keeping seeds of different tuning trials
+    in separate series.
     """
     if not combine:
         return [(source.label, [source]) for source in sources]
-    groups: dict[tuple[str, str, str], list[Source]] = {}
+    groups: dict[tuple, list[Source]] = {}
     for source in sources:
-        groups.setdefault((source.group, source.experiment_id, source.agent), []).append(source)
+        groups.setdefault((source.group, source.experiment_id, source.agent, source.trial_version), []).append(source)
     result = []
-    for (_, experiment_id, agent), members in groups.items():
-        label = members[0].label if len(members) == 1 else f"{experiment_id} / {agent} (mean of {len(members)})"
+    for (_, experiment_id, agent, trial), members in groups.items():
+        trial_label = members[0].display_version.rsplit(" · seed ", 1)[0] if trial and members[0].display_version else None
+        suffix = f"{trial_label} · mean of {len(members)}" if trial_label else f"mean of {len(members)}"
+        label = members[0].label if len(members) == 1 else f"{experiment_id} / {agent} ({suffix})"
         result.append((label, members))
     return result
 

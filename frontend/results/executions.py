@@ -57,7 +57,7 @@ class ExecutionsView(QWidget):
         if not hasattr(self.backend, "list_executions"):
             self.summary.setText("Execution browsing is unavailable from this backend.")
             return
-        self.backend.list_executions(self._listed)
+        self.backend.list_executions(self._listed, completed_only=True)
 
     def _listed(self, paths, error):
         if error:
@@ -80,7 +80,7 @@ class ExecutionsView(QWidget):
     def load(self, *_):
         path = self.execution.currentData()
         if path:
-            self.backend.read_execution(path, self._loaded)
+            self.backend.read_execution(path, self._loaded, completed_only=True)
 
     def _loaded(self, data, error):
         if error:

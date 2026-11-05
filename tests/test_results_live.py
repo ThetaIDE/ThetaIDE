@@ -1,4 +1,4 @@
-"""Results panel, phase 6: following runs that are still training, and staying fast at scale."""
+"""Results are static completed snapshots, with bounded chart rendering at scale."""
 
 import os
 import sys
@@ -18,7 +18,7 @@ app = QApplication.instance() or QApplication(sys.argv[:1])
 
 from frontend.results.data import MetricTable, Source, thin  # noqa: E402
 from frontend.results.loader import ResultsLoader  # noqa: E402
-from frontend.results.panel import RELIST_EVERY, ResultsPanel  # noqa: E402
+from frontend.results.panel import ResultsPanel  # noqa: E402
 
 SOURCE = Source("g", "live_run", "ppo")
 
@@ -30,13 +30,13 @@ class LocalBackendCalls:
     version/since, the same as when the Results panel talked to the FastAPI server.
     """
 
-    def list_runs(self, callback):
+    def list_runs(self, callback, *, completed_only=False):
         self.get("/api/runs", callback)
 
-    def run_manifest(self, group, experiment_id, callback):
+    def run_manifest(self, group, experiment_id, callback, *, completed_only=False):
         self.get(f"/api/runs/{group}/{experiment_id}/manifest", callback)
 
-    def run_metrics(self, group, experiment_id, agent, callback, version=None, since=0):
+    def run_metrics(self, group, experiment_id, agent, callback, version=None, since=0, *, completed_only=False):
         params = {key: value for key, value in (("version", version), ("since", since)) if value}
         query = f"?{urlencode(params)}" if params else ""
         self.get(f"/api/runs/{group}/{experiment_id}/{agent}/metrics{query}", callback)
@@ -92,82 +92,89 @@ def metrics_requests(backend):
 # ── Loader ───────────────────────────────────────────────────────────────────
 
 
-def test_poll_appends_only_new_rows():
-    backend = LiveBackend()
+def test_results_loader_requests_completed_snapshots():
+    class Backend(LiveBackend):
+        def list_runs(self, callback, *, completed_only=False):
+            assert completed_only
+            super().list_runs(callback)
+
+        def run_manifest(self, group, experiment_id, callback, *, completed_only=False):
+            assert completed_only
+            super().run_manifest(group, experiment_id, callback)
+
+        def run_metrics(self, group, experiment_id, agent, callback, **kwargs):
+            assert kwargs.pop("completed_only")
+            super().run_metrics(group, experiment_id, agent, callback, **kwargs)
+
+    backend = Backend()
     loader = ResultsLoader(backend)
+    entries = []
+    loader.runs_listed.connect(entries.extend)
+    loader.list_runs()
+    assert entries == []
+    backend.finished = True
+    loader.list_runs()
+    assert len(entries) == 1
+    loader.load_manifest("g", "live_run")
     loader.load_table(SOURCE)
+    before = list(backend.requests)
     backend.rows.append({"transitions": "2000", "eval/reward": "30"})
-    loader.poll_table(SOURCE)
-    assert metrics_requests(backend)[-1].endswith("/metrics")  # since=0 (the default): the last row held is re-read
-    assert loader.tables[SOURCE].series("eval/reward") == [(1000.0, 10.0), (2000.0, 30.0)]
-    backend.rows.append({"transitions": "3000", "eval/reward": "45"})
-    loader.poll_table(SOURCE)
-    assert metrics_requests(backend)[-1].endswith("metrics?since=1")
-    assert loader.tables[SOURCE].row_count == 3
-
-
-def test_poll_repairs_a_row_that_was_read_half_written():
-    backend = LiveBackend()
-    backend.rows = [{"transitions": "1000", "eval/reward": "10"}, {"transitions": "2000", "eval/reward": ""}]
-    loader = ResultsLoader(backend)
-    loader.load_table(SOURCE)  # caught mid-write: the second row has no reward yet
-    assert loader.tables[SOURCE].series("eval/reward") == [(1000.0, 10.0)]
-    backend.rows[1] = {"transitions": "2000", "eval/reward": "30"}
-    loaded = []
-    loader.table_loaded.connect(loaded.append)
-    loader.poll_table(SOURCE)
-    assert loader.tables[SOURCE].series("eval/reward") == [(1000.0, 10.0), (2000.0, 30.0)]
-    assert loaded == [SOURCE] and loader.tables[SOURCE].row_count == 2
-    loader.poll_table(SOURCE)  # nothing new: no redraw
-    assert loaded == [SOURCE]
-
-
-def test_poll_refetches_when_a_new_version_starts():
-    backend = LiveBackend()
-    loader = ResultsLoader(backend)
     loader.load_table(SOURCE)
-    backend.version, backend.rows = "version_1", [{"transitions": "500", "eval/reward": "99"}]
-    loader.poll_table(SOURCE)
-    assert loader.table_versions[SOURCE] == "version_1"
-    assert loader.tables[SOURCE].series("eval/reward") == [(500.0, 99.0)]  # not mixed with version_0
+    assert backend.requests == before
+    assert loader.tables[SOURCE].row_count == 1
 
 
-# ── Panel ────────────────────────────────────────────────────────────────────
-
-
-def live_panel():
+def test_results_exclude_active_runs_and_only_refresh_on_request():
+    from PyQt6.QtCore import QTimer
     backend = LiveBackend()
     panel = ResultsPanel(backend)
-    panel.poll_timer.stop()  # ticks are driven by hand here
     panel.refresh()
-    panel.explorer.tree.topLevelItem(0).child(0).setCheckState(0, Qt.CheckState.Checked)
-    return panel, backend
-
-
-def test_panel_follows_ticked_runs_still_training():
-    panel, backend = live_panel()
-    assert panel.live_sources() == [SOURCE] and "following 1 run still training" in panel.status.text()
-    backend.rows.append({"transitions": "2000", "eval/reward": "30"})
-    panel.poll()  # hidden panels do not poll
-    assert len(panel.grid.cards["eval/reward"].chart.series[0][1]) == 1
-    panel.show()
-    panel.poll()
-    assert [p["eval/reward"] for p in panel.grid.cards["eval/reward"].chart.series[0][1]] == [10.0, 30.0]
-    assert panel.summary.rows[0][2] == 30.0  # the Summary follows too
-
-
-def test_panel_relists_runs_and_stops_following_finished_ones():
-    panel, backend = live_panel()
-    panel.show()
-    tree_before = panel.explorer.tree.topLevelItem(0)
+    assert panel.explorer.tree.topLevelItemCount() == 0
+    assert not panel.findChildren(QTimer)
     backend.finished = True
-    for _ in range(RELIST_EVERY):
-        panel.poll()
-    assert panel.unfinished == set() and panel.live_sources() == []
-    assert "following" not in panel.status.text()
-    # The run list itself did not change, so the tree (and what is ticked) was left alone.
+    panel.refresh()
+    assert panel.explorer.tree.topLevelItemCount() == 1
+    panel.explorer.select_run("g", "live_run")
+    panel.show()
+    before = list(backend.requests)
+    tree_before = panel.explorer.tree.topLevelItem(0)
+    backend.rows.append({"transitions": "2000", "eval/reward": "30"})
+    app.processEvents()
+    assert backend.requests == before
     assert panel.explorer.tree.topLevelItem(0) is tree_before
-    assert panel.sources == [SOURCE]
+    assert panel.loader.tables[SOURCE].row_count == 1
+    panel.refresh()
+    assert panel.loader.tables[SOURCE].row_count == 2
+    panel.close()
+    panel.deleteLater()
+
+
+def test_refresh_discards_old_requests_instead_of_repopulating_the_tree():
+    class DeferredBackend(LiveBackend):
+        def get(self, path, callback):
+            self.requests.append((path, callback))
+
+    backend = DeferredBackend()
+    loader = ResultsLoader(backend)
+    listings, manifests = [], []
+    loader.runs_listed.connect(listings.append)
+    loader.manifest_loaded.connect(manifests.append)
+    loader.list_runs()
+    loader.load_manifest("g", "live_run")
+    loader.load_table(SOURCE)
+    old = list(backend.requests)
+    loader.clear()
+    loader.list_runs()
+    loader.load_manifest("g", "live_run")
+    loader.load_table(SOURCE)
+    assert len(backend.requests) == 6  # stale pending requests cannot block a fresh load
+    old[0][1]({"runs": [{"finished": True}]}, None)
+    old[1][1]({"group": "g", "experiment_id": "live_run", "agents": {}, "artifacts": []}, None)
+    old[2][1]({"metrics": [{"transitions": "1"}], "version": "version_0"}, None)
+    assert listings == manifests == []
+    assert loader.manifests == loader.tables == {}
+    backend.requests[3][1]({"runs": []}, None)
+    assert listings == [[]]
 
 
 # ── Scale ────────────────────────────────────────────────────────────────────
@@ -190,9 +197,8 @@ def test_long_series_are_thinned_for_drawing_only(tmp_path):
     backend.finished = True
     backend.rows = [{"transitions": str(i), "eval/reward": str(i % 7)} for i in range(6000)]
     panel = ResultsPanel(backend)
-    panel.poll_timer.stop()
     panel.refresh()
-    panel.explorer.tree.topLevelItem(0).child(0).setCheckState(0, Qt.CheckState.Checked)
+    panel.explorer.select_run("g", "live_run")
     drawn = panel.grid.cards["eval/reward"].chart.series[0][1]
     assert len(drawn) <= 2001
     assert panel.summary.rows[0][-1] == 6000  # Summary uses every point

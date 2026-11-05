@@ -71,7 +71,7 @@ def pipeline_segments(agents: list[str], lives: dict[str, LiveRun], now: float |
     for agent in order:
         live = lives.get(agent)
         start = _started(live) if live is not None else None
-        if live is None or (not live.rows and live.finish is None):
+        if live is None or (not live.start and not live.rows and live.finish is None):
             segments.append(Segment(agent, "pending", 0.0))
             continue
         if live.finish is not None:

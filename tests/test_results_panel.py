@@ -32,9 +32,9 @@ SB3_ROWS = [  # SB3 through ContractLogger: its own loss names
     {"step": "2", "transitions": "2000", "eval/reward": "35", "losses/train/value_loss": "2.0"},
 ]
 RUNS = [
-    {"group": "cartpole", "experiment_id": "ppo_run", "agents": [{"name": "ppo"}]},
-    {"group": "sb3", "experiment_id": "sb3_run", "agents": [{"name": "ppo"}]},
-    {"group": "sb3", "experiment_id": "never_logged", "agents": []},  # nothing to plot: not listed
+    {"group": "cartpole", "experiment_id": "ppo_run", "agents": [{"name": "ppo"}], "finished": True},
+    {"group": "sb3", "experiment_id": "sb3_run", "agents": [{"name": "ppo"}], "finished": True},
+    {"group": "sb3", "experiment_id": "never_logged", "agents": [], "finished": True},  # nothing to plot: not listed
 ]
 OLD_PPO_ROWS = [{"eval/reward": "5", "transitions": "1000"}]
 
@@ -84,13 +84,13 @@ class LocalBackendCalls:
     version/since, the same as when the Results panel talked to the FastAPI server.
     """
 
-    def list_runs(self, callback):
+    def list_runs(self, callback, *, completed_only=False):
         self.get("/api/runs", callback)
 
-    def run_manifest(self, group, experiment_id, callback):
+    def run_manifest(self, group, experiment_id, callback, *, completed_only=False):
         self.get(f"/api/runs/{group}/{experiment_id}/manifest", callback)
 
-    def run_metrics(self, group, experiment_id, agent, callback, version=None, since=0):
+    def run_metrics(self, group, experiment_id, agent, callback, version=None, since=0, *, completed_only=False):
         params = {key: value for key, value in (("version", version), ("since", since)) if value}
         query = f"?{urlencode(params)}" if params else ""
         self.get(f"/api/runs/{group}/{experiment_id}/{agent}/metrics{query}", callback)
@@ -172,6 +172,32 @@ def make_panel(settings=None):
     panel = ResultsPanel(backend, settings)
     panel.refresh()
     return panel, backend
+
+
+@pytest.mark.parametrize("tree_name", ["runs", "files"])
+def test_results_tree_splitters_resize_without_snapping_closed(tree_name):
+    panel, _ = make_panel()
+    panel.resize(1800, 800)
+    panel.show()
+    app.processEvents()
+    tree = panel.explorer if tree_name == "runs" else panel.browser("Files").tree
+    splitter = tree.parentWidget()
+    try:
+        splitter.moveSplitter(240, 1)
+        app.processEvents()
+        assert abs(tree.width() - 240) <= 2
+        splitter.moveSplitter(320, 1)
+        app.processEvents()
+        assert abs(tree.width() - 320) <= 2
+        splitter.moveSplitter(0, 1)
+        app.processEvents()
+        assert tree.width() > 0
+        splitter.moveSplitter(280, 1)
+        app.processEvents()
+        assert abs(tree.width() - 280) <= 2
+    finally:
+        panel.close()
+        panel.deleteLater()
 
 
 def tick(panel, *names):
@@ -757,3 +783,237 @@ def test_open_run_selects_its_curves_after_listing():
     assert panel.tabs.currentWidget() is panel.curves_page
     assert panel.run_keys() == ["cartpole/ppo_run"]
     assert "eval/reward" in panel.grid.cards
+
+
+def test_failed_run_without_metrics_opens_error_log(monkeypatch):
+    run_key = "sb3/never_logged"
+    path = f"logs/{run_key}/job-1.stderr.log"
+    monkeypatch.setitem(FILES, run_key, {path: ("log", b"traceback here")})
+    monkeypatch.setitem(RUNS[2], "has_run_logs", True)
+    panel, backend = make_panel()
+    panel.open_run("sb3", "never_logged", failure=True, job_id="job-1")
+    browser = panel.browser("Files")
+    assert panel.tabs.currentWidget() is panel._pages["Files"]
+    assert browser.current[1]["path"] == path
+    assert "traceback here" in browser.viewers["text"].browser.toPlainText()
+    assert not any("never_logged//metrics" in request for request in backend.requests)
+    panel.close()
+
+
+def test_saved_sweep_results_load_after_restart_and_open_recorded_trial_metrics(monkeypatch):
+    import json
+
+    key = "cartpole/ppo_run"
+    base = f"checkpoints/{key}/ppo"
+    summary = {"study": "search", "direction": "maximize", "objective_metric": "eval/reward",
+               "best_trial_id": 7, "trials": [{"id": 7, "state": "complete", "value": 90,
+               "parameters": {"lr": 0.01}, "duration_seconds": 5, "log_version": "version_1",
+               "intermediate_values": {"1": 10, "2": 90}}]}
+    files = dict(FILES[key])
+    files[f"{base}/tuning_summary.json"] = ("metadata", json.dumps(summary).encode())
+    files[f"{base}/sweeps/search/tuning_summary.json"] = ("metadata", json.dumps(summary).encode())
+    files[f"{base}/sweeps/older/tuning_summary.json"] = ("metadata", json.dumps(dict(summary, study="older")).encode())
+    monkeypatch.setitem(FILES, key, files)
+    for _ in range(2):  # fresh panels have no live monitor state or in-memory study data
+        panel, backend = make_panel()
+        panel.explorer.select_run("cartpole", "ppo_run")
+        assert panel.sweeps_view is None
+        panel.tabs.setCurrentWidget(panel.sweeps_page)
+        view = panel.sweeps_view
+        assert view.selector.count() == 2  # the mirrored latest snapshot is deduplicated
+        index = next(i for i, (_, data) in enumerate(view.studies) if data["study"] == "search")
+        view.selector.setCurrentIndex(index)
+        assert view.table.rowCount() == 1
+        assert "90" in view.summary.text()
+        assert view.chart_type.findText("Parameter: lr") >= 0
+        view.chart_type.setCurrentText("Intermediate values")
+        assert view.plot.series[0][1] == [(1.0, 10.0), (2.0, 90.0)]
+        view.table.selectRow(0)
+        assert view.open_button.isEnabled()
+        view.open_button.click()
+        assert panel.tabs.currentWidget() is panel._pages["Files"]
+        assert panel.browser("Files").current[1]["path"] == f"logs/{key}/ppo/version_1/metrics.csv"
+        panel.explorer.select_run("sb3", "sb3_run")
+        assert view.selector.count() == 0
+        assert view.table.rowCount() == 0
+        assert not view.open_button.isEnabled()
+        panel.close()
+
+
+def test_saved_sweeps_distinguish_runs_with_same_method_and_study_and_handle_bad_snapshots(monkeypatch):
+    import json
+
+    for key in ("cartpole/ppo_run", "sb3/sb3_run"):
+        files = dict(FILES[key])
+        data = {"study": "search", "direction": "maximize", "trials": [{"id": 0, "state": "complete", "value": 1}]}
+        files[f"checkpoints/{key}/ppo/tuning_summary.json"] = ("metadata", json.dumps(data).encode())
+        files[f"checkpoints/{key}/broken/tuning_summary.json"] = ("metadata", b"{broken")
+        monkeypatch.setitem(FILES, key, files)
+    panel, _ = make_panel()
+    tick(panel, "ppo_run", "sb3_run")
+    panel.tabs.setCurrentWidget(panel.sweeps_page)
+    view = panel.sweeps_view
+    assert {method for method, study in view.studies} == {"cartpole/ppo_run / ppo", "sb3/sb3_run / ppo"}
+    view.table.selectRow(0)
+    assert not view.open_button.isEnabled()  # legacy summaries never open another trial's newest version
+    panel.close()
+
+
+def test_saved_sweep_results_refresh_reloads_snapshot(monkeypatch):
+    import json
+
+    key = "cartpole/ppo_run"
+    path = f"checkpoints/{key}/ppo/tuning_summary.json"
+    files = dict(FILES[key])
+    study = {"study": "search", "direction": "maximize", "best_trial_id": 0,
+             "trials": [{"id": 0, "state": "complete", "value": 10}]}
+    files[path] = ("metadata", json.dumps(study).encode())
+    monkeypatch.setitem(FILES, key, files)
+    panel, _ = make_panel()
+    tick(panel, "ppo_run")
+    panel.tabs.setCurrentWidget(panel.sweeps_page)
+    assert "Best 10" in panel.sweeps_view.summary.text()
+    study["trials"][0]["value"] = 20
+    files[path] = ("metadata", json.dumps(study).encode())
+    panel.refresh()
+    assert "Best 20" in panel.sweeps_view.summary.text()
+    assert panel.sweeps_view.selector.count() == 1
+    panel.close()
+
+
+def test_saved_importance_chart_stays_static_until_results_are_refreshed(monkeypatch):
+    import json
+    from PyQt6.QtCore import QTimer
+
+    key = "cartpole/ppo_run"
+    path = f"checkpoints/{key}/ppo/tuning_summary.json"
+    files = dict(FILES[key])
+    study = {"study": "search", "direction": "maximize", "trials": [],
+             "parameter_importance": {"learning_rate": 0.75, "batch_size": 0.25},
+             "parameter_importance_info": {"completed_trials": 10, "evaluator": "fANOVA", "status": "ready"}}
+    files[path] = ("metadata", json.dumps(study).encode())
+    monkeypatch.setitem(FILES, key, files)
+    panel, backend = make_panel()
+    tick(panel, "ppo_run")
+    panel.tabs.setCurrentWidget(panel.sweeps_page)
+    chart = panel.sweeps_view.importance_view
+    assert chart.scores == [("learning_rate", 0.75), ("batch_size", 0.25)]
+    assert not panel.findChildren(QTimer)
+    before = list(backend.requests)
+    study["parameter_importance"] = {"learning_rate": 0.2, "batch_size": 0.8}
+    files[path] = ("metadata", json.dumps(study).encode())
+    app.processEvents()
+    assert backend.requests == before
+    assert chart.scores[0] == ("learning_rate", 0.75)
+    panel.refresh()
+    assert chart.scores == [("batch_size", 0.8), ("learning_rate", 0.2)]
+    panel.close()
+
+
+def test_saved_sweeps_link_parallel_filters_to_history_without_live_polling(monkeypatch):
+    import json
+    from PyQt6.QtCore import QTimer
+
+    key = "cartpole/ppo_run"
+    files = dict(FILES[key])
+    study = {"study": "search", "direction": "maximize", "trials": [
+        {"id": 0, "state": "complete", "value": 10, "parameters": {"lr": .01, "optimizer": "adam"}},
+        {"id": 1, "state": "complete", "value": 50, "parameters": {"lr": .02, "optimizer": "sgd"}},
+        {"id": 2, "state": "complete", "value": 90, "parameters": {"lr": .03, "optimizer": "adam"}},
+    ]}
+    files[f"checkpoints/{key}/ppo/tuning_summary.json"] = ("metadata", json.dumps(study).encode())
+    monkeypatch.setitem(FILES, key, files)
+    panel, backend = make_panel()
+    tick(panel, "ppo_run")
+    panel.tabs.setCurrentWidget(panel.sweeps_page)
+    view = panel.sweeps_view
+    before = list(backend.requests)
+    view.parallel_plot.brushes[("parameter", "lr")] = (0, .025)
+    view.parallel_plot.selection_changed.emit()
+    view.filter.setText("adam")
+    assert view.parallel_plot.selected_ids == {0}
+    assert view.plot.series[0][1] == [(0, 10)]
+    assert view.selection_count.text() == "1 / 3 trials"
+    assert not panel.findChildren(QTimer)
+    assert backend.requests == before
+    view.clear_filters.click()
+    assert view.parallel_plot.selected_ids == {0, 1, 2}
+    assert view.plot.series[0][1] == [(0, 10), (1, 50), (2, 90)]
+    panel.close()
+
+
+def test_trial_toggle_loads_each_saved_seed_curve_and_preserves_selection(tmp_path, monkeypatch):
+    import json
+    from src.app.services import catalog
+
+    logs = tmp_path / "results/logs"
+    monkeypatch.setattr(catalog, "LOGS_DIR", logs)
+    trial_version = "version_sweep_search_trial_35"
+    run_dir = logs / "group/run"
+
+    def write(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(data)
+
+    write(run_dir / f"ppo/{trial_version}/metrics.csv", "step,objective/learning_curve\n0,0.4472875\n")
+    trials = {"study": "search", "stop_reason": "trial_limit", "best_trial_id": 35,
+              "trials": [{"id": 35, "state": "complete", "value": .4472875, "log_version": trial_version}]}
+    write(logs.parent / "checkpoints/group/run/ppo/tuning_summary.json", json.dumps(trials))
+    runs = []
+    for index in range(7):
+        version = f"{trial_version}_sample_seed_{index}"
+        runs.append({"experiment_id": "run", "method": "ppo", "agent": "ppo", "version": version,
+                     "training_seed": 1234679 + index, "status": "completed" if index < 6 else "running"})
+        write(run_dir / f"ppo/{version}/metrics.csv",
+              f"transitions,eval/reward,losses/policy\n0,10,1\n16384,{100 + index},0.5\n32768,{300 + index},0.1\n")
+        # An end timestamp must not publish a seed still marked running in its execution record.
+        write(run_dir / f"ppo/{version}/runtime.json", json.dumps({"completed_at": "2026-11-04"}))
+    write(logs.parent / "executions/group/run/execution/manifest.json", json.dumps({
+        "parent": {"kind": "trial", "log_version": trial_version, "study": "search", "trial_number": 35},
+        "runs": runs}))
+
+    class Backend:
+        def list_runs(self, callback, **kwargs):
+            callback({"runs": catalog.list_runs(**kwargs)}, None)
+
+        def run_manifest(self, group, experiment, callback, **kwargs):
+            callback(catalog.run_manifest(group, experiment, **kwargs), None)
+
+        def run_metrics(self, group, experiment, agent, callback, **kwargs):
+            callback(catalog.run_metrics(group, experiment, agent, **kwargs), None)
+
+        def run_file(self, group, experiment, path, callback):
+            callback(catalog.read_run_file(group, experiment, path), None)
+
+    panel = ResultsPanel(Backend())
+    panel.refresh()
+    panel.explorer.select_run("group", "run")
+    assert len(panel.sources) == 6
+    assert set(panel.grid.cards) == {"eval/reward", "losses/policy"}
+    assert len(panel.grid.cards["eval/reward"].chart.series) == 6
+    assert all(len(points) == 3 for _, points, _ in panel.grid.cards["eval/reward"].chart.series)
+    items = tree_items(panel)
+    trial = items["search · trial 35"]
+    assert trial.childCount() == 6
+    assert "Seed 1234685" not in items
+    trial.setCheckState(0, Qt.CheckState.Unchecked)
+    assert panel.sources == []
+    trial.setCheckState(0, Qt.CheckState.Checked)
+    assert len(panel.sources) == 6
+    items["Seed 1234679"].setCheckState(0, Qt.CheckState.Unchecked)
+    assert len(panel.sources) == 5
+    assert trial.checkState(0) == Qt.CheckState.PartiallyChecked
+    panel.refresh()
+    assert len(panel.sources) == 5
+    panel.tabs.setCurrentWidget(panel.sweeps_page)
+    panel.sweeps_view.table.selectRow(0)
+    panel.sweeps_view.open_button.click()
+    assert panel.tabs.currentWidget() is panel.curves_page
+    assert len(panel.sources) == 6
+    assert all("trial 35 · seed" in source.label for source in panel.sources)
+    panel.combine_select.setCurrentIndex(1)
+    series = panel.grid.cards["eval/reward"].chart.series
+    assert len(series) == 1
+    assert all(point["n"] == 6 for point in series[0][1])
+    assert "trial 35" in series[0][0]
+    panel.close()

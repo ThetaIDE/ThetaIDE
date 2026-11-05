@@ -2,7 +2,7 @@
 import pytest
 
 pytest.importorskip("PyQt6")
-from frontend.job_manager import JobManager
+from frontend.runner_manager import JobManager
 from frontend.monitor.panel import MonitorPanel
 
 
@@ -22,7 +22,7 @@ def test_scan_reads_all_started_sources(monkeypatch):
             self.calls.append(args)
 
     from pathlib import Path
-    import frontend.job_manager as module
+    import frontend.runner_manager as module
     monkeypatch.setattr(module, "AgentFeed", Feed)
     monkeypatch.setattr(module, "metrics_row", lambda record: {"step": 1})
     class Manager:

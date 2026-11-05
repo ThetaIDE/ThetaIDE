@@ -25,7 +25,7 @@ def chart_title(metric: str) -> str:
 class ChartCard(QFrame):
     hide_requested = pyqtSignal(str)
 
-    def __init__(self, metric: str, parent=None):
+    def __init__(self, metric: str, parent=None, compact_hide: bool = False):
         super().__init__(parent)
         self.metric = metric
         self.setObjectName("resultsChartCard")
@@ -47,7 +47,8 @@ class ChartCard(QFrame):
         self.value.hide()
         corner_layout.addWidget(self.value)
         self.hide_button = QToolButton()
-        self.hide_button.setText("Hide")
+        self.hide_button.setText("−" if compact_hide else "Hide")
+        self.hide_button.setObjectName("monitorPlotHide" if compact_hide else "")
         self.hide_button.setToolTip(f"Hide {metric} (bring it back from the Plots menu)")
         self.hide_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.hide_button.clicked.connect(lambda: self.hide_requested.emit(self.metric))
@@ -104,13 +105,15 @@ class PlotGrid(QScrollArea):
         self._empty_text = ""
         self._laid_lead: str | None = None  # the lead group of the current layout, if the lead is in it
         self._toolbar_row: QWidget | None = None
+        self.compact_hide = False
 
     def configure(self, columns=COLUMNS, collapsible=False, hero=None, focus=None, header=None, flat=False,
-                  lead=None, toolbar=None, group_columns=None):
+                  lead=None, toolbar=None, group_columns=None, compact_hide=False):
         """Change how cards are laid out; takes effect on the next `set_metrics`."""
         self.columns, self.collapsible, self.hero, self.focus = columns, collapsible, hero, focus
         self.header, self.flat = header, flat
         self.lead, self.toolbar, self.group_columns = lead, toolbar, dict(group_columns or {})
+        self.compact_hide = compact_hide
         for card in self.cards.values():
             if card.property("flat") != flat:
                 card.setProperty("flat", flat)
@@ -127,7 +130,7 @@ class PlotGrid(QScrollArea):
     def card(self, metric: str) -> ChartCard:
         card = self.cards.get(metric)
         if card is None:
-            card = self.cards[metric] = ChartCard(metric)
+            card = self.cards[metric] = ChartCard(metric, compact_hide=self.compact_hide)
             card.setProperty("flat", self.flat)
             card.hide_requested.connect(self.hide_requested)
             card.chart.point_hovered.connect(self.point_hovered)
