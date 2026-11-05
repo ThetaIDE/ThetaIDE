@@ -24,6 +24,9 @@ MLP, CNN, ResNet, LSTM and Transformer models, Gymnasium and Atari environments,
 such as BlendRL, NSFR and NEUMANN. You can also write your own: see the
 [Component Plugin Authoring Guide](docs/COMPONENT_PLUGIN_GUIDE.md).
 
+Training objectives can also be edited as Python components, with optional GUI parameters and
+scores across repeated training seeds. See [Editable objectives](CUSTOM_OBJECTIVES.md).
+
 ---
 
 ## Install
@@ -58,6 +61,20 @@ pip install -e ".[dev,gui]"
 4. Watch it train in the **Monitor** tab, then compare runs in **Results**.
 
 Press **F1** for the built-in documentation, or **Ctrl+Space** to jump to any panel, plugin or command.
+
+## Text editor
+
+Enable **Text Editor** in **Settings → Core Plugins** to add the **Editor** panel and select it as
+Theta's default text editor. **Settings → Text Editor** lets you switch back to the system editor
+or change line wrapping. This preference controls files opened inside Theta, including `settings.toml`.
+
+The editor has document tabs, New/Open/Save/Save As, undo/redo, find/replace, folding, and syntax
+highlighting for Python, YAML, JSON, TOML, and Markdown. File-menu shortcuts act on the Editor panel
+while it is selected. Closing a modified tab, disabling the plugin, or quitting prompts to save;
+external changes are flagged before overwriting. CodeMirror 6 is bundled locally and works offline.
+The initial version accepts UTF-8 files (with or without a BOM) up to 10 MiB and preserves consistent
+LF, CRLF, or CR line endings. It reports binary files, other encodings, and mixed line endings instead
+of silently converting them.
 
 ## Command line
 
@@ -156,3 +173,10 @@ its licence is listed in [THIRD_PARTY_LIBRARIES.md](THIRD_PARTY_LIBRARIES.md).
 Coding standards and how to extend the system are in
 [CONTRIBUTING.md](CONTRIBUTING.md). Participation is governed by our
 [Code of Conduct](CODE-OF-CONDUCT.md).
+
+Training jobs run in an independent local runner. Closing or quitting ThetaIDE leaves
+active jobs and a started queue running; reopening the same workspace reconnects the
+monitor and replays metrics and logs written while the desktop was closed. Use Stop
+or the queue controls to cancel jobs or pause new launches explicitly. This keeps
+jobs running across desktop exits, not machine shutdowns. Runner diagnostics are in
+the job data directory under `runner/runner.log`.

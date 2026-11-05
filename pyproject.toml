@@ -29,6 +29,7 @@ dependencies = [
     "tabulate>=0.9",
     "pillow>=9.0",
     "pyyaml>=6.0",
+    "jsonschema>=4.20,<5",
 ]
 
 [project.optional-dependencies]
@@ -81,6 +82,9 @@ include = [
 ]
 exclude = [
 ]
+
+[tool.setuptools.package-data]
+"src.app.objectives" = ["builtins/*.json"]
 
 # ── Ruff (linting + formatting) ─────────────────────────────
 [tool.ruff]

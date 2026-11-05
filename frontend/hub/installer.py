@@ -2,11 +2,13 @@
 from __future__ import annotations
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
 import tempfile
 import urllib.request
+import yaml
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 from zipfile import ZipFile
 
@@ -16,6 +18,73 @@ from frontend.plugins.dependencies import (
     install_packages,
     load_requirements_from_file,
 )
+
+
+def _add_missing_yaml_defaults(retained_text: str, packaged_text: str) -> str:
+    """Preserve the retained document if its defaults cannot be safely merged."""
+    try:
+        result = _merge_missing_yaml_defaults(retained_text, packaged_text)
+        original, merged = yaml.safe_load(retained_text), yaml.safe_load(result)
+        def contains(original, merged):
+            if isinstance(original, dict):
+                return isinstance(merged, dict) and all(k in merged and contains(v, merged[k]) for k, v in original.items())
+            return type(original) is type(merged) and original == merged
+        if not contains(original, merged):
+            raise ValueError("merge would change existing values")
+        return result
+    except (yaml.YAMLError, ValueError, TypeError) as exc:
+        logging.getLogger(__name__).warning("Could not merge component defaults; kept the existing YAML: %s", exc)
+        return retained_text
+
+
+def _merge_missing_yaml_defaults(retained_text: str, packaged_text: str) -> str:
+    """Add missing block-mapping defaults without rewriting existing YAML or comments.
+
+    Existing values, including explicit nulls, win. Flow mappings and incompatible
+    node shapes are left untouched, because rewriting them could change user data.
+    """
+    old = yaml.compose(retained_text)
+    new = yaml.compose(packaged_text)
+    if not isinstance(old, yaml.MappingNode) or not isinstance(new, yaml.MappingNode):
+        return retained_text
+    additions = []
+    def walk(existing, incoming):
+        if existing.flow_style or incoming.flow_style:
+            logging.getLogger(__name__).warning("Component defaults in a flow-style YAML mapping were not merged; existing settings were preserved.")
+            return
+        current = {key.value: val for key, val in existing.value if isinstance(key, yaml.ScalarNode)}
+        missing = []
+        for key, value in incoming.value:
+            if not isinstance(key, yaml.ScalarNode):
+                continue
+            if key.value not in current:
+                missing.append((key, value))
+            elif isinstance(current[key.value], yaml.MappingNode) and isinstance(value, yaml.MappingNode):
+                walk(current[key.value], value)
+        if not missing:
+            return
+        indent = existing.start_mark.column
+        # Use the parsed values to safely quote strings and nested structures.
+        # Construct values directly from each node to support nested mappings.
+        values = {}
+        for key, value in missing:
+            fragment = packaged_text[value.start_mark.index:value.end_mark.index]
+            values[key.value] = yaml.safe_load(fragment)
+        block = yaml.safe_dump(values, sort_keys=False, allow_unicode=True)
+        block = "".join(" " * indent + line if line.strip() else line for line in block.splitlines(keepends=True))
+        additions.append((existing.end_mark.line, indent, block))
+    walk(old, new)
+    if not additions:
+        return retained_text
+    lines = retained_text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    for line, indent, block in sorted(additions, key=lambda item: (-item[0], item[1])):
+        lines.insert(line, block)
+    result = "".join(lines)
+    # Never install a syntactically invalid merge.
+    yaml.safe_load(result)
+    return result
 
 
 class HubInstaller:
@@ -260,6 +329,14 @@ class HubInstaller:
         self._installing_stack.add(component.id)
 
         target_dir = self.resolve_target_dir(component)
+        previous_meta = {}
+        previous_manifest = target_dir / ".theta_component.json"
+        had_previous_manifest = previous_manifest.is_file()
+        if had_previous_manifest:
+            try:
+                previous_meta = json.loads(previous_manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
         staging_dir = Path(tempfile.mkdtemp(prefix="theta_staging_"))
 
         try:
@@ -353,9 +430,27 @@ class HubInstaller:
 
             # Restore configs retained during an earlier uninstall. This includes
             # edits to packaged profiles and user-created copies of those profiles.
-            restored_user_config_paths = self._restore_retained_configs(
-                component.id, installed_config_paths, config_backups
-            )
+            previous_config_paths = set(config_backups)
+            restored_user_config_paths = []
+            if not had_previous_manifest:
+                restored_user_config_paths = self._restore_retained_configs(
+                    component.id, installed_config_paths, config_backups
+                )
+            # On an in-place update preserve edited profiles, adding only new defaults.
+            # A missing old hash is treated conservatively as a user edit.
+            old_hashes = previous_meta.get("config_hashes") or {}
+            old_user_paths = set(previous_meta.get("user_config_paths") or [])
+            for relative, info in config_backups.items():
+                if relative not in previous_config_paths or relative not in installed_config_paths:
+                    continue
+                backup = self.workspace_dir / info["backup"]
+                destination = self.workspace_dir / relative
+                expected = old_hashes.get(relative)
+                if relative in old_user_paths or not expected or self._sha256_file(backup) != expected:
+                    destination.write_text(_add_missing_yaml_defaults(
+                        backup.read_text(encoding="utf-8"), destination.read_text(encoding="utf-8")
+                    ), encoding="utf-8")
+                    restored_user_config_paths.append(relative)
             installed_config_paths = list(dict.fromkeys(installed_config_paths))
             installed_config_rel = installed_config_paths[0] if installed_config_paths else None
 
@@ -743,7 +838,13 @@ class HubInstaller:
             if destination.is_file() and relative not in config_backups:
                 self._backup_existing_config(component_id, destination, config_backups)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(retained, destination)
+            if destination.is_file() and relative in installed_paths:
+                retained_text = retained.read_text(encoding="utf-8")
+                packaged_text = destination.read_text(encoding="utf-8")
+                destination.write_text(_add_missing_yaml_defaults(retained_text, packaged_text), encoding="utf-8")
+                restored_user_paths.append(relative)
+            else:
+                shutil.copy2(retained, destination)
             if relative not in installed_paths:
                 installed_config_paths.append(relative)
                 installed_paths.add(relative)

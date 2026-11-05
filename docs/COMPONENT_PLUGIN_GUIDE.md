@@ -121,6 +121,31 @@ keeps profile-specific keys and choices attached to the profile the editor opens
 The editor reads this metadata from the installed component manifest; plugin
 code is not imported to build the form.
 
+Parameters can declare `x-theta-actions` to expose a hover/focus pencil. The IDE
+owns the presentation and editor routing; the component owns all target paths.
+For a static target use `{"type": "open-in-editor", "path": "notes/example.txt"}`.
+For dynamic targets declare a lightweight, standalone component handler:
+
+```json
+"x-theta-actions": [{
+  "type": "open-in-editor",
+  "label": "Edit rules",
+  "handler": {
+    "path": "src/usr/models/my_model/editor_actions.py",
+    "function": "rules_edit_targets"
+  }
+}]
+```
+
+The IDE loads this file only when clicked and calls `rules_edit_targets(value=value,
+context=context)`. Context contains `workspace_root`, the effective current `config`,
+the full `parameter_path`, and `config_path`. The handler returns a path, a
+`{"path": ..., "label": ...}` target, or a list of targets. Relative paths are
+relative to the workspace. One target opens directly; multiple targets appear in
+a menu. Missing files and handler failures show an error without guessing another
+target. Keep handlers free of training imports. The IDE has no ruleset, environment,
+model-name, or filename logic for these actions. Opening does not create an override.
+
 All plugin contracts are defined in [`src/app/core/protocols.py`](file:///Users/cameronegbert/Research/Theta-IDE/src/app/core/protocols.py).
 
 ### 2.1 Model Architectures & Composite Models
@@ -502,3 +527,11 @@ names from the Gymnasium environment's `get_action_meanings()` method instead.
 For example, the CartPole plugin supplies its own builder, rule valuations,
 and the action names `left` and `right`. Other environments can supply their
 own domain-specific functions without modifying the SB3 adapter.
+
+### Parameter validation
+
+The experiment YAML contains the configured values; component manifests describe parameters and editor controls. The pipeline, GUI preview, and launch use the same composition and validation path. To opt a component's parameter schema into runtime validation, set `"x-theta-validate": true` on its `parameter_schema` (or on a profile schema in `x-theta-config-schemas`). The schema must describe the resolved runtime values, including explicit `null` defaults and nested component objects where applicable. Existing schemas remain editor metadata until they opt in.
+
+Validation applies JSON Schema draft 2020-12 to the selected method's composed agent or model configuration. An opted-in field's sweep choices and numeric bounds are checked against the same field schema. The pipeline also composes a representative Optuna trial before launching; this detects missing Hydra paths, but does not exhaustively test combinations of sweep dimensions or guarantee that training will succeed. Components without a validation schema continue to work with the shared pipeline checks.
+
+On component update or reinstall, existing user YAML values are retained and missing block-mapping defaults from the new component are added. Explicit nulls are values and are retained. Flow-style mappings and incompatible structures are preserved rather than rewritten; they may need manual reconciliation. Check the config and validation output after upgrading a component.

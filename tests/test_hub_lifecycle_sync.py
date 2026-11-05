@@ -164,3 +164,75 @@ class TestHubLifecycleSync(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_reinstall_merges_new_defaults_without_losing_user_values_or_comments(tmp_path):
+    from frontend.hub.installer import _add_missing_yaml_defaults
+    import yaml
+    retained = "# user settings\nmodel:\n  width: 64 # chosen\n  nested:\n    keep: true\n"
+    packaged = "model:\n  width: 32\n  nested:\n    keep: false\n    new: 4\n  logic_lr: null\nnew_top: 3\n"
+    result = _add_missing_yaml_defaults(retained, packaged)
+    assert "# user settings" in result and "# chosen" in result
+    assert yaml.safe_load(result) == {"model": {"width": 64, "nested": {"keep": True, "new": 4}, "logic_lr": None}, "new_top": 3}
+
+
+def test_update_and_reinstall_preserve_user_config_and_add_defaults(tmp_path):
+    from zipfile import ZipFile
+    import yaml
+    from frontend.hub.models import ReleaseInfo
+
+    workspace, data = tmp_path / "workspace", tmp_path / "data"
+    workspace.mkdir()
+    data.mkdir()
+    installer = HubInstaller(workspace, data)
+    def release(version, config):
+        archive = tmp_path / f"{version}.zip"
+        with ZipFile(archive, "w") as z:
+            z.writestr("main.py", "# component\n")
+            z.writestr("config.yaml", config)
+        return ReleaseInfo(tag=version, url=archive.as_uri(), sha256="")
+    component = HubComponent(id="example", name="Example", kind="model", version="1.0.0", releases={
+        "1.0.0": release("1.0.0", "width: 32\n"),
+        "1.1.0": release("1.1.0", "width: 32\nlogic_lr: null\n"),
+        "1.2.0": release("1.2.0", "width: 32\nlogic_lr: null\nblender_lr: null\n"),
+    })
+    path = workspace / "in/config/model/example.yaml"
+    assert installer.install(component, "1.0.0")
+    path.write_text("# personal\nwidth: 64\n")
+    assert installer.install(component, "1.1.0")
+    assert yaml.safe_load(path.read_text()) == {"width": 64, "logic_lr": None}
+    assert "# personal" in path.read_text()
+    assert installer.uninstall(component)
+    assert installer.install(component, "1.2.0")
+    assert yaml.safe_load(path.read_text()) == {"width": 64, "logic_lr": None, "blender_lr": None}
+    assert installer.uninstall(component)
+    assert installer.install(component, "1.2.0")
+    assert yaml.safe_load(path.read_text()) == {"width": 64, "logic_lr": None, "blender_lr": None}
+
+
+def test_root_relative_reinstall_restores_retained_yaml_after_source_copy(tmp_path):
+    from zipfile import ZipFile
+    import yaml
+    from frontend.hub.models import ReleaseInfo
+    workspace, data = tmp_path / "workspace", tmp_path / "data"
+    workspace.mkdir()
+    data.mkdir()
+    installer = HubInstaller(workspace, data)
+    def release(version, text):
+        archive = tmp_path / f"root-{version}.zip"
+        manifest = {"id": "example", "name": "Example", "kind": "model", "version": version,
+                    "config_path": "in/config/model/example.yaml"}
+        with ZipFile(archive, "w") as z:
+            z.writestr("in/config/model/example.yaml", text)
+            z.writestr("src/usr/models/example/.theta_component.json", json.dumps(manifest))
+        return ReleaseInfo(tag=version, url=archive.as_uri(), sha256="")
+    component = HubComponent(id="example", name="Example", kind="model", version="1.0.0", releases={
+        "1.0.0": release("1.0.0", "width: 32\n"),
+        "1.1.0": release("1.1.0", "width: 32\nlogic_lr: null\n"),
+    })
+    path = workspace / "in/config/model/example.yaml"
+    assert installer.install(component, "1.0.0")
+    path.write_text("width: 64\n")
+    assert installer.uninstall(component)
+    assert installer.install(component, "1.1.0")
+    assert yaml.safe_load(path.read_text()) == {"width": 64, "logic_lr": None}

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QObject, QRect, QRectF, Qt
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import QMenu, QSystemTrayIcon
 
 from .app_icon import app_icon
 
@@ -153,4 +153,3 @@ class TrayController(QObject):
     def remove(self):
         """Take the icon out of the tray (the app is quitting)."""
         self.icon.hide()
-        QApplication.processEvents()
