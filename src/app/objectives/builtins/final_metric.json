@@ -1,0 +1,10 @@
+{
+  "api_version": 1,
+  "source": "final_metric.py",
+  "defaults": {"metric": "eval/reward"},
+  "requires": {"metric_parameter": "metric"},
+  "schema": {
+    "type": "object", "required": ["metric"], "additionalProperties": false,
+    "properties": {"metric": {"type": "string", "minLength": 1, "default": "eval/reward"}}
+  }
+}

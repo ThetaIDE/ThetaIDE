@@ -34,8 +34,7 @@ def test_plan_rejects_unsupported_combinations():
     with pytest.raises(ConfigurationError, match="Slurm"):
         make_plan(cfg, {**context(), "is_interactive": False})
     cfg.tuning = {"enabled": True}
-    with pytest.raises(ConfigurationError, match="tuning"):
-        make_plan(cfg, context())
+    assert make_plan(cfg, context())["training_seeds"] == [1, 2]
 
 
 def test_execution_isolated_and_failures_retained(tmp_path, monkeypatch):
@@ -54,7 +53,7 @@ def test_execution_isolated_and_failures_retained(tmp_path, monkeypatch):
     assert len(manifests) == 2
     runs = [run for path in manifests for run in json.loads(path.read_text())["runs"]]
     assert len({run["run_id"] for run in runs}) == 8
-    assert len({run["logs"] for run in runs}) == 8
+    assert len({(run["logs"], run["agent"], run["version"]) for run in runs}) == 8
     assert sum(run["status"] == "failed" for run in runs) == 4
     assert all(any(arg.startswith("++experiment_id=") for arg in call) for call in calls)
 
@@ -75,7 +74,7 @@ def test_evaluation_event_records_episode_outcomes(tmp_path, monkeypatch):
     trainer = SimpleNamespace(loggers=[], global_step=10)
     module = SimpleNamespace(cfg={"paradigm": "online_rl"}, log=lambda *a, **kw: None)
     callback.evaluate_and_log(trainer, module, 10)
-    event = json.loads((tmp_path / "results/logs/g/e/evaluation_events.jsonl").read_text())
+    event = json.loads((tmp_path / "results/logs/g/e/m/version_0/evaluation_events.jsonl").read_text())
     assert event["episode_outcomes"] == [1.0, 3.0]
     assert event["training_step"] == 10
     assert event["deterministic_actions"] is None
@@ -160,7 +159,7 @@ def test_real_sb3_replicates_record_episodes(tmp_path, monkeypatch):
     assert len(execution.runs()) == 2
     for run in execution.runs():
         assert run["status"] == "completed"
-        assert (tmp_path / run["checkpoints"] / "m" / "latest_model.zip").exists()
+        assert (tmp_path / run["checkpoints"] / "latest_model.zip").exists()
         events = execution.events(run)
         assert [event["training_step"] for event in events] == [0, 8]
         assert all(len(event["episode_outcomes"]) == 2 and event["deterministic_actions"] for event in events)

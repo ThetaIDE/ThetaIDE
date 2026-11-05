@@ -8,12 +8,13 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 
 from src.app.pipeline.engine import DEFAULT_ENGINE_SCRIPT, resolve_engine
 from src.app.pipeline.exceptions import ConfigurationError
@@ -61,9 +62,8 @@ def make_plan(cfg, context):
         raise ConfigurationError("variability does not yet support workflow launches")
     if not context.get("is_interactive", True):
         raise ConfigurationError("variability is not yet supported by the Slurm launcher")
-    from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
-    if cfg.get("recover") or context.get("is_sweep") or tuning_enabled(cfg) or (not tuning_disabled(cfg) and (cfg.get("sweep") or any(m.get("tune") or m.get("search_space") for m in context["methods"].values()))):
-        raise ConfigurationError("variability cannot yet be combined with recovery or tuning")
+    if cfg.get("recover"):
+        raise ConfigurationError("variability cannot yet be combined with recovery")
     capabilities = {}
     from src.app.telemetry.selection import selection_from_config
     selection = selection_from_config(cfg)
@@ -85,12 +85,17 @@ def make_plan(cfg, context):
             "eval_episodes": episodes, "capabilities": capabilities}
 
 
-def run_execution(cfg, context, plan):
-    """Execute each method and seed independently, retaining failures."""
+def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_failure=True):
+    """Execute a seed panel through one lifecycle for experiments and resolved trials.
+
+    A resolved-task dispatcher receives (config, run, on_start, on_wait). It
+    launches the worker; this executor owns identity, status and cancellation.
+    """
     from src.app.pipeline.local_runner import _run_methods_sequential, _setup_output_dirs, run_plotting_phase
 
     execution_id = uuid.uuid4().hex
-    result_experiment_id = f"{cfg.experiment_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{execution_id[:8]}"
+    result_experiment_id = (str(cfg.experiment_id) if parent else
+                            f"{cfg.experiment_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{execution_id[:8]}")
     root = Path("results/executions") / str(cfg.group) / str(cfg.experiment_id) / execution_id
     root.mkdir(parents=True, exist_ok=False)
     runs = []
@@ -98,7 +103,8 @@ def run_execution(cfg, context, plan):
     for method in context["methods"]:
         for version_index, seed in enumerate(plan["training_seeds"]):
             run_id = uuid.uuid4().hex
-            version = f"version_{version_index}"
+            version = (f"{parent['log_version']}_sample_{execution_id[:10]}_seed_{version_index}" if parent
+                       else f"version_{version_index}")
             agent = str(context["methods"][method].get("name") or normalize_agent_name(method)).replace("/", "_")
             runs.append({"run_id": run_id, "method": method, "training_seed": seed,
                          "status": "queued", "experiment_id": result_experiment_id,
@@ -115,7 +121,8 @@ def run_execution(cfg, context, plan):
     manifest = {"schema_version": 1, "execution_id": execution_id, "group": str(cfg.group),
                 "experiment_id": str(cfg.experiment_id), "result_experiment_id": result_experiment_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "owner_pid": os.getpid(), "config": config, "plan": plan, "runs": runs}
+                "owner_pid": int(os.environ.get("THETA_PIPELINE_PID", os.getpid())),
+                "parent": parent, "config": config, "plan": plan, "runs": runs}
     path = root / "manifest.json"
     lock = threading.Lock()
 
@@ -129,14 +136,43 @@ def run_execution(cfg, context, plan):
     run_cfg_base.experiment_id = result_experiment_id
     # Prepare the unique result experiment once. Workers then prepare only their
     # own agent/version subtree, so parallel setup cannot erase sibling output.
-    _setup_output_dirs(run_cfg_base)
-    save_experiment_snapshot(run_cfg_base, context)
-    save_run_config(run_cfg_base)
+    if dispatch is None:
+        _setup_output_dirs(run_cfg_base)
+        save_experiment_snapshot(run_cfg_base, context)
+        save_run_config(run_cfg_base)
+
+    resource_pool = None
+    tickets = {}
+    if os.environ.get('THETA_RESOURCE_POOL'):
+        from src.app.services.resource_budget import ResourcePool
+        resource_pool = ResourcePool(os.environ['THETA_RESOURCE_POOL'], os.environ.get('THETAIDE_SETTINGS_FILE'))
 
     def execute(run):
+        from src.app.services.cancellation import requested, TrainingCancelled
+        targets = [f"replicate:{run['run_id']}", f"method:{normalize_agent_name(run['method'])}"]
+        if parent and parent.get("kind") == "trial":
+            targets.append(f"trial:{parent['log_version']}")
         with lock:
-            run["status"] = "running"
+            if requested(targets):
+                run["status"] = "cancelled"
+                save()
+                return
+            run["status"] = "pending"
             save()
+
+        def worker_started(pid):
+            with lock:
+                run.update(status="running", worker_pid=pid,
+                           execution_started=datetime.now(timezone.utc).isoformat())
+                save()
+            print(f"[Training] {run['method']} · seed {run['training_seed']} started (PID {pid}).", flush=True)
+
+        def worker_waiting():
+            with lock:
+                run.update(status="pending", worker_pid=None, execution_started=None)
+                run["capacity_restarts"] = run.get("capacity_restarts", 0) + 1
+                save()
+
         overrides = [arg for arg in context.get("sanitized_extra_args", [])
                      if arg.split("=", 1)[0].lstrip("+") not in {
                          "experiment_id", "seed", "agent.seed", "variability_run_id",
@@ -150,9 +186,32 @@ def run_execution(cfg, context, plan):
         if plan["evaluation_seed"] is not None:
             overrides.append(f"++variability_evaluation_seed={plan['evaluation_seed']}")
         try:
-            _run_methods_sequential(cfg, {**context, "methods": {run["method"]: context["methods"][run["method"]]},
+            started = time.monotonic()
+            if dispatch is not None:
+                child = OmegaConf.create(config)
+                with open_dict(child):
+                    child.experiment_id = result_experiment_id
+                    child.seed = run["training_seed"]
+                    if child.get("agent") is not None:
+                        child.agent.seed = run["training_seed"]
+                    child.variability_run_id = run["run_id"]
+                    child.variability_method = run["agent"]
+                    child.variability_version = run["version"]
+                    child.variability_evaluation_seed = plan["evaluation_seed"]
+                    child.theta_variability_sample = True
+                dispatch(child, dict(run, resource_ticket=tickets.get(run['run_id'])), worker_started, worker_waiting)
+            else:
+                _run_methods_sequential(cfg, {**context, "methods": {run["method"]: context["methods"][run["method"]]},
                                          "sanitized_extra_args": overrides,
-                                         "output_log": run["output_log"]})
+                                         "output_log": run["output_log"],
+                                         "propagate_cancellation": True,
+                                         "on_worker_start": worker_started,
+                                         "on_worker_wait": worker_waiting,
+                                         "resource_ticket": tickets.get(run["run_id"])})
+        except TrainingCancelled:
+            with lock:
+                run.update(status="cancelled", elapsed_seconds=time.monotonic() - started)
+                save()
         except (Exception, SystemExit) as exc:
             output_path = Path(run["output_log"])
             output_tail = ""
@@ -165,24 +224,52 @@ def run_execution(cfg, context, plan):
             if output_tail:
                 error = f"{error}\n\nReplicate output (tail):\n{output_tail}"
             with lock:
-                run.update(status="failed", error=error)
+                run.update(status="failed", error=error, elapsed_seconds=time.monotonic() - started)
                 save()
         else:
             with lock:
-                run["status"] = "completed"
+                run["status"] = "cancelled" if requested(targets) else "completed"
+                run["elapsed_seconds"] = time.monotonic() - started
                 save()
+        print(f"[Training] {run['method']} · seed {run['training_seed']}: {run['status']}.", flush=True)
 
     save()
+    if parent:
+        # A portable link lets existing trial consumers discover the same seed
+        # manifest that ordinary repeated experiments expose.
+        link = logs_root / parent["method"] / parent["log_version"] / "execution.json"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.write_text(json.dumps({"manifest": os.path.relpath(path, link.parent)}) + "\n", encoding="utf-8")
     print(f"Execution manifest: {path}")
-    with ThreadPoolExecutor(max_workers=plan["parallel_runs"], thread_name_prefix="theta-replicate") as pool:
-        futures = [pool.submit(execute, run) for run in runs]
-        for future in as_completed(futures):
-            future.result()
+    workers = plan['parallel_runs']
+    if os.environ.get('THETA_RESOURCE_POOL'):
+        from src.app.services.resource_budget import orchestration_workers
+        workers = orchestration_workers(len(runs))
+        tickets = dict(zip((run['run_id'] for run in runs), resource_pool.enqueue(
+            len(runs), parent=os.environ.get('THETA_RESOURCE_QUEUE_PARENT'))))
+    def execute_queued(run):
+        try:
+            return execute(run)
+        finally:
+            if resource_pool:
+                resource_pool.dequeue(tickets[run['run_id']])
+
+    try:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="theta-replicate") as pool:
+            futures = [pool.submit(execute_queued, run) for run in runs]
+            for future in as_completed(futures):
+                future.result()
+    finally:
+        if resource_pool:
+            for ticket in tickets.values():
+                resource_pool.dequeue(ticket)
     # Plotting is still a pipeline phase. Run it once against the shared result
     # experiment after all per-version metrics are available.
-    run_plotting_phase(run_cfg_base, context)
-    if any(run["status"] != "completed" for run in runs):
+    if dispatch is None:
+        run_plotting_phase(run_cfg_base, context)
+    if raise_on_failure and any(run["status"] != "completed" for run in runs):
         raise RuntimeError(f"One or more replicates failed; see {path}")
+    return path
 
 
 def mark_cancelled(group, experiment_id, owner_pid):
@@ -200,10 +287,34 @@ def mark_cancelled(group, experiment_id, owner_pid):
             if manifest.get("owner_pid") != owner_pid:
                 continue
             for run in manifest.get("runs", []):
-                if run.get("status") in ("queued", "running"):
+                if run.get("status") in ("queued", "pending", "running"):
                     run["status"] = "cancelled"
             temporary = path.with_suffix(".cancel.tmp")
             temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             temporary.replace(path)
         except (OSError, ValueError):
+            continue
+
+
+def finish_trial_runs(group, experiment_id, log_version, status, *, owner_pid=None, method=None):
+    """Close unfinished seed records after their owning processes have stopped."""
+    if not group or not experiment_id or not (log_version or (owner_pid and method)):
+        return
+    for path in (Path("results/executions") / str(group) / str(experiment_id)).glob("*/manifest.json"):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            parent = manifest.get("parent") or {}
+            if log_version and parent.get("log_version") != log_version:
+                continue
+            if owner_pid and manifest.get("owner_pid") != owner_pid:
+                continue
+            if method and parent.get("method") != method:
+                continue
+            for run in manifest["runs"]:
+                if run.get("status") in ("queued", "pending", "running"):
+                    run["status"] = status
+            temporary = path.with_suffix(".stopped.tmp")
+            temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            temporary.replace(path)
+        except (OSError, ValueError, KeyError):
             continue
