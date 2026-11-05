@@ -70,19 +70,19 @@ class LocalBackend(QObject):
     def config_schema(self, callback: Callback):
         self._submit(config_service.config_schema, callback=callback)
 
-    def compose(self, experiment: str, overrides: list[str], callback: Callback):
-        self._submit(config_service.compose_report, experiment, list(overrides), callback=callback)
+    def compose(self, experiment: str, overrides: list[str], callback: Callback, draft_yaml: str | None = None):
+        self._submit(config_service.compose_report, experiment, list(overrides), draft_yaml, callback=callback)
 
-    def list_runs(self, callback: Callback):
-        self._submit(lambda: {"runs": catalog.list_runs()}, callback=callback)
+    def list_runs(self, callback: Callback, *, completed_only=False):
+        self._submit(lambda: {"runs": catalog.list_runs(completed_only=completed_only)}, callback=callback)
 
-    def list_executions(self, callback: Callback):
+    def list_executions(self, callback: Callback, *, completed_only=False):
         from src.app.services.executions import list_executions
-        self._submit(list_executions, callback=callback)
+        self._submit(list_executions, completed_only, callback=callback)
 
-    def read_execution(self, path: str, callback: Callback):
+    def read_execution(self, path: str, callback: Callback, *, completed_only=False):
         from src.app.services.executions import read_execution
-        self._submit(read_execution, path, callback=callback)
+        self._submit(read_execution, path, completed_only, callback=callback)
 
     def archive_run(self, group: str, experiment_id: str, destination: str, callback: Callback):
         self._submit(catalog.archive_run, group, experiment_id, destination, callback=callback)
@@ -97,12 +97,12 @@ class LocalBackend(QObject):
         self._submit(catalog.delete_group, group, callback=callback)
 
     def run_metrics(self, group: str, experiment_id: str, agent: str, callback: Callback,
-                    version: str | None = None, since: int = 0):
-        self._submit(catalog.run_metrics, group, experiment_id, agent, version, since, callback=callback)
+                    version: str | None = None, since: int = 0, *, completed_only=False):
+        self._submit(catalog.run_metrics, group, experiment_id, agent, version, since, completed_only, callback=callback)
 
-    def run_manifest(self, group: str, experiment_id: str, callback: Callback):
+    def run_manifest(self, group: str, experiment_id: str, callback: Callback, *, completed_only=False):
         """Every artifact a run produced (catalog.run_manifest)."""
-        self._submit(catalog.run_manifest, group, experiment_id, callback=callback)
+        self._submit(catalog.run_manifest, group, experiment_id, completed_only, callback=callback)
 
     def run_file(self, group: str, experiment_id: str, path: str, callback: Callback):
         """One artifact's bytes, by the path its manifest lists (catalog.read_run_file)."""

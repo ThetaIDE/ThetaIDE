@@ -281,11 +281,91 @@ def _read_config_summary(config_file: Path) -> dict[str, Any]:
     }
 
 
-def list_runs() -> list[dict[str, Any]]:
+def _read_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _result_replicates(run_dir: Path):
+    """Execution records identify seed versions separately from a trial's objective version."""
+    found = {}
+    root = LOGS_DIR.parent / "executions" / run_dir.parent.name / run_dir.name
+    for path in sorted(root.glob("*/manifest.json")):
+        manifest = _read_json(path)
+        parent = manifest.get("parent") or {}
+        for run in manifest.get("runs", []):
+            if run.get("experiment_id") != run_dir.name or not run.get("version"):
+                continue
+            agent = run.get("agent") or run.get("method")
+            if not agent:
+                continue
+            found[(agent, run["version"])] = {
+                "seed": run.get("training_seed"), "status": run.get("status"),
+                **({"trial_version": parent.get("log_version"), "study": parent.get("study"),
+                    "trial_number": parent.get("trial_number")} if parent.get("kind") == "trial" else {}),
+            }
+    return found
+
+
+def _result_snapshot(run_dir: Path, replicates=None):
+    """Published versions and checkpoint folders; active trials never enter Results."""
+    from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
+
+    versions, terminal_trials, trial_states = {}, set(), {}
+    if replicates is None:
+        replicates = _result_replicates(run_dir)
+    checkpoint_root = LOGS_DIR.parent / "checkpoints" / run_dir.parent.name / run_dir.name
+    active_methods = set()
+    for path in [*checkpoint_root.glob("*/tuning_summary.json"),
+                 *checkpoint_root.glob("*/sweeps/*/tuning_summary.json")]:
+        summary = _read_json(path)
+        method = summary.get("log_method") or path.relative_to(checkpoint_root).parts[0]
+        if summary.get("stop_reason") == "running":
+            active_methods.add(method)
+        for trial in summary.get("trials", []):
+            terminal = trial.get("state") in ("complete", "pruned", "fail")
+            if trial.get("log_version"):
+                trial_states[(method, trial["log_version"])] = terminal
+            if terminal and summary.get("study") and isinstance(trial.get("id"), int) and trial["id"] >= 0:
+                directory = trial_checkpoint_dir(checkpoint_root / path.relative_to(checkpoint_root).parts[0],
+                                                 summary["study"], trial["id"])
+                terminal_trials.add(directory.relative_to(checkpoint_root).parts)
+    complete_methods = set()
+    in_progress = bool(active_methods)
+    if run_dir.is_dir():
+        for agent_dir in run_dir.iterdir():
+            if not agent_dir.is_dir():
+                continue
+            all_versions = [p for p in agent_dir.glob("version_*") if p.is_dir()]
+            completed = []
+            for version in all_versions:
+                runtime = _read_json(version / "runtime.json")
+                key = (agent_dir.name, version.name)
+                terminal = trial_states.get(key)
+                if key in replicates:
+                    terminal = replicates[key]["status"] in ("completed", "failed", "cancelled")
+                if terminal is True or (terminal is None and not version.name.startswith("version_sweep_") and
+                                        (runtime.get("end_time_iso") or runtime.get("completed_at"))):
+                    completed.append(version.name)
+            if completed:
+                versions[agent_dir.name] = sorted(completed, key=lambda name: (_version_number(name), name))
+            if all_versions and len(completed) == len(all_versions) and agent_dir.name not in active_methods:
+                complete_methods.add(agent_dir.name)
+            elif all_versions:
+                in_progress = True
+    return versions, complete_methods, terminal_trials, in_progress
+
+
+def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
     """Every experiment folder under results/logs, however it was launched (GUI, CLI or SLURM).
 
     `agents` lists each agent that logged something, with its timing and reward summary;
     `finished` is true once every agent has recorded an end time.
+    With `completed_only`, summarize only finalized versions; an ongoing experiment
+    can expose its finished trials while withholding its active ones.
     """
     runs = []
     if not LOGS_DIR.exists():
@@ -320,7 +400,20 @@ def list_runs() -> list[dict[str, Any]]:
         seen["metadata"].add(run_dir / "runtime.json")
         seen["configs"].add(run_dir / "config.yaml")
         seen["agents"].update(agent_dirs)
-        agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
+        if completed_only:
+            versions, _, _, in_progress = _result_snapshot(run_dir)
+            agents = []
+            for name, names in versions.items():
+                version = run_dir / name / names[-1]
+                if not (version / "metrics.csv").is_file():
+                    continue
+                summary = _read_agent_summary(run_dir / name, version / "runtime.json", version / "metrics.csv")
+                summary["finished"] = summary["finished"] or _read_json(version / "runtime.json").get("completed_at") or True
+                agents.append(summary)
+            if not agents:
+                continue
+        else:
+            agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
         runs.append(
             {
                 "group": run_dir.parent.name,
@@ -328,6 +421,9 @@ def list_runs() -> list[dict[str, Any]]:
                 "metadata": metadata,
                 "config": run_config_summary(run_dir),
                 "agents": agents,
+                **({"completed_versions": versions, "in_progress": in_progress} if completed_only else {}),
+                **({"has_run_logs": True} if any(run_dir.glob("*.stderr.log")) or
+                   any(run_dir.glob("*.combined.log")) else {}),
                 "finished": bool(agents) and all(agent["finished"] for agent in agents),
             }
         )
@@ -347,7 +443,8 @@ def _version_number(name: str) -> int:
 
 
 def run_metrics(
-    group: str, experiment_id: str, agent: str, version: str | None = None, since: int = 0
+    group: str, experiment_id: str, agent: str, version: str | None = None, since: int = 0,
+    completed_only: bool = False,
 ) -> dict[str, Any]:
     """Every row of an agent's metrics.csv (as text), with every column the engine logged.
 
@@ -361,6 +458,14 @@ def run_metrics(
     versions = sorted(
         (p.name for p in agent_dir.glob("version_*") if (p / "metrics.csv").is_file()), key=_version_number
     )
+    if completed_only:
+        published, _, _, _ = _result_snapshot(agent_dir.parent)
+        versions = [name for name in versions if name in published.get(agent, [])]
+        if version is None:
+            version = versions[-1] if versions else None
+        name = version if version and version.startswith("version_") else f"version_{version}"
+        if name not in versions:
+            raise FileNotFoundError(f"No completed metrics for {group}/{experiment_id}/{agent}")
     if version is None:
         metrics_file = latest_version_file(agent_dir, "metrics.csv")
     else:
@@ -580,7 +685,7 @@ def delete_run(group: str, experiment_id: str) -> None:
     for path in _mutable_run_dirs(group, experiment_id).values():
         shutil.rmtree(path)
 
-def run_manifest(group: str, experiment_id: str) -> dict[str, Any]:
+def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -> dict[str, Any]:
     """Every file a run produced across results/{logs,plots,checkpoints,tensorboard,datasets}.
 
     Each artifact has a `path` relative to results/ (read it with read_run_file), a `kind` (metrics, table,
@@ -592,28 +697,67 @@ def run_manifest(group: str, experiment_id: str) -> dict[str, Any]:
     if not dirs:
         raise FileNotFoundError(f"Run not found: {group}/{experiment_id}")
     base = results_dir()
+    run_logs = LOGS_DIR / group / experiment_id
+    replicates = _result_replicates(run_logs)
+    published, complete_methods, terminal_trials, in_progress = (
+        _result_snapshot(run_logs, replicates) if completed_only else ({}, set(), set(), False)
+    )
+    if completed_only and not published:
+        raise FileNotFoundError(f"No completed results for {group}/{experiment_id}")
+    whole_run_finished = completed_only and not in_progress
+
+    def visible(root, parts):
+        if not completed_only:
+            return True
+        version = next((p for p in parts if p.startswith("version_")), None)
+        if version:
+            return version in published.get(parts[0], [])
+        if "sweeps" in parts and any(p.startswith("trial_") for p in parts):
+            return any(tuple(parts[:len(folder)]) == folder for folder in terminal_trials)
+        if len(parts) == 1:
+            return parts[0] == "config.yaml" or whole_run_finished
+        if root == "checkpoints" and parts[-1] == "tuning_summary.json" and (
+            len(parts) == 2 or (len(parts) == 4 and parts[1] == "sweeps")
+        ):
+            # A finished study remains available even if another study of this method
+            # is active (including an older attempt left with a running snapshot).
+            summary = _read_json(dirs[root].joinpath(*parts))
+            trials = summary.get("trials")
+            return bool(summary.get("study") and summary.get("stop_reason") != "running"
+                        and isinstance(trials, list) and trials
+                        and all(t.get("state") in ("complete", "pruned", "fail") for t in trials))
+        return parts[0] in complete_methods
+
     artifacts: list[dict[str, Any]] = []
     truncated = False
     for root, run_dir in dirs.items():
-        for path in sorted(run_dir.rglob("*")):
-            if not path.is_file():
-                continue
+        # Prune active version directories before walking their files (notably TensorBoard logs).
+        for directory, children, files in os.walk(run_dir):
+            relative = Path(directory).relative_to(run_dir).parts
+            children[:] = sorted(name for name in children if not name.startswith("version_") or visible(root, (*relative, name)))
+            for filename in sorted(files):
+                path = Path(directory) / filename
+                parts = path.relative_to(run_dir).parts
+                if not visible(root, parts):
+                    continue
+                if len(artifacts) >= MANIFEST_LIMIT:
+                    truncated = True
+                    break
+                stat = path.stat()
+                artifacts.append(
+                    {
+                        "path": path.relative_to(base).as_posix(),
+                        "root": root,
+                        "kind": _artifact_kind(root, path),
+                        "agent": parts[0] if len(parts) > 1 else None,
+                        "version": next((p for p in parts[1:-1] if p.startswith("version_")), None),
+                        "size": stat.st_size,
+                        "modified": stat.st_mtime,
+                    }
+                )
             if len(artifacts) >= MANIFEST_LIMIT:
                 truncated = True
                 break
-            parts = path.relative_to(run_dir).parts
-            stat = path.stat()
-            artifacts.append(
-                {
-                    "path": path.relative_to(base).as_posix(),
-                    "root": root,
-                    "kind": _artifact_kind(root, path),
-                    "agent": parts[0] if len(parts) > 1 else None,
-                    "version": next((p for p in parts[1:-1] if p.startswith("version_")), None),
-                    "size": stat.st_size,
-                    "modified": stat.st_mtime,
-                }
-            )
     agents: dict[str, list[str]] = {}
     for item in artifacts:
         if item["kind"] == "metrics" and item["agent"] and item["version"]:
@@ -622,6 +766,9 @@ def run_manifest(group: str, experiment_id: str) -> dict[str, Any]:
         "group": group,
         "experiment_id": experiment_id,
         "agents": {name: sorted(versions, key=_version_number) for name, versions in sorted(agents.items())},
+        "version_details": {agent: {version: details for (name, version), details in replicates.items()
+                                    if name == agent and version in versions}
+                            for agent, versions in agents.items()},
         "artifacts": artifacts,
         "truncated": truncated,
     }

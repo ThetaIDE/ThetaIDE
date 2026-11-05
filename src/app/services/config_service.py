@@ -6,11 +6,15 @@ from __future__ import annotations
 import copy
 import functools
 import sys
+import shutil
+import tempfile
+from pathlib import Path
 import threading
 from collections import OrderedDict
 from typing import Any
 
 import yaml
+from omegaconf import OmegaConf
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
@@ -42,7 +46,8 @@ def _inputs_fingerprint() -> int:
     registry_module = sys.modules.get("src.usr.algorithms.agent_registry")  # don't import it just to look
     registry = getattr(registry_module, "AGENT_REGISTRY", None) or {}
     parts: list[Any] = [tuple(sorted((name, id(cls)) for name, cls in registry.items()))]
-    for root, pattern in ((CONFIG_DIR, "*.yaml"), (_USER_CODE_DIR, "*.py")):
+    for root, pattern in ((CONFIG_DIR, "*.yaml"), (CONFIG_DIR, "*.yml"), (_USER_CODE_DIR, "*.py"),
+                          (_USER_CODE_DIR, ".theta_component.json"), (_USER_CODE_DIR, "plugin.json")):
         for path in sorted(root.rglob(pattern)):
             try:
                 parts.append((str(path), path.read_bytes()))
@@ -151,12 +156,24 @@ def config_schema() -> dict[str, Any]:
 
 
 @_cached_on_inputs
-def compose_report(experiment: str, overrides: list[str] | None = None) -> dict[str, Any]:
+def compose_report(experiment: str, overrides: list[str] | None = None, draft_yaml: str | None = None) -> dict[str, Any]:
     """Compose and validate an experiment exactly as `run_pipeline.py` would, without running it."""
     overrides = list(overrides or [])
+    if draft_yaml is not None:
+        from src.app.pipeline.config import resolve_experiment_config_name
+        resolved = resolve_experiment_config_name(experiment)
+        with tempfile.TemporaryDirectory(prefix="theta-config-preview-") as directory:
+            draft_dir = Path(directory) / "config"
+            shutil.copytree(CONFIG_DIR, draft_dir)
+            (draft_dir / "experiment" / f"{resolved}.yaml").write_text(draft_yaml, encoding="utf-8")
+            return _compose_report(experiment, overrides, draft_dir)
+    return _compose_report(experiment, overrides, None)
+
+
+def _compose_report(experiment, overrides, config_dir):
     argv = ["python", "run_pipeline.py", experiment, *overrides]
     try:
-        composed = compose_experiment(experiment, overrides)
+        composed = compose_experiment(experiment, overrides, config_dir=config_dir)
     except Exception as e:
         return {
             "valid": False,
@@ -208,6 +225,15 @@ def prepare_launch(
         raise LaunchError(str(e).strip()) from e
 
     cfg = composed.cfg
+    local = str((cfg.get('hydra') or {}).get('runtime', {}).get('choices', {}).get('site')
+                or (cfg.get('site') or {}).get('name', 'local')) == 'local'
+    trainer = cfg.get('trainer') or {}
+    devices = trainer.get('devices', 1)
+    single_device = (devices == 1 or (isinstance(devices, (list, tuple)) and len(devices) == 1)
+                     or (OmegaConf.is_list(devices) and len(devices) == 1))
+    if local and (not single_device or trainer.get('num_nodes', 1) != 1):
+        raise LaunchError('Resource-managed local launches support one training device and one node per job. '
+                          'Use trainer.devices=1 and trainer.num_nodes=1, or submit through a cluster site.')
     log_dir = LOGS_DIR / cfg.group / cfg.experiment_id
     if cfg.get("variability") is None and log_dir.exists() and any(log_dir.iterdir()) and not overwrite and not cfg.get("recover", False):
         raise LaunchError(
@@ -226,6 +252,8 @@ def prepare_launch(
             conflict=True,
         )
     agents = [plan["settings"].get("name", normalize_agent_name(name)) for name, plan in plans.items()]
+    from src.app.services.resource_budget import workload_estimate, uses_accelerator
+    resource_config = effective_config(cfg)
     return {
         "experiment": composed.experiment,
         "overrides": overrides,
@@ -235,4 +263,7 @@ def prepare_launch(
         "total_timesteps": cfg.get("total_timesteps"),
         "effective_timesteps": effective_timesteps(plans, cfg.get("total_timesteps")),
         "run_in_parallel": bool(cfg.get("run_in_parallel", False)),
+        "local": local,
+        "accelerator": uses_accelerator(resource_config),
+        "resource_estimate": workload_estimate(resource_config),
     }

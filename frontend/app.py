@@ -52,6 +52,7 @@ from .config_tab_manager import ConfigTabManager
 from .config_tree import ConfigTreeWidget
 from .config_viewer import ConfigViewer
 from .export_dialog import ExportExperimentDialog
+from .editor_service import EditorService
 from .hub import HubClient, HubDialog
 from .job_manager import JobManager
 from .live_run import LiveRun, LiveRunCache
@@ -221,6 +222,7 @@ class Window(QMainWindow):
         # --- Unified settings (must be first; everything else reads from it) ---
         step("Loading settings…", 0.02)
         self.settings_manager = SettingsManager(Path(data_dir))
+        self.editor_service = EditorService(self.settings_manager, self)
         self.settings_manager.changed.connect(self._on_settings_changed)
         self.zoom_factor = self.settings_manager.zoom
         self.zoom_slider = None
@@ -283,7 +285,6 @@ class Window(QMainWindow):
             parent=self,
         )
         self.jobs.job_changed.connect(self.on_job_changed)
-        self.jobs.max_parallel = max(1, int(self.settings_manager.get("queue", "max_parallel", default=1) or 1))
         self.jobs.job_output.connect(self.on_job_output)
         self.jobs.job_metrics.connect(self.on_job_metrics)
         self.jobs.job_records.connect(self.on_job_records)
@@ -778,7 +779,7 @@ class Window(QMainWindow):
             for pid in self.tabs.tab_order:
                 if pid not in known_set:
                     continue  # plugin tab not in settings — leave it alone
-                should_be = pid in visible_set
+                should_be = pid in visible_set or (pid == "monitor" and bool(self._queue_has_active_jobs))
                 if self.tabs.is_tab_visible(pid) != should_be:
                     self.tabs.set_tab_visible(pid, should_be)
                     if hasattr(self, "pane_sliders") and pid in self.pane_sliders:
@@ -895,7 +896,13 @@ class Window(QMainWindow):
                     slider.blockSignals(False)
                 self.statusBar().showMessage(f"Failed to activate plugin: {plugin_id}", 4000)
         else:
-            self.plugin_manager.disable_plugin(plugin_id)
+            if not self.plugin_manager.disable_plugin(plugin_id):
+                slider = self.plugin_sliders.get(plugin_id)
+                if slider:
+                    slider.blockSignals(True)
+                    slider.setChecked(True)
+                    slider.blockSignals(False)
+                return
             manifest = self.plugin_manager.manifests.get(plugin_id)
             name = manifest.name if manifest else plugin_id
             self.statusBar().showMessage(f"Deactivated plugin: {name}", 4000)
@@ -1174,10 +1181,12 @@ class Window(QMainWindow):
         self.tabs.apply_tab_order(default_order)
         # Every tab, not only those with a switch: a plugin's tab must come back too.
         for pid in list(self.tabs.tabs):
-            self.tabs.set_tab_visible(pid, pid not in HIDDEN_BY_DEFAULT)
+            self.tabs.set_tab_visible(pid, pid not in HIDDEN_BY_DEFAULT
+                                      or (pid == "monitor" and bool(self._queue_has_active_jobs)))
         for pid, slider in self.pane_sliders.items():
             slider.blockSignals(True)
-            slider.setChecked(pid not in HIDDEN_BY_DEFAULT)
+            slider.setChecked(pid not in HIDDEN_BY_DEFAULT
+                              or (pid == "monitor" and bool(self._queue_has_active_jobs)))
             slider.setEnabled(True)
             slider.blockSignals(False)
         self.save_layout()
@@ -1216,7 +1225,7 @@ class Window(QMainWindow):
                     # (the user hasn't made a preference yet; save_layout will
                     # persist it the next time the layout changes)
                     continue
-                is_visible = pid in visible_set
+                is_visible = pid in visible_set or (pid == "monitor" and bool(self._queue_has_active_jobs))
                 self.tabs.set_tab_visible(pid, is_visible)
                 if hasattr(self, "pane_sliders") and pid in self.pane_sliders:
                     slider = self.pane_sliders[pid]
@@ -1331,12 +1340,13 @@ class Window(QMainWindow):
         self.menu_actions = {}
         file_menu = self.menuBar().addMenu("File")
         for aid, title, default_sc, callback in (
-            ("new_experiment", "New experiment", "Ctrl+N", self.new_experiment),
+            ("new_experiment", "New", "Ctrl+N", lambda: self._editor_action("new", self.new_experiment)),
+            ("open_text_file", "Open text file…", "Ctrl+O", self.open_text_file),
             ("scaffold_plugin", "Scaffold New Component Plugin…", "Ctrl+Shift+P", self.scaffold_plugin),
             ("reload_components", "Reload Component Code", "Ctrl+Alt+R", self.reload_components),  # Ctrl+Shift+R is the queue's
-            ("export_config", "Export draft YAML…", "Ctrl+Shift+S", self.export_config),
-            ("save_config", "Save configuration", "Ctrl+S", self.save_current_config),
-            ("close_tab", "Close tab", "Ctrl+W", self.close_active_tab),
+            ("export_config", "Save As / Export YAML…", "Ctrl+Shift+S", lambda: self._editor_action("save_as", self.export_config)),
+            ("save_config", "Save", "Ctrl+S", lambda: self._editor_action("save", self.save_current_config)),
+            ("close_tab", "Close tab", "Ctrl+W", lambda: self._editor_action("close", self.close_active_tab)),
             ("quit", "Quit", "Ctrl+Q", self.quit_app),
         ):
             action = QAction(title, self)
@@ -1436,10 +1446,24 @@ class Window(QMainWindow):
         self.menu_actions["open_docs"] = action
 
     def open_settings_file(self):
-        """Open the workspace settings.toml in the user's default text editor."""
+        """Open the workspace settings.toml through Theta's default editor provider."""
         path = self.settings_manager.workspace_settings_path
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-        self.statusBar().showMessage(f"Opened {path.name} — changes apply automatically on save.", 6000)
+        if self.editor_service.open_file(path):
+            self.statusBar().showMessage(f"Opened {path.name} — changes apply automatically on save.", 6000)
+
+    def _editor_action(self, action, fallback):
+        instance = self.plugin_manager.instances.get("text_editor")
+        panel = getattr(instance, "panel", None)
+        if panel is not None and self.tabs.currentWidget() is panel:
+            return panel.perform_action(action)
+        return fallback()
+
+    def open_text_file(self):
+        from PyQt6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(self, "Open text file", str(Path.cwd()), "All files (*)")
+        if path:
+            self.editor_service.open_file(path)
 
     def toggle_launcher(self):
         """Open or close the launcher (frontend/launcher.py): jump to any panel, plugin, setting or command."""
@@ -1501,6 +1525,10 @@ class Window(QMainWindow):
         if hasattr(self, "terminal_panel"):
             term_size = max(8, round(13 * factor))
             self.terminal_panel.set_font_size(term_size)
+        editor = getattr(self, "plugin_manager", None)
+        instance = editor.instances.get("text_editor") if editor else None
+        if instance is not None and instance.panel is not None:
+            instance.panel.apply_theme()
 
         # 5. Refresh Settings view styles if present and visible
         if hasattr(self, "settings_view") and hasattr(self.settings_view, "refresh_styles"):
@@ -1684,6 +1712,12 @@ class Window(QMainWindow):
         return Config()
 
     def update_config(self, *_):
+        # The previous validation describes the old YAML. Do not allow Run or
+        # Queue during the debounce window before the new preview is requested.
+        self.compose_serial += 1
+        self.compose_valid = False
+        self.composed_config = None
+        self.update_launch_state()
         self.compose_timer.start()
 
     def request_compose(self):
@@ -1700,7 +1734,9 @@ class Window(QMainWindow):
                 self.compose_error = None
                 self.update_launch_state()
                 return
-        overrides = self.config_viewer.get_overrides() if hasattr(self, "config_viewer") else config.overrides()
+        viewer = getattr(self, "config_viewer", None)
+        overrides = [] if viewer else config.overrides()
+        draft = (viewer._preamble + yaml.safe_dump(viewer.raw_data, sort_keys=False)) if viewer and viewer.is_dirty else None
         # A tab switch or edit starts a new validation request. Keep the launch
         # controls disabled until that exact config has been composed; otherwise
         # the previous experiment's valid state can leave Run active while an
@@ -1710,7 +1746,7 @@ class Window(QMainWindow):
         self.composed_config = None
         self.update_launch_state()
         self.backend.compose(exp_target, overrides,
-                             lambda data, error: self.compose_finished(serial, config, data, error))
+                             lambda data, error: self.compose_finished(serial, config, data, error), draft_yaml=draft)
 
     def compose_finished(self, serial, config, data, error):
         if serial != self.compose_serial:
@@ -1978,28 +2014,16 @@ class Window(QMainWindow):
         elif not any(r is run for r in self.active_runs):
             self.active_runs = [*self.active_runs, run]
 
-    def launch_capacity(self) -> int:
-        """How many runs may train at once."""
-        return max(1, int(getattr(self.jobs, "max_parallel", 1) or 1))
-
     def update_launch_state(self):
         training = len(self.active_runs)
-        idle = not training
-        full = training >= Window.launch_capacity(self)
         has_experiment = bool(getattr(self, "current_experiment", None))
         missing_components = Window.check_missing_components(self) if has_experiment else []
         if not isinstance(missing_components, list):
             missing_components = []
-        ready = not full and self.compose_valid and has_experiment and not missing_components
+        ready = self.compose_valid and has_experiment and not missing_components
         for button in launch_buttons(self):
             button.setEnabled(ready)
-        if full and training == 1:
-            tip = "Cannot run: A run is currently active. Stop it before launching another."
-            btn_text = "Running..."
-        elif full:
-            tip = f"Cannot run: {training} runs are training, the most at once. Stop one before launching another."
-            btn_text = "Running..."
-        elif not has_experiment:
+        if not has_experiment:
             rel = getattr(self, "active_config_rel_path", "") or ""
             if rel and Path(rel).name.startswith("_"):
                 tip = "Cannot run: Base templates (_base.yaml) cannot be run directly. Select an experiment."
@@ -2020,8 +2044,8 @@ class Window(QMainWindow):
             btn_text = "Validation failed"
         else:
             exp_name = getattr(self, "current_experiment", "experiment")
-            tip = f"Train {exp_name} through the backend (F5)"
-            btn_text = "Launch training"
+            tip = f"Add {exp_name} to the queue and run when a slot is available (F5)"
+            btn_text = "Queue and run"
         for button in launch_buttons(self):
             button.setToolTip(tip)
         # The experiment tree's button shows the reason in its text and tooltip.
@@ -2053,46 +2077,8 @@ class Window(QMainWindow):
     # ── Live training (run_pipeline.py as a QProcess, reported through signals) ──
 
     def launch_training(self):
-        if len(self.active_runs) >= self.launch_capacity():
-            self.statusBar().showMessage(
-                "As many runs are training as may run at once. Stop one before launching another.",
-                5000)
-            return
-        missing = self.check_missing_components()
-        if missing:
-            self.statusBar().showMessage(f"Cannot run: Missing component ({', '.join(missing)})", 6000)
-            return
-        if not self.compose_valid:
-            self.statusBar().showMessage("Fix config errors before launching.", 5000)
-            return
-        if hasattr(self, "config_viewer") and self.config_viewer.is_dirty:
-            self.config_viewer.save_to_disk()
-
-        config = self.config()
-        exp_target = getattr(self, "current_experiment", None)
-        if not exp_target:
-            if hasattr(self, "config_tree") and (self.config_tree.root_dir / f"experiment/{BASE_EXPERIMENT}.yaml").exists():
-                exp_target = BASE_EXPERIMENT
-            else:
-                self.statusBar().showMessage("Please select or create an experiment to launch.", 5000)
-                return
-        is_recover = False
-        if hasattr(self, "config_viewer") and getattr(self.config_viewer, "raw_data", None):
-            is_recover = bool(self.config_viewer.raw_data.get("recover", False))
-        timestamp = bool(getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
-                         and self.config_viewer.chk_timestamp_experiment.isChecked())
-        experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover) if timestamp else config.name
-        overrides = self.config_viewer.get_overrides() if hasattr(self, "config_viewer") else config.overrides()
-        overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
-        for button in launch_buttons(self):
-            button.setEnabled(False)
-        self.log(f"Launching {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
-        try:
-            job = self.jobs.launch(exp_target, overrides, overwrite=not timestamp)
-        except LaunchError as exc:
-            self.launch_finished(config, None, str(exc))
-            return
-        self.launch_finished(config, job, None)
+        """Submit through the queue; available slots decide when training starts."""
+        self.add_to_queue(start=True)
 
     def config_for_run(self, config):
         """`config` with whatever the composed experiment actually declares.
@@ -2135,8 +2121,7 @@ class Window(QMainWindow):
         return str(raw_data.get("description") or "").strip()
 
     def reconnect_live_run(self):
-        """Runs left live or queued by the last session: training ended with that session (QProcess jobs
-        belong to the app), so mark them from the job record. Queued jobs are kept and wait for Start."""
+        """Restore desktop run records from the independent runner."""
         changed = False
         for run in self.runs:
             if run["simulated"] or run["status"] not in (*LIVE_STATUSES, "queued"):
@@ -2144,15 +2129,21 @@ class Window(QMainWindow):
             job = self.jobs.job(run["backend"].get("job_id", ""))
             status = job["status"] if job else "interrupted"
             if status in ("pending", "running"):
-                status = "interrupted"
+                status = "starting" if status == "pending" else status
+                if not any(r is run for r in self.active_runs):
+                    self.active_runs.append(run)
             if run["status"] != status:
                 run["status"] = status
                 self.persist(run)
                 changed = True
         if changed:
-            self.log("Runs that were training when ThetaIDE last closed are marked interrupted; "
+            self.log("Reconnected training jobs; "
                      "their metrics on disk are kept.")
             self.refresh_runs()
+        self.on_queue_changed(self.jobs.queue_state())
+        self.update_launch_state()
+        if self.active_runs:
+            self.select_run(self.active_runs[-1])
 
     def on_job_output(self, job_id, lines):
         run = self.run_for_job(job_id)
@@ -2171,7 +2162,7 @@ class Window(QMainWindow):
         run = self.run_for_job(job_id)
         if run is None:
             return
-        if " · seed " in str(agent):
+        if " · seed " in str(agent) or " · trial " in str(agent):
             key = (job_id, str(agent))
             history = self._replicate_metrics.setdefault(key, [])
             if reset:
@@ -2228,6 +2219,24 @@ class Window(QMainWindow):
             return {}
         backend = run.get("backend") or {}
         followed = self.live_runs_for_job(backend.get("job_id"))
+        job = self.jobs.job(backend.get("job_id"))
+        if job is not None and run.get("status") in (*LIVE_STATUSES, "queued"):
+            # The runner owns source identity. Never fill gaps with older disk versions.
+            active = {label for label, *_path, status in self.jobs._run_sources(job)
+                      if status == "running"}
+            return {label: live for label, live in followed.items()
+                    if label in active and (live.start or live.rows) and not live.is_finished()}
+        if load and backend.get("group") and backend.get("experiment_id"):
+            from .monitor.sweep_view import study_summaries
+            for method, study in study_summaries(self.jobs.project_root, run):
+                for trial in study.get("trials", []):
+                    version = trial.get("log_version")
+                    label = f"{method} · {study['study']} · trial {trial['id']}"
+                    if version and label not in followed:
+                        directory = self.jobs.logs_dir / backend["group"] / backend["experiment_id"] / (study.get("log_method") or method)
+                        live = self.disk_lives.load_version(directory, version)
+                        if live:
+                            followed[label] = live
         if followed or not (backend.get("group") and backend.get("experiment_id")):
             return followed
         agents = backend.get("agents") or []
@@ -2320,7 +2329,7 @@ class Window(QMainWindow):
         self.issued_ids.add(name)
         return name
 
-    def add_to_queue(self):
+    def add_to_queue(self, *, start=False):
         missing = self.check_missing_components()
         if missing:
             self.statusBar().showMessage(f"Cannot queue: Missing component ({', '.join(missing)})", 6000)
@@ -2329,7 +2338,8 @@ class Window(QMainWindow):
             self.statusBar().showMessage("Fix config errors before queueing.", 5000)
             return
         if hasattr(self, "config_viewer") and self.config_viewer.is_dirty:
-            self.config_viewer.save_to_disk()
+            if not self.config_viewer.save_to_disk(show_error=True):
+                return
 
         config = self.config()
         exp_target = getattr(self, "current_experiment", None)
@@ -2345,7 +2355,7 @@ class Window(QMainWindow):
         timestamp = bool(getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
                          and self.config_viewer.chk_timestamp_experiment.isChecked())
         experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover) if timestamp else config.name
-        overrides = self.config_viewer.get_overrides() if hasattr(self, "config_viewer") else config.overrides()
+        overrides = [] if hasattr(self, "config_viewer") else config.overrides()
         overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
         self.log(f"Queuing {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
         try:
@@ -2353,16 +2363,23 @@ class Window(QMainWindow):
         except LaunchError as exc:
             self.queued(config, None, str(exc))
             return
-        self.queued(config, job, None)
+        run = self.queued(config, job, None)
+        if start and run is not None:
+            self.open_job(job["job_id"])
+            try:
+                self.set_queue_running(True)
+            except LaunchError as exc:
+                self.queue_toggled("start", None, str(exc))
 
     def queued(self, config, job, error):
         if error:
             self.log(f"Could not add to queue: {error}")
             self.statusBar().showMessage("Could not add to queue; see the console.", 8000)
             return
-        run = new_run(config, simulated=False)
+        run = new_run(self.config_for_run(config), simulated=False)
         run["description"] = self.experiment_description()
-        run.update(status="queued", log_since=0, metrics_since=0, queue_position=job.get("position"), backend={
+        run["paradigm"] = (getattr(self, "composed_facts", None) or {}).get("paradigm")
+        run.update(status="queued", log_since=0, metrics_since=0, metrics_byte=0, queue_position=job.get("position"), backend={
             key: job.get(key) for key in ("job_id", "experiment", "group", "experiment_id", "agents", "total_timesteps",
                                           "effective_timesteps")})
         if not self.persist(run):
@@ -2376,9 +2393,11 @@ class Window(QMainWindow):
         self.log(f"Queued {job['experiment_id']} ({place}): {hint}.")
         self.statusBar().showMessage(f"Added {job['experiment_id']} to the queue ({place}); {hint}.", 8000)
         self.on_queue_changed(self.jobs.queue_state())
+        self.update_launch_state()
+        return run
 
     def on_queue_changed(self, data):
-        self._set_monitor_active(bool(data.get("active")) or bool(self.active_runs))
+        self._set_monitor_active(bool(data.get("active") or data.get("queued")) or bool(self.active_runs))
         if self.queue_running != data["running"]:
             self.queue_running = data["running"]
             self.render_run()
@@ -2397,7 +2416,9 @@ class Window(QMainWindow):
             self.render_run()
 
     def _set_monitor_active(self, active):
-        if active == self._queue_has_active_jobs:
+        # Layout restoration can change visibility without changing job state.
+        # Reconcile active work on every update; leave manual idle visibility alone.
+        if not active and self._queue_has_active_jobs is False:
             return
         self._queue_has_active_jobs = active
         self.tabs.set_tab_visible("monitor", active)
@@ -2415,14 +2436,14 @@ class Window(QMainWindow):
         self._set_monitor_active(False)
         backend = run.get("backend") or {}
         if backend.get("group") and backend.get("experiment_id"):
-            self.results_view.open_run(backend["group"], backend["experiment_id"])
+            self.results_view.open_run(backend["group"], backend["experiment_id"],
+                                       failure=run.get("status") in ("failed", "error"),
+                                       job_id=backend.get("job_id"))
             self.tabs.setCurrentWidget(self.results_panel)
 
     def set_max_parallel(self, count):
-        """Save the concurrency limit and start queued work if capacity is available."""
+        """Compatibility with older callers; width is now resource-driven."""
         self.jobs.set_max_parallel(count)
-        if hasattr(self, "settings_manager"):
-            self.settings_manager.set("queue", "max_parallel", int(count))
         self.update_launch_state()
 
     def set_queue_running(self, running):
@@ -2437,8 +2458,10 @@ class Window(QMainWindow):
         if action == "start" and not data["running"]:
             self.statusBar().showMessage("The queue is empty; add experiments first.", 5000)
         else:
-            self.log("Queue started: jobs will train one after another." if data["running"] else
+            self.log("Queue started: jobs will train as slots become available." if data["running"] else
                      "Queue paused: no new job will start; one already training keeps running.")
+            if data["running"]:
+                self.statusBar().showMessage("Queue running: jobs start as training slots become available.", 5000)
 
     def move_queued(self, job_id, position):
         try:
@@ -2467,8 +2490,12 @@ class Window(QMainWindow):
             self.statusBar().showMessage("That job has no run record in this workspace.", 5000)
             return
         self.select_run(run)
-        if method_name:
-            self.monitor.focus_agent(method_name)
+        if method_name and method_name.startswith("sweep:"):
+            self.monitor.focus_sweep(method_name.removeprefix("sweep:"))
+        else:
+            self.monitor.focus_agent(method_name or "")
+            self.monitor.show_view("Overview")
+        self._set_monitor_active(True)
         self.tabs.setCurrentWidget(self.monitor_panel)
 
     def view_run(self, run):
@@ -2487,7 +2514,7 @@ class Window(QMainWindow):
         return next((run for run in self.active_runs if run["simulated"]), None)
 
     def start_demo(self):
-        if self.demo_run() is not None or len(self.active_runs) >= self.launch_capacity():
+        if self.demo_run() is not None:
             self.statusBar().showMessage("A run is already active. Stop it before starting another.", 4000)
             return
         run = new_run(self.config())
@@ -2539,7 +2566,7 @@ class Window(QMainWindow):
         prefix = "[demo] " if run["simulated"] else ""
         self.log(f"{prefix}{status.capitalize()}{detail} · {run['id']} · config and metrics saved locally")
         if status == "failed":
-            self.statusBar().showMessage("Training failed; the console shows the pipeline output.", 10000)
+            self.statusBar().showMessage("Training failed; output and error logs are in Results → Files.", 10000)
         self.active_runs = [r for r in self.active_runs if r is not run]
         self.run_notifier.run_finished(run, status)
         self.update_launch_state()
@@ -2804,31 +2831,20 @@ class Window(QMainWindow):
             self.log(f"Unknown command '{command}'. Type help or switch to the Terminal tab.")
 
     def quit_app(self):
-        """Quit ThetaIDE (File → Quit, the tray's Quit): stops training after confirming."""
+        """Quit the desktop; training continues in the independent runner."""
         self._quitting = True
         if not self.close():
-            self._quitting = False  # the user chose to keep training
+            self._quitting = False  # the user cancelled closing unsaved work
             return
-        if self.tray is not None:
-            self.tray.remove()
         QApplication.quit()
 
     def closeEvent(self, event):
-        if not self._quitting and self.tray is not None and self.tray.keeps_running():
-            # Training runs inside this app, so keep the app alive in the tray instead of stopping it
-            event.ignore()
-            self.tray.hide_to_tray()
+        if self._shutting_down:
+            event.accept()
             return
-        if self.jobs.is_busy():
-            # Training runs as a child of this window (QProcess), so closing ends it.
-            running = ", ".join(job["experiment_id"] for job in self.jobs.active_jobs())
-            answer = QMessageBox.question(
-                self, "Training is running",
-                f"Closing ThetaIDE stops {running}. Metrics written so far stay in results/logs." + "\n\nClose anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-            if answer != QMessageBox.StandardButton.Yes:
-                event.ignore()
-                return
+        if hasattr(self, "plugin_manager") and not self.plugin_manager.can_shutdown():
+            event.ignore()
+            return
         self._shutting_down = True
         self.save_session()
         for viewer in self.findChildren(ConfigViewer):
@@ -2840,7 +2856,7 @@ class Window(QMainWindow):
                 self.persist(run)
         self.jobs.shutdown()
         if hasattr(self, "plugin_manager") and self.plugin_manager is not None:
-            self.plugin_manager.shutdown()
+            self.plugin_manager.shutdown(check=False)
         if hasattr(self, "tensorboard_server") and self.tensorboard_server is not None:
             self.tensorboard_server.stop()
         if hasattr(self, "reloader") and self.reloader is not None:
@@ -2855,9 +2871,10 @@ class Window(QMainWindow):
             self._persist_zoom()
         event.accept()
         if self.tray is not None:
-            # With a tray the app doesn't quit when its last window closes, so a real close ends it here
             self.tray.remove()
-            QApplication.quit()
+        # main() enables quitOnLastWindowClosed. Calling quit() here re-enters
+        # native macOS termination before this close event returns, leaving
+        # deferred WebEngine widget deletion to run during native exit cleanup.
 
     def reload_frontend(self):
         """Reload the frontend process cleanly."""
@@ -2935,10 +2952,8 @@ def main():
     from .tray import TrayController
 
     window.tray = TrayController(window)
-    if window.tray.available():
-        # The app outlives its window while training in the tray; quit_app() ends it.
-        app.setQuitOnLastWindowClosed(False)
-    app.aboutToQuit.connect(window.jobs.shutdown)  # any exit path (Ctrl+C included) stops training cleanly
+    app.setQuitOnLastWindowClosed(True)  # jobs live in the independent runner
+    app.aboutToQuit.connect(window.jobs.shutdown)  # disconnect; background training continues
 
     from .terminal_reloader import TerminalReloader
 

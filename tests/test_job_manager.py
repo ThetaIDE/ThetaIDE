@@ -27,6 +27,13 @@ app = QApplication.instance() or QApplication(sys.argv[:1])
 
 
 @pytest.fixture(autouse=True)
+def isolated_job_config(fixture_workspace, monkeypatch):
+    import src.app.pipeline.compose as compose_module
+    monkeypatch.chdir(fixture_workspace)
+    monkeypatch.setattr(compose_module, "CONFIG_DIR", fixture_workspace / "in" / "config")
+
+
+@pytest.fixture(autouse=True)
 def _register_test_agents():
     from src.usr.algorithms.agent_registry import AGENT_REGISTRY, register_agent
     from src.usr.algorithms.base_agent import OfflineAgentBase
@@ -86,7 +93,12 @@ class Harness:
         self.control.mkdir()
         monkeypatch.setenv("FAKE_LOGS", str(self.logs))
         monkeypatch.setenv("FAKE_CONTROL", str(self.control))
-        self.manager = JobManager(store_path=tmp_path / "jobs" / "jobs.db", project_root=self.root, logs_dir=self.logs)
+        # Allow tiny test scripts on a busy machine. The old count setting is
+        # retained here to exercise compatibility; it no longer limits width.
+        settings = tmp_path / 'settings.toml'
+        settings.write_text('[training]\nmemory_percent = 95\nmax_parallel = 1\ncpu_percent=100\n')
+        self.manager = JobManager(store_path=tmp_path / "jobs" / "jobs.db", project_root=self.root,
+                                  logs_dir=self.logs, settings_path=settings)
         self.started, self.output, self.metrics, self.statuses = [], {}, {}, {}
         self.manager.job_changed.connect(self._changed)
         self.manager.job_output.connect(lambda job_id, lines: self.output.setdefault(job_id, []).extend(lines))
@@ -238,30 +250,24 @@ def test_jobs_left_running_by_a_previous_session_are_marked_interrupted(tmp_path
 
 # ── queue ────────────────────────────────────────────────────────────────────
 
-def test_queue_runs_jobs_one_at_a_time_in_order_with_moves_and_removals(jobs):
+def test_queue_admits_jobs_in_order_with_moves_and_removals(jobs):
     t = tag()
     a, b, c = (jobs.launch(f"{n}_{t}", queue=True) for n in "abc")
     assert all(job["status"] == "queued" for job in (a, b, c))
-    assert jobs.manager.start_queue()["running"]
-
-    pump(lambda: jobs.started == [f"a_{t}"])
     snapshot = jobs.manager.queue_state()
-    assert [j["experiment_id"] for j in snapshot["active"]] == [f"a_{t}"]
-    assert [(j["experiment_id"], j["position"]) for j in snapshot["queued"]] == [(f"b_{t}", 0), (f"c_{t}", 1)]
+    assert not snapshot['active']
+    assert [j['experiment_id'] for j in snapshot['queued']] == [f'{n}_{t}' for n in 'abc']
 
     with pytest.raises(LaunchError) as clash:  # same experiment ID as a queued job would overwrite its results
         jobs.launch(f"c_{t}", queue=True)
     assert clash.value.conflict
 
-    assert jobs.manager.move(c["job_id"], 0) == 0
+    assert jobs.manager.move(c["job_id"], 1) == 1
     assert jobs.manager.cancel(b["job_id"])["status"] == "cancelled"
-    assert [j["experiment_id"] for j in jobs.manager.queue_state()["queued"]] == [f"c_{t}"]
-
-    settle()
-    assert jobs.started == [f"a_{t}"]  # nothing else starts while a job is running
-
-    jobs.release(a)
+    assert [j["experiment_id"] for j in jobs.manager.queue_state()["queued"]] == [f"a_{t}", f"c_{t}"]
+    assert jobs.manager.start_queue()['running']
     pump(lambda: jobs.started == [f"a_{t}", f"c_{t}"])
+    jobs.release(a)
     jobs.release(c)
     pump(lambda: not jobs.manager.queue_state()["active"])
 
@@ -270,16 +276,14 @@ def test_queue_runs_jobs_one_at_a_time_in_order_with_moves_and_removals(jobs):
     assert jobs.started == [f"a_{t}", f"c_{t}"]  # the removed job never ran
 
 
-def test_queued_job_waits_for_a_directly_launched_job(jobs):
+def test_queued_job_runs_alongside_direct_job_when_resources_fit(jobs):
     t = tag()
     direct = jobs.launch(f"direct_{t}")
     pump(lambda: jobs.started == [f"direct_{t}"])
     queued = jobs.launch(f"queued_{t}", queue=True)
     jobs.manager.start_queue()
-    settle()
-    assert jobs.started == [f"direct_{t}"]
-    jobs.release(direct)
     pump(lambda: jobs.started == [f"direct_{t}", f"queued_{t}"])
+    jobs.release(direct)
     jobs.release(queued)
 
 
@@ -424,3 +428,75 @@ def test_real_cancel_stops_pipeline_and_training_subprocesses(tmp_path, experime
         listing = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True)
         assert str(pid) not in listing.stdout
     assert Path(stream).exists()
+
+
+def test_failed_run_saves_separate_logs_in_results(jobs, monkeypatch):
+    monkeypatch.setattr("frontend.job_manager.prepare_launch", lambda experiment, overrides, **kwargs: {
+        "experiment": experiment, "group": "thetaide", "experiment_id": "early_failure",
+        "agents": ["ppo"], "total_timesteps": 1, "effective_timesteps": 1, "run_in_parallel": False,
+    })
+    pipeline = jobs.root / "run_pipeline.py"
+    pipeline.write_text("import sys\nprint('output text', flush=True)\nprint('error text', file=sys.stderr, flush=True)\nsys.exit(2)\n", encoding="utf-8")
+    job = jobs.launch(f"failure_{tag()}")
+    pump(lambda: jobs.status(job) == "failed")
+    run_dir = jobs.logs / job["group"] / job["experiment_id"]
+    assert (run_dir / f"{job['job_id']}.stdout.log").read_text() == "output text\n"
+    assert (run_dir / f"{job['job_id']}.stderr.log").read_text() == "error text\n"
+    pump(lambda: {"output text", "error text"} <= set(jobs.output.get(job["job_id"], [])))
+
+
+def test_detached_runner_continues_queue_and_replays_metrics_after_reconnect(jobs):
+    first = jobs.launch(f'detached_a_{tag()}', queue=True)
+    second = jobs.launch(f'detached_b_{tag()}', queue=True)
+    jobs.manager.start_queue()
+    pump(lambda: jobs.output.get(first['job_id']))
+    old = jobs.manager
+    old.shutdown()
+    jobs.release(first)
+    # No Qt event processing: the desktop client is disconnected.
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        record = JobStore(old.jobs_dir / 'jobs.db').get_job(second['job_id'])
+        if record['status'] == 'running':
+            break
+        time.sleep(.05)
+    else:
+        pytest.fail('The detached queue did not start its next job')
+    manager = JobManager(store_path=old.jobs_dir / 'jobs.db', project_root=jobs.root, logs_dir=jobs.logs)
+    jobs.manager = manager
+    rows = []
+    manager.job_metrics.connect(lambda job_id, agent, new, reset: rows.extend(new) if job_id == second['job_id'] else None)
+    pump(lambda: rows)
+    assert manager.job(first['job_id'])['status'] == 'completed'
+    assert rows == [{'eval/reward': 10.0, 'transitions': 512.0}]
+    jobs.release(second)
+    pump(lambda: manager.job(second['job_id'])['status'] == 'completed')
+
+
+def test_completion_while_disconnected_preserves_exit_code_and_output(jobs):
+    job = jobs.launch(f'offline_failure_{tag()}')
+    pump(lambda: jobs.output.get(job['job_id']))
+    old = jobs.manager
+    old.shutdown()
+    jobs.release(job, code=7)
+    deadline = time.time() + 20
+    store = JobStore(old.jobs_dir / 'jobs.db')
+    while time.time() < deadline and store.get_job(job['job_id'])['status'] == 'running':
+        time.sleep(.05)
+    manager = JobManager(store_path=old.jobs_dir / 'jobs.db', project_root=jobs.root, logs_dir=jobs.logs)
+    jobs.manager = manager
+    assert manager.job(job['job_id'])['returncode'] == 7
+    assert manager.job(job['job_id'])['status'] == 'failed'
+    pump(lambda: 'done' in manager.log_lines(job['job_id']))
+
+
+def test_cancel_after_reconnect_stops_the_original_process(jobs):
+    job = jobs.launch(f'reconnected_cancel_{tag()}')
+    pump(lambda: jobs.output.get(job['job_id']))
+    old = jobs.manager
+    old.shutdown()
+    manager = JobManager(store_path=old.jobs_dir / 'jobs.db', project_root=jobs.root, logs_dir=jobs.logs)
+    jobs.manager = manager
+    assert manager.job(job['job_id'])['pid'] == job['pid']
+    assert manager.cancel(job['job_id'])['status'] == 'cancelled'
+    pump(lambda: manager.job(job['job_id']).get('finished'))

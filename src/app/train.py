@@ -49,6 +49,8 @@ from src.usr.algorithms.agent_registry import auto_discover, get_agent_class
 
 @hydra.main(version_base=None, config_path="../../in/config", config_name="config")
 def main(cfg: DictConfig):
+    if os.environ.get('THETA_MANAGED_THREADS'):
+        torch.set_num_threads(int(os.environ['THETA_MANAGED_THREADS']))
     if cfg.get("experiment_id", "default_exp") == "default_exp":
         try:
             from hydra.core.hydra_config import HydraConfig

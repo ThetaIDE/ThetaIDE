@@ -165,6 +165,25 @@ class LiveRunCache:
     def __init__(self):
         self._entries: dict[tuple, tuple[tuple, LiveRun]] = {}
 
+    def load_version(self, agent_dir, version):
+        """Read a specific trial's telemetry without switching to a newer trial."""
+        from pathlib import Path
+        from src.app.services.metrics import AgentFeed
+
+        feed = AgentFeed(Path(agent_dir), version=version)
+        version_dir = feed.newest_version()
+        if version_dir is None:
+            return None
+        stamp = (str(version_dir), *(_file_stamp(version_dir / name) for name in ("events.jsonl", "metrics.csv")))
+        key = ("version", str(version_dir))
+        cached = self._entries.get(key)
+        if cached is None or cached[0] != stamp:
+            live = LiveRun()
+            records, _ = feed.read()
+            live.add(records, now=_file_time(version_dir))
+            self._entries[key] = cached = (stamp, live)
+        return cached[1]
+
     def cached(self, logs_dir, group: str, experiment_id: str, agents: list[str]) -> dict[str, LiveRun]:
         """What was read before, without touching the disk (possibly out of date)."""
         found = {}
