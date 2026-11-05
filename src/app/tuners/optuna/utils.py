@@ -12,8 +12,12 @@ import threading
 import time
 import webbrowser
 from typing import Any
+from weakref import WeakKeyDictionary
 
 logger = logging.getLogger(__name__)
+
+MIN_IMPORTANCE_TRIALS = 5
+_importance_cache = WeakKeyDictionary()
 
 
 DEFAULT_OPTUNA_DB_URL = "sqlite:///results/optuna/optuna.db"
@@ -181,26 +185,46 @@ def get_optuna_storage(storage_url: str):
 
 
 def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage_url: str | None = None) -> str:
-    """Generate clean [experiment]_[method]_v[number] study name using existing run versions.
+    """Choose a fresh version across legacy runs, sweep artifacts and storage.
 
-    Uses filesystem inspection to avoid database locking during batch submission.
+    A cancelled study can exist without a completed training output folder.
+    Storage is authoritative when provided; archived artifacts also reserve
+    their version so reusing a database cannot overwrite a previous sweep.
     """
-    base_prefix = f"{experiment_id}_{agent_name}"
+    import json
+    import re
     from pathlib import Path
+    from urllib.parse import unquote
 
-    log_dir = Path("results/logs") / group / experiment_id / agent_name
-    ckpt_dir = Path("results/checkpoints") / group / experiment_id / agent_name
+    base_prefix = f"{experiment_id}_{agent_name}"
+    study_pattern = re.compile(re.escape(base_prefix) + r"_v(\d+)$")
+    legacy_pattern = re.compile(r"version_(\d+)$")
+    version = 0
 
-    existing_versions = [0]
-    for d in [log_dir, ckpt_dir]:
-        if d.exists():
-            for v_path in d.glob("version_*"):
-                if v_path.is_dir():
-                    try:
-                        existing_versions.append(int(v_path.name.split("_")[-1]) + 1)
-                    except ValueError:
-                        pass
-    version = max(existing_versions)
+    def include_study(name):
+        nonlocal version
+        match = study_pattern.fullmatch(str(name))
+        if match:
+            version = max(version, int(match[1]) + 1)
+
+    for directory in (Path("results/logs") / group / experiment_id / agent_name,
+                      Path("results/checkpoints") / group / experiment_id / agent_name):
+        for path in directory.glob("version_*"):
+            match = legacy_pattern.fullmatch(path.name)
+            if path.is_dir() and match:
+                version = max(version, int(match[1]) + 1)
+        for path in (directory / "sweeps").glob("*"):
+            if path.is_dir():
+                include_study(unquote(path.name))
+        try:
+            include_study(json.loads((directory / "tuning_summary.json").read_text())["study"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+
+    if storage_url:
+        import optuna
+        for name in optuna.study.get_all_study_names(storage=get_optuna_storage(storage_url)):
+            include_study(name)
     return f"{base_prefix}_v{version}"
 
 
@@ -277,6 +301,34 @@ def find_best_trial_from_logs(group: str, experiment_id: str, agent_name: str, d
     return best_id, (best_val if best_val != float("inf") and best_val != float("-inf") else None)
 
 
+def _study_importance(study, trials):
+    """Estimate once per completed trial set, outside the desktop's UI thread."""
+    import json
+
+    completed = [trial for trial in trials if trial["state"] == "complete" and trial["value"] is not None]
+    info = {"completed_trials": len(completed), "minimum_trials": MIN_IMPORTANCE_TRIALS, "evaluator": "fANOVA"}
+    if len(completed) < MIN_IMPORTANCE_TRIALS:
+        return {}, dict(info, status="waiting", message=f"Importance becomes available after {MIN_IMPORTANCE_TRIALS} completed trials.")
+    signature = tuple((trial["id"], trial["value"], json.dumps(trial["parameters"], sort_keys=True)) for trial in completed)
+    cached = _importance_cache.get(study)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    if len({trial["value"] for trial in completed}) < 2:
+        result = {}, dict(info, status="unavailable", message="Importance needs variation in the completed trials' objective values.")
+    else:
+        try:
+            from optuna.importance import FanovaImportanceEvaluator, get_param_importances
+
+            scores = get_param_importances(study, evaluator=FanovaImportanceEvaluator(seed=0))
+            result = scores, dict(info, status="ready" if scores else "unavailable",
+                                  message="" if scores else "No shared varying parameters are available to compare.")
+        except Exception as exc:
+            logger.debug("Parameter importance unavailable for study %s: %s", study.study_name, exc)
+            result = {}, dict(info, status="unavailable", message="Importance could not be estimated from these trials. It will retry when another trial completes.")
+    _importance_cache[study] = signature, result
+    return result
+
+
 def write_study_summary(study, ckpt_root):
     """Export a backend-neutral snapshot, including incomplete and failed trials."""
     import json
@@ -297,10 +349,17 @@ def write_study_summary(study, ckpt_root):
         directory = trial_checkpoint_dir(ckpt_root, study.study_name, item.number)
         available = [str(path) for path in (directory / "best_model.ckpt", directory / "best_model.zip") if path.is_file()]
         trials.append({
-            "id": item.number, "state": item.state.name.lower(),
+            "id": item.number, "state": (item.user_attrs.get('theta_execution_state', 'running')
+                                           if item.state.name == 'RUNNING' else item.state.name.lower()),
             "value": item.value if item.value is not None and math.isfinite(item.value) else None,
             "parameters": item.params,
+            "log_version": item.user_attrs.get("theta_log_version"),
+            "started": item.datetime_start.isoformat() if item.datetime_start else None,
+            "execution_started": item.user_attrs.get('theta_worker_started_at'),
+            "finished": item.datetime_complete.isoformat() if item.datetime_complete else None,
+            "duration_seconds": item.duration.total_seconds() if item.duration else None,
             "checkpoint": available[0] if item.state.name == "COMPLETE" and len(available) == 1 else None,
+            "objective_artifact": str(directory / "objective.json") if (directory / "objective.json").is_file() else None,
             "intermediate_values": {str(step): value for step, value in item.intermediate_values.items()
                                     if value is not None and math.isfinite(value)},
         })
@@ -308,7 +367,16 @@ def write_study_summary(study, ckpt_root):
         "schema_version": 1, "component": "optuna", "study": study.study_name,
         "direction": study.direction.name.lower(), "objective_metric": study.user_attrs.get("theta_objective_metric"),
         "stop_reason": study.user_attrs.get("theta_last_stop_reason"), "best_trial_id": best_trial_id, "trials": trials,
+        "requested_trials": study.user_attrs.get("theta_requested_trials"),
+        "initial_trials": study.user_attrs.get("theta_initial_trials"),
+        "log_method": study.user_attrs.get("theta_log_method"),
     }
+    current = trials[summary['initial_trials'] or 0:]
+    requested = summary['requested_trials']
+    future = max(0, requested - len(current)) if isinstance(requested, int) else 0
+    summary['future_trials'] = future if summary['stop_reason'] == 'running' else 0
+    summary['pending_trials'] = summary['future_trials'] + sum(t['state'] == 'pending' for t in current)
+    summary["parameter_importance"], summary["parameter_importance_info"] = _study_importance(study, trials)
     study_root = trial_checkpoint_dir(ckpt_root, study.study_name, 0).parent
     study_root.mkdir(parents=True, exist_ok=True)
     for directory in (study_root, ckpt_root):
@@ -349,6 +417,22 @@ def promote_best_trial_checkpoint(
         raise ValueError(f"Best trial in study {study_name!r} does not have a finite objective")
     ckpt_root = Path("results/checkpoints") / group / experiment_id / agent_name
     trial_dir = trial_checkpoint_dir(ckpt_root, study_name, trial.number)
+    objective_path = trial_dir / "objective.json"
+    if objective_path.is_file():
+        # A seed panel selects a configuration, not one privileged trained model.
+        objective = json.loads(objective_path.read_text(encoding="utf-8"))
+        best_info = {
+            "study_name": study_name, "best_trial_id": trial.number, "best_value": trial.value,
+            "best_params": trial.params, "direction": study.direction.name,
+            "checkpoint": None, "objective_artifact": str(objective_path),
+            "samples": [run["artifacts"] for run in objective["runs"]],
+        }
+        ckpt_root.mkdir(parents=True, exist_ok=True)
+        (ckpt_root / "best_params.yaml").write_text(yaml.safe_dump(trial.params), encoding="utf-8")
+        (ckpt_root / "best_trial_summary.json").write_text(json.dumps(best_info, indent=2), encoding="utf-8")
+        write_study_summary(study, ckpt_root)
+        print(f"\n[Optuna Winner] Selected configuration from trial #{trial.number}; {len(objective['runs'])} sample artifacts retained")
+        return str(trial.number)
     candidates = [trial_dir / "best_model.ckpt", trial_dir / "best_model.zip"]
     matches = [path for path in candidates if path.is_file()]
     if len(matches) != 1:

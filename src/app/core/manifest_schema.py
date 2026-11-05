@@ -179,6 +179,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                 },
                 "required": {"type": "array", "items": {"type": "string"}},
                 "additionalProperties": {"type": ["boolean", "object"]},
+                "x-theta-validate": {"type": "boolean", "description": "Opt this parameter schema into pipeline validation."},
                 "x-theta-config-schemas": {
                     "type": "object",
                     "additionalProperties": {"type": "object"},

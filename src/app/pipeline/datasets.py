@@ -153,21 +153,106 @@ def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any) -> 
 
 def run_experiment(
     overrides, site_cfg=None, script_entrypoint: str | None = None, python_executable: str | None = None,
-    output_log: str | Path | None = None,
+    output_log: str | Path | None = None, cancel_targets=(), on_start=None, on_wait=None,
+    task_config=None, coordinator=False, resource_ticket=None,
 ):
     """Run target training script as a subprocess with the given Hydra overrides."""
     from src.app.pipeline.runtime import get_subprocess_env
 
     env = get_subprocess_env(site_cfg)
+    import json
+    env["THETA_CANCEL_TARGETS"] = json.dumps(cancel_targets)
+    from src.app.services.cancellation import requested, TrainingCancelled
+    if requested(cancel_targets, env.get("THETA_CANCEL_DIR")):
+        raise TrainingCancelled()
 
     venv_python = python_executable or get_python_executable(site_cfg)
     target_script = script_entrypoint or "src/app/train.py"
     cmd = [venv_python, "-u", str(target_script)] + list(overrides)
     print(f"Running: {' '.join(cmd)}")
-    if output_log is None:
-        subprocess.run(cmd, check=True, env=env)
-        return
+    if env.get('THETA_RESOURCE_POOL') and not coordinator and not any(arg in ('-m', '--multirun') for arg in overrides):
+        import json
+        from src.app.services.resource_budget import ResourcePool, ResourceCapacityRetry, workload_estimate, uses_accelerator
+        from omegaconf import OmegaConf
+        pool = ResourcePool(env['THETA_RESOURCE_POOL'], env.get('THETAIDE_SETTINGS_FILE'))
+        inherited = json.loads(env.get('THETA_RESOURCE_SPEC', '{}'))
+        nested = [arg.lstrip('+') for arg in overrides if '=' in arg and
+                  arg.lstrip('+').startswith(('model.', 'agent.'))]
+        if task_config is None:
+            task_config = OmegaConf.to_container(OmegaConf.from_dotlist(nested), resolve=False)
+            task_config['entrypoint'] = str(target_script)
+            for name in ('agent', 'model'):
+                group = next((arg.split('=', 1)[1] for arg in overrides if arg.lstrip('+').startswith(name + '=')), None)
+                if group:
+                    task_config.setdefault(name, {})['name'] = group
+        spec = workload_estimate(task_config)
+        # Keep dataset/architecture hints discovered by the experiment preflight.
+        spec['memory'] = max(spec['memory'], inherited.get('memory', 0))
+        spec['minimum_memory'] = max(spec['minimum_memory'], inherited.get('minimum_memory', 0))
+        def check_cancel():
+            if requested(cancel_targets, env.get('THETA_CANCEL_DIR')):
+                raise TrainingCancelled()
+        while True:
+            try:
+                with pool.slot(spec, accelerator=uses_accelerator(task_config), check_cancel=check_cancel, ticket=resource_ticket) as token:
+                    def started(pid):
+                        pool.attach(token, pid)
+                        if on_start:
+                            on_start(pid)
+                    return _execute_training(cmd, env, output_log, on_start=started,
+                                             should_retry=lambda: pool.should_retry(token))
+            except ResourceCapacityRetry as exc:
+                resource_ticket = getattr(exc, "resource_ticket", None)
+                print('[System usage] Worker outgrew its estimate; pending restart with learned usage.', flush=True)
+                if on_wait:
+                    on_wait()
+    if resource_ticket:
+        env['THETA_RESOURCE_QUEUE_PARENT'] = resource_ticket
+    return _execute_training(cmd, env, output_log, on_start=on_start)
 
+
+def _execute_training(cmd, env, output_log, on_start=None, should_retry=None):
+    import json
+    from src.app.services.cancellation import requested, TrainingCancelled
+    from src.app.services.processes import kill_process_tree
+    targets = json.loads(env.get("THETA_CANCEL_TARGETS", "[]"))
+    stopped = threading.Event()
+    cancelled = threading.Event()
+    retry = threading.Event()
+
+    def watch():
+        while not stopped.wait(.2):
+            if requested(targets, env.get("THETA_CANCEL_DIR")):
+                cancelled.set()
+                kill_process_tree(process.pid)
+                return
+            if should_retry and should_retry():
+                retry.set()
+                kill_process_tree(process.pid)
+                return
+
+    if requested(targets, env.get("THETA_CANCEL_DIR")):
+        raise TrainingCancelled()
+    # A watcher also handles silent workers whose output pipe is blocked.
+    if output_log is None:
+        process = subprocess.Popen(cmd, env=env)
+        if on_start:
+            on_start(process.pid)
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        try:
+            code = process.wait()
+        finally:
+            stopped.set()
+            watcher.join()
+        if cancelled.is_set():
+            raise TrainingCancelled()
+        if retry.is_set():
+            from src.app.services.resource_budget import ResourceCapacityRetry
+            raise ResourceCapacityRetry()
+        if code:
+            raise subprocess.CalledProcessError(code, cmd)
+        return
     # Preserve live console output while retaining a per-run copy for the
     # execution manifest and later debugging.
     output_path = Path(output_log)
@@ -177,13 +262,26 @@ def run_experiment(
             cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
         )
+        if on_start:
+            on_start(process.pid)
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
         assert process.stdout is not None
-        for line in process.stdout:
-            log_file.write(line)
-            log_file.flush()
-            sys.stdout.write(line)
-            sys.stdout.flush()
-        return_code = process.wait()
+        try:
+            for line in process.stdout:
+                log_file.write(line)
+                log_file.flush()
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            return_code = process.wait()
+        finally:
+            stopped.set()
+            watcher.join()
+    if cancelled.is_set():
+        raise TrainingCancelled()
+    if retry.is_set():
+        from src.app.services.resource_budget import ResourceCapacityRetry
+        raise ResourceCapacityRetry()
     if return_code:
         raise subprocess.CalledProcessError(return_code, cmd)
 

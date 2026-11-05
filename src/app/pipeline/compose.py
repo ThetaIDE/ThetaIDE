@@ -38,6 +38,7 @@ class ComposedExperiment:
     launch_args: list[str]
     """Overrides forwarded to training subprocesses, including internal experiment tracking."""
     is_sweep: bool
+    config_dir: Path | None = None
 
     @property
     def argv(self) -> list[str]:
@@ -45,7 +46,7 @@ class ComposedExperiment:
         return ["python", "run_pipeline.py", self.experiment, *self.extra_args]
 
 
-def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, ...] = ()) -> ComposedExperiment:
+def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, ...] = (), *, config_dir: Path | None = None) -> ComposedExperiment:
     """Compose the Hydra config for an experiment plus CLI-style overrides.
 
     Raises ValueError for an unknown experiment and Hydra exceptions for invalid overrides.
@@ -65,7 +66,7 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
 
     with _HYDRA_LOCK:
         GlobalHydra.instance().clear()
-        initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR))
+        initialize_config_dir(version_base=None, config_dir=str(config_dir or CONFIG_DIR))
         cfg = compose(config_name="config", overrides=overrides, return_hydra_config=True)
 
     exp_stem = Path(experiment).stem
@@ -92,12 +93,19 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
             if not arg.lstrip("+").startswith(("hydra/sweeper=", "hydra.sweeper."))
         ]
 
-    return ComposedExperiment(experiment, cfg, extra_args, launch_args, is_sweep)
+    return ComposedExperiment(experiment, cfg, extra_args, launch_args, is_sweep, config_dir)
 
 
 def validate_composed(composed: ComposedExperiment) -> list[str]:
     """Run pre-flight paradigm validation. Returns notices; raises ConfigurationError."""
-    notices = validate_experiment_config(composed.cfg, composed.experiment, is_sweep=composed.is_sweep)
+    notices = validate_experiment_config(composed.cfg, composed.experiment, is_sweep=composed.is_sweep, config_dir=composed.config_dir)
+    _validate_method_composition(composed)
+    if composed.cfg.get("objective") is not None:
+        choices = composed.cfg.get("hydra", {}).get("runtime", {}).get("choices", {})
+        site = choices.get("site") or (composed.cfg.get("site") or {}).get("name") or "local"
+        if site != "local":
+            from src.app.pipeline.exceptions import ConfigurationError
+            raise ConfigurationError("Objective sampling currently requires the local launcher; Slurm is not yet supported")
     if composed.cfg.get("variability") is not None:
         from src.app.pipeline.config import parse_methods_dict
         from src.app.pipeline.variability import make_plan
@@ -108,6 +116,57 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
                                  "is_sweep": composed.is_sweep, "is_interactive": site == "local"})
     return notices
 
+
+
+def _validate_method_composition(composed: ComposedExperiment) -> None:
+    """Preflight the same per-method Hydra overrides used by the Optuna launcher.
+
+    A representative value exercises path existence and Hydra composition before
+    starting a study; dimension bounds and types are checked by the tuner.
+    """
+    from src.app.pipeline.tuners import tuner_name
+    from src.app.pipeline.tuning_config import tuning_disabled
+    from src.app.pipeline.exceptions import ConfigurationError
+
+    from src.app.pipeline.config import parse_methods_dict
+    from src.app.pipeline.component_validation import schemas_for_method, validate_method_components, validate_sweep_dimensions
+    methods = parse_methods_dict(composed.cfg)
+    workspace = CONFIG_DIR.parents[1]
+    schemas = {name: schemas_for_method(workspace, settings) for name, settings in methods.items()}
+    sweep = not tuning_disabled(composed.cfg) and tuner_name(composed.cfg) == "optuna"
+    if not any(schemas.values()) and not (sweep and any(m.get("tune") or m.get("search_space") for m in methods.values())):
+        return
+    from hydra.core.override_parser.overrides_parser import OverridesParser
+    import json
+    if sweep:
+        from optuna.distributions import BaseDistribution, CategoricalDistribution
+        from src.app.tuners.optuna.sweeper import _distribution_from_override
+
+    parser = OverridesParser.create()
+    for name, plan in method_plans(composed).items():
+        has_sweep = sweep and bool(plan["settings"].get("tune") or plan["settings"].get("search_space"))
+        if not has_sweep and not schemas.get(name):
+            continue
+        fixed, sampled = {}, {}
+        validate_sweep_dimensions(plan["settings"], schemas.get(name, {}), name)
+        try:
+            for arg in plan["train_overrides"]:
+                if arg in ("--multirun", "-m") or arg.startswith(("+experiment=", "hydra/", "++hydra.", "hydra.")):
+                    continue
+                override = parser.parse_override(arg)
+                value = _distribution_from_override(override) if has_sweep else None
+                key = override.get_key_element()
+                if has_sweep and isinstance(value, BaseDistribution):
+                    value = value.choices[0] if isinstance(value, CategoricalDistribution) else value.low
+                    sampled[key] = f"{key}={json.dumps(value)}"
+                else:
+                    fixed[key] = arg
+            for key in fixed:
+                sampled.pop(key, None)
+            trial = compose_experiment(composed.experiment, [*fixed.values(), *sampled.values()], config_dir=composed.config_dir)
+            validate_method_components(trial.cfg, schemas.get(name, {}), name)
+        except Exception as exc:
+            raise ConfigurationError(f"Method '{name}' trial configuration cannot be composed: {exc}") from exc
 
 def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
     """Per-method settings after tier merging, plus the exact overrides each training subprocess receives.

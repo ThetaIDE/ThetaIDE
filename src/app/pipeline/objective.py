@@ -7,6 +7,9 @@ from typing import Any, Mapping
 
 
 def objective_metric(cfg: Any, default: str) -> str:
+    component = cfg.get("objective") if hasattr(cfg, "get") else None
+    if hasattr(component, "get") and component.get("component"):
+        return "objective/" + str(component["component"])
     tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
     metric = tuning.get("metric") if hasattr(tuning, "get") else None
     return str(metric or default)

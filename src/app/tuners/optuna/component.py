@@ -55,10 +55,12 @@ class OptunaTuner:
         return script, python
 
     def settings(self):
-        return [
+        fields = [
             {"key": "n_trials", "label": "Trials", "type": "int", "default": 40, "min": 1, "max": 100000},
             {"key": "n_jobs", "label": "Trial batch size", "type": "int", "default": 1, "min": 1, "max": 100000,
-             "help": "Trials execute concurrently only when the selected Hydra launcher supports parallel jobs."},
+             "managed_label": "Trial scheduling", "managed_hint": "Automatic (Training Pipeline)",
+             "help": "Desktop trials refill available capacity continuously using Training Pipeline limits. "
+                     "The n_jobs batch setting applies only to unmanaged Hydra launches."},
             {"key": "sampler", "label": "Sampler", "type": "choice", "default": "tpe", "choices": ["tpe", "random", "qmc"],
              "help": "QMC uses scrambled Sobol samples; categorical dimensions fall back to independent sampling."},
             {"key": "seed", "label": "Sampler seed", "type": "int", "default": 42, "min": 0, "max": 2147483647},
@@ -78,10 +80,17 @@ class OptunaTuner:
             {"key": "pruner_warmup_steps", "label": "Warmup evaluation checkpoints", "type": "int", "default": 0,
              "min": 0, "max": 100000, "when": {"pruner": "median"}},
             {"key": "timeout_seconds", "label": "Time budget (seconds)", "type": "int", "default": 0, "min": 0, "max": 2147483647,
-             "help": "Zero means no limit. Running trials finish; no new batch starts after the budget expires."},
+             "help": "Zero means no limit. Running trials finish; no new trials start after the budget expires."},
             {"key": "max_failed_trials", "label": "Allowed failed trials", "type": "int", "default": 0, "min": 0, "max": 100000,
              "help": "Maximum failed trials in this run before the sweep stops. Pruned trials do not count."},
         ]
+        for field in fields:
+            field["optional"] = field["key"] not in ("n_trials", "sampler")
+            if field["key"] == "seed" or field["key"].startswith("tpe_"):
+                field["parent"] = "sampler"
+            elif field["key"].startswith("pruner_"):
+                field["parent"] = "pruner"
+        return fields
 
     @staticmethod
     def _options(cfg):
@@ -108,6 +117,8 @@ class OptunaTuner:
     def validate_config(self, cfg):
         self._require_dependencies()
         tuning = self._options(cfg)
+        if cfg.get("variability") is not None and tuning.get("pruner") != "none":
+            raise ValueError("Repeated tuning currently requires pruning disabled (pruner: none).")
         for key, default in (("n_trials", 40), ("n_jobs", 1)):
             value = tuning.get(key, default)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -160,14 +171,14 @@ class OptunaTuner:
 
     def training_callbacks(self, cfg):
         runtime = cfg.get("theta_tuning")
-        if not hasattr(runtime, "get") or runtime.get("pruner", "none") == "none":
+        if not hasattr(runtime, "get") or runtime.get("optuna_trial_id") is None:
             return []
         from src.app.tuners.optuna.pruning import OptunaPruningCallback
         return [OptunaPruningCallback(runtime)]
 
     def trial_monitor(self, cfg):
         runtime = cfg.get("theta_tuning")
-        if not hasattr(runtime, "get") or runtime.get("pruner", "none") == "none":
+        if not hasattr(runtime, "get") or runtime.get("optuna_trial_id") is None:
             return None
         from src.app.tuners.optuna.monitor import OptunaTrialMonitor
         return OptunaTrialMonitor(runtime)
@@ -245,7 +256,7 @@ class OptunaTuner:
         from src.app.tuners.optuna.utils import get_next_study_name
         explicit = str(self._options(cfg).get("study_name") or "").strip()
         return (explicit.format(method=method_name, experiment=cfg.experiment_id, group=cfg.group)
-                if explicit else get_next_study_name(cfg.group, cfg.experiment_id, method_name))
+                if explicit else get_next_study_name(cfg.group, cfg.experiment_id, method_name, self.storage(cfg)))
 
     def storage(self, cfg):
         from src.app.tuners.optuna.utils import DEFAULT_OPTUNA_DB_URL
@@ -278,7 +289,8 @@ class OptunaTuner:
                 study = optuna.load_study(study_name=study_name, storage=target)
                 if study.direction.name.lower() != direction:
                     raise ConfigurationError(f"Study {study_name!r} has a different objective direction.")
-                metric = tuning.get("metric") if hasattr(tuning, "get") else None
+                from src.app.pipeline.objective import objective_metric
+                metric = objective_metric(cfg, "") or None
                 recorded = study.user_attrs.get("theta_objective_metric")
                 if recorded and metric and recorded != metric:
                     raise ConfigurationError(f"Study {study_name!r} optimizes {recorded!r}, not {metric!r}.")
@@ -292,3 +304,16 @@ class OptunaTuner:
     def finalize(self, group, experiment, method, storage, study_name):
         from src.app.tuners.optuna.utils import promote_best_trial_checkpoint
         return promote_best_trial_checkpoint(group, experiment, method, storage, study_name)
+
+    def cancel(self, cfg, method, storage, study_name):
+        """The selected method stopped: close only this launch's outstanding trials."""
+        import optuna
+        from pathlib import Path
+        from src.app.tuners.optuna.utils import write_study_summary
+        study = optuna.load_study(study_name=study_name, storage=storage)
+        initial = int(study.user_attrs.get("theta_initial_trials", 0))
+        for trial in study.trials[initial:]:
+            if trial.state == optuna.trial.TrialState.RUNNING:
+                study.tell(trial.number, state=optuna.trial.TrialState.PRUNED)
+        study.set_user_attr("theta_last_stop_reason", "cancelled")
+        write_study_summary(study, Path("results/checkpoints") / str(cfg.group) / str(cfg.experiment_id) / method)

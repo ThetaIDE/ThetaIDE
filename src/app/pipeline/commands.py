@@ -11,6 +11,8 @@ from src.app.pipeline.validation import paradigm_uses_agents, paradigm_uses_stat
 
 def _format_hydra_val(x):
     """Format Python values into Hydra override syntax."""
+    if x is None:
+        return "null"
     if isinstance(x, (list, tuple)):
         return "[" + ",".join(_format_hydra_val(item) for item in x) + "]"
     elif isinstance(x, dict):
@@ -186,6 +188,12 @@ def build_method_overrides(
             _MODEL_KEYS.update(base_m_cfg.keys())
     except Exception:
         pass
+    # UI-exposed model fields can be absent from an older workspace profile.
+    # Route a fixed value to the same model path used by a sweep target.
+    from pathlib import Path
+    from src.app.pipeline.component_validation import schemas_for_method
+    schema = schemas_for_method(Path.cwd(), {"model": model_arch}, validation_only=False).get("model", {})
+    _MODEL_KEYS.update(schema.get("properties", {}))
 
     for k, v in method_cfg.items():
         if k in _INTERNAL_KEYS:

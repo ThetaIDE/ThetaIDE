@@ -5,6 +5,7 @@ Each method in cfg.methods is dispatched individually with proper overrides.
 """
 
 import sys
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -64,15 +65,42 @@ def run_methods(cfg, context) -> None:
     """Run methods one at a time, or launch one training process per method concurrently."""
     methods = context["methods"]
     require_runnable_tuning(cfg, methods)
-    if not cfg.get("run_in_parallel", False) or len(methods) < 2:
-        return _run_methods_sequential(cfg, context)
+    parallel = bool(cfg.get("run_in_parallel", False) and len(methods) > 1)
+    resource_pool = None
+    tickets = {}
+    if os.environ.get('THETA_RESOURCE_POOL'):
+        from src.app.services.resource_budget import ResourcePool
+        resource_pool = ResourcePool(os.environ['THETA_RESOURCE_POOL'], os.environ.get('THETAIDE_SETTINGS_FILE'))
+        tickets = dict(zip(methods, resource_pool.enqueue(len(methods) if parallel else min(1, len(methods)),
+                          parent=os.environ.get('THETA_RESOURCE_QUEUE_PARENT'))))
 
-    with ThreadPoolExecutor(max_workers=len(methods), thread_name_prefix="theta-method") as pool:
-        futures = [pool.submit(_run_methods_sequential, cfg,
-                               {**context, "methods": {name: settings}})
-                   for name, settings in methods.items()]
-        for future in as_completed(futures):
-            future.result()
+    def execute(name, settings):
+        if resource_pool and name not in tickets:
+            tickets[name] = resource_pool.enqueue()[0]
+        try:
+            return _run_methods_sequential(cfg, {**context, "methods": {name: settings},
+                                                "resource_ticket": tickets.get(name)})
+        finally:
+            if resource_pool:
+                resource_pool.dequeue(tickets[name])
+
+    try:
+        if not parallel:
+            for name, settings in methods.items():
+                execute(name, settings)
+            return
+        workers = len(methods)
+        if resource_pool:
+            from src.app.services.resource_budget import orchestration_workers
+            workers = orchestration_workers(len(methods))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="theta-method") as pool:
+            futures = [pool.submit(execute, name, settings) for name, settings in methods.items()]
+            for future in as_completed(futures):
+                future.result()
+    finally:
+        if resource_pool:
+            for ticket in tickets.values():
+                resource_pool.dequeue(ticket)
 
 
 def _run_methods_sequential(cfg, context) -> None:
@@ -133,13 +161,58 @@ def _run_methods_sequential(cfg, context) -> None:
         engine_script, engine_python = resolve_engine(method_cfg, cfg)
         if tuner is not None:
             engine_script, engine_python = tuner.job_entrypoint(cfg, method_cfg, engine_script, engine_python)
-        run_experiment(
-            overrides,
-            site_cfg=getattr(cfg, "site", None),
-            script_entrypoint=engine_script,
-            python_executable=engine_python,
-            output_log=context.get("output_log"),
-        )
+        repeated = cfg.get("objective") is not None or (method_is_sweep and cfg.get("variability") is not None)
+        if repeated:
+            import json
+            from omegaconf import OmegaConf
+            from src.app.pipeline.commands import _format_hydra_val
+            def objective_override(value):
+                if isinstance(value, str):
+                    return json.dumps(value)
+                if isinstance(value, dict):
+                    return "{" + ",".join(f"{key}:{objective_override(item)}" for key, item in value.items()) + "}"
+                if isinstance(value, list):
+                    return "[" + ",".join(objective_override(item) for item in value) + "]"
+                return _format_hydra_val(value)
+            # Carry resolved group defaults as well as experiment-local settings.
+            for key in ("objective", "variability"):
+                value = cfg.get(key)
+                if value is not None:
+                    value = OmegaConf.to_container(value, resolve=True) if OmegaConf.is_config(value) else value
+                    overrides.append(f"++{key}={objective_override(value)}")
+            overrides.append(f"++theta_execution.script={json.dumps(engine_script)}")
+            engine_script = "src/app/pipeline/repeated_task.py"
+        from src.app.services.cancellation import TrainingCancelled
+        targets = [f"method:{agent_name}"]
+        for arg in sanitized_extra_args:
+            if arg.lstrip("+").startswith("variability_run_id="):
+                targets.append("replicate:" + arg.split("=", 1)[1])
+        try:
+            run_experiment(
+                overrides,
+                site_cfg=getattr(cfg, "site", None),
+                script_entrypoint=engine_script,
+                coordinator=repeated,
+                python_executable=engine_python,
+                output_log=context.get("output_log"),
+                cancel_targets=targets,
+                **({"on_start": context["on_worker_start"]} if context.get("on_worker_start") else {}),
+                **({"resource_ticket": context["resource_ticket"]} if context.get("resource_ticket") else {}),
+                **({"on_wait": context["on_worker_wait"]} if context.get("on_worker_wait") else {}),
+            )
+        except TrainingCancelled:
+            if context.get("propagate_cancellation"):
+                raise
+            if repeated:
+                import os
+                from src.app.pipeline.variability import finish_trial_runs
+                finish_trial_runs(cfg.group, cfg.experiment_id, None, "cancelled",
+                                  owner_pid=int(os.environ.get("THETA_PIPELINE_PID", os.getpid())), method=agent_name)
+            cancel = getattr(tuner, "cancel", None)
+            if callable(cancel):
+                cancel(cfg, agent_name, storage_url, study_name)
+            print(f"Cancelled {method_name}", flush=True)
+            continue
         if method_is_sweep:
             tuner.finalize(cfg.group, cfg.experiment_id, agent_name, storage_url, study_name)
 

@@ -108,6 +108,9 @@ class ThetaSB3Writer:
 
 @hydra.main(version_base=None, config_path="../../../../in/config", config_name="config")
 def main(cfg: DictConfig):
+    if os.environ.get('THETA_MANAGED_THREADS'):
+        import torch
+        torch.set_num_threads(int(os.environ['THETA_MANAGED_THREADS']))
     model_cfg = cfg.get("model", {})
     from src.app.pipeline.tuners import trial_monitor
     monitor = trial_monitor(cfg)
@@ -156,6 +159,7 @@ def main(cfg: DictConfig):
 
     # Telemetry: metrics.csv and the live feed by default; ++telemetry.sinks=[...] picks others
     sinks, system_interval = telemetry.settings_from_config(cfg)
+    from src.app.pipeline.trial_artifacts import trial_log_version
     logger = telemetry.init(
         group,
         exp_id,
@@ -163,7 +167,7 @@ def main(cfg: DictConfig):
         sinks=sinks,
         config=OmegaConf.to_container(cfg, resolve=True),
         system_interval=system_interval,
-        version=cfg.get("variability_version") if cfg.get("variability_run_id") else None,
+        version=cfg.get("variability_version") if cfg.get("variability_run_id") else trial_log_version(cfg),
     )
 
     from hydra.core.hydra_config import HydraConfig
@@ -367,6 +371,8 @@ def main(cfg: DictConfig):
                                        "action_meanings": meanings}
         algo_kwargs["device"] = "cpu"
 
+    if (cfg.get('trainer') or {}).get('accelerator') == 'cpu':
+        algo_kwargs['device'] = 'cpu'
     try:
         model = AlgoClass(policy_type, env, verbose=1, **algo_kwargs)
     except BaseException as exc:

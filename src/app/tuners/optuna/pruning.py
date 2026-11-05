@@ -17,7 +17,9 @@ class OptunaPruningCallback(Callback):
         if trainer.sanity_checking:
             return
         if trainer.world_size != 1:
-            raise ValueError("Optuna pruning currently requires a single Lightning process")
+            if self.runtime.get("pruner", "median") != "none":
+                raise ValueError("Optuna pruning currently requires a single Lightning process")
+            return
         metric = str(self.runtime["objective_metric"])
         if metric not in trainer.callback_metrics:
             return
@@ -29,7 +31,7 @@ class OptunaPruningCallback(Callback):
         self._reported.add(step)
 
     def on_fit_end(self, trainer, pl_module):
-        if not self._reported:
+        if not self._reported and self.runtime.get("pruner", "median") != "none":
             raise ValueError(
                 f"Optuna pruning requires the objective {self.runtime['objective_metric']!r} "
                 "to be reported during validation."

@@ -7,6 +7,68 @@ import statistics
 from pathlib import Path
 
 
+def replicate_label(manifest, run):
+    """Stable, collision-free source identity for experiment and nested trial seeds."""
+    parent = manifest.get("parent") or {}
+    method = str(run.get("method", "run"))
+    if parent.get("kind") == "trial":
+        method += f" · {parent['study']} · trial {parent['trial_number']}"
+    return f"{method} · seed {run.get('training_seed')}"
+
+
+def trial_execution(logs_root, method, trial):
+    """Read a shared execution, adapting the earlier objective-runner artifacts read-only.
+
+    Compatibility stays at the data boundary; queue/monitor never understand
+    objective implementations or launch their own workers.
+    """
+    version = trial.get("log_version")
+    if not version:
+        return None
+    directory = Path(logs_root) / method / version
+    try:
+        pointer = json.loads((directory / "execution.json").read_text(encoding="utf-8"))
+        path = Path(pointer["manifest"])
+        path = path if path.is_absolute() else directory / path
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        old = json.loads((directory / "objective.json").read_text(encoding="utf-8"))
+        runtime = old["config"]["theta_tuning"]
+        runs = []
+        for index, sample in enumerate(old["runs"]):
+            if sample is None:
+                continue
+            path = Path(sample["artifacts"]["logs"])
+            runs.append({"run_id": f"{version}:{index}", "method": method, "agent": path.parent.name,
+                         "training_seed": sample["seed"], "status": sample["status"],
+                         "logs": str(path.parent.parent), "version": path.name,
+                         "output_log": str(path / "training.log"), "legacy_execution": True})
+        return {"schema_version": 1, "runs": runs, "parent": {
+            "kind": "trial", "method": method, "study": runtime["study_name"],
+            "trial_number": runtime["trial_number"], "log_version": version}}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def study_execution_states(summary, logs_root, method):
+    """Enrich a study snapshot with actual seed-worker states from shared records."""
+    trials = []
+    for trial in summary.get("trials", []):
+        execution = trial_execution(logs_root, method, trial)
+        if execution:
+            trial = dict(trial, execution=execution)
+            runs = execution.get("runs", [])
+            if trial.get("state") in ("running", "pending"):
+                states = {run.get("status") for run in runs}
+                trial["state"] = "running" if "running" in states or not states.intersection({"queued", "pending"}) else "pending"
+                starts = [run["execution_started"] for run in runs if run.get("execution_started") and run.get("status") == "running"]
+                trial["execution_started"] = min(starts) if starts else trial.get("execution_started")
+        trials.append(trial)
+    return dict(summary, trials=trials)
+
+
 class ExecutionData:
     """Read a manifest and its per-run event streams without modifying artifacts."""
 

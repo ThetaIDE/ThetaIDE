@@ -33,6 +33,7 @@ from src.app.pipeline.slurm import generate_sbatch_header, submit_sbatch
 
 
 def main():
+    os.environ["THETA_PIPELINE_PID"] = str(os.getpid())
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("Usage: python run_pipeline.py <group>/<experiment_id> [Hydra Overrides]")
         print("Standard Orchestration Overrides (use Hydra syntax, e.g. key=value):")
@@ -278,7 +279,7 @@ def main():
 
     # Dispatch: workflow engine or direct paradigm runner
     workflow_id = cfg.get("workflow", None)
-    if variability_plan is not None:
+    if variability_plan is not None and cfg.get("objective") is None and not uses_tuning:
         run_execution(cfg, context, variability_plan)
     elif workflow_id:
         from src.app.pipeline.workflow.executor import run_workflow

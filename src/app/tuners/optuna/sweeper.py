@@ -8,6 +8,9 @@ import json
 import math
 import logging
 import time
+import uuid
+import os
+from datetime import datetime
 from pathlib import Path
 
 import optuna
@@ -19,6 +22,7 @@ from hydra_plugins.hydra_optuna_sweeper._impl import (
 )
 from omegaconf import OmegaConf
 from optuna.distributions import BaseDistribution, FloatDistribution
+from src.app.pipeline.trial_artifacts import trial_log_version
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,8 @@ def _export_summary(config, study):
         return
     root = Path("results/checkpoints") / str(group) / str(experiment) / str(name).replace("/", "_")
     try:
+        if study.user_attrs.get("theta_log_method") != str(name):
+            study.set_user_attr("theta_log_method", str(name))
         write_study_summary(study, root)
     except Exception:
         logger.exception("Could not write tuning summary for study %s", study.study_name)
@@ -72,7 +78,14 @@ class ThetaOptunaSweeper(Sweeper):
         self.max_failed_trials = max_failed_trials
 
     def setup(self, *, hydra_context, task_function, config):
+        os.environ.setdefault("THETA_PIPELINE_PID", str(os.getpid()))
+        if os.environ.get('THETA_MANAGED_SERIAL') == '1':
+            target = config.hydra.launcher.get('_target_', '')
+            if target != 'hydra._internal.core_plugins.basic_launcher.BasicLauncher':
+                raise ValueError('Resource-managed local sweeps require the basic Hydra launcher; '
+                                 'parallelism is controlled by Settings → Training Pipeline.')
         self.impl.setup(hydra_context=hydra_context, task_function=task_function, config=config)
+        self.impl.task_function = task_function
 
     def sweep(self, arguments):
         impl = self.impl
@@ -88,12 +101,20 @@ class ThetaOptunaSweeper(Sweeper):
         if isinstance(impl.direction, (list, tuple)):
             raise ValueError("Theta's Optuna sweeper currently supports one objective")
         direction = impl.direction if isinstance(impl.direction, str) else impl.direction.name
-        study = optuna.create_study(
-            study_name=impl.study_name, storage=impl.storage, sampler=impl.sampler,
-            pruner=self.pruner, direction=direction, load_if_exists=True,
-        )
+        try:
+            # The pipeline prepares a new study before launching Hydra. Attach
+            # explicitly rather than logging that we are reusing an old study.
+            study = optuna.load_study(study_name=impl.study_name, storage=impl.storage,
+                                      sampler=impl.sampler, pruner=self.pruner)
+            if study.direction.name.lower() != direction:
+                raise ValueError(f"Study {study.study_name!r} has a different objective direction")
+        except KeyError:
+            study = optuna.create_study(study_name=impl.study_name, storage=impl.storage,
+                                        sampler=impl.sampler, pruner=self.pruner,
+                                        direction=direction, load_if_exists=True)
         tuning = impl.config.get("tuning")
-        metric = tuning.get("metric") if hasattr(tuning, "get") else None
+        from src.app.pipeline.objective import objective_metric
+        metric = objective_metric(impl.config, "") or None
         if self.pruner_name != "none" and (not impl.storage or not metric):
             raise ValueError("Optuna pruning requires persistent storage and an objective metric.")
         if metric:
@@ -102,29 +123,37 @@ class ThetaOptunaSweeper(Sweeper):
                 raise ValueError(f"Study {study.study_name!r} already optimizes {recorded_metric!r}, not {metric!r}")
             study.set_user_attr("theta_objective_metric", str(metric))
         study.set_user_attr("theta_last_stop_reason", "running")
+        study.set_user_attr("theta_requested_trials", impl.n_trials)
+        study.set_user_attr("theta_initial_trials", len(study.trials))
         remaining = impl.n_trials
         failed_count = 0
         start = time.monotonic()
         while remaining > 0 and (not self.timeout_seconds or time.monotonic() - start < self.timeout_seconds):
-            trials = [study.ask() for _ in range(min(remaining, impl.n_jobs))]
+            managed = bool(os.environ.get('THETA_RESOURCE_POOL'))
+            batch = 1 if os.environ.get('THETA_MANAGED_SERIAL') == '1' else impl.n_jobs
+            trials = [] if managed else [study.ask() for _ in range(min(remaining, batch))]
             jobs = []
-            try:
-                for trial in trials:
-                    for name, distribution in search_space.items():
-                        trial._suggest(name, distribution)
-                    # Fixed overrides can create or replace parent containers.
-                    # Apply them first so sampled nested values exist and cannot
-                    # subsequently be overwritten by a fixed parent list.
-                    params = dict(fixed)
-                    params.update(trial.params)
-                    args = [f"{name}={value}" for name, value in params.items()]
-                    args.extend([
+
+            def make_job(trial):
+                version = trial_log_version({"theta_tuning": {"study_name": study.study_name,
+                                                                  "trial_number": trial.number}}) + "_" + uuid.uuid4().hex[:12]
+                trial.set_user_attr("theta_log_version", version)
+                if managed:
+                    trial.set_user_attr('theta_execution_state', 'pending')
+                for name, distribution in search_space.items():
+                    trial._suggest(name, distribution)
+                # Apply fixed parent containers before sampled nested values.
+                params = dict(fixed)
+                params.update(trial.params)
+                args = [f"{name}={value}" for name, value in params.items()]
+                args.extend([
                         "++theta_tuning.component=optuna",
                         f"++theta_tuning.study_name={json.dumps(study.study_name)}",
                         f"++theta_tuning.trial_number={trial.number}",
+                        f"++theta_tuning.log_version={json.dumps(version)}",
                     ])
-                    if self.pruner_name != "none":
-                        args.extend([
+                if impl.storage and metric:
+                    args.extend([
                             f"++theta_tuning.optuna_trial_id={trial._trial_id}",
                             f"++theta_tuning.storage={json.dumps(str(impl.storage))}",
                             f"++theta_tuning.objective_metric={json.dumps(str(metric))}",
@@ -132,39 +161,92 @@ class ThetaOptunaSweeper(Sweeper):
                             f"++theta_tuning.pruner_startup_trials={self.pruner_startup_trials}",
                             f"++theta_tuning.pruner_warmup_steps={self.pruner_warmup_steps}",
                         ])
-                    jobs.append(tuple(args))
-            except BaseException as exc:
-                for trial in trials:
-                    study.tell(trial, state=optuna.trial.TrialState.FAIL)
-                study.set_user_attr("theta_last_stop_reason", "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "launch_error")
-                _export_summary(impl.config, study)
-                raise
+                return tuple(args)
+
             try:
-                results = impl.launcher.launch(jobs, initial_job_idx=impl.job_idx)
+                for trial in trials:
+                    jobs.append(make_job(trial))
+                _export_summary(impl.config, study)
             except BaseException as exc:
                 for trial in trials:
                     study.tell(trial, state=optuna.trial.TrialState.FAIL)
                 study.set_user_attr("theta_last_stop_reason", "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "launch_error")
                 _export_summary(impl.config, study)
                 raise
-            impl.job_idx += len(results)
             failure = None
-            for trial, result in zip(trials, results):
+            consumed = set()
+
+            def consume(index, result):
+                nonlocal failed_count, failure
+                trial = trials[index]
                 try:
                     returned = result.return_value
-                    if isinstance(returned, dict) and returned.get("theta_trial_status") == "pruned":
+                    if isinstance(returned, dict) and returned.get('theta_trial_status') == 'pruned':
                         study.tell(trial, state=optuna.trial.TrialState.PRUNED)
-                        continue
-                    value = float(returned)
-                    if not math.isfinite(value):
-                        raise ValueError("Tuning objective must be finite")
-                    study.tell(trial, value)
+                    else:
+                        value = float(returned)
+                        if not math.isfinite(value):
+                            raise ValueError('Tuning objective must be finite')
+                        study.tell(trial, value)
                 except optuna.TrialPruned:
                     study.tell(trial, state=optuna.trial.TrialState.PRUNED)
                 except Exception as exc:
                     study.tell(trial, state=optuna.trial.TrialState.FAIL)
                     failed_count += 1
                     failure = failure or exc
+                state = study._storage.get_trial(trial._trial_id).state
+                if state in (optuna.trial.TrialState.PRUNED, optuna.trial.TrialState.FAIL):
+                    from src.app.pipeline.variability import finish_trial_runs
+                    finish_trial_runs(impl.config.get("group"), impl.config.get("experiment_id"),
+                                      trial.user_attrs.get("theta_log_version"),
+                                      "cancelled" if state == optuna.trial.TrialState.PRUNED else "failed")
+                consumed.add(index)
+                _export_summary(impl.config, study)
+
+            def can_start():
+                return (not self.timeout_seconds or time.monotonic() - start < self.timeout_seconds) and failed_count <= self.max_failed_trials
+
+            def next_job():
+                if len(trials) >= remaining or not can_start():
+                    return None
+                trial = study.ask()
+                trials.append(trial)
+                args = make_job(trial)
+                _export_summary(impl.config, study)
+                return args
+
+            def started(index, pid):
+                trial = trials[index]
+                trial.set_user_attr('theta_execution_state', 'running')
+                trial.set_user_attr('theta_worker_started_at', datetime.now().isoformat())
+                trial.set_user_attr('theta_worker_pid', pid)
+                _export_summary(impl.config, study)
+
+            def waiting(index):
+                trial = trials[index]
+                trial.set_user_attr('theta_execution_state', 'pending')
+                trial.set_user_attr('theta_worker_started_at', None)
+                trial.set_user_attr('theta_worker_pid', None)
+                _export_summary(impl.config, study)
+
+            try:
+                if os.environ.get('THETA_RESOURCE_POOL'):
+                    from src.app.tuners.optuna.parallel import launch_trials
+                    results = launch_trials(impl, on_result=consume, next_job=next_job, on_start=started, on_wait=waiting,
+                                            can_start=can_start, total_jobs=remaining)
+                else:
+                    results = impl.launcher.launch(jobs, initial_job_idx=impl.job_idx)
+            except BaseException as exc:
+                for trial in trials:
+                    if study._storage.get_trial(trial._trial_id).state == optuna.trial.TrialState.RUNNING:
+                        study.tell(trial, state=optuna.trial.TrialState.FAIL)
+                study.set_user_attr("theta_last_stop_reason", "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "launch_error")
+                _export_summary(impl.config, study)
+                raise
+            impl.job_idx += len(results)
+            for index, result in enumerate(results):
+                if index < len(trials) and index not in consumed:
+                    consume(index, result)
             if len(results) != len(trials):
                 for trial in trials[len(results):]:
                     study.tell(trial, state=optuna.trial.TrialState.FAIL)

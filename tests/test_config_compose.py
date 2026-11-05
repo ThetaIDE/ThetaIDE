@@ -100,3 +100,54 @@ def test_builder_values_reach_the_method_config(config):
     assert (method.lr, method.batch_size, method.gamma) == (config.lr, config.batch_size, config.gamma)
     assert isinstance(method.lr, float) and isinstance(method.gamma, float)
     assert cfg.tensorboard is config.tensorboard
+
+
+def test_sweep_preflight_checks_actual_trial_hydra_paths(monkeypatch):
+    import src.app.pipeline.compose as pipeline
+    from src.app.pipeline.exceptions import ConfigurationError
+
+    composed = compose_experiment(REFERENCE, [
+        "++methods.ppo.tune.model.missing.type=choice",
+        "++methods.ppo.tune.model.missing.values=[1,2]",
+    ])
+    monkeypatch.setattr(pipeline, "method_plans", lambda _: {
+        "ppo": {"settings": {"tune": {"model.missing": {"type": "choice", "values": [1, 2]}}},
+                "train_overrides": ["model=dnn", "model.missing=choice(1,2)"]},
+    })
+    with pytest.raises(ConfigurationError, match="model.missing"):
+        pipeline._validate_method_composition(composed)
+    monkeypatch.setattr(pipeline, "method_plans", lambda _: {
+        "ppo": {"settings": {"tune": {"model.hidden_sizes.0": {"type": "choice", "values": [32, 64]}}},
+                "train_overrides": ["model=dnn", "model.hidden_sizes.0=choice(32,64)"]},
+    })
+    pipeline._validate_method_composition(composed)
+
+
+def test_draft_preview_composes_the_yaml_without_writing_it(fixture_workspace, monkeypatch):
+    from src.app.services import config_service
+    monkeypatch.setattr(config_service, "CONFIG_DIR", fixture_workspace / "in" / "config")
+    path = fixture_workspace / "in/config/experiment/thetaide/cartpole_ppo_reference.yaml"
+    before = path.read_text()
+    draft = before + "\nseed: 123\nmethods:\n  ppo:\n    agent: ppo\n    model: dnn\n    hidden_sizes: [17, 29]\n"
+    report = config_service.compose_report.uncached(REFERENCE, [], draft)
+    assert report["config"]["seed"] == 123
+    assert report["methods"]["ppo"]["settings"]["hidden_sizes"] == [17, 29]
+    assert path.read_text() == before
+
+
+def test_component_schema_applies_to_the_actual_method_config(fixture_workspace):
+    import json
+    from src.app.pipeline.exceptions import ConfigurationError
+    manifest_dir = fixture_workspace / "src/usr/models/dnn"
+    manifest_dir.mkdir(parents=True)
+    manifest_dir.joinpath(".theta_component.json").write_text(json.dumps({
+        "config_path": "in/config/model/dnn.yaml",
+        "parameter_schema": {"x-theta-validate": True, "type": "object", "properties": {
+            "hidden_sizes": {"type": "array", "items": {"type": "integer", "minimum": 1}}
+        }},
+    }))
+    base = ["++methods.ppo.agent=sb3/ppo", "++methods.ppo.hidden_sizes=[0,64]"]
+    with pytest.raises(ConfigurationError, match="hidden_sizes"):
+        validate_composed(compose_experiment(REFERENCE, base))
+    base[-1] = "++methods.ppo.hidden_sizes=[16,64]"
+    validate_composed(compose_experiment(REFERENCE, base))

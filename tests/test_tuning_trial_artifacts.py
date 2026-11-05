@@ -303,7 +303,8 @@ def test_resume_remains_compatible_with_legacy_optuna_distributions(tmp_path):
 
 
 @pytest.mark.skipif(importlib.util.find_spec("stable_baselines3") is None, reason="SB3 is optional")
-def test_real_sb3_training_sweep_selects_its_checkpoint(tmp_path, monkeypatch):
+@pytest.mark.parametrize('adaptive', [False, True])
+def test_real_sb3_training_sweep_selects_its_checkpoint(tmp_path, monkeypatch, adaptive):
     project = Path(__file__).resolve().parents[1]
     config = tmp_path / "in/config"
     shutil.copytree(project / "in/config", config)
@@ -323,6 +324,11 @@ def test_real_sb3_training_sweep_selects_its_checkpoint(tmp_path, monkeypatch):
     storage = f"sqlite:///{tmp_path / 'sb3.db'}"
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")]),
            "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
+    if adaptive:
+        settings = tmp_path / 'settings.toml'
+        settings.write_text('[training]\ncpu_percent=100\nmemory_percent=95\nmax_parallel=2\n')
+        env.update(THETA_RESOURCE_POOL=str(tmp_path / 'resources.db'),
+                   THETAIDE_SETTINGS_FILE=str(settings), THETA_MANAGED_SERIAL='1')
     command = [sys.executable, str(runner), "--multirun", "+experiment=smoke", "hydra/sweeper=optuna_online",
                f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=sb3-smoke",
                "hydra.sweeper.n_trials=1", "agent.learning_rate=choice(0.001,0.002)"]
@@ -522,7 +528,8 @@ def test_local_pipeline_runs_a_real_sb3_sweep(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(importlib.util.find_spec("lightning") is None, reason="Lightning is not installed")
-def test_real_lightning_trial_returns_the_selected_metric(tmp_path, monkeypatch):
+@pytest.mark.parametrize('adaptive', [False, True])
+def test_real_lightning_trial_returns_the_selected_metric(tmp_path, monkeypatch, adaptive):
     project = Path(__file__).resolve().parents[1]
     script = tmp_path / "lightning_trial.py"
     script.write_text(textwrap.dedent(f"""
@@ -564,6 +571,11 @@ def test_real_lightning_trial_returns_the_selected_metric(tmp_path, monkeypatch)
     storage = f"sqlite:///{tmp_path / 'lightning.db'}"
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")]),
            "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
+    if adaptive:
+        settings = tmp_path / 'settings.toml'
+        settings.write_text('[training]\ncpu_percent=100\nmemory_percent=95\nmax_parallel=2\n')
+        env.update(THETA_RESOURCE_POOL=str(tmp_path / 'resources.db'),
+                   THETAIDE_SETTINGS_FILE=str(settings), THETA_MANAGED_SERIAL='1')
     command = [sys.executable, str(script), "--multirun", "hydra/sweeper=optuna_offline",
                f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=lightning-smoke",
                "hydra.sweeper.n_trials=1", "++group=g", "++experiment_id=e", "++agent.name=m",

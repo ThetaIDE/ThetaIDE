@@ -63,6 +63,12 @@ def get_subprocess_env(site_cfg=None) -> dict:
     if site_cfg:
         for k, v in (getattr(site_cfg, "extra_env_vars", {}) or {}).items():
             env[str(k)] = str(v)
+    if os.environ.get('THETA_MANAGED_THREADS'):
+        from src.app.services.resource_budget import managed_environment
+        env.update(managed_environment(int(os.environ['THETA_MANAGED_THREADS'])))
+    if os.environ.get('THETA_RESOURCE_POOL'):
+        env.update({key: value for key, value in os.environ.items()
+                    if key.startswith(('THETA_RESOURCE_', 'THETA_MANAGED_')) or key == 'THETAIDE_SETTINGS_FILE'})
     return env
 
 

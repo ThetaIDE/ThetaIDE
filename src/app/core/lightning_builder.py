@@ -242,6 +242,11 @@ def setup_loggers(cfg, base_root):
     logger_kwargs = {}
     if cfg.get("variability_run_id"):
         logger_kwargs["version"] = str(cfg.get("variability_version", "version_0")).removeprefix("version_")
+    else:
+        from src.app.pipeline.trial_artifacts import trial_log_version
+        version = trial_log_version(cfg)
+        if version:
+            logger_kwargs["version"] = version
     loggers = [_record_only(CSVLogger(log_dir, name=method_name, **logger_kwargs), selection)]
     run_context = RunLoggerContext(
         base_root=Path(base_root).resolve(),
@@ -655,7 +660,7 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
 
     parent_ckpt_dir = str(Path(ckpt_dir).parent) if Path(ckpt_dir).name.isdigit() else str(Path(ckpt_dir))
     parent_ckpt_target = os.path.join(parent_ckpt_dir, "best_model.ckpt")
-    if os.path.abspath(final_ckpt_target) != os.path.abspath(parent_ckpt_target) and os.path.exists(final_ckpt_target):
+    if not (cfg.get("theta_variability_sample") or cfg.get("theta_objective_sample")) and os.path.abspath(final_ckpt_target) != os.path.abspath(parent_ckpt_target) and os.path.exists(final_ckpt_target):
         try:
             import shutil
 

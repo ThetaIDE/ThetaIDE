@@ -206,10 +206,10 @@ def _check_paradigm_constraints(cfg: Any, paradigm_name: str, constraints: dict,
 # ---------------------------------------------------------------------------
 
 
-def _load_raw_experiment_yaml(experiment_name: str) -> dict:
+def _load_raw_experiment_yaml(experiment_name: str, config_dir: Path | None = None) -> dict:
     """Return the raw (pre-Hydra-composition) experiment YAML as a dict, or {} on failure."""
     rel_path = resolve_experiment_config_name(experiment_name)
-    exp_path = Path("in/config/experiment") / f"{rel_path}.yaml"
+    exp_path = (config_dir or Path("in/config")) / "experiment" / f"{rel_path}.yaml"
     if not exp_path.exists():
         return {}
     with open(exp_path) as f:
@@ -221,7 +221,7 @@ def _load_raw_experiment_yaml(experiment_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = False) -> list[str]:
+def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = False, config_dir: Path | None = None) -> list[str]:
     """Validate experiment configuration against its declared paradigm.
 
     Returns a list of non-fatal notice strings.
@@ -233,7 +233,7 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     notices: list[str] = []
 
     env_name = getattr(cfg.env, "name", "unknown") if hasattr(cfg, "env") else "unknown"
-    raw_exp = _load_raw_experiment_yaml(experiment_name)
+    raw_exp = _load_raw_experiment_yaml(experiment_name, config_dir)
 
     # --- Paradigm lookup ---
     paradigm_name = cfg.get("paradigm", None)
@@ -272,7 +272,14 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     env_monitor = env.get("monitor_metric") if env is not None and hasattr(env, "get") else None
     monitor = paradigm_def.get("monitor_metric") or env_monitor
     tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
-    if is_sweep and hasattr(tuning, "get"):
+    if cfg.get("objective") is not None:
+        from src.app.objectives.api import validate_objective
+        try:
+            validate_objective(cfg)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ConfigurationError(f"Invalid objective: {exc}") from exc
+        monitor = None  # The component validates its own input metrics above.
+    if is_sweep and hasattr(tuning, "get") and cfg.get("objective") is None:
         monitor = tuning.get("metric") or monitor
     for problem in selection_errors(cfg, monitor, is_sweep=is_sweep):
         raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}': {problem}")
@@ -320,7 +327,7 @@ def _validate_tuning(cfg: Any) -> None:
     tuning = cfg.get("tuning")
     if not hasattr(tuning, "get"):
         raise ConfigurationError("Sweep tuning must be a mapping.")
-    if not isinstance(tuning.get("metric"), str) or not tuning.get("metric").strip():
+    if cfg.get("objective") is None and (not isinstance(tuning.get("metric"), str) or not tuning.get("metric").strip()):
         raise ConfigurationError("Sweep tuning requires an objective metric.")
     if tuning.get("direction") not in ("minimize", "maximize"):
         raise ConfigurationError("Sweep direction must be 'minimize' or 'maximize'.")
