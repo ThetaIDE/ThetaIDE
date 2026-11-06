@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from src.app.workspace import WorkspacePaths
+
 from .component_exporter import ComponentExporter, ComponentExportOptions, find_component_assets
 
 _LOCK = threading.RLock()
@@ -44,8 +46,9 @@ def normalize_kind(kind):
 
 class LocalComponents:
     def __init__(self, workspace: Path):
-        self.workspace = Path(workspace).resolve()
-        self.root = self.workspace / '.thetaide' / 'components'
+        self.paths = WorkspacePaths(workspace)
+        self.workspace = self.paths.root
+        self.root = self.paths.collection
         self.state_path = self.root / 'collection.json'
         self._recover_operations()
 
@@ -116,8 +119,7 @@ class LocalComponents:
     def hidden_config_paths(self):
         hidden = set(self.state()['hidden'])
         paths = set()
-        roots = ('src/usr/models', 'src/usr/algorithms', 'src/usr/methods', 'src/usr/data', 'src/usr/eval', 'in/envs', 'plot')
-        for manifest in (path for root in roots for path in (self.workspace / root).rglob('.theta_component.json')):
+        for manifest in self.paths.manifests():
             try:
                 meta = json.loads(manifest.read_text())
             except (OSError, ValueError):
@@ -141,9 +143,8 @@ class LocalComponents:
 
     def _shared_paths(self, component_id):
         paths = set()
-        roots = ('src/usr/models', 'src/usr/algorithms', 'src/usr/methods', 'src/usr/data', 'src/usr/eval', 'in/envs', 'plot')
-        for root in roots:
-            for manifest in (self.workspace / root).rglob('.theta_component.json'):
+        for root in self.paths.component_roots:
+            for manifest in root.rglob('.theta_component.json'):
                 data = json.loads(manifest.read_text())
                 if data.get('id') == component_id:
                     continue
@@ -174,10 +175,14 @@ class LocalComponents:
         if not result.success:
             raise ValueError(result.error)
         package = Path(result.export_path)
+        # Export preserves source modes; retained packages and copies must be editable.
+        for path in package.rglob('*'):
+            if path.is_file() and not path.is_symlink():
+                path.chmod(path.stat().st_mode | 0o200)
         manifest = package / '.theta_component.json'
         meta = json.loads(manifest.read_text())
         if normalize_kind(meta['kind']) in ('model', 'algorithm', 'env', 'datamodule', 'evaluator', 'plotter') and assets.get('code_dir'):
-            from frontend.hub.installer import HubInstaller
+            from src.app.components.installer import HubInstaller
             installed = assets.get('meta') or {}
             meta['saved_local_changes'] = HubInstaller(self.workspace, self.workspace / '.thetaide').has_local_changes(Path(assets['code_dir']), installed)
         meta['kind'] = normalize_kind(meta['kind'])
@@ -234,7 +239,7 @@ class LocalComponents:
         return destination
 
     def entries(self):
-        from frontend.hub.models import HubComponent
+        from src.app.components.models import HubComponent
         entries = []
         for cid, record in self.state()['records'].items():
             manifest = Path(record['package']) / '.theta_component.json'
@@ -249,7 +254,7 @@ class LocalComponents:
         """Install a retained package with rollback for every owned destination."""
         record = self.state()['records'][component.id]
         package = Path(record['package'])
-        from frontend.hub.models import HubComponent, ReleaseInfo
+        from src.app.components.models import HubComponent, ReleaseInfo
         local = HubComponent.from_dict(json.loads((package / '.theta_component.json').read_text()))
         target = installer.resolve_target_dir(local).resolve()
         paths = {target}
@@ -362,9 +367,10 @@ class LocalComponents:
                 references.append(experiment)
         return list(dict.fromkeys(paths)), references
 
-    def delete(self, component, installer):
+    def delete(self, component, installer, *, trash=None):
         """Stage owned files together, then use the operating system Trash."""
-        from PyQt6.QtCore import QFile
+        if trash is None:
+            raise ValueError('A system Trash adapter is required to delete a local component.')
         paths, _ = self.deletion_details(component, installer)
         staging = Path(tempfile.mkdtemp(prefix='trash-', dir=self.root))
         moved = []
@@ -376,7 +382,7 @@ class LocalComponents:
                     shutil.move(str(path), dest)
                     moved.append((path, dest))
             (staging / 'locations.json').write_text(json.dumps({str(dest.relative_to(staging)): str(path) for path, dest in moved}, indent=2))
-            success, _ = QFile.moveToTrash(str(staging))
+            success, _ = trash(str(staging))
             if not success:
                 raise OSError('The operating system could not move the component to Trash.')
         except Exception:
@@ -701,8 +707,8 @@ class LocalComponents:
                     state = self.state()
                     state['records'][new_id] = {'source': 'local', 'package': str(destination)}
                     self._write(state)
-                from frontend.hub.installer import HubInstaller
-                from frontend.hub.models import HubComponent
+                from src.app.components.installer import HubInstaller
+                from src.app.components.models import HubComponent
                 self.install(HubComponent.from_dict(meta), HubInstaller(self.workspace, self.workspace / '.thetaide'))
             journal.unlink(missing_ok=True)
             return self.workspace / meta['config_path']
@@ -787,7 +793,8 @@ Parent: {meta.get('parent', 'none')}
 Project: {self.workspace} · Theta revision: {revision}
 Installed source: {root}
 
-Edit these installed files directly. Save affects the next fresh experiment process.
+Hub originals are read-only: make an independent component copy before editing.
+Local component edits affect the next fresh experiment process.
 The retained collection package is a snapshot, not a synchronized working copy.
 Keep handwritten notes in a separate file; this document is refreshed on open.
 
@@ -810,11 +817,16 @@ On a fork, change registration aliases, package imports, profile selectors/paths
 
 ## Existing commands
 From {self.workspace}, using the Python environment that runs Theta:
+- python run_pipeline.py component inspect {assets['comp_id']} (identity, active profiles and source)
+- python run_pipeline.py component copy {assets['comp_id']} new_model_id (independent copy of a supported model)
+- python run_pipeline.py component config --help (profile inspection, copying, editing and validation)
+- python run_pipeline.py component validate-experiment <group>/<experiment> (preflight and effective model sources)
 - python run_pipeline.py <group>/<experiment> dry_run=true (inspect/validate an existing experiment)
 - python run_pipeline.py <group>/<experiment> (run it in a fresh process)
 - python -m pytest tests/test_local_components.py
 Use your own CLI/editor/AI tools and component tests. No publication occurs on save.
 '''
-        path = root / 'COMPONENT_CONTEXT.md'
+        path = self.root / 'context' / f"{assets['comp_id']}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         return assets, path

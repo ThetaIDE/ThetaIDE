@@ -220,7 +220,9 @@ class ComponentDevelopmentActions:
 
     def __init__(self, workspace, parent, client=None):
         from src.app.services.local_components import LocalComponents
+        from src.app.components.development import ComponentDevelopment
         self.service = LocalComponents(workspace)
+        self.development = ComponentDevelopment(workspace)
         self.parent = parent
         self.client = client or component_host_attribute(parent, "hub_client")
         self.editor = component_host_attribute(parent, "editor_service")
@@ -285,7 +287,7 @@ class ComponentDevelopmentActions:
             widget = widget.parent()
         if self.editor and not self.editor.prepare_component_copy():
             return None
-        copied = self.service.deep_copy(config, new_id, name.strip())
+        copied = self.development.copy(config, new_id, name.strip())
         self.changed(new_id, "copy")
         return copied
 
@@ -365,7 +367,8 @@ class ComponentDevelopmentActions:
             detail += "\nReferenced experiments:\n" + ("\n".join(map(str, references)) or "None")
             if QMessageBox.question(self.parent, "Delete local component", detail) != QMessageBox.StandardButton.Yes:
                 return False
-            self.service.delete(component, installer)
+            from PyQt6.QtCore import QFile
+            self.service.delete(component, installer, trash=QFile.moveToTrash)
             self.changed(component.id, "delete")
             return True
         except Exception as exc:

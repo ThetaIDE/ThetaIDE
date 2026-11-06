@@ -12,7 +12,7 @@ import {markdown} from "@codemirror/lang-markdown";
 import {toml} from "@codemirror/legacy-modes/mode/toml";
 
 const documents = new Map();
-const theme = new Compartment(), language = new Compartment(), wrapping = new Compartment();
+const theme = new Compartment(), language = new Compartment(), wrapping = new Compartment(), readOnly = new Compartment();
 let bridge, view, activeId = null, colors, wrap = false;
 
 function languageFor(name) {
@@ -68,6 +68,7 @@ function createState(doc) {
     theme.of(colors ? themeFor(colors) : []),
     language.of(languageFor(doc.name)),
     wrapping.of(wrap ? EditorView.lineWrapping : []),
+    readOnly.of(EditorState.readOnly.of(!!doc.readOnly)),
     EditorView.updateListener.of(update => {
       if (!activeId) return;
       const current = documents.get(activeId);
@@ -103,6 +104,7 @@ window.thetaEditor = {
     view.setState(current.state);
     view.dispatch({effects: [theme.reconfigure(colors ? themeFor(colors) : []),
       wrapping.reconfigure(wrap ? EditorView.lineWrapping : []), language.reconfigure(languageFor(doc.name)),
+      readOnly.reconfigure(EditorState.readOnly.of(!!doc.readOnly)),
       current.scroll || EditorView.scrollIntoView(0, {y: "start", x: "start"})]});
     if (line) {
       const row = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));

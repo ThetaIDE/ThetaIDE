@@ -29,7 +29,7 @@ both work. For a tour of the IDE once it is running, press **F1** inside it.
 ### With venv and pip
 
 ```bash
-git clone https://github.com/fixmeseb/Theta-IDE.git
+git clone https://github.com/ThetaIDE/ThetaIDE.git Theta-IDE
 cd Theta-IDE
 python3 -m venv venv
 source venv/bin/activate
@@ -52,7 +52,7 @@ pip install -e ".[dev,gui]"
 Python is 3.14:
 
 ```bash
-git clone https://github.com/fixmeseb/Theta-IDE.git
+git clone https://github.com/ThetaIDE/ThetaIDE.git Theta-IDE
 cd Theta-IDE
 uv venv --python 3.12 venv
 source venv/bin/activate
@@ -66,12 +66,13 @@ uv pip install -e ".[dev,gui]"
 | `gui` | The desktop IDE: PyQt6, PyQt6-WebEngine, psutil, pywinpty (Windows), and `arxiv` and `truststore` for the arXiv panel |
 | `dev` | pytest (with coverage and timeouts), ruff, mypy, pre-commit, and the Optuna test dependencies |
 | `optuna` | Optuna hyperparameter tuning and the Hydra Optuna adapter |
-| `atari` | OCAtari and HackAtari, for object-centric Atari environments |
-| `video` | pygame, vidmaker and OpenCV, for rendering and recording NUDGE environments |
+| `video` | pygame, vidmaker and OpenCV for rendering and recording |
+| `tensorboard` | TensorBoard for the optional built-in viewer plugin |
 | `all` | All of the above |
 
-The IDE runs the training pipeline in-process, so the pipeline and the `gui` extra must be installed in the
-same environment. There is no separate frontend environment or server.
+The IDE composes and validates configurations in-process, then launches training in child processes.
+The pipeline and the `gui` extra use the same environment. There is no separate frontend environment or
+server. Atari-specific dependencies are provided by the relevant Hub components, not a project `atari` extra.
 
 ### CPU-only PyTorch
 
@@ -102,16 +103,22 @@ There is no server to start first. The status bar shows **Pipeline ready** once 
 loaded. On macOS, the command automatically launches the local app bundle so the Dock and Mission Control
 associate the window with ThetaIDE instead of the Python interpreter.
 
-ThetaIDE keeps its workspace (run history, the job queue, workspace settings and the Hub cache) in `.thetaide/`
-in the repository. To keep it somewhere else, start the IDE with `venv/bin/python -m frontend --data-dir <path>`
-on macOS, or `python -m frontend --data-dir <path>` on Windows/Linux.
-Settings that apply to every workspace live in `~/.config/thetaide/settings.toml`.
+ThetaIDE stores local IDE state under `.thetaide/` by default: settings in `.thetaide/settings.toml`,
+run records and the job queue under `.thetaide/runs/`, Hub cache in `.thetaide/cache/hub/`, and retained
+component packages/context under `.thetaide/components/`. Active component source, YAMLs, datasets, and
+experiment results also live elsewhere in the checkout; `.thetaide/` alone is not a complete research backup.
+See [Component development](COMPONENT_DEVELOPMENT.md) for the storage map.
+
+The existing `--data-dir` option selects application data paths; it does not migrate existing research files
+or establish an independent research-workspace lifecycle. User-global preferences live in
+`~/.config/thetaide/settings.toml`.
 
 ---
 
 ## 4. Install components
 
-A fresh clone has no algorithms, models or environments. Install them from the Theta Hub:
+A fresh clone supplies the framework and built-in app support. Install research algorithms, models and
+environments from the Theta Hub:
 
 1. Open the **Components** tab and click the globe button at the top to open the Hub.
 2. Install **ThetaIDE Basics**. It brings Stable-Baselines3, d3rlpy, Gymnasium classic control, Atari and the
@@ -120,24 +127,24 @@ A fresh clone has no algorithms, models or environments. Install them from the T
 Components are written into the repository (`in/config/` and `src/usr/`) and are not tracked by git. The
 README's [Run your first experiment](README.md#run-your-first-experiment) section continues from here.
 
+Hub-installed files are read-only; make an independent model copy to change its implementation, or copy
+its YAML profile to configure shared code. Both GUI and terminal workflows are described in
+[Component development](COMPONENT_DEVELOPMENT.md). Uninstall and updates remain available through the Hub.
+
 ---
 
 ## 5. Verify the install
 
-Install **ThetaIDE Basics** first (step 4): many tests build the default experiment, which needs its models.
-Then run:
+Core development tests use isolated fixtures; optional integration/training tests may require installed
+components and datasets. Run:
 
 ```bash
 pytest tests/ -m "not slow"
 ```
 
 The GUI tests need a display. On a headless machine, run them with `QT_QPA_PLATFORM=offscreen`. Tests marked
-`slow` train for real and take a few minutes; leave out `-m "not slow"` to include them. The whole suite takes
-about five minutes.
-
-On a clean install, 12 tests currently fail. They expect experiment groups and fixtures that are no longer in
-the repository (for example `mimic` and `pyrenees`), so they are problems in the tests, not in your install.
-Any other failure points to a problem with your install.
+`slow` may train for real; leave out `-m "not slow"` to include them. Skip conditions and dependencies vary by
+test. Use the reported skip/failure reason when diagnosing a result rather than assuming a fixed failure count.
 
 ---
 

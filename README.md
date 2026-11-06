@@ -1,11 +1,10 @@
 # ThetaIDE
 
-[![CI](https://github.com/fixmeseb/Theta-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/fixmeseb/Theta-IDE/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-1365%20passing-brightgreen)](https://github.com/fixmeseb/Theta-IDE/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-70%25-green)](https://github.com/fixmeseb/Theta-IDE/actions/workflows/ci.yml)
+[![CI](https://github.com/ThetaIDE/ThetaIDE/actions/workflows/ci.yml/badge.svg)](https://github.com/ThetaIDE/ThetaIDE/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-pytest-blue)](https://github.com/ThetaIDE/ThetaIDE/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Formatter: ruff-format](https://img.shields.io/badge/formatter-ruff--format-261230)](https://github.com/fixmeseb/Theta-IDE/blob/main/.github/workflows/ci.yml)
-[![Types: mypy](https://img.shields.io/badge/types-mypy-blue)](https://github.com/fixmeseb/Theta-IDE/actions/workflows/ci.yml)
+[![Formatter: ruff-format](https://img.shields.io/badge/formatter-ruff--format-261230)](https://github.com/ThetaIDE/ThetaIDE/blob/main/.github/workflows/ci.yml)
+[![Types: mypy](https://img.shields.io/badge/types-mypy-blue)](https://github.com/ThetaIDE/ThetaIDE/actions/workflows/ci.yml)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-FAB040?logo=pre-commit)](./.pre-commit-config.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE.md)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10--3.13-blue.svg)](https://www.python.org/downloads/)
@@ -34,7 +33,7 @@ scores across repeated training seeds. See [Editable objectives](CUSTOM_OBJECTIV
 Python 3.10–3.13 is required. Python 3.14 is not supported yet: Hydra 1.3 fails on it at startup.
 
 ```bash
-git clone https://github.com/fixmeseb/Theta-IDE.git
+git clone https://github.com/ThetaIDE/ThetaIDE.git Theta-IDE
 cd Theta-IDE
 python3 -m venv venv
 source venv/bin/activate          # Windows: .\venv\Scripts\Activate.ps1
@@ -98,6 +97,19 @@ that ID. Pass `experiment_id=<new name>` to keep both. (In the IDE, enable Times
 `python run_pipeline.py --help` lists the orchestration overrides (`plot_only`, `no_plot`,
 `no_online`, `no_offline` and more).
 
+Component development also works without the desktop app:
+
+```bash
+python run_pipeline.py component inspect blendrl
+python run_pipeline.py component copy blendrl my_blendrl
+python run_pipeline.py component inspect my_blendrl
+```
+
+The copy is editable in the existing research directories. Use its returned profile paths with
+`component config show`, `config set`, and `config validate`. Hub originals remain protected.
+See [Component development](COMPONENT_DEVELOPMENT.md) for configuration, validation, export, and
+coding-agent workflows. GUI and terminal operations share headless services.
+
 ### Component overrides in experiments
 
 Open a group default or individual experiment in the **Experiment** panel and use the **Data Loaders**, **Evaluators**, and **Figures and Tables** boxes to choose components. Add **Figures and Tables** from **Add Overrides** to enable plotting; without a selection, the pipeline skips plotting. Use the plus beside the title to add an installed plotter, then edit its parameters in its card or use the card’s plus to add parameters. Selecting a component fills its first level of parameters from the installed profile; you can edit those defaults or add custom parameters. Inherited selectors show the resolved component name. Individual recipes inherit group values until they add an override. The same fields can be written directly in an experiment YAML:
@@ -131,12 +143,14 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 ├── run_pipeline.py            # Command-line entry point: compose, validate, train, plot
 ├── frontend/                  # The desktop IDE (PyQt6); run it with python -m frontend
 │   ├── plugins/core/          # Built-in plugins: documentation, TensorBoard, arXiv papers
-│   └── hub/                   # Theta Hub client and installer
+│   └── hub/                   # Theta Hub GUI client and compatibility imports
 ├── src/
 │   ├── app/                   # Framework
+│   │   ├── components/        # Headless installer, component development and CLI
+│   │   ├── workspace.py       # Shared paths for the existing checkout layout
 │   │   ├── pipeline/          # Config composition, validation and orchestration
 │   │   ├── core/              # Interfaces, registries, factories, callbacks
-│   │   ├── services/          # Run catalog, metrics and job store used by the IDE
+│   │   ├── services/          # Shared run catalog, exports, metrics and job store
 │   │   ├── data/              # Offline replay data modules
 │   │   └── train.py           # PyTorch Lightning training driver
 │   └── usr/                   # Components: algorithms, methods, models, environments, evaluators
@@ -145,7 +159,8 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 │   ├── config/                # Hydra configs: experiment/, agent/, model/, env/, paradigms/, site/, plot/
 │   ├── envs/  rules/          # Environment definitions and symbolic rule sets
 │   └── datasets/              # Local datasets (not tracked)
-├── plot/                      # Plotting framework; built-in plotters in plot/standard_figures/
+├── plot/                      # Plotting framework; research plotters supplied by components
+├── .thetaide/                 # IDE state, installed GUI plugins, retained packages and cache (not tracked)
 ├── tests/                     # pytest suite
 ├── docs/                      # Guides and the README media
 └── results/                   # Run output (not tracked): logs/, plots/, checkpoints/, tensorboard/
@@ -158,7 +173,9 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 - [CONTRIBUTING.md](CONTRIBUTING.md): development workflow, tests and code style.
 - [Component Plugin Authoring Guide](docs/COMPONENT_PLUGIN_GUIDE.md): writing algorithms, models,
   environments and IDE plugins.
-- [Workflow Guide](docs/WORKFLOW_GUIDE.md): plot styles and plot configuration.
+- [Component development](COMPONENT_DEVELOPMENT.md): GUI/terminal copying, editing, validation and storage.
+- [Pipeline interface](docs/API.md): shared services and desktop execution.
+- [Archived workflow notes](docs/WORKFLOW_GUIDE.md): historical BlendRL commands; use the CLI section above for current commands.
 
 ## License
 

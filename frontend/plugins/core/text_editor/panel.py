@@ -200,7 +200,12 @@ class TextEditorPanel(QWidget):
             self.web_view.page().runJavaScript(f"window.thetaEditor.{method}({', '.join(json.dumps(a) for a in args)})")
 
     def _payload(self, doc):
-        return {"id": doc.id, "name": doc.title, "text": doc.text, "revision": self._revisions[doc.id]}
+        return {"id": doc.id, "name": doc.title, "text": doc.text, "revision": self._revisions[doc.id],
+                "readOnly": bool(doc.path and self._hub_read_only(doc.path))}
+
+    def _hub_read_only(self, path):
+        client = getattr(self.context.window, "hub_client", None)
+        return bool(client and client.installer.is_installed_file(path))
 
     def _accept_change(self, document_id, text, revision):
         # Ignore bridge messages sent before a synchronous snapshot or an explicit reload.
@@ -309,8 +314,9 @@ class TextEditorPanel(QWidget):
 
     def _update_tab(self, index):
         doc = self.documents[index]
-        self.tab_bar.setTabText(index, f"{'● ' if doc.dirty else ''}{doc.title}")
-        self.tab_bar.setTabToolTip(index, str(doc.path) if doc.path else doc.title)
+        locked = bool(doc.path and self._hub_read_only(doc.path))
+        self.tab_bar.setTabText(index, f"{'● ' if doc.dirty else ''}{doc.title}{' (read-only)' if locked else ''}")
+        self.tab_bar.setTabToolTip(index, (str(doc.path) if doc.path else doc.title) + ("\nHub component: make a copy to edit." if locked else ""))
 
     def save_current(self, save_as=False):
         doc = self.current_document
@@ -332,6 +338,9 @@ class TextEditorPanel(QWidget):
 
     def save_document(self, doc, path=None):
         target = Path(path).resolve() if path else doc.path
+        if target and self._hub_read_only(target):
+            self._error("Read-only component", "Hub components are read-only. Make a component copy to edit it.")
+            return False
         if any(other is not doc and other.path == target for other in self.documents):
             self._error("File already open", "That file is open in another tab. Save to a different path.")
             return False

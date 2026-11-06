@@ -5,18 +5,18 @@ from __future__ import annotations
 
 import copy
 import functools
-import sys
 import shutil
+import sys
 import tempfile
-from pathlib import Path
 import threading
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any
 
 import yaml
-from omegaconf import OmegaConf
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from omegaconf import OmegaConf
 
 from src.app.pipeline.compose import (
     _HYDRA_LOCK,
@@ -27,6 +27,7 @@ from src.app.pipeline.compose import (
     validate_composed,
 )
 from src.app.pipeline.config import normalize_agent_name
+from src.app.workspace import WorkspacePaths
 
 from . import LOGS_DIR
 
@@ -173,7 +174,8 @@ def compose_report(experiment: str, overrides: list[str] | None = None, draft_ya
 def _compose_report(experiment, overrides, config_dir):
     argv = ["python", "run_pipeline.py", experiment, *overrides]
     try:
-        composed = compose_experiment(experiment, overrides, config_dir=config_dir)
+        composed = compose_experiment(experiment, overrides, config_dir=config_dir,
+                                      workspace=WorkspacePaths.from_config_root(CONFIG_DIR))
     except Exception as e:
         return {
             "valid": False,
@@ -252,7 +254,7 @@ def prepare_launch(
             conflict=True,
         )
     agents = [plan["settings"].get("name", normalize_agent_name(name)) for name, plan in plans.items()]
-    from src.app.services.resource_budget import workload_estimate, uses_accelerator
+    from src.app.services.resource_budget import uses_accelerator, workload_estimate
     resource_config = effective_config(cfg)
     return {
         "experiment": composed.experiment,

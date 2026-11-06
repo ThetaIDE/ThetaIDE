@@ -38,6 +38,11 @@ def fixture_workspace(tmp_path):
     """Build test configs outside the user's workspace, even if tests are interrupted."""
     target = tmp_path / "in" / "config"
     shutil.copytree(PROJECT_ROOT / "in" / "config", target)
+    # Hub source profiles can be read-only. These are isolated test copies and
+    # must be editable before overlaying fixtures or exercising editor saves.
+    for path in target.rglob("*"):
+        if path.is_file():
+            path.chmod(path.stat().st_mode | 0o200)
     shutil.copytree(TEST_WORKSPACE_CONFIG, target, dirs_exist_ok=True)
     return tmp_path
 

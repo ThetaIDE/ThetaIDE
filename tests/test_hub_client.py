@@ -213,6 +213,14 @@ class TestHubClientAndInstaller(unittest.TestCase):
         self.assertTrue((dest / "config.yaml").exists())
         self.assertTrue((dest / ".theta_component.json").exists())
         self.assertTrue(deployed_cfg.exists())
+        self.assertEqual((dest / "main.py").stat().st_mode & 0o222, 0)
+        self.assertEqual(deployed_cfg.stat().st_mode & 0o222, 0)
+        self.assertEqual((dest / ".theta_component.json").stat().st_mode & 0o222, 0)
+
+        # Updates can replace protected files and leave the result protected.
+        self.assertTrue(installer.install(comp, "1.0.0"))
+        self.assertEqual((dest / "main.py").stat().st_mode & 0o222, 0)
+        self.assertEqual(deployed_cfg.stat().st_mode & 0o222, 0)
 
         is_installed, ver = installer.check_installed(comp)
         self.assertTrue(is_installed)

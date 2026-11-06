@@ -1518,11 +1518,9 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             QMessageBox.warning(self, "File Exists", f"Target file already exists:\n{target_file}")
             return
         try:
-            shutil.copy2(source_file, target_file)
-            installer = self._get_installer()
-            owner = installer.find_component_for_path(source_file) if installer else None
-            if owner:
-                installer.track_user_config(owner, target_file)
+            from src.app.components.configuration import ConfigurationFiles
+            from src.app.workspace import WorkspacePaths
+            ConfigurationFiles(WorkspacePaths.from_config_root(self.root_dir)).copy(source_file, target_file)
             self._select_created_component_file(target_file)
         except OSError as exc:
             QMessageBox.critical(self, "Copy Error", f"Could not copy YAML file:\n{exc}")
@@ -1565,6 +1563,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         there to dismiss it, so the caller reports the error instead.
         """
         path = self.root_dir / rel_path
+        if self._get_installer().is_installed_file(path):
+            return False, "Hub component files are read-only. Make a component copy to edit them."
         blocked = deletion_blocked_reason(path)
         if blocked:
             return False, blocked
@@ -1583,6 +1583,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     def rename_config(self, rel_path, new_name):
         """Rename a config, keeping experiment_id in step. Returns (new_rel, error)."""
         path = self.root_dir / rel_path
+        if self._get_installer().is_installed_file(path):
+            return None, "Hub component files are read-only. Make a component copy to edit them."
         new_name = (new_name or "").strip()
         if not new_name:
             return None, "Give the file a name."
@@ -1636,6 +1638,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         old_dir = self.root_dir / rel_path
         if not old_dir.exists() or not old_dir.is_dir():
             return None, f"Folder '{rel_path}' does not exist."
+        if self._get_installer().is_installed_file(old_dir):
+            return None, "This folder contains Hub component files and cannot be renamed."
         if old_dir.name == new_name:
             return rel_path, None
         new_dir = old_dir.with_name(new_name)
@@ -1655,6 +1659,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Move a YAML within its component category and update install tracking."""
         source = self.root_dir / rel_path
         target_dir = self.root_dir / target_dir_rel
+        if self._get_installer().is_installed_file(source):
+            return None, "Hub component files are read-only. Make a component copy to edit them."
         if self.mode != "components":
             return None, "YAML moves are only available in the Components tree."
         if not source.is_file() or source.suffix.lower() not in (".yaml", ".yml"):

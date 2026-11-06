@@ -59,8 +59,9 @@ pytest tests/ -k hotkeys                # tests whose name matches
 pytest tests/ -m "not slow"             # skip tests that train for real
 ```
 
-GUI tests need a display. On a headless machine, set `QT_QPA_PLATFORM=offscreen`. INSTALL.md lists the tests
-that currently fail on a clean install.
+GUI tests need a display. On a headless machine, set `QT_QPA_PLATFORM=offscreen`. Optional integration tests
+may require Hub components or datasets; use the test's reported skip/failure reason. Core development uses
+isolated fixtures rather than a fixed set of private researcher files.
 
 ## Where things live
 
@@ -68,15 +69,17 @@ that currently fail on a clean install.
 run_pipeline.py          # Command-line entry point
 frontend/                # The desktop IDE (PyQt6)
   plugins/core/          # Built-in IDE plugins: documentation, TensorBoard, arXiv papers
-  hub/                   # Theta Hub client and installer
+  hub/                   # Theta Hub GUI client and compatibility imports
 src/app/                 # Framework
+  components/            # Headless installer, development operations, config I/O and CLI
+  workspace.py           # Shared paths for the existing checkout layout
   pipeline/              # Config composition, validation and orchestration
   core/                  # Interfaces, registries (agents, plotters, ...), factories, callbacks
   services/              # Run catalog, metrics and job store used by the IDE
   data/                  # Offline replay data modules
 src/usr/                 # Components: algorithms, methods, models, environments, evaluators
 in/config/               # Hydra configs: experiment/, agent/, model/, env/, paradigms/, plot/
-plot/                    # Plotting framework; built-in plotters in plot/standard_figures/
+plot/                    # Plotting framework and component-supplied research plotters
 tests/                   # pytest suite
 ```
 
@@ -101,8 +104,8 @@ Plotters are discovered automatically from modules in `plot/` and its subfolders
 1. Subclass `BasePlotter` from `plot/base.py`, passing the plotter's name to `super().__init__("my_plot")`.
 2. Implement `run(self, exp_id, cli_overrides=None)`. Call `self.get_effective_config(exp_id, cli_overrides)`
    to get the merged settings, the experiment's group and the output folder.
-3. Put the default settings in `in/config/plot/<library>/my_plot.yaml`, like the built-in
-   `in/config/plot/<package>/losses.yaml`.
+3. Put the default settings in `in/config/plot/<library>/my_plot.yaml`. Research plotters and their defaults
+   are supplied by components; do not assume a particular losses/convergence package is installed.
 4. Experiments request the plotter by name under their `plots:` section, which can also override its settings.
 
 ### An IDE feature or plugin

@@ -1331,6 +1331,8 @@ class ConfigViewer(QWidget):
         return super().eventFilter(obj, event)
 
     def _start_group_edit(self, event=None):
+        if self._hub_read_only():
+            return
         grp = self._group_name()
         if not grp or not self.current_path or not self.current_rel_path:
             return
@@ -1432,6 +1434,8 @@ class ConfigViewer(QWidget):
             self._committing_group_rename = False
 
     def _start_title_edit(self, event=None):
+        if self._hub_read_only():
+            return
         if not self.current_path or not self.current_rel_path:
             return
         self._is_editing_title = True
@@ -1622,6 +1626,14 @@ class ConfigViewer(QWidget):
         self._render_boxes()
         self._update_dirty_ui()
 
+    def _hub_read_only(self):
+        if not self.current_path:
+            return False
+        tree = config_tree()
+        workspace = tree.config_root.parent.parent if tree else PROJECT_ROOT
+        from frontend.hub.installer import HubInstaller
+        return HubInstaller(workspace, workspace / ".thetaide").is_installed_file(self.current_path)
+
     def _render_boxes(self):
         """Clear and build the configuration boxes."""
         self._block_updates = True
@@ -1712,6 +1724,13 @@ class ConfigViewer(QWidget):
         if is_experiment:
             self._setup_experiment_box_order()
         self.boxes_layout.addStretch()
+        read_only = self._hub_read_only()
+        self.container.setEnabled(not read_only)
+        if read_only:
+            notice = QLabel("Hub component · Read-only. Make a component copy to edit.")
+            notice.setWordWrap(True)
+            self.boxes_layout.insertWidget(0, notice)
+            self.file_title.setToolTip("Hub component is read-only. Make a component copy to edit it.")
         self._block_updates = False
 
     def _on_view_mode_toggled(self, checked: bool):
@@ -6654,12 +6673,20 @@ class ConfigViewer(QWidget):
         """Save current YAML dictionary back to disk."""
         if not self.current_path:
             return False
+        if self._hub_read_only():
+            if show_error:
+                QMessageBox.warning(self, "Read-only component", "Hub components are read-only. Make a component copy to edit it.")
+            return False
         try:
             self._clean_redundant_params()
             self._reconcile_group_base()
             self._drop_empty_methods()
             yaml_str = yaml.safe_dump(self.raw_data, sort_keys=False)
-            self.current_path.write_text(self._preamble + yaml_str, encoding="utf-8")
+            from src.app.components.configuration import ConfigurationFiles
+            from src.app.workspace import WorkspacePaths
+            tree = config_tree()
+            workspace = tree.config_root.parent.parent if tree else PROJECT_ROOT
+            ConfigurationFiles(WorkspacePaths(workspace)).write(self.current_path, self._preamble + yaml_str, allow_external=True)
             self.is_dirty = False
             self._update_dirty_ui()
             if self.current_rel_path:

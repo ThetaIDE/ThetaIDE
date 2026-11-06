@@ -155,7 +155,7 @@ def test_delete_moves_only_owned_paths_to_trash(model_workspace, monkeypatch, tm
         Path(path).rename(trash)
         return True, str(trash)
     monkeypatch.setattr(QFile, 'moveToTrash', move)
-    service.delete(component, installer)
+    service.delete(component, installer, trash=QFile.moveToTrash)
     assert trash.is_dir()
     assert not any(path.exists() for path in paths)
     assert experiment.exists()
@@ -410,7 +410,7 @@ def test_trash_failure_restores_all_owned_locations(model_workspace, monkeypatch
     paths, _ = local.deletion_details(component, installer)
     monkeypatch.setattr(QFile, 'moveToTrash', lambda path: (False, ''))
     with pytest.raises(OSError, match='Trash'):
-        local.delete(component, installer)
+        local.delete(component, installer, trash=QFile.moveToTrash)
     assert all(path.exists() for path in paths)
     assert LocalComponents(ws).entries()[0].id == 'fork'
 
@@ -467,6 +467,7 @@ def test_install_release_then_copy_saved_implementation(model_workspace, tmp_pat
     installer = HubInstaller(ws, ws / '.thetaide')
     assert installer.install(component)
     parent = ws / 'src/usr/models/parent/model.py'
+    parent.chmod(parent.stat().st_mode | 0o200)  # Simulate an installation edited before protection.
     parent.write_text(parent.read_text().replace('return 1', 'return 91'))
     assert runtime(ws, 'parent') == '91'
     local = LocalComponents(ws)

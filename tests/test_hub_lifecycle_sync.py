@@ -104,6 +104,30 @@ class TestHubLifecycleSync(unittest.TestCase):
         meta = self.installer.find_component_for_path(other_dir)
         self.assertIsNone(meta)
 
+    def test_installed_files_are_distinct_from_user_copies(self):
+        meta = json.loads(self.meta_file.read_text())
+        meta["installed_from"] = "https://example.test/component.zip"
+        meta["user_config_paths"] = ["in/config/env/mock_game/custom.yaml"]
+        self.meta_file.write_text(json.dumps(meta))
+        source = self.comp_dir / "runner.py"
+        source.write_text("pass\n")
+        user_copy = self.config_dir / "custom.yaml"
+        user_copy.write_text("name: custom\n")
+        self.assertTrue(self.installer.is_installed_file(source))
+        self.assertTrue(self.installer.is_installed_file(self.cfg1))
+        self.assertTrue(self.installer.is_installed_file(self.config_dir))
+        self.assertFalse(self.installer.is_installed_file(user_copy))
+        self.installer.protect_installed_components()
+        self.assertEqual(source.stat().st_mode & 0o222, 0)
+        self.assertEqual(self.cfg1.stat().st_mode & 0o222, 0)
+        self.assertNotEqual(user_copy.stat().st_mode & 0o200, 0)
+        meta.pop("installed_from")
+        meta["origin"] = "local"
+        self.meta_file.chmod(self.meta_file.stat().st_mode | 0o200)
+        self.meta_file.write_text(json.dumps(meta))
+        self.assertFalse(self.installer.is_installed_file(source))
+        self.assertFalse(self.installer.is_installed_file(self.cfg1))
+
     def test_uninstall_hides_configs_and_reinstall_restores_them(self):
         """Uninstall hides configs outside the active tree and reinstall restores them."""
         ok = self.installer.uninstall(self.component)
@@ -198,6 +222,8 @@ def test_update_and_reinstall_preserve_user_config_and_add_defaults(tmp_path):
     })
     path = workspace / "in/config/model/example.yaml"
     assert installer.install(component, "1.0.0")
+    # Simulate an older installation edited before read-only protection.
+    path.chmod(path.stat().st_mode | 0o200)
     path.write_text("# personal\nwidth: 64\n")
     assert installer.install(component, "1.1.0")
     assert yaml.safe_load(path.read_text()) == {"width": 64, "logic_lr": None}
@@ -232,6 +258,7 @@ def test_root_relative_reinstall_restores_retained_yaml_after_source_copy(tmp_pa
     })
     path = workspace / "in/config/model/example.yaml"
     assert installer.install(component, "1.0.0")
+    path.chmod(path.stat().st_mode | 0o200)  # Simulate a legacy edit.
     path.write_text("width: 64\n")
     assert installer.uninstall(component)
     assert installer.install(component, "1.1.0")

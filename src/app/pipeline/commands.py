@@ -30,6 +30,8 @@ def build_method_overrides(
     cfg=None,
     study_name: str | None = None,
     is_sweep: bool = False,
+    config_dir=None,
+    workspace=None,
 ) -> list[str]:
     """Build Hydra override list from a structured methods: dict entry.
 
@@ -90,8 +92,13 @@ def build_method_overrides(
 
     # The selected profile path and its registered implementation are distinct.
     # Keep the profile in Hydra's group selector; use its declared runtime ID.
+    from pathlib import Path
+
     from src.app.pipeline.config import load_model_base_config
-    profile_defaults = load_model_base_config(str(model_arch))
+    from src.app.workspace import WorkspacePaths
+    paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir is not None else WorkspacePaths.for_process())
+    model_config_dir = (Path(config_dir) if config_dir is not None else paths.config) / "model"
+    profile_defaults = load_model_base_config(str(model_arch), model_config_dir)
     runtime_arch = (profile_defaults.get("architecture") or profile_defaults.get("type")
                     or profile_defaults.get("name") or model_arch)
 
@@ -190,7 +197,7 @@ def build_method_overrides(
     try:
         from src.app.pipeline.config import load_model_base_config
 
-        base_m_cfg = load_model_base_config(model_arch)
+        base_m_cfg = load_model_base_config(model_arch, model_config_dir)
         if base_m_cfg and isinstance(base_m_cfg, dict):
             _MODEL_KEYS.update(base_m_cfg.keys())
     except Exception:
@@ -200,7 +207,7 @@ def build_method_overrides(
     from pathlib import Path
 
     from src.app.pipeline.component_validation import schemas_for_method
-    schema = schemas_for_method(Path.cwd(), {"model": model_arch}, validation_only=False).get("model", {})
+    schema = schemas_for_method(paths.root, {"model": model_arch}, validation_only=False).get("model", {})
     _MODEL_KEYS.update(schema.get("properties", {}))
 
     for k, v in method_cfg.items():

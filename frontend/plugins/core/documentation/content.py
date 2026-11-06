@@ -33,7 +33,7 @@ ARTICLES: List[DocArticle] = [
 <h3>Framework Architecture</h3>
 <ul>
   <li><b>Hydra Configuration Layer (<code>in/config/</code>):</b> Declarative, three-tier hierarchical configuration defining environments, agents, models, cluster resources, and experiment recipes.</li>
-  <li><b>In-process pipeline services (<code>src/app/services/</code>) &amp; job manager (<code>frontend/job_manager.py</code>):</b> The app composes and validates configs with the pipeline's own code and runs <code>run_pipeline.py</code> as a child process, streaming its output and metrics through Qt signals. There is no server to start.</li>
+  <li><b>In-process pipeline services (<code>src/app/services/</code>) &amp; job manager (<code>frontend/job_manager.py</code>):</b> The app composes and validates configs in-process. A detached runner owns training child processes and queue scheduling; the desktop reconnects to durable status, logs and metrics. There is no HTTP server to start.</li>
   <li><b>Training runtimes:</b> The built-in PyTorch Lightning driver (<code>src/app/train.py</code>) provides automated checkpointing, device acceleration (CUDA/MPS/CPU), and structured logging. Method plugins can declare their own runner entrypoint in each agent profile.</li>
   <li><b>Components from the Theta Hub:</b> A fresh clone provides the framework and generic IDE features without research algorithms, experiment recipes, trained results, or domain environments. Install the components required by an experiment from the <b>Theta Hub</b> (<a href="ide://components">Components</a> tab, globe button), or create your own with the <a href="authoring_plugins">Authoring Guide</a>. Each component supplies its own dependencies and integration points.</li>
   <li><b>Plugin System:</b> Core plugins (Documentation, TensorBoard, arXiv Papers, Visual Model Builder) ship with the IDE and have no effect when switched off; community plugins install from the Theta Hub.</li>
@@ -76,13 +76,14 @@ ARTICLES: List[DocArticle] = [
   <tr><td><code>frontend/</code></td><td>The PyQt6 IDE: <code>app.py</code> (the window), the panels, <code>hub/</code> and <code>plugins/</code>. <code>local_backend.py</code>, <code>job_manager.py</code> and <code>live_run.py</code> are the bridge to the pipeline.</td></tr>
   <tr><td><code>run_pipeline.py</code></td><td>The command-line entry point, and what the IDE launches: <code>python run_pipeline.py &lt;group&gt;/&lt;experiment&gt; [overrides]</code>.</td></tr>
   <tr><td><code>src/app/pipeline/</code></td><td>Composition, pre-flight validation, engine dispatch (<code>engine.py</code>), the local runner, and which Python runs each engine (<code>runtime.py</code>).</td></tr>
+  <tr><td><code>src/app/components/</code>, <code>src/app/workspace.py</code></td><td>Shared headless component installation/development/configuration services and paths for the current layout.</td></tr>
   <tr><td><code>src/app/services/</code></td><td>What the IDE calls in-process: <code>config_service</code>, <code>catalog</code>, <code>metrics</code>, <code>job_store</code>, <code>processes</code>, the exporters and the scaffolder.</td></tr>
   <tr><td><code>src/app/telemetry/</code></td><td>One logging API for every engine: <code>run.log()</code> writes <code>metrics.csv</code> and the <code>events.jsonl</code> live feed.</td></tr>
-  <tr><td><code>src/app/core/</code></td><td>Registries (models, algorithms, plotters, data modules), the paradigm loader, the Lightning builder, callbacks and checkpoints.</td></tr>
+  <tr><td><code>src/app/core/</code></td><td>Model, plotter, data-module and evaluator registries, the paradigm loader, Lightning builder, callbacks and checkpoints. The agent registry remains in <code>src/usr/algorithms/agent_registry.py</code>.</td></tr>
   <tr><td><code>src/app/train.py</code>, component runner entry points</td><td>The built-in Lightning driver and runner entry points provided by installed components.</td></tr>
   <tr><td><code>src/usr/</code>, <code>in/config/</code></td><td>Components and their Hydra configs. Mostly installed from the Theta Hub and not tracked in git.</td></tr>
-  <tr><td><code>plot/</code></td><td><code>manager.py</code> runs the plotters an experiment asks for; built-ins live in <code>standard_figures/</code>.</td></tr>
-  <tr><td><code>results/</code>, <code>.thetaide/</code></td><td>Run output (logs, plots, checkpoints, TensorBoard, and the job queue's <code>jobs/jobs.db</code>) and the IDE's workspace (settings, run records in <code>runs/</code>, installed plugins and suites, the Hub cache). Neither is tracked.</td></tr>
+  <tr><td><code>plot/</code></td><td><code>manager.py</code> runs the selected research plotters, supplied by installed components such as a figures suite.</td></tr>
+  <tr><td><code>results/</code>, <code>.thetaide/</code></td><td>Research outputs live under <code>results/</code>. IDE settings, run records, the queue (by default <code>.thetaide/runs/jobs/jobs.db</code>), installed GUI plugins, retained component snapshots and cache live under <code>.thetaide/</code>. These do not contain all active research source/configuration files.</td></tr>
 </table>
 
 <h3>Things that are easy to miss</h3>
@@ -147,7 +148,7 @@ python -m frontend</code></pre>
 <p>The status bar shows <b>Pipeline unavailable</b> when the app isn't running from the project venv. You can still browse and edit configs (the preview shows an unvalidated local draft) and run <b>Start simulated demo</b> in the Queue tab (<code>Ctrl+F5</code>). Reinstall with <code>pip install -e ".[gui]"</code> and start the app again with <code>python -m frontend</code>.</p>
 
 <h3>Stopping</h3>
-<p>Closing the window when nothing is training quits ThetaIDE. Closing it while a run is training (or the queue is running) hides ThetaIDE to the <b>system tray</b> instead, and training keeps going. The tray icon gets a green dot while a run is training (blue while the queue waits to start the next job), shows what is training, notifies you when runs finish or fail, and reopens the window when clicked; its menu also has <i>Stop all training</i>. To exit, use <i>File &rarr; Quit</i> (<code>Ctrl+Q</code>) or <i>Quit ThetaIDE</i> in the tray menu: if a run is still training ThetaIDE asks first, then stops it. Metrics written so far stay in <code>results/logs/</code>. Queued jobs are kept (in <code>results/jobs/jobs.db</code>) and wait for <i>Start queue</i> next time. TensorBoard stops with the app.</p>
+<p>Closing or quitting the desktop disconnects it from the independent training runner. Active training and a started queue continue; reopen ThetaIDE to reconnect to durable status, logs and metrics. Use the run/queue cancellation controls to stop work explicitly. Queued jobs and runner state are stored under the app data directory (by default <code>.thetaide/runs/jobs/</code>, including <code>jobs.db</code>). TensorBoard and other desktop-owned plugins stop with the app.</p>
 <p><b>Run notifications:</b> when a run completes, fails or is stopped, a toast appears in the window's bottom-right corner (&#10003; completed, &#10007; failed, &#9632; stopped, with how long it took) and a short chime plays, brighter for completed and lower for failed. <i>View results</i> on the toast plots the run in the Plot Viewer. If ThetaIDE isn't in front (minimised, in the tray, or another app has focus) the toast becomes a system notification instead. Switch the toast and the sound on or off in <i>Settings &rarr; Training pipeline &rarr; Run notifications</i>; <i>Try it</i> there shows a sample.</p>
 """,
     ),
@@ -254,7 +255,7 @@ python -m frontend</code></pre>
 <ul>
   <li>Enable <b>Run methods in parallel</b> in Experiment Inputs to give each configured method its own concurrent training process and queue card. Clicking a method card opens the Training Monitor focused on that method.</li>
   <li>Launch the selected experiment with <code>F5</code>, stop the active run with <code>Shift+F5</code>, add an experiment to the queue with <code>Ctrl+Shift+Q</code>, and start or pause the queue with <code>Ctrl+Shift+R</code>. Start a simulated demo with <code>Ctrl+F5</code>.</li>
-  <li>Queued jobs are saved in <code>results/jobs/jobs.db</code>. Training runs inside ThetaIDE: closing the window while something trains keeps it going in the system tray (see <a href="launching">Installing &amp; Launching</a>).</li>
+  <li>Queued jobs are saved under the app data directory, by default <code>.thetaide/runs/jobs/jobs.db</code>. The detached runner owns training and resource-based queue admission; closing the desktop does not cancel jobs. Reopen to reconnect, or cancel work explicitly.</li>
 </ul>
 
 <h3>4. Plots & Visualizations (<code>plots</code>)</h3>
@@ -278,7 +279,8 @@ python -m frontend</code></pre>
 <h3>6. Components &amp; the Theta Hub (<code>components</code>)</h3>
 <p>Manage the building blocks experiments are made of:</p>
 <ul>
-  <li><b>Components Tree &amp; Viewer:</b> Browse and edit installed component configurations, including agent profiles, environment definitions, model architectures, data loaders, plotters, paradigms and site profiles. Components are grouped by package.</li>
+  <li><b>Components Tree &amp; Viewer:</b> Browse component configurations, including agent profiles, environment definitions, model architectures, data loaders, plotters, paradigms and site profiles. Hub-installed components are read-only in the IDE; make a component copy to edit its code and configurations. Components are grouped by package.</li>
+  <li><b>Terminal development:</b> <code>python run_pipeline.py component --help</code> exposes shared headless inspection, model copying, configuration editing/validation, and export. Deep Copy and Copy YAML use the same services as terminal commands. Copying a model creates an independent implementation; copying YAML keeps its implementation shared. Active files remain in the existing research/configuration directories.</li>
   <li><b>Theta Hub:</b> the globe button opens the Hub in this tab. Category tabs filter the component catalog; <b>Sort</b> orders the list and <b>Refresh</b> reloads the registry. Each card has <b>Install</b> or <b>Uninstall</b>. A suite can install a curated set of components together. <b>Back to Parameters</b> returns to the tree.</li>
   <li>When a component is uninstalled, its configuration files are hidden from the active tree and kept in the ignored <code>.thetaide/retained_configs/</code> store. Reinstalling that component restores its packaged profiles and user-created copies.</li>
 </ul>
@@ -817,6 +819,15 @@ class MyPlugin(Plugin):
 <h2>Authoring Guide: All Component & Plugin Types</h2>
 <p>Theta-IDE features a modular architecture where nearly every capability &mdash; from UI tabs to RL training algorithms, neural-symbolic models, and benchmark environments &mdash; can be developed, tested, and distributed as an installable component plugin via the <b>Theta Hub</b>.</p>
 
+<h3>Local development through the GUI or terminal</h3>
+<p>Hub originals are read-only. Use <b>Edit</b> to inspect them, or <b>Deep Copy</b> to create an independent editable model. Supported copies get a new runtime identity, profiles and parent provenance; shared child components stay shared. Independent copying currently supports directory-based models with safely transformable registrations/imports. <b>Copy YAML</b> creates an editable profile that continues to use shared code.</p>
+<pre><code>python run_pipeline.py component inspect blendrl
+python run_pipeline.py component copy blendrl my_blendrl
+python run_pipeline.py component inspect my_blendrl
+python run_pipeline.py component config --help</code></pre>
+<p>Use profile paths returned by inspection with <code>component config show</code>, <code>set</code>, <code>copy</code> and <code>validate</code>. To check a configured experiment, use <code>component validate-experiment &lt;group&gt;/&lt;experiment&gt;</code>; it performs preflight and reports effective method model sources without starting training. Static validation is not a forward-pass or shape guarantee.</p>
+<p>GUI and terminal share headless component services in <code>src/app/components/</code>. Active local files remain in the existing <code>src/usr/</code>, <code>in/</code> and plotting directories. Retained packages under <code>.thetaide/components/packages/</code> are snapshots; generated context is refreshed under <code>.thetaide/components/context/&lt;id&gt;.md</code>. Uninstall removes active files after retaining saved local content. No separate workspace lifecycle or application-source move is implemented.</p>
+
 <div style="background-color: rgba(69, 133, 136, 0.12); border-left: 4px solid #83a598; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
   <b>Component Kinds:</b> Every Theta Hub component declares a <code>kind</code>, which decides where the Hub installs its code and its default config. A component's configs go in a folder named after its package, so experiments refer to them as <code>&lt;package&gt;/&lt;name&gt;</code> (e.g. <code>sb3/ppo</code>).
 </div>
@@ -1100,7 +1111,7 @@ num_checkpoints: 10              # or checkpoint_every_steps: 10000 (one or the 
 <h3>6. Packaging & Publishing to the Theta Hub</h3>
 
 <h4>1-Click Experiment-to-Plugin Export</h4>
-<p>Theta-IDE provides native 1-click export of any experiment and its complete dependency closure:</p>
+<p>Theta-IDE provides export of an experiment and its recognized configuration/source/asset dependencies:</p>
 <ul>
   <li><b>One experiment:</b> Click <b>Export</b> in the experiment tree's toolbar (or <code>Ctrl+Shift+S</code>) &rarr; choose <i>Theta Hub Component Archive (.zip)</i>. The IDE automatically traces the recipe YAML, base configs, environment wrappers, domain rules, custom model architectures, and optional checkpoint weights (<i>Include trained checkpoint weights</i>).</li>
   <li><b>A whole group:</b> right-click the group in the tree &rarr; <b>Export Experiment Plugin&hellip;</b>.</li>
@@ -1124,13 +1135,13 @@ my_dm = "my_pkg.data:MyDataModule"
 
 [project.entry-points."theta.components"]
 my_component = "my_pkg.components:MyRunnerOrCallback"</code></pre>
-<p><code>theta.datamodules</code> and <code>theta.components</code> are registered whenever the pipeline discovers components. <code>theta.models</code> and <code>theta.agents</code> are currently registered only by <i>File &rarr; Reload Component Code</i> (<code>Ctrl+Alt+R</code>), so a training run does not see them on its own. Environments, evaluators and IDE plugins are not loaded from entry points at all. Until that changes, packaging a component for the Theta Hub (below) is the reliable route.</p>
+<p><code>theta.datamodules</code> and <code>theta.components</code> are registered during paradigm component discovery. <code>theta.environments</code> is resolved by the environment factory, and <code>theta.tuners</code> by tuning-component selection. <code>theta.models</code> and <code>theta.agents</code> require explicit <code>load_all_plugins()</code> or <i>File &rarr; Reload Component Code</i> (<code>Ctrl+Alt+R</code>); fresh training processes do not call that loader automatically. Evaluator and GUI-plugin entry-point names are recognized by the helper but have no automatic activation adapter. GUI plugins use <code>plugin.json</code>. Entry points alone do not create workspace YAML profiles; Hub packaging remains the complete install/configuration route.</p>
 
 <h4>Manual Release Archive & Hub Registry (<code>dist/index.json</code>)</h4>
-<p>The Theta Hub's catalog is <code>dist/index.json</code> in the <a href="https://github.com/CameronEgb/theta-hub">theta-hub</a> repository; Theta-IDE downloads it and caches it in <code>.thetaide/cache/hub/</code>. For standalone zip releases, package your directory and generate the SHA-256 hash:</p>
+<p>The default Theta Hub feed is <code>https://raw.githubusercontent.com/ThetaIDE/ThetaHub/main/dist/index.json</code>; the client also supports fallback feeds and caches responses in <code>.thetaide/cache/hub/</code>. Check <code>DEFAULT_REGISTRY_URL</code> in <code>frontend/hub/client.py</code> and follow <code>THETA_HUB_RELEASE_WORKFLOW.md</code> for production releases. For a standalone release archive, package the directory and compute its SHA-256:</p>
 <pre><code>zip -r my_cql-1.0.0.zip my_method/
 shasum -a 256 my_cql-1.0.0.zip</code></pre>
-<p>Add your release to the catalog index, and it becomes installable with one click in the <b>Theta Hub</b>.</p>
+<p>Publishing requires a versioned archive, matching registry metadata and feeds, and client verification. Exporting a ZIP does not publish it. The GUI currently has no local-archive drag-and-drop/import action.</p>
 """,
     ),
     DocArticle(
@@ -1141,7 +1152,7 @@ shasum -a 256 my_cql-1.0.0.zip</code></pre>
         keywords=["cli", "terminal", "commands", "run_pipeline", "plot", "optuna", "sweeps", "overrides"],
         html_content="""
 <h2>CLI & Command Reference</h2>
-<p>Everything the IDE does is backed by a scriptable CLI. Run these from the repository root, in the project's virtual environment, after installing the experiment's components from the Theta Hub.</p>
+<p>The experiment pipeline and component-development operations below are available from the terminal. Run them from the repository root in Theta's Python environment, after installing the required components. Some desktop actions, including Hub browsing and system Trash, have no terminal subcommand.</p>
 
 <h3>Running Experiments</h3>
 <p>Experiments are named <code>&lt;group&gt;/&lt;experiment&gt;</code>, matching their path under <code>in/config/experiment/</code> (an experiment in a subfolder is <code>&lt;group&gt;/&lt;subfolder&gt;/&lt;experiment&gt;</code>):</p>

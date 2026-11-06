@@ -51,6 +51,7 @@ class HubClient(QObject):
             settings_manager=self.settings_manager,
             lookup_component_fn=self.get_component,
         )
+        self.installer.protect_installed_components()
         if on_change_callback:
             self.componentChanged.connect(on_change_callback)
 

@@ -23,6 +23,11 @@ for p in [
     if p not in sys.path:
         sys.path.insert(0, p)
 
+# Dispatch component tooling before importing training/configuration backends.
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "component":
+    from src.app.components.__main__ import main as component_main
+    raise SystemExit(component_main(sys.argv[2:]))
+
 from omegaconf import OmegaConf
 
 from src.app.pipeline.compose import CONFIG_DIR, compose_experiment, validate_composed
@@ -36,6 +41,7 @@ def main():
     os.environ["THETA_PIPELINE_PID"] = str(os.getpid())
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("Usage: python run_pipeline.py <group>/<experiment_id> [Hydra Overrides]")
+        print("Component development: python run_pipeline.py component --help")
         print("Standard Orchestration Overrides (use Hydra syntax, e.g. key=value):")
         print(
             "  site=local            Interactive CLI execution (default, for local machine or cluster interactive node)"

@@ -6,7 +6,8 @@ This guide describes how to author, register, package, and distribute research c
 
 ## 1. Overview & Architectural Principles
 
-In Theta-IDE, all components are cleanly decoupled through declarative runtime protocols:
+Theta-IDE exposes runtime protocols and registries for the component categories below. Discovery and
+loading support varies by kind; the current entry-point limitations are listed in section 3.
 - **Models & Composite Architectures**: Define policy networks, Q-functions, feature extractors, and symbolic reasoners.
 - **Agents & Algorithms**: Implement RL or supervised loss functions, update steps, and optimization procedures.
 - **Environments & Groundings**: Define simulators, observation wrappers, potential-based reward shaping, and logic valuations.
@@ -146,16 +147,28 @@ a menu. Missing files and handler failures show an error without guessing anothe
 target. Keep handlers free of training imports. The IDE has no ruleset, environment,
 model-name, or filename logic for these actions. Opening does not create an override.
 
-All plugin contracts are defined in [`src/app/core/protocols.py`](file:///Users/cameronegbert/Research/Theta-IDE/src/app/core/protocols.py).
+Optional model/agent/environment protocols are defined in [`src/app/core/protocols.py`](../src/app/core/protocols.py).
 
 ### Local development in the IDE
 
-On an installed component's Hub card, **Edit** opens its actual source folder and
-main implementation in the selected editor. The Theta Text Editor includes a file
-tree with owned profiles and assets at their installed paths. Ordinary Save affects
-the next fresh run. `COMPONENT_CONTEXT.md` is regenerated on Edit; keep personal
-notes elsewhere. CLI edits to profiles and manifest schemas refresh when returning
-to the configuration view.
+Hub-installed source and default profiles are read-only. Use **Edit** to inspect
+an original, then **Deep Copy** to create an independent editable model. On a local
+copy, Edit opens the actual installed source folder and main implementation in the
+selected editor; saving changes affects the next fresh run. The Theta Text Editor
+shows owned profiles and assets at their active paths. Generated context is stored
+in `.thetaide/components/context/<id>.md` and refreshed on Edit or by the terminal
+`component context` command. Keep personal notes elsewhere. Source and profiles are
+not edited in the retained package snapshot.
+
+The same copy/configuration operations work without Qt. See
+[Component development](../COMPONENT_DEVELOPMENT.md) for the command reference and
+storage map. For example:
+
+```bash
+python run_pipeline.py component inspect blendrl
+python run_pipeline.py component copy blendrl my_blendrl
+python run_pipeline.py component inspect my_blendrl
+```
 
 For an independent model, choose **Deep Copy** and type its name in the empty,
 focused component row. Press Enter or finish editing to create/select it and populate
@@ -168,13 +181,13 @@ before installation. Shared child components stay shared. The copy is installed
 immediately and appears in the Hub's **Local** filter without publication.
 
 The default collection is workspace-local `.thetaide/components/packages/<id>`.
-Those packages are retained snapshots; edit the installed files. **Hide** filters
+Those packages are retained snapshots; edit the active files of local components. **Hide** filters
 ordinary discovery without moving code or breaking saved experiments. Use Hub
 **Show hidden** and **Unhide** to restore discovery. **Uninstall** retains saved
 source/profiles/assets for reinstall; **Delete local component** shows affected
 locations and experiment references, then moves owned files to the OS Trash.
 Neither action changes remote Hub contents. Updates refuse to overwrite modified
-source, schemas or assets, including edits retained through uninstall/reinstall.
+source, schemas or assets, including legacy edits retained through uninstall/reinstall. Read-only Hub originals should be copied before making new edits.
 
 The experiment's model profile path (for example `my_fork/default`) selects YAML;
 the profile's `architecture` selects its independent runtime registration
@@ -240,7 +253,7 @@ class MyCustomAgent(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss_dict = self.compute_algorithm_loss(batch)
-        # Auxiliary losses from models are automatically collected and added
+        # The algorithm must explicitly collect any model auxiliary losses
         return loss_dict["loss"]
 
     def validation_step(self, batch, batch_idx):
@@ -325,13 +338,16 @@ class SafetyVerificationEvaluator:
         return {"eval/safety_violation_rate": self.violations / self.total_steps}
 ```
 
-All metrics returned by evaluation hooks automatically log into `metrics.csv` and render in the Theta-IDE Results Browser.
+The configured evaluator adapter records the mapping returned by `on_eval_end()` (or by a supported
+whole-run `evaluate()` implementation). `evaluate_step()` can accumulate state; its return value is not
+automatically logged by the validation-batch adapter. Use the runtime adapter in
+[`src/app/core/lightning_builder.py`](../src/app/core/lightning_builder.py) as the contract.
 
 ---
 
 ## 3. Universal Python Packaging via `pyproject.toml` Entry Points
 
-Any component can be packaged as a standard Python library and published to PyPI (`pip install my-theta-plugin`). Theta-IDE discovers and registers them automatically at startup via [`src/app/core/plugin_discovery.py`](file:///Users/cameronegbert/Research/Theta-IDE/src/app/core/plugin_discovery.py).
+Components can be packaged as Python libraries, but entry-point loading depends on the capability and consumer. The discovery helpers live in [`src/app/core/plugin_discovery.py`](../src/app/core/plugin_discovery.py).
 
 Declare standard entry-point groups in your `pyproject.toml`:
 
@@ -363,10 +379,20 @@ safety_verifier = "my_plugin.eval:SafetyVerificationEvaluator"
 custom_gui_panel = "my_plugin.ui:MyCustomPanelPlugin"
 ```
 
-Once installed, your components appear immediately in:
-- The Config Viewer dropdown selectors in the GUI.
-- The pipeline execution engine (`python run_pipeline.py <group>/<exp>`).
-- Built-in registries (`MODEL_REGISTRY`, `AGENT_REGISTRY`, `_COMPONENT_REGISTRY`).
+Entry-point declarations alone do not guarantee GUI discovery or runtime availability:
+
+| Group | Current consumer |
+| --- | --- |
+| `theta.datamodules`, `theta.components` | Paradigm component discovery during execution |
+| `theta.environments` | `VectorizedBaseEnv.from_name()` resolves a class/factory before Hub/Gymnasium fallback |
+| `theta.tuners` | Tuning component selection through `tuning.component` |
+| `theta.models`, `theta.agents` | Explicit `load_all_plugins()` / **File → Reload Component Code**; fresh training processes do not call that loader automatically |
+| `theta.evaluators`, `theta.plugins` | Names are recognized by the discovery helper, but there is no automatic evaluator/GUI activation adapter for them |
+
+GUI plugins are discovered through `plugin.json` by `frontend/plugins/manager.py`.
+For the complete current install/config/discovery workflow, distribute a Hub package
+with the appropriate source, manifests, and YAML profiles; a `pip install` by itself
+does not create those workspace profiles.
 
 An environment entry point may be a class or factory. Theta-IDE calls it with the configured environment name and supported runtime options. It must return an object implementing `reset()` and `step()`; it does not need to inherit from an IDE environment class.
 
@@ -401,7 +427,9 @@ python run_pipeline.py cartpole/quick_test export=true
 
 ### 4.3 What Gets Packaged
 
-The [`ExperimentExporter`](file:///Users/cameronegbert/Research/Theta-IDE/src/app/services/experiment_exporter.py) automatically resolves the full dependency closure:
+The [`ExperimentExporter`](../src/app/services/experiment_exporter.py) collects recognized recipe,
+profile, source and asset references. Declare additional resources and verify archive contents;
+arbitrary dynamically computed Python dependencies cannot be inferred reliably. A typical archive is:
 ```
 cartpole_quick_test_v1.0.0.zip
 ├── .theta_component.json                      # Hub component manifest
@@ -418,13 +446,19 @@ cartpole_quick_test_v1.0.0.zip
 
 ### 4.4 1-Click Roundtrip Installation via Theta Hub
 
-Any researcher receiving the `.zip` package can install it into their Theta-IDE in one click:
-- Drag and drop or import the `.zip` in **Components &rarr; Hub &rarr; Install Local Package**.
-- The [`HubInstaller`](file:///Users/cameronegbert/Research/Theta-IDE/frontend/hub/installer.py) automatically unpacks configs to `in/config/experiment/`, environments to `in/envs/`, and rules to `in/rules/`.
-- The experiment is immediately runnable with:
-  ```bash
-  python run_pipeline.py cartpole/quick_test
-  ```
+Publish a release following [the production workflow](../THETA_HUB_RELEASE_WORKFLOW.md),
+then install it from the Hub in the receiving checkout. The GUI currently does not
+provide an **Install Local Package** action or archive drag-and-drop import.
+
+For local integration scripts, use the headless
+[`HubInstaller`](../src/app/components/installer.py) with a
+[`HubComponent` and `ReleaseInfo`](../src/app/components/models.py) whose release URL
+is the archive's `file://` URI and whose SHA-256 matches the archive. The installer
+deploys recorded source/config/assets into the existing checkout layout. Dependency
+installation and suite-child lookup must be supplied/configured by the caller.
+`python run_pipeline.py component export` exports a component; there is no matching
+terminal archive-install subcommand yet. After installation and dependency setup,
+run the installed recipe using its actual `group/experiment` name.
 
 ---
 
@@ -443,7 +477,7 @@ Any researcher receiving the `.zip` package can install it into their Theta-IDE 
   "description": "BlendRL hybrid neural-symbolic policy architecture",
   "author": {"name": "Theta Research"},
   "target_path": "src/usr/models/blendrl",
-  "compatibility": {"theta": ">=2.0.0"}
+  "compatibility": {"theta": ">=0.1.0"}
 }
 ```
 
@@ -484,15 +518,19 @@ class BlenderActorCritic(nn.Module):
 ## 6. Authoring Checklist
 
 1. **Choose your component archetype**: Model, Agent, Environment, DataModule, Evaluator, or Experiment.
-2. **Implement the matching runtime protocol** in [`src/app/core/protocols.py`](file:///Users/cameronegbert/Research/Theta-IDE/src/app/core/protocols.py).
+2. **Implement the matching runtime protocol** in [`src/app/core/protocols.py`](../src/app/core/protocols.py).
 3. **Register your component**:
    - Models: `@register_model("<name>")`
    - Agents: `@register_agent("<name>")`
    - DataModules: `@register_component("<Name>")`
 4. **Publishing options**:
-   - **Local / Hub package**: Include `.theta_component.json` and export via `python run_pipeline.py export`.
-   - **PyPI Python package**: Declare entry points under `[project.entry-points."theta.*"]` in `pyproject.toml`.
-5. **Verify with test suite**: Run `pytest tests/test_plugin_discovery.py` to verify protocol conformance.
+   - **Component archive**: Include `.theta_component.json` and export with `python run_pipeline.py component export <id> --out package.zip`.
+   - **Experiment archive**: Use `python run_pipeline.py export <group>/<experiment>`.
+   - **Python package**: Declare entry points for supported consumers; observe section 3's loading limitations.
+   - **Hub publication**: Follow [the production release workflow](../THETA_HUB_RELEASE_WORKFLOW.md). Export alone does not publish.
+5. **Verify**: Run the component's own tests and a fresh-process experiment. The framework's
+   `tests/test_component_plugins.py` and `tests/test_component_development.py` exercise integration/development
+   behavior; they are not universal conformance tests for an arbitrary component.
 
 ### SB3 policies and symbolic observations
 

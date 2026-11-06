@@ -254,7 +254,7 @@ def test_components_panel_integration(qapp, tmp_path, monkeypatch):
     panel.open_active_component_in_editor()
     assert len(opened_targets) == 1
     assert opened_targets[0] == code_file.parent
-    assert (code_file.parent / "COMPONENT_CONTEXT.md").is_file()
+    assert (ws / ".thetaide/components/context/sample_mlp.md").is_file()
 
     # Test export component dialog wiring
     from frontend.export_dialog import ExportComponentDialog

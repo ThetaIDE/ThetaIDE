@@ -6,7 +6,9 @@ and runs training as a QProcess (frontend/job_manager.py), so there is no server
 
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from src.app.workspace import WorkspacePaths
+
+PROJECT_ROOT = WorkspacePaths().root
 LOGS_DIR = PROJECT_ROOT / "results" / "logs"
 PLOTS_DIR = PROJECT_ROOT / "results" / "plots"
 JOBS_DIR = PROJECT_ROOT / "results" / "jobs"

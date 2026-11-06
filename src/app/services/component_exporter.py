@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set
 import yaml
 
 from . import PROJECT_ROOT
+from src.app.workspace import WorkspacePaths
 
 log = logging.getLogger(__name__)
 
@@ -84,50 +85,10 @@ def find_component_assets(
     cfg = Path(config_path).resolve()
     comp_id = cfg.stem
 
-    # 1. Attempt lookup via HubInstaller / .theta_component.json
-    meta: Dict[str, Any] | None = None
-    try:
-        from frontend.hub.installer import HubInstaller
-
-        inst = HubInstaller(workspace_dir=ws, data_dir=ws / ".thetaide")
-        meta = inst.find_component_for_path(cfg)
-    except Exception:
-        # Fallback direct scan for .theta_component.json if HubInstaller unavailable
-        scan_roots = [
-            ws / "in" / "envs",
-            ws / "src" / "usr" / "algorithms",
-            ws / "src" / "usr" / "methods",
-            ws / "src" / "usr" / "models",
-            ws / "src" / "usr" / "data",
-            ws / "src" / "usr" / "eval",
-            ws / "plot",
-        ]
-        for root in scan_roots:
-            if not root.is_dir():
-                continue
-            for meta_file in root.rglob(".theta_component.json"):
-                try:
-                    data = json.loads(meta_file.read_text(encoding="utf-8"))
-                    comp_dir = meta_file.parent.resolve()
-                    if cfg == comp_dir or comp_dir in cfg.parents:
-                        data["target_dir"] = comp_dir
-                        meta = data
-                        break
-                    for cfg_rel in data.get("config_paths", []):
-                        if (ws / cfg_rel).resolve() == cfg:
-                            data["target_dir"] = comp_dir
-                            meta = data
-                            break
-                    if meta:
-                        break
-                    if data.get("config_path") and (ws / data["config_path"]).resolve() == cfg:
-                        data["target_dir"] = comp_dir
-                        meta = data
-                        break
-                except Exception:
-                    continue
-            if meta:
-                break
+    # Ownership lookup is headless and shared with the installer and terminal.
+    from src.app.components.installer import HubInstaller
+    paths = WorkspacePaths(ws)
+    meta = HubInstaller(paths.root, paths.data_dir).find_component_for_path(cfg)
 
     code_dir: Path | None = None
     primary_code_file: Path | None = None
@@ -297,7 +258,8 @@ class ComponentExporter:
     """Extracts, traces dependencies, and packages components into installable Hub packages or Git repos."""
 
     def __init__(self, workspace_root: Path | None = None):
-        self.workspace_root = Path(workspace_root) if workspace_root else PROJECT_ROOT
+        self.paths = WorkspacePaths(workspace_root or PROJECT_ROOT)
+        self.workspace_root = self.paths.root
 
     def export(
         self,

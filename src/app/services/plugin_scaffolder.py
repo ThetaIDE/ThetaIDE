@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import PROJECT_ROOT
+from src.app.workspace import WorkspacePaths
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ class PluginScaffolder:
     """Scaffolds new component plugins adhering to Theta-IDE protocols."""
 
     def __init__(self, workspace_root: Path | None = None):
-        self.workspace_root = Path(workspace_root) if workspace_root else PROJECT_ROOT
+        self.paths = WorkspacePaths(workspace_root or PROJECT_ROOT)
+        self.workspace_root = self.paths.root
 
     def scaffold(self, options: ScaffoldOptions) -> ScaffoldResult:
         """Generate the full scaffolding files for the requested component kind."""
