@@ -352,3 +352,63 @@ def test_host_settings_file_routing_menu_save_and_restart_preference(host):
     host.plugin_manager.initialize_plugins()
     assert host.plugin_manager.is_plugin_active("text_editor")
     assert host.settings_manager.default_text_editor == "system"
+
+
+def test_component_folder_tree_edits_actual_owned_config(panel, tmp_path):
+    root = tmp_path / "src/usr/models/local_model"
+    root.mkdir(parents=True)
+    implementation = root / "model.py"
+    implementation.write_text("value = 1\n")
+    config = tmp_path / "in/config/model/local_model.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("architecture: local_model\n")
+    assert panel.open_folder(root, initial_file=implementation, owned_paths=[config])
+    assert panel.current_document.path == implementation
+    explorer = panel.file_explorer
+    tree = explorer.related_tree
+    pump_until(lambda: tree.model().mapFromSource(explorer.file_model.index(str(config))).isValid())
+    index = tree.model().mapFromSource(explorer.file_model.index(str(config)))
+    tree.activated.emit(index)
+    assert panel.current_document.path == config
+    evaluate(panel, "document.querySelector('.cm-content').focus(); document.execCommand('insertText', false, '# saved here\\n')")
+    assert panel.save_current()
+    assert "# saved here" in config.read_text()
+    assert implementation.read_text() == "value = 1\n"
+
+
+def test_file_explorer_follows_tabs_and_preserves_dirty_documents(panel, tmp_path):
+    root = tmp_path / "component"
+    root.mkdir()
+    first, second = root / "first.py", root / "second.py"
+    first.write_text("first = 1\n")
+    second.write_text("second = 2\n")
+    assert panel.open_folder(root, initial_file=first)
+    evaluate(panel, "document.querySelector('.cm-content').focus(); document.execCommand('insertText', false, '# keep buffer\\n')")
+    assert panel.sync_documents()
+    dirty = panel.current_document
+    explorer = panel.file_explorer
+    pump_until(lambda: explorer.source_filter.mapFromSource(explorer.file_model.index(str(second))).isValid())
+    explorer.source_tree.clicked.emit(explorer.source_filter.mapFromSource(explorer.file_model.index(str(second))))
+    assert panel.current_document.path == second
+    assert dirty.dirty and "# keep buffer" in dirty.text
+    assert first.read_text() == "first = 1\n"
+    panel.tab_bar.setCurrentIndex(0)
+    pump_until(lambda: explorer.file_model.filePath(explorer.source_filter.mapToSource(explorer.source_tree.currentIndex())) == str(first))
+    assert panel.current_document is dirty
+    assert dirty.dirty
+    assert not panel.test_errors
+
+
+def test_open_plain_folder_preserves_editor_and_sidebar_width(panel, tmp_path):
+    root = tmp_path / "folder"
+    root.mkdir()
+    doc = panel.new_document()
+    assert panel.open_folder(root)
+    assert panel.current_document is doc
+    assert not panel.test_errors
+    sizes = panel.editor_splitter.sizes()
+    assert 180 <= sizes[0] <= 320
+    panel.editor_splitter.setSizes([310, 700])
+    previous = panel.editor_splitter.sizes()[0]
+    assert panel.open_folder(root)
+    assert abs(panel.editor_splitter.sizes()[0] - previous) <= 2

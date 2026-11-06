@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
+    QSplitter,
     QStackedWidget,
     QTabBar,
     QToolButton,
@@ -27,8 +27,10 @@ from PyQt6.QtWidgets import (
 
 from frontend.sidetabs import svg_icon
 from frontend.theme import current_theme
+from frontend.tree_tools import refresh_tool_icons, style_tool_button
 
 from .documents import Document, FileConflictError
+from .explorer import FileExplorer
 
 WEB_ROOT = Path(__file__).parent / "web"
 
@@ -70,8 +72,9 @@ class EditorBridge(QObject):
         QTimer.singleShot(0, lambda: self.panel.perform_action(action))
 
     @pyqtSlot(int, int)
-    def cursorChanged(self, line, column):
-        self.panel.cursor_label.setText(f"Ln {line}, Col {column}")
+    def cursorChanged(self, _line, _column):
+        # Retain the bridge entry point for the bundled editor surface.
+        pass
 
 
 class TextEditorPanel(QWidget):
@@ -90,31 +93,27 @@ class TextEditorPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 10)
         layout.setSpacing(8)
 
-        toolbar = QHBoxLayout()
-        for title, action in (
-            ("New", "new"),
-            ("Open…", "open"),
-            ("Save", "save"),
-            ("Save As…", "save_as"),
-            ("Undo", "undo"),
-            ("Redo", "redo"),
-            ("Find / Replace", "find"),
-        ):
-            button = QPushButton(title)
-            button.clicked.connect(lambda _checked=False, a=action: self.perform_action(a))
-            toolbar.addWidget(button)
-        toolbar.addStretch()
-        self.wrap_button = QToolButton()
-        self.wrap_button.setText("Wrap")
-        self.wrap_button.setCheckable(True)
+        self.file_explorer = FileExplorer(settings_manager=context.window.settings_manager)
+        self.component_tree = self.file_explorer.source_tree
+        self.file_explorer.fileActivated.connect(self.open_file)
+        self.file_explorer.openFolderRequested.connect(self.choose_folder)
+        self.file_explorer.actionRequested.connect(self.perform_action)
+        self.file_explorer.toggleRequested.connect(self.toggle_file_tree)
+        self._explorer_width = 260
+        self.wrap_button = self.file_explorer.action_buttons["wrap"]
         self.wrap_button.setChecked(bool(context.window.settings_manager.get("editor", "wrap_lines", default=False)))
         self.wrap_button.toggled.connect(self._set_wrap)
-        toolbar.addWidget(self.wrap_button)
-        self.recover_button = QPushButton("Recover editor")
+        self.recover_button = self.file_explorer.action_buttons["recover"]
         self.recover_button.clicked.connect(self.recover_renderer)
-        self.recover_button.hide()
-        toolbar.addWidget(self.recover_button)
-        layout.addLayout(toolbar)
+
+        self.editor_pane = QWidget()
+        editor_layout = QVBoxLayout(self.editor_pane)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+        self.tab_header = QWidget()
+        self.tab_header_layout = QHBoxLayout(self.tab_header)
+        self.tab_header_layout.setContentsMargins(0, 0, 0, 0)
+        self.tab_header_layout.setSpacing(4)
 
         self.tab_bar = QTabBar()
         self.tab_bar.setExpanding(False)
@@ -124,7 +123,8 @@ class TextEditorPanel(QWidget):
         self.tab_bar.setElideMode(Qt.TextElideMode.ElideMiddle)
         self.tab_bar.currentChanged.connect(lambda _index: self._show_current())
         self.tab_bar.tabCloseRequested.connect(self.close_document)
-        layout.addWidget(self.tab_bar)
+        self.tab_header_layout.addWidget(self.tab_bar, 1)
+        editor_layout.addWidget(self.tab_header)
 
         self.banner = QFrame()
         banner_layout = QHBoxLayout(self.banner)
@@ -139,8 +139,7 @@ class TextEditorPanel(QWidget):
         keep_button.clicked.connect(self.banner.hide)
         banner_layout.addWidget(keep_button)
         self.banner.hide()
-        layout.addWidget(self.banner)
-
+        editor_layout.addWidget(self.banner)
         self.stack = QStackedWidget()
         empty = QWidget()
         empty_layout = QVBoxLayout(empty)
@@ -172,19 +171,17 @@ class TextEditorPanel(QWidget):
         page.renderProcessTerminated.connect(self._renderer_failed)
         page.loadFinished.connect(lambda ok: None if ok else self._renderer_failed())
         self.stack.addWidget(self.web_view)
-        layout.addWidget(self.stack, 1)
+        editor_layout.addWidget(self.stack, 1)
+        self.editor_splitter = QSplitter()
+        self.editor_splitter.addWidget(self.file_explorer)
+        self.editor_splitter.addWidget(self.editor_pane)
+        self.editor_splitter.setStretchFactor(0, 0)
+        self.editor_splitter.setStretchFactor(1, 1)
+        self.editor_splitter.setCollapsible(1, False)
+        self.editor_splitter.setCollapsible(0, False)
+        layout.addWidget(self.editor_splitter, 1)
+        self.editor_splitter.setSizes([260, 640])
 
-        status = QHBoxLayout()
-        self.path_label = QLabel("No document open")
-        self.path_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.path_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        status.addWidget(self.path_label, 1)
-        self.cursor_label = QLabel()
-        status.addWidget(self.cursor_label)
-        self.encoding_label = QLabel()
-        status.addWidget(self.encoding_label)
-        layout.addLayout(status)
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self.check_external_changes)
         self.watcher.directoryChanged.connect(self.check_external_changes)
@@ -291,6 +288,10 @@ class TextEditorPanel(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Open text file", self._start_folder(), "All files (*)")
         return bool(path) and self.open_file(path)
 
+    def choose_folder(self):
+        root = QFileDialog.getExistingDirectory(self, "Open folder", self._start_folder())
+        return bool(root) and self.open_folder(root)
+
     def _start_folder(self):
         doc = self.current_document
         return str(doc.path.parent if doc and doc.path else Path.cwd())
@@ -298,21 +299,13 @@ class TextEditorPanel(QWidget):
     def _show_current(self):
         doc = self.current_document
         self.stack.setCurrentIndex(1 if doc else 0)
+        self.file_explorer.reveal(doc.path if doc else None)
         self.banner.hide()
         if doc:
-            self.path_label.setText(str(doc.path) if doc.path else doc.title)
-            self.path_label.setToolTip(self.path_label.text())
-            self.encoding_label.setText(
-                f"{doc.encoding.upper()} · {'CRLF' if doc.newline == chr(13) + chr(10) else 'CR' if doc.newline == chr(13) else 'LF'}"
-            )
             if self._ready:
                 line, column = self._locations.pop(doc.id, (None, None))
                 self._js("show", self._payload(doc), line, column)
             self.check_external_changes()
-        else:
-            self.path_label.setText("No document open")
-            self.cursor_label.clear()
-            self.encoding_label.clear()
 
     def _update_tab(self, index):
         doc = self.documents[index]
@@ -359,6 +352,9 @@ class TextEditorPanel(QWidget):
         except (OSError, ValueError) as exc:
             self._error("Cannot save file", str(exc))
             return False
+        if doc.path and doc.path.suffix.lower() in (".yaml", ".yml", ".json"):
+            from frontend.config_viewer import invalidate_config_tree
+            invalidate_config_tree()
         self._update_tab(self.documents.index(doc))
         self._watch_files()
         self._show_current()  # updates language after Save As, preserving history
@@ -460,6 +456,8 @@ class TextEditorPanel(QWidget):
             changed = True
         self.banner.setVisible(bool(changed))
         if changed:
+            from frontend.config_viewer import invalidate_config_tree
+            invalidate_config_tree()
             self.banner_label.setText(
                 "This file changed on disk or was deleted. Reload it, or keep editing and review before saving."
             )
@@ -470,6 +468,7 @@ class TextEditorPanel(QWidget):
         actions = {
             "new": self.new_document,
             "open": self.choose_file,
+            "open_folder": self.choose_folder,
             "save": self.save_current,
             "save_as": lambda: self.save_current(True),
             "close": self.close_document,
@@ -482,6 +481,8 @@ class TextEditorPanel(QWidget):
         self.context.window.settings_manager.set("editor", "wrap_lines", value)
 
     def apply_theme(self):
+        self.file_explorer.apply_theme()
+        refresh_tool_icons(self.tab_header)
         palette = current_theme()["colors"]
         self.tab_bar.setStyleSheet(
             "QTabBar::tab { padding: 7px 10px; margin-right: 3px; border: none; "
@@ -505,8 +506,8 @@ class TextEditorPanel(QWidget):
     def _renderer_failed(self, *_args):
         self._ready = False
         self._failed = True
-        self.path_label.setText("Editor stopped. Use Recover editor to restore the buffer copies retained in memory.")
         self.recover_button.show()
+        self.set_file_tree_visible(True)
 
     def recover_renderer(self):
         if (
@@ -533,3 +534,40 @@ class TextEditorPanel(QWidget):
         self.watcher.blockSignals(True)
         self._ready = False
         self.web_view.stop()
+
+    def toggle_file_tree(self):
+        self.set_file_tree_visible(self.file_explorer.isHidden())
+
+    def set_file_tree_visible(self, visible):
+        button = self.file_explorer.toggle_button
+        if visible:
+            if not self.file_explorer.isHidden():
+                return
+            self.tab_header_layout.removeWidget(button)
+            self.file_explorer.restore_toggle_button()
+            style_tool_button(button, "sidebar_collapse", "Collapse file tree")
+            self.file_explorer.show()
+            available = self.editor_splitter.width() - self.editor_splitter.handleWidth()
+            self.editor_splitter.setSizes([self._explorer_width,
+                                           max(1, available - self._explorer_width)])
+        else:
+            if self.file_explorer.isHidden():
+                return
+            self._explorer_width = self.editor_splitter.sizes()[0] or self._explorer_width
+            self.file_explorer.detach_toggle_button()
+            self.tab_header_layout.insertWidget(0, button)
+            style_tool_button(button, "sidebar_expand", "Show file tree")
+            self.file_explorer.hide()
+        button.show()
+
+    def open_folder(self, root, initial_file=None, owned_paths=()):
+        try:
+            self.file_explorer.open_root(root, owned_paths)
+        except (OSError, ValueError) as exc:
+            self._error("Cannot open folder", str(exc))
+            return False
+        self.set_file_tree_visible(True)
+        if initial_file:
+            return self.open_file(initial_file)
+        self.file_explorer.reveal(self.current_document.path if self.current_document else None)
+        return True
