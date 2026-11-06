@@ -1,10 +1,11 @@
 """Actions and dialogs for managing components: opening source code in editor and uninstalling/deleting components."""
 import json
 import os
-from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, QUrl
@@ -18,7 +19,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
-
 
 # Re-export headless asset discovery functions from core services
 from src.app.services.component_exporter import find_component_assets, find_workspace_root
@@ -203,3 +203,171 @@ class DeleteComponentDialog(QDialog):
     def _on_confirm(self):
         self.dont_ask_again = self.chk_dont_ask.isChecked()
         self.accept()
+
+
+def component_host_attribute(widget, name):
+    """Find host services from embedded Hub views as well as Hub dialogs."""
+    while widget is not None:
+        value = getattr(widget, name, None)
+        if value is not None:
+            return value
+        widget = widget.parent()
+    return None
+
+
+class ComponentDevelopmentActions:
+    """Shared user actions for component-tree, Components and Hub surfaces."""
+
+    def __init__(self, workspace, parent, client=None):
+        from src.app.services.local_components import LocalComponents
+        self.service = LocalComponents(workspace)
+        self.parent = parent
+        self.client = client or component_host_attribute(parent, "hub_client")
+        self.editor = component_host_attribute(parent, "editor_service")
+
+    def changed(self, component_id, action):
+        from .config_viewer import invalidate_config_tree
+        invalidate_config_tree()
+        if self.client:
+            self.client.refresh_local_components()
+            self.client.componentChanged.emit(component_id, action)
+            self.client.indexLoaded.emit(self.client.components)
+
+    def edit(self, config):
+        from PyQt6.QtWidgets import QMessageBox
+        try:
+            assets = find_component_assets(Path(config), workspace_dir=self.service.workspace)
+            if assets.get("code_dir"):
+                assets, context = self.service.context(config)
+                paths = self.service.owned_paths(assets)
+                if self.editor:
+                    success = self.editor.open_folder(assets["code_dir"], initial_file=assets["primary_code_file"], owned_paths=[*paths, context])
+                else:
+                    success = open_in_editor(assets["code_dir"])
+            else:
+                target = assets.get("primary_code_file") or Path(config)
+                success = self.editor.open_file(target) if self.editor else open_in_editor(target)
+            if not success:
+                raise OSError("Could not open the installed component in the selected editor.")
+            return True
+        except Exception as exc:
+            QMessageBox.warning(self.parent, "Open in Editor", str(exc))
+            return False
+
+    def deep_copy(self, config, name=None):
+        """Begin an empty inline name, or commit that name to a saved copy."""
+        if name is None:
+            begin = component_host_attribute(self.parent, "begin_deep_copy_component")
+            tree = component_host_attribute(self.parent, "components_tree")
+            if begin is None and tree is not None:
+                begin = tree.begin_deep_copy_component
+            if begin is not None:
+                show_params = component_host_attribute(self.parent, "show_params")
+                if show_params:
+                    show_params()
+                begin(Path(config))
+            else:
+                self._begin_inline_copy(config)
+            return None
+        if not name.strip() or any(char in name for char in '/\\<>:"|?*'):
+            raise ValueError("Enter a component name without slashes or special characters.")
+        new_id = re.sub(r"[^a-z0-9_]+", "_", name.strip().lower()).strip('_')
+        if not new_id or not new_id[0].isalpha():
+            new_id = "model_" + new_id
+        # Save parameter edits and honor dirty source buffers before collecting.
+        widget = self.parent
+        while widget is not None:
+            viewer = getattr(widget, "viewer", None)
+            if viewer is not None and getattr(viewer, "is_dirty", False):
+                viewer.save_to_disk()
+                if viewer.is_dirty:
+                    return None
+            widget = widget.parent()
+        if self.editor and not self.editor.prepare_component_copy():
+            return None
+        copied = self.service.deep_copy(config, new_id, name.strip())
+        self.changed(new_id, "copy")
+        return copied
+
+    def _begin_inline_copy(self, config):
+        """Standalone Hub dialogs have no component tree; name a new row in place."""
+        from PyQt6.QtWidgets import QWidget
+
+        from .config_tree import InlineGroupEditor
+        previous = getattr(self.parent, "_cancel_pending_copy", None)
+        if previous is not None:
+            previous()
+        row = QWidget(self.parent)
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(QLabel("New component"))
+        editor = InlineGroupEditor()
+        editor.setObjectName("componentCopyName")
+        editor.setPlaceholderText("Component name…")
+        error = QLabel()
+        error.setObjectName("componentCopyError")
+        error.setWordWrap(True)
+        error.hide()
+        layout.addWidget(editor)
+        layout.addWidget(error)
+        self.parent.layout().addWidget(row)
+        self.parent._copy_name_row = row
+        finished = False
+        def cancel():
+            nonlocal finished
+            if finished:
+                return
+            finished = True
+            self.parent._copy_name_row = None
+            row.deleteLater()
+        def commit():
+            nonlocal finished
+            if finished:
+                return
+            if not editor.text().strip():
+                cancel()
+                return
+            finished = True
+            try:
+                copied = self.deep_copy(config, editor.text())
+                if copied is None:
+                    finished = False
+                    editor.setFocus()
+                    return
+            except Exception as exc:
+                finished = False
+                error.setText(str(exc))
+                error.show()
+                editor.setFocus()
+                return
+            panel = component_host_attribute(self.parent, "components_panel")
+            if panel:
+                panel.show_params()
+                panel.components_tree._select_created_component_file(copied)
+                tabs = component_host_attribute(self.parent, "tabs")
+                if tabs:
+                    tabs.setCurrentWidget(panel)
+                if isinstance(self.parent.window(), QDialog):
+                    self.parent.window().accept()
+            row.deleteLater()
+        self.parent._cancel_pending_copy = cancel
+        editor.returnPressed.connect(commit)
+        editor.editingFinished.connect(commit)
+        editor.escape_pressed.connect(cancel)
+        editor.lost_focus_empty.connect(cancel)
+        editor.setFocus()
+
+    def delete_local(self, component, installer):
+        from PyQt6.QtWidgets import QMessageBox
+        try:
+            paths, references = self.service.deletion_details(component, installer)
+            detail = "Move these locations to Trash:\n" + "\n".join(map(str, paths))
+            detail += "\nReferenced experiments:\n" + ("\n".join(map(str, references)) or "None")
+            if QMessageBox.question(self.parent, "Delete local component", detail) != QMessageBox.StandardButton.Yes:
+                return False
+            self.service.delete(component, installer)
+            self.changed(component.id, "delete")
+            return True
+        except Exception as exc:
+            QMessageBox.warning(self.parent, "Delete failed", str(exc))
+            return False

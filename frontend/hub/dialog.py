@@ -6,12 +6,14 @@ from typing import Dict, List, Optional
 from PyQt6.QtCore import QEvent, QSize, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QActionGroup, QColor, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -109,6 +111,43 @@ class HubComponentCard(QFrame):
             self.client.installFinished.connect(self._bulk_finished)
             self.client.uninstallFinished.connect(self._bulk_finished)
 
+    def _development_actions(self):
+        from ..component_actions import ComponentDevelopmentActions
+        return ComponentDevelopmentActions(self.client.workspace_dir, self, self.client)
+
+    def _refresh_development_state(self):
+        if not hasattr(self, "btn_visibility"):
+            return
+        hidden = self.client.local_components.hidden(self.component.id)
+        self.btn_visibility.setText("Unhide" if hidden else "Hide")
+        source = "Local" if self.component.extra.get("local_source") == "local" else "Hub"
+        retained = " · retained saved source" if self.component.extra.get("retained_source") else ""
+        self.source_label.setText(source + retained + (" · Hidden" if hidden else " · Visible"))
+        self.btn_edit.setEnabled(self.component.is_installed)
+        self.btn_deep_copy.setEnabled(self.component.is_installed)
+
+    def _with_installed_config(self, action):
+        try:
+            config = self.client.local_components.installed_config(self.component, self.client.installer)
+        except Exception as exc:
+            QMessageBox.warning(self, "Component unavailable", str(exc))
+            return
+        action(config)
+
+    def _edit_component(self):
+        self._with_installed_config(self._development_actions().edit)
+
+    def _deep_copy_component(self):
+        self._with_installed_config(self._development_actions().deep_copy)
+
+    def _toggle_visibility(self):
+        service = self.client.local_components
+        service.set_hidden(self.component.id, not service.hidden(self.component.id))
+        self._development_actions().changed(self.component.id, "visibility")
+
+    def _delete_local(self):
+        self._development_actions().delete_local(self.component, self.client.installer)
+
     @property
     def is_bundle(self):
         return self.component.kind.lower() in ("suite", "package")
@@ -179,6 +218,29 @@ class HubComponentCard(QFrame):
         top_row.addWidget(self.btn_uninstall_update)
 
         layout.addLayout(top_row)
+        if self.component.kind != "plugin" and self.client is not None:
+            management = QHBoxLayout()
+            self.source_label = QLabel()
+            management.addWidget(self.source_label)
+            management.addStretch()
+            self.btn_edit = QPushButton("Edit")
+            self.btn_edit.setEnabled(self.component.is_installed)
+            self.btn_edit.clicked.connect(self._edit_component)
+            management.addWidget(self.btn_edit)
+            self.btn_deep_copy = QPushButton("Deep Copy")
+            self.btn_deep_copy.setVisible(self.component.kind == "model")
+            self.btn_deep_copy.setEnabled(self.component.is_installed)
+            self.btn_deep_copy.clicked.connect(self._deep_copy_component)
+            management.addWidget(self.btn_deep_copy)
+            self.btn_visibility = QPushButton()
+            self.btn_visibility.clicked.connect(self._toggle_visibility)
+            management.addWidget(self.btn_visibility)
+            if self.component.extra.get("local_source") == "local":
+                self.btn_delete_local = QPushButton("Delete local component…")
+                self.btn_delete_local.clicked.connect(self._delete_local)
+                management.addWidget(self.btn_delete_local)
+            layout.addLayout(management)
+            self._refresh_development_state()
 
         # ── Description ──────────────────────────────────────────────────────
         self.desc_label = QLabel(self.component.description)
@@ -275,6 +337,7 @@ class HubComponentCard(QFrame):
         self._apply_theme()
 
     def update_action_state(self):
+        self._refresh_development_state()
         """Set the action button's text for the local installation state, and color it."""
         if self.component.is_installed and self.component.has_update:
             self.btn_action.setText(f"Update to v{self.component.version}")
@@ -286,7 +349,7 @@ class HubComponentCard(QFrame):
             self.btn_action.setText("Uninstall")
             self.btn_action.setObjectName("actionUninstall")
         else:
-            self.btn_action.setText("Install")
+            self.btn_action.setText("Reinstall saved source" if self.component.extra.get("retained_source") else "Install")
             self.btn_action.setObjectName("actionInstall")
         self.btn_action.setVisible(not (self.is_bundle and self.component.is_installed and not self.component.has_update))
         self.btn_action.setEnabled(True)
@@ -587,6 +650,12 @@ class HubView(QWidget):
             self.pills[kind_id] = btn
             top_bar.addWidget(btn)
 
+        self.show_hidden = QCheckBox("Show hidden")
+        self.show_hidden.toggled.connect(self._apply_filters)
+        top_bar.addWidget(self.show_hidden)
+        self.local_only = QCheckBox("Local")
+        self.local_only.toggled.connect(self._apply_filters)
+        top_bar.addWidget(self.local_only)
         top_bar.addStretch()
 
         # Keep the combo as the sort state API used by HubDialog callers.
@@ -711,7 +780,7 @@ class HubView(QWidget):
     def _apply_filters(self):
         query = self.search_input.text() if self.search_input is not None else ""
         target_kind = "plugin" if self.mode == "plugins" else self.active_kind
-        matched = list(self.client.search(query=query, kind=target_kind))
+        matched = list(self.client.search(query=query, kind=target_kind, show_hidden=self.show_hidden.isChecked(), local_only=self.local_only.isChecked()))
         # Enforce mode filter
         matched = [c for c in matched if self._matches_mode(c)]
 

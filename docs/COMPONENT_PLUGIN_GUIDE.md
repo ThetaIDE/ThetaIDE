@@ -25,7 +25,7 @@ In Theta-IDE, all components are cleanly decoupled through declarative runtime p
          ┌─────────────────────────────────┼─────────────────────────────────┐
          ▼                                 ▼                                 ▼
    [Model Plugins]                 [Agent Plugins]                 [Env & Data Plugins]
-• CompositeModelProtocol        • AgentPluginProtocol           • EnvironmentPluginProtocol
+• build_model (model registry)  • AgentPluginProtocol           • EnvironmentPluginProtocol
 • AuxiliaryLossProtocol         • Dynamic loss steps            • DataModulePluginProtocol
 • OptimizerGroupsProtocol       • Paradigm validation           • TrajectorySamplerProtocol
 ```
@@ -148,39 +148,50 @@ model-name, or filename logic for these actions. Opening does not create an over
 
 All plugin contracts are defined in [`src/app/core/protocols.py`](file:///Users/cameronegbert/Research/Theta-IDE/src/app/core/protocols.py).
 
+### Local development in the IDE
+
+On an installed component's Hub card, **Edit** opens its actual source folder and
+main implementation in the selected editor. The Theta Text Editor includes a file
+tree with owned profiles and assets at their installed paths. Ordinary Save affects
+the next fresh run. `COMPONENT_CONTEXT.md` is regenerated on Edit; keep personal
+notes elsewhere. CLI edits to profiles and manifest schemas refresh when returning
+to the configuration view.
+
+For an independent model, choose **Deep Copy** and type its name in the empty,
+focused component row. Press Enter or finish editing to create/select it and populate
+its parameter pane. Escape cancels; name conflicts appear inline. The runtime ID is
+derived from the entered name. The supported first layout
+is a directory-based model with one literal `@register_model(...)` registration.
+The operation remaps registration aliases, package imports, profile selectors,
+profile schemas and owned asset paths. Unsupported identity locations are reported
+before installation. Shared child components stay shared. The copy is installed
+immediately and appears in the Hub's **Local** filter without publication.
+
+The default collection is workspace-local `.thetaide/components/packages/<id>`.
+Those packages are retained snapshots; edit the installed files. **Hide** filters
+ordinary discovery without moving code or breaking saved experiments. Use Hub
+**Show hidden** and **Unhide** to restore discovery. **Uninstall** retains saved
+source/profiles/assets for reinstall; **Delete local component** shows affected
+locations and experiment references, then moves owned files to the OS Trash.
+Neither action changes remote Hub contents. Updates refuse to overwrite modified
+source, schemas or assets, including edits retained through uninstall/reinstall.
+
+The experiment's model profile path (for example `my_fork/default`) selects YAML;
+the profile's `architecture` selects its independent runtime registration
+(`my_fork`). They are intentionally separate identities.
+
 ### 2.1 Model Architectures & Composite Models
 
-#### `ModelSlot` & `CompositeModelProtocol`
-Composite models assemble multiple submodules (e.g. an encoder and a decoder, or a neural policy and a symbolic reasoner).
+#### Composing models
 
-```python
-from dataclasses import dataclass, field
-from src.app.core.protocols import ModelSlot, CompositeModelProtocol
-
-class MyCompositePolicy(nn.Module):
-    @classmethod
-    def get_model_slots(cls) -> list[ModelSlot]:
-        return [
-            ModelSlot(
-                name="neural",
-                required=True,
-                default="dnn",
-                tags=["neural", "actor"],
-                description="Neural feature extractor & policy head",
-            ),
-            ModelSlot(
-                name="symbolic",
-                required=False,
-                default="nsfr",
-                tags=["symbolic", "logic"],
-                description="Symbolic logic reasoning module",
-            ),
-        ]
-```
-
-When implemented:
-1. **Pipeline Resolver (`src/app/pipeline/config.py`)**: Automatically resolves each declared slot against Tier 1 defaults (`in/config/model/<candidate>.yaml`) and Tier 2 overrides.
-2. **GUI ConfigViewer (`frontend/config_viewer.py`)**: Automatically renders dynamic slot cards, candidate dropdown selectors, and subcomponent parameter editors.
+Composite models own their child model construction. Use
+`src.app.core.model_registry.build_model` with child selectors from the component's
+configuration. Declare child selector fields with `x-theta-domain: model` in the
+manifest parameter schema so the shared form can offer installed model profiles.
+`ModelSlot`, `CompositeModelProtocol`, and automatic slot resolution are not runtime APIs.
+See `src/app/core/model_registry.py`, `src/app/core/protocols.py`, and the installed
+component's constructor/forward methods for the actual contracts. Tensor shapes and
+outputs depend on the consuming algorithm; a component must document those explicitly.
 
 #### `AuxiliaryLossProtocol`
 Models can declare auxiliary objectives (e.g., entropy regularization over blending weights, sparsity constraints, or representation consistency):
@@ -442,34 +453,13 @@ The manifest's `target_path` is an example install location chosen by the plugin
 
 ```python
 from src.app.core.model_registry import register_model
-from src.app.core.protocols import ModelSlot
 
 @register_model("blendrl", "blender")
 class BlenderActorCritic(nn.Module):
     """Hybrid Actor-Critic combining neural and symbolic policy heads."""
 
-    @classmethod
-    def get_model_slots(cls) -> list[ModelSlot]:
-        return [
-            ModelSlot(
-                name="neural",
-                description="Neural feature extractor / policy head",
-                default="dnn",
-                tags=["neural", "actor"],
-            ),
-            ModelSlot(
-                name="symbolic",
-                description="Symbolic logic reasoning module",
-                default="nsfr",
-                tags=["symbolic", "logic"],
-            ),
-            ModelSlot(
-                name="blender",
-                description="Logic-neural policy blender",
-                default="neural",
-                tags=["blender"],
-            ),
-        ]
+    # Construct child modules in __init__ using build_model(child_config, ...).
+    # Child selector schemas belong in the manifest parameter_schema.
 
     def compute_auxiliary_losses(self, batch, output) -> dict[str, torch.Tensor]:
         losses = {}

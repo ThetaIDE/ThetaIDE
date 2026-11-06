@@ -1744,8 +1744,11 @@ class ConfigViewer(QWidget):
         """Keep an existing incompatible or missing choice visible but impossible to select."""
         if not self._is_environment_choice(name):
             return None
-        exists = self._environment_for_name(tree or config_tree(), name) is not None
-        reason = f"incompatible with {paradigm}" if exists and paradigm else "missing"
+        tree = tree or config_tree()
+        environment = self._environment_for_name(tree, name)
+        exists = environment is not None
+        hidden = exists and environment.name in getattr(tree, "_hidden_names", {}).get("env", set())
+        reason = "hidden" if hidden else (f"incompatible with {paradigm}" if exists and paradigm else "missing")
         combo.addItem(f"{name} ({reason})", name)
         index = combo.count() - 1
         item = combo.model().item(index)
@@ -2030,7 +2033,7 @@ class ConfigViewer(QWidget):
                 if selected_p and tree and selected_p in tree.paradigms:
                     allowed = [e.name for e in tree.environments_for(selected_p) if self._is_environment_choice(e.name)]
                 elif tree:
-                    allowed = sorted(set(e.name for e in tree.environments.values() if self._is_environment_choice(e.name)))
+                    allowed = sorted(set(e.name for e in tree.visible_environments() if self._is_environment_choice(e.name)))
                 else:
                     allowed = []
                 self.combo_env.addItems(allowed)
@@ -2048,7 +2051,7 @@ class ConfigViewer(QWidget):
             if base_p and tree and base_p in tree.paradigms:
                 allowed_init = [e.name for e in tree.environments_for(base_p) if self._is_environment_choice(e.name)]
             elif tree:
-                allowed_init = sorted(set(e.name for e in tree.environments.values() if self._is_environment_choice(e.name)))
+                allowed_init = sorted(set(e.name for e in tree.visible_environments() if self._is_environment_choice(e.name)))
             else:
                 allowed_init = []
             self.combo_env.addItems(allowed_init)
@@ -2125,7 +2128,7 @@ class ConfigViewer(QWidget):
                 if selected_paradigm in tree.paradigms:
                     allowed_envs = [e.name for e in tree.environments_for(selected_paradigm) if self._is_environment_choice(e.name)]
                 else:
-                    allowed_envs = sorted(set(e.name for e in tree.environments.values() if self._is_environment_choice(e.name)))
+                    allowed_envs = sorted(set(e.name for e in tree.visible_environments() if self._is_environment_choice(e.name)))
                 self.combo_env.addItems(allowed_envs)
                 if explicit_env and explicit_env != inherited_env:
                     if self._is_environment_choice(explicit_env) and explicit_env in allowed_envs:

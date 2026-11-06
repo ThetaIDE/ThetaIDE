@@ -1,11 +1,13 @@
 """Theta Hub client for fetching community registries, searching, and managing installations."""
 from __future__ import annotations
+
 import json
-from pathlib import Path
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Dict, List, Optional
+
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .installer import HubInstaller
@@ -52,10 +54,15 @@ class HubClient(QObject):
         if on_change_callback:
             self.componentChanged.connect(on_change_callback)
 
-        self.components: List[HubComponent] = []
+        from src.app.services.local_components import LocalComponents
+        self.local_components = LocalComponents(self.workspace_dir)
+        self.components: List[HubComponent] = self.local_components.entries()
+        self.refresh_installed_status()
 
     def _handle_installer_change(self, component_id: str, action: str):
+        self.refresh_local_components()
         self.componentChanged.emit(component_id, action)
+        self.indexLoaded.emit(self.components)
 
     def refresh_installed_status(self) -> None:
         """Update each loaded component with its local installation state."""
@@ -63,6 +70,23 @@ class HubClient(QObject):
             is_installed, ver = self.installer.check_installed(comp)
             comp.is_installed = is_installed
             comp.installed_version = ver
+
+    def refresh_local_components(self):
+        """Merge private and retained records without replacing remote listings."""
+        records = self.local_components.state()["records"]
+        by_id = {comp.id: comp for comp in self.components
+                 if comp.extra.get("local_source") != "local" or comp.id in records}
+        for local in self.local_components.entries():
+            if local.id not in by_id:
+                by_id[local.id] = local
+            elif local.extra.get("local_source") == "local":
+                current = by_id[local.id]
+                current.extra.update(local.extra)
+                current.name, current.version, current.target_path = local.name, local.version, local.target_path
+            else:
+                by_id[local.id].extra["retained_source"] = True
+        self.components = list(by_id.values())
+        self.refresh_installed_status()
 
     def fetch_index_sync(self, force: bool = False) -> List[HubComponent]:
         """Fetch index synchronously using HTTP conditional caching (ETag)."""
@@ -146,10 +170,10 @@ class HubClient(QObject):
         if data is None:
             data = {"components": []}
 
-        raw_list = data.get("components", data if isinstance(data, list) else [])
+        raw_list = data if isinstance(data, list) else data.get("components", [])
         components = [HubComponent.from_dict(item) for item in raw_list]
         self.components = components
-        self.refresh_installed_status()
+        self.refresh_local_components()
         return self.components
 
     def fetch_index_async(self, force: bool = False) -> None:
@@ -217,12 +241,18 @@ class HubClient(QObject):
         kind: Optional[str] = None,
         tag: Optional[str] = None,
         include_internal: bool = False,
+        show_hidden: bool = False,
+        local_only: bool = False,
     ) -> List[HubComponent]:
         """Filter components by search query, component kind, or tag."""
         q = query.strip().lower()
         results = []
 
         for comp in self.components:
+            if local_only and comp.extra.get("local_source") != "local":
+                continue
+            if not show_hidden and self.local_components.hidden(comp.id):
+                continue
             # Skip hidden and package-internal subcomponents from browser search.
             if not include_internal and (comp.is_grouped_component or comp.hidden):
                 continue
@@ -271,11 +301,10 @@ class HubClient(QObject):
 
         def worker():
             try:
-                self.installer.install(
-                    component=component,
-                    version=version,
-                    progress_callback=progress_cb,
-                )
+                if component.id in self.local_components.state()["records"] and not component.is_installed:
+                    self.local_components.install(component, self.installer)
+                else:
+                    self.installer.install(component=component, version=version, progress_callback=progress_cb)
                 self.refresh_installed_status()
                 self.installFinished.emit(component.id, True, "Installation complete.")
             except Exception as exc:

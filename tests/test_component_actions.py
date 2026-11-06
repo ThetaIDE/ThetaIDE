@@ -253,7 +253,8 @@ def test_components_panel_integration(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr("frontend.component_actions.open_in_editor", lambda p: opened_targets.append(p) or True)
     panel.open_active_component_in_editor()
     assert len(opened_targets) == 1
-    assert opened_targets[0] == code_file
+    assert opened_targets[0] == code_file.parent
+    assert (code_file.parent / "COMPONENT_CONTEXT.md").is_file()
 
     # Test export component dialog wiring
     from frontend.export_dialog import ExportComponentDialog
@@ -336,7 +337,7 @@ def test_hub_view_modes_include_standalone_plugin_packages(qapp):
     assert "experiment" in pills_comp
     assert "suite" in pills_comp
     assert "plugin" in pills_comp
-    assert pills_comp == ["all", "plugin", "experiment", "suite", "method", "model", "env", "data", "eval", "plot"]
+    assert pills_comp == ["plugin", "experiment", "suite", "method", "model", "env", "data", "eval", "plot", "all"]
 
     # 2. Community Plugins Hub (mode="plugins")
     view_plug = HubView(client=client, mode="plugins")

@@ -1107,10 +1107,19 @@ class Window(QMainWindow):
             if target_folder:
                 target_config_rel = f"{target_folder}/{comp.id}.yaml"
 
+        if comp and action in ("install", "copy"):
+            try:
+                config = self.hub_client.local_components.installed_config(comp, self.hub_client.installer)
+                target_config_rel = config.relative_to(self.hub_client.workspace_dir / "in/config").as_posix()
+            except (ValueError, AttributeError):
+                relative = comp.extra.get("config_path")
+                if relative and relative.startswith("in/config/"):
+                    target_config_rel = relative[len("in/config/"):]
+
         # Refresh components panel and config tree so added or removed YAMLs update immediately without collapsing folders
         if hasattr(self, "components_panel") and self.components_panel is not None:
             self.components_panel.reload_components(
-                target_rel_path=target_config_rel if action == "install" else None,
+                target_rel_path=target_config_rel if action in ("install", "copy") else None,
                 ensure_expanded=target_folder,
             )
         if hasattr(self, "config_tree") and self.config_tree is not None:

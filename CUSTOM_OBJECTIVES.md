@@ -2,8 +2,7 @@
 
 In **Hyperparameter Sweep**, use the **Objective** selector to choose
 `final_metric`, `learning_curve`, or a workspace objective. Open its source with the pencil action, or
-use **Create editable copy…** to create a workspace component. Select the new
-component and edit its Python code in Theta's configured text editor. Its
+edit the selected workspace component's Python code in Theta's configured text editor. Its
 parameters appear directly beneath the selector in the sweep box. There is no
 separate Objective box. Existing metric-based sweeps show **Reported metric**;
 their metric remains editable underneath, without changing their execution mode.

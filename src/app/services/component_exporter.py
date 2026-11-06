@@ -275,7 +275,7 @@ def find_component_assets(
             elif (code_dir / "__init__.py").is_file():
                 primary_code_file = code_dir / "__init__.py"
 
-    is_hub_installed = bool(meta and meta.get("installed_from"))
+    is_hub_installed = bool(meta and meta.get("installed_from") and meta.get("origin") != "local")
     action_type = "uninstall" if is_hub_installed else ("delete_component" if is_component else "delete_config")
 
     return {
@@ -385,6 +385,15 @@ class ComponentExporter:
                         if rf.is_file() and "__pycache__" not in rf.parts and rf.name != ".DS_Store":
                             rel = rf.relative_to(self.workspace_root).as_posix()
                             files_to_pack[rel] = rf
+
+            for relative in meta_existing.get("installed_files", []) + meta_existing.get("asset_paths", []):
+                owned = (self.workspace_root / relative).resolve()
+                if not owned.is_relative_to(self.workspace_root.resolve()):
+                    raise ValueError(f"Owned path escapes workspace: {relative}")
+                candidates = owned.rglob("*") if owned.is_dir() else [owned]
+                for candidate in candidates:
+                    if candidate.is_file() and "__pycache__" not in candidate.parts:
+                        files_to_pack[candidate.relative_to(self.workspace_root.resolve()).as_posix()] = candidate
 
             # 6. Generate schema-compliant manifest (.theta_component.json)
             manifest = self._generate_manifest(
@@ -562,6 +571,7 @@ class ComponentExporter:
 
         if cfg_rels:
             manifest["config_path"] = cfg_rels[0]
+            manifest["config_paths"] = cfg_rels
         manifest["compatibility"] = existing_meta.get("compatibility") or {"theta": ">=2.0.0"}
 
         # Extract and preserve supported paradigms

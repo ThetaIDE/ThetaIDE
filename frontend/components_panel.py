@@ -166,7 +166,6 @@ class ComponentsPanel(QWidget):
             target_code = assets["primary_code_file"]
 
             is_hub = assets.get("is_hub_installed", False)
-
             if hasattr(self.viewer, "btn_edit_code"):
                 if target_code and target_code.is_file():
                     self.viewer.btn_edit_code.setToolTip(f"Open {target_code.name} in editor")
@@ -203,22 +202,11 @@ class ComponentsPanel(QWidget):
     def open_active_component_in_editor(self, file_path=None, rel_path=None):
         """Open the active component's primary source code in an editor."""
         target_cfg = Path(file_path) if file_path else self.active_path
-        target_rel = rel_path or self.active_rel_path
         if not target_cfg or not target_cfg.exists():
             return
 
-        from .component_actions import find_component_assets, open_in_editor
-        assets = find_component_assets(target_cfg, target_rel)
-        target = assets.get("primary_code_file") or assets.get("code_dir") or target_cfg
-
-        if target and target.exists():
-            success = open_in_editor(target)
-            if success:
-                self.log_fn(f"Opened {target.name} in external editor.")
-            else:
-                QMessageBox.warning(self, "Open in Editor", f"Could not launch editor for {target}.")
-        else:
-            QMessageBox.warning(self, "Open in Editor", f"No source file found for {assets['comp_name']}.")
+        from .component_actions import ComponentDevelopmentActions, find_workspace_root
+        ComponentDevelopmentActions(find_workspace_root(target_cfg), self, self.hub_client).edit(target_cfg)
 
     def prompt_export_active_component(self, file_path=None, rel_path=None):
         """Export the active component as a Theta Hub package (.zip) or standalone directory."""
@@ -259,12 +247,26 @@ class ComponentsPanel(QWidget):
             QMessageBox.warning(self, "Cannot Delete", "The root config.yaml cannot be deleted.")
             return
 
-        from .component_actions import find_component_assets, DeleteComponentDialog
+        from .component_actions import DeleteComponentDialog, find_component_assets
         assets = find_component_assets(target_cfg, target_rel)
         comp_name = assets["comp_name"]
         files_to_delete = assets["files_to_delete"]
         is_comp = assets["is_component"]
         is_hub = assets.get("is_hub_installed", False)
+        from src.app.services.local_components import LocalComponents
+
+        from .component_actions import find_workspace_root
+        lifecycle = LocalComponents(find_workspace_root(target_cfg))
+        record = lifecycle.state()["records"].get(assets["comp_id"], {})
+        is_local = record.get("source") == "local"
+        if is_local:
+            from .component_actions import ComponentDevelopmentActions
+            from .hub.models import HubComponent
+            installer = self.components_tree._get_installer()
+            component = HubComponent.from_dict(assets["meta"])
+            if ComponentDevelopmentActions(lifecycle.workspace, self, self.hub_client).delete_local(component, installer):
+                self.reload_components()
+            return
 
         # Check settings for confirm_delete
         settings = self.get_settings_manager()
@@ -288,7 +290,11 @@ class ComponentsPanel(QWidget):
         # If it is a managed Hub component with metadata, uninstall via installer
         if is_hub and assets.get("meta") and installer:
             try:
-                installer.uninstall_by_metadata(assets["meta"])
+                if assets["kind"] in ("model", "method", "agent", "algorithm", "env", "data", "datamodule", "eval", "evaluator", "plot", "plotter"):
+                    from .hub.models import HubComponent
+                    lifecycle.uninstall(HubComponent.from_dict(assets["meta"]), installer)
+                else:
+                    installer.uninstall_by_metadata(assets["meta"])
                 deleted_count = len(files_to_delete)
                 # The installer hides owned YAMLs, restores pre-install versions,
                 # and retains edits/copies. Do not delete those paths again here.

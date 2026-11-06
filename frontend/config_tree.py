@@ -39,13 +39,13 @@ from .config_model import (
 from .sidetabs import svg_icon
 from .tree_tools import (  # noqa: F401  (TOOL_ICON_COLORS and GroupItemDelegate are re-exported)
     TOOL_ICON_COLORS,
+    TREE_BUTTON_MIME,
+    DraggableToolButton,
     GroupItemDelegate,
     TreeHeaderActions,
-    DraggableToolButton,
     TreeHeaderLayout,
     TreeHeaderWidget,
     TreeToolbarPersistence,
-    TREE_BUTTON_MIME,
     folder_icon,
     group_heading_font,
     refresh_tool_icons,
@@ -404,7 +404,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self.btn_duplicate.setToolTip("Copy the selected YAML configuration; it will keep using the same component code")
             self.btn_duplicate.clicked.connect(lambda: self.prompt_duplicate_component_yaml())
             self.btn_deep_copy = self._tool_button("copy", "Deep Copy", button_id="deep_copy")
-            self.btn_deep_copy.setToolTip("Copy the YAML configuration and its associated component source code")
+            self.btn_deep_copy.setToolTip("Create an independent component and name it in the tree")
             self.btn_deep_copy.clicked.connect(lambda: self.prompt_deep_copy_component())
 
             self.btn_hub = self._tool_button("hub", "Component Hub", button_id="hub")
@@ -583,6 +583,9 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def populate(self, ensure_expanded: str | None = None):
         """Recursively scan root_dir and populate the tree based on mode."""
+        if self.mode == "components":
+            from src.app.services.local_components import LocalComponents
+            self._hidden_component_paths = LocalComponents(self.root_dir.parent.parent).hidden_config_paths()
         expanded_paths = self.get_expanded_paths()
         if ensure_expanded:
             clean_exp = str(Path(ensure_expanded)).replace("\\", "/").strip("/")
@@ -596,6 +599,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         has_previous_state = len(expanded_paths) > 0
 
+        if self._active_inline_item is not None:
+            self._cancel_inline_group(self._active_inline_item)
         self.tree.clear()
         if not self.root_dir.exists():
             item = QTreeWidgetItem(self.tree, ["in/config (not found)"])
@@ -796,6 +801,10 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         is_group: bool | None = None,
         custom_display_name: str | None = None,
     ):
+        if self.mode == "components" and not is_group:
+            profiles = {path.resolve() for path in dir_path.rglob("*") if path.is_file() and path.suffix in (".yaml", ".yml")}
+            if profiles and profiles <= getattr(self, "_hidden_component_paths", set()):
+                return
         name = dir_path.name
         rel_path = str(dir_path.relative_to(self.root_dir)).replace("\\", "/").strip("/")
 
@@ -859,6 +868,9 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         return node
 
     def _add_file_node(self, parent_node, file_path: Path, custom_display_name: str | None = None, is_global_config: bool = False):
+        if self.mode == "components":
+            if file_path.resolve() in getattr(self, "_hidden_component_paths", set()):
+                return
         name = file_path.name
         rel_path = file_path.relative_to(self.root_dir).as_posix()
         is_exp = rel_path.startswith("experiment/") and not name.startswith("_")
@@ -1205,6 +1217,11 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Cancel inline group creation and clean up the placeholder item."""
         if getattr(self, "_active_inline_item", None) is item:
             self._active_inline_item = None
+        widget = self.tree.itemWidget(item, 0)
+        if widget is not None:
+            editors = [widget] if isinstance(widget, QLineEdit) else widget.findChildren(QLineEdit)
+            for editor in editors:
+                editor.blockSignals(True)
         self.tree.removeItemWidget(item, 0)
         parent = item.parent()
         if parent:
@@ -1239,35 +1256,70 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.tree.setCurrentItem(item)
         self.tree.scrollToItem(item)
         editor = InlineGroupEditor()
-        editor.setPlaceholderText("Folder name..." if kind == "folder" else "Experiment name...")
-        self.tree.setItemWidget(item, 0, editor)
+        editor.setPlaceholderText("Component name…" if kind == "component" else "Folder name..." if kind == "folder" else "Experiment name...")
+        error_label = None
+        if kind == "component":
+            editor.setObjectName("componentCopyName")
+            row = QWidget()
+            layout = QVBoxLayout(row)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(2)
+            layout.addWidget(editor)
+            error_label = QLabel()
+            error_label.setObjectName("componentCopyError")
+            error_label.setWordWrap(True)
+            error_label.hide()
+            layout.addWidget(error_label)
+            self.tree.setItemWidget(item, 0, row)
+            item.setSizeHint(0, row.sizeHint())
+        else:
+            self.tree.setItemWidget(item, 0, editor)
         self._active_inline_item = item
         committing = False
+        cancelled = False
+
+        def cancel():
+            nonlocal cancelled
+            if cancelled or committing:
+                return
+            cancelled = True
+            self._cancel_inline_group(item)
 
         def finish():
             nonlocal committing
-            if committing:
+            if committing or cancelled:
                 return
             name = editor.text().strip()
             if not name:
-                self._cancel_inline_group(item)
+                cancel()
                 return
-            if name in (".", "..", ".yaml") or any(c in name for c in '/\\<>:"|?*'):
+            if kind != "component" and (name in (".", "..", ".yaml") or any(c in name for c in '/\\<>:"|?*')):
                 QMessageBox.warning(self, "Invalid Name", "Enter a valid name without slashes or special characters.")
                 editor.setFocus()
                 return
             committing = True
-            # The callback may repopulate the tree and destroy the editor.
             self._active_inline_item = None
-            if not commit(name):
+            try:
+                accepted = commit(name)
+            except Exception as exc:
+                if error_label is None:
+                    raise
+                error_label.setText(str(exc))
+                error_label.show()
+                item.setSizeHint(0, row.sizeHint())
+                accepted = False
+            if not accepted:
                 self._active_inline_item = item
                 committing = False
                 editor.setFocus()
 
         editor.returnPressed.connect(finish)
-        editor.escape_pressed.connect(lambda: self._cancel_inline_group(item))
-        editor.lost_focus_empty.connect(lambda: self._cancel_inline_group(item))
+        if kind == "component":
+            editor.editingFinished.connect(finish)
+        editor.escape_pressed.connect(cancel)
+        editor.lost_focus_empty.connect(cancel)
         editor.setFocus()
+
 
     def prompt_new_subfolder_in_active_group(self):
         """Create a new subfolder in the active/last focused group."""
@@ -1485,69 +1537,22 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if not source_file.is_file():
             QMessageBox.warning(self, "Invalid Selection", "Selected item is not a valid component YAML file.")
             return
-        stem = source_file.stem
-        new_name, ok = QInputDialog.getText(
-            self, "Deep Copy Component", f"Copy '{stem}' and its code as:",
-            QLineEdit.EchoMode.Normal, f"{stem}_copy"
-        )
-        if not ok or not new_name.strip():
-            return
-        new_name = new_name.strip()
-        if Path(new_name).name != new_name or new_name.endswith((".yaml", ".yml")):
-            QMessageBox.warning(self, "Invalid Name", "Enter a component name without a folder path or YAML extension.")
-            return
-        target_yaml = source_file.with_name(f"{new_name}.yaml")
-        if target_yaml.exists():
-            QMessageBox.warning(self, "File Exists", f"Target YAML already exists:\n{target_yaml}")
-            return
+        self.begin_deep_copy_component(source_file)
 
-        target_code = None
-        workspace = None
-        try:
-            from .component_actions import find_component_assets, find_workspace_root
-            workspace = find_workspace_root(source_file)
-            assets = find_component_assets(source_file, source_rel, workspace_dir=workspace)
-            source_code = assets.get("code_dir")
-            if source_code and Path(source_code).is_dir():
-                source_code = Path(source_code)
-                target_code = source_code.with_name(new_name)
-                if target_code.exists():
-                    QMessageBox.warning(self, "Folder Exists", f"Target source folder already exists:\n{target_code}")
-                    return
-
-            shutil.copy2(source_file, target_yaml)
-            if target_code:
-                shutil.copytree(source_code, target_code)
-                manifest_path = next(
-                    (target_code / filename for filename in (".theta_component.json", "plugin.json")
-                     if (target_code / filename).is_file()),
-                    None,
-                )
-                if manifest_path:
-                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    manifest["id"] = new_name
-                    if manifest.get("name") == assets.get("comp_name"):
-                        manifest["name"] = f"{assets.get('comp_name', stem)} Copy"
-                    try:
-                        manifest["target_path"] = target_code.resolve().relative_to(workspace.resolve()).as_posix()
-                    except ValueError:
-                        pass
-                    config_rel = target_yaml.resolve().relative_to(workspace.resolve()).as_posix()
-                    manifest["config_path"] = config_rel
-                    manifest["config_paths"] = [config_rel]
-                    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        except Exception as exc:
-            # Remove partially created artifacts so a retry can use the same name.
-            for path in (target_yaml, target_code):
-                if path and Path(path).exists():
-                    try:
-                        shutil.rmtree(path) if Path(path).is_dir() else Path(path).unlink()
-                    except OSError:
-                        pass
-            QMessageBox.critical(self, "Deep Copy Error", f"Could not deep copy component:\n{exc}")
-            return
-
-        self._select_created_component_file(target_yaml)
+    def begin_deep_copy_component(self, source_file):
+        """Add a blank pending component row; install only when its name is committed."""
+        from .component_actions import ComponentDevelopmentActions, find_workspace_root
+        source_file = Path(source_file)
+        parent = source_file.parent if source_file.is_relative_to(self.root_dir) else self.root_dir / "model"
+        parent_rel = parent.relative_to(self.root_dir).as_posix()
+        actions = ComponentDevelopmentActions(find_workspace_root(source_file), self)
+        def commit(name):
+            copied = actions.deep_copy(source_file, name)
+            if copied is None:
+                return False
+            self._select_created_component_file(copied)
+            return True
+        self._create_inline_child(parent_rel, "component", commit)
 
     def _select_created_component_file(self, target_file: Path):
         self.populate()
@@ -1801,13 +1806,34 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         installer = self._get_installer()
         comp_meta = installer.find_component_for_path(full_path) if installer else None
 
+        if comp_meta and comp_meta.get("kind") == "model":
+            from .component_actions import ComponentDevelopmentActions
+            from .hub.models import HubComponent
+            actions = ComponentDevelopmentActions(installer.workspace_dir, self)
+            component = HubComponent.from_dict(comp_meta)
+            record = actions.service.state()["records"].get(component.id, {})
+            if record.get("source") == "local":
+                if actions.delete_local(component, installer):
+                    self.dir_deleted.emit(rel_path)
+                    self.populate()
+                return
         if comp_meta:
             comp_name = comp_meta.get("name") or comp_meta.get("id")
             dlg = ComponentDeleteDialog(rel_path, comp_name, parent=self)
             if dlg.exec() != QDialog.DialogCode.Accepted or dlg.choice == "cancel":
                 return
             if dlg.choice == "uninstall":
-                installer.uninstall_by_metadata(comp_meta)
+                if comp_meta.get("kind") == "model":
+                    from .hub.models import HubComponent
+                    try:
+                        installer.uninstall(HubComponent.from_dict(comp_meta))
+                    except Exception as exc:
+                        QMessageBox.warning(self, "Uninstall failed", str(exc))
+                        return
+                    from .component_actions import ComponentDevelopmentActions
+                    ComponentDevelopmentActions(installer.workspace_dir, self).changed(comp_meta["id"], "uninstall")
+                else:
+                    installer.uninstall_by_metadata(comp_meta)
                 self.dir_deleted.emit(rel_path)
                 self.populate()
                 return
@@ -1881,7 +1907,23 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 (lambda: self.prompt_duplicate_component_yaml(data["rel_path"])) if self.mode == "components" else self.prompt_duplicate
             )
             if self.mode == "components":
-                action_deep = menu.addAction("Deep Copy Component…")
+                from src.app.services.local_components import LocalComponents
+
+                from .component_actions import find_component_assets, find_workspace_root
+                config = self.root_dir / data["rel_path"]
+                assets = find_component_assets(config, data["rel_path"])
+                if assets.get("meta"):
+                    def hide_component():
+                        LocalComponents(find_workspace_root(config)).set_hidden(assets["comp_id"])
+                        from .config_viewer import invalidate_config_tree
+                        invalidate_config_tree()
+                        client = getattr(self.window(), "hub_client", None)
+                        if client:
+                            client.componentChanged.emit(assets["comp_id"], "visibility")
+                            client.indexLoaded.emit(client.components)
+                        self.populate()
+                    menu.addAction("Hide component", hide_component)
+                action_deep = menu.addAction("Deep Copy Component")
                 action_deep.triggered.connect(lambda: self.prompt_deep_copy_component(data["rel_path"]))
             rel = data["rel_path"]
             action_rename = menu.addAction("Rename…")

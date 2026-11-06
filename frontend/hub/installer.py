@@ -1,23 +1,26 @@
 """Component installer, archive extractor, and integrity verification."""
 from __future__ import annotations
+
 import hashlib
 import json
 import logging
 import os
-from pathlib import Path
 import shutil
 import tempfile
 import urllib.request
-import yaml
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 from zipfile import ZipFile
 
-from .models import AuthorInfo, HubComponent, ReleaseInfo
+import yaml
+
 from frontend.plugins.dependencies import (
     check_missing_dependencies,
     install_packages,
     load_requirements_from_file,
 )
+
+from .models import AuthorInfo, HubComponent, ReleaseInfo
 
 
 def _add_missing_yaml_defaults(retained_text: str, packaged_text: str) -> str:
@@ -85,6 +88,12 @@ def _merge_missing_yaml_defaults(retained_text: str, packaged_text: str) -> str:
     # Never install a syntactically invalid merge.
     yaml.safe_load(result)
     return result
+
+
+def _authoring_hash(meta):
+    fields = ("name", "description", "parameter_schema", "editor_actions", "entry_point",
+              "entry_points", "dependencies", "paradigms", "aliases", "provides", "target_path", "asset_paths")
+    return hashlib.sha256(json.dumps({key: meta[key] for key in fields if key in meta}, sort_keys=True).encode()).hexdigest()
 
 
 class HubInstaller:
@@ -304,16 +313,37 @@ class HubInstaller:
                 tmp_path.unlink()
             raise
 
+    def has_local_changes(self, target: Path, meta: dict) -> bool:
+        """Include retained edits so reinstall never reclassifies them as upstream."""
+        expected = meta.get("source_hashes")
+        current = {p.relative_to(target).as_posix(): self._sha256_file(p)
+                   for p in target.rglob("*") if p.is_file()
+                   and p.name not in (".theta_component.json", "COMPONENT_CONTEXT.md")
+                   and "__pycache__" not in p.parts}
+        return (bool(meta.get("saved_local_changes")) or expected is None or expected != current
+                or meta.get("authoring_hash") != _authoring_hash(meta)
+                or any(self._sha256_file(self.workspace_dir / relative) != digest
+                       for relative, digest in meta.get("asset_hashes", {}).items()))
+
     def install(
         self,
         component: HubComponent,
         version: Optional[str] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        install_dependencies: bool = True,
     ) -> bool:
         """Download, verify, and unpack a component release into its destination directory."""
         ver = version or component.version
         if ver not in component.releases:
             raise ValueError(f"Version {ver} not found in releases for {component.id}")
+
+        # Saved implementation is authoritative. Never overwrite developer edits.
+        existing_target = self.resolve_target_dir(component)
+        existing_manifest = existing_target / ".theta_component.json"
+        if component.kind in ("model", "method", "agent", "algorithm", "env", "data", "datamodule", "eval", "evaluator", "plot", "plotter") and existing_manifest.is_file():
+            previous = json.loads(existing_manifest.read_text())
+            if self.has_local_changes(existing_target, previous):
+                raise ValueError("This component has local changes or no source baseline. Export/retain your saved implementation before replacing the installation.")
 
         release = component.releases[ver]
         archive_path = self.download_and_verify(
@@ -538,6 +568,21 @@ class HubInstaller:
                     target_dir.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(source_dir), str(target_dir))
 
+            meta["source_hashes"] = {
+                p.relative_to(target_dir).as_posix(): self._sha256_file(p)
+                for p in target_dir.rglob("*") if p.is_file()
+                and p.name not in (".theta_component.json", "COMPONENT_CONTEXT.md")
+                and "__pycache__" not in p.parts
+            }
+            meta["asset_hashes"] = {
+                relative: self._sha256_file(self.workspace_dir / relative)
+                for relative in meta.get("installed_files", [])
+                if not (self.workspace_dir / relative).is_relative_to(target_dir)
+                and relative not in meta.get("config_paths", [])
+            }
+            meta["authoring_hash"] = _authoring_hash(meta)
+            (target_dir / ".theta_component.json").write_text(json.dumps(meta, indent=2) + "\n")
+
             # If this component is a suite declaring child components, install each
             suite_components = []
             target_meta_file = target_dir / ".theta_component.json"
@@ -559,7 +604,7 @@ class HubInstaller:
                 suite_components = component.extra.get("dependencies", {}).get("components", [])
 
             installed_children = []
-            if suite_components:
+            if suite_components and install_dependencies:
                 for child_id in suite_components:
                     child_comp = self.lookup_component(child_id)
                     if child_comp:
@@ -589,7 +634,7 @@ class HubInstaller:
 
             # Deduplicate
             declared_deps = list(dict.fromkeys(declared_deps))
-            if declared_deps:
+            if declared_deps and install_dependencies:
                 missing = check_missing_dependencies(declared_deps)
                 if missing:
                     install_packages(missing)
@@ -1069,6 +1114,8 @@ class HubInstaller:
     def _installed_file_is_claimed(self, file_rel: str) -> bool:
         """Keep root-relative assets that another installed component still owns."""
         for manifest_path in self.workspace_dir.rglob(".theta_component.json"):
+            if manifest_path.is_relative_to(self.workspace_dir / ".thetaide" / "components"):
+                continue
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except Exception:
@@ -1077,14 +1124,14 @@ class HubInstaller:
                 return True
         return False
 
-    def uninstall_by_metadata(self, meta: Dict[str, Any]) -> bool:
+    def uninstall_by_metadata(self, meta: Dict[str, Any], *, cascade: bool = True) -> bool:
         """Uninstall an installed component given its metadata dict."""
         target_dir = Path(meta["target_dir"])
         recorded_configs = meta.get("config_paths") or ([meta["config_path"]] if meta.get("config_path") else [])
         component_id = str(meta.get("id") or target_dir.name)
 
         # Capture suite-owned components before removing the parent's manifest.
-        suite_children = self._installed_suite_children(component_id, target_dir)
+        suite_children = self._installed_suite_children(component_id, target_dir) if cascade else []
 
         if target_dir.exists():
             shutil.rmtree(target_dir, ignore_errors=True)
@@ -1131,7 +1178,7 @@ class HubInstaller:
             comp_id = meta.get("id") or target_dir.name
             self.on_change_callback(comp_id, "uninstall")
 
-        children_to_uninstall = meta.get("installed_components") or meta.get("dependencies", {}).get("components", [])
+        children_to_uninstall = (meta.get("installed_components") or meta.get("dependencies", {}).get("components", [])) if cascade else []
         for child_id in children_to_uninstall:
             if child_id == meta.get("id"):
                 continue
@@ -1154,6 +1201,11 @@ class HubInstaller:
 
     def uninstall(self, component: HubComponent) -> bool:
         """Remove component code and hide its configs until the component is installed again."""
+        if component.kind in ("model", "method", "agent", "algorithm", "env", "data", "datamodule", "eval", "evaluator", "plot", "plotter"):
+            manifest = self.resolve_target_dir(component) / ".theta_component.json"
+            if manifest.is_file():
+                from src.app.services.local_components import LocalComponents
+                return LocalComponents(self.workspace_dir).uninstall(component, self)
         target_dir = self.resolve_target_dir(component)
         config_path = self.resolve_config_path(component)
         suite_children = self._installed_suite_children(component.id, target_dir)

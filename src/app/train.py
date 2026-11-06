@@ -120,11 +120,9 @@ def main(cfg: DictConfig):
         model_cfg = cfg.get("model", {}) if hasattr(cfg, "get") else getattr(cfg, "model", {})
         method_name = str(model_cfg.get("name", ""))
         method_cfg = cfg.get("methods", {}).get(method_name, {}) if hasattr(cfg, "get") else {}
-        arch_name = None
-        if hasattr(method_cfg, "get"):
+        arch_name = model_cfg.get("architecture") or model_cfg.get("type") or model_cfg.get("arch")
+        if not arch_name and hasattr(method_cfg, "get"):
             arch_name = method_cfg.get("model")
-        if not arch_name and hasattr(model_cfg, "get"):
-            arch_name = model_cfg.get("architecture") or model_cfg.get("type") or model_cfg.get("arch")
         if not arch_name:
             raise ValueError("The selected model component must declare an architecture name.")
         arch_name = str(arch_name).lower()

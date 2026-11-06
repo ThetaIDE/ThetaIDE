@@ -49,9 +49,15 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def config_fingerprint(config_root: Path) -> int:
-    """A hash of every YAML file under `config_root` (paths and contents): equal means unchanged."""
+    """Fingerprint configs, component schemas and workspace visibility preferences."""
+    root = Path(config_root)
+    workspace = root.parent.parent
+    candidates = set(root.rglob("*.yaml")) | set(root.rglob("*.yml"))
+    for source_root in ("src/usr/models", "src/usr/algorithms", "src/usr/methods", "src/usr/data", "src/usr/eval", "in/envs", "plot"):
+        candidates.update((workspace / source_root).rglob(".theta_component.json"))
+    candidates.add(workspace / ".thetaide/components/collection.json")
     entries = []
-    for path in sorted(Path(config_root).rglob("*.yaml")):
+    for path in sorted(candidates):
         try:
             entries.append((str(path), path.read_bytes()))
         except OSError:
@@ -409,10 +415,18 @@ class ConfigTree:
         # ``models`` keeps short-name aliases for backwards-compatible lookups
         # (e.g. ``profile`` for ``package/profile``). UI pickers should show each config
         # file once, under its canonical path.
-        self.model_names = sorted({model.name for model in self.models.values()})
+        from src.app.services.local_components import LocalComponents
+        hidden_paths = LocalComponents(self.config_root.parent.parent).hidden_config_paths()
+        hidden_model_names = {path.relative_to(model_dir.resolve()).with_suffix("").as_posix() for path in hidden_paths if path.is_relative_to(model_dir.resolve())}
+        self._hidden_names = {
+            kind: {path.relative_to((self.config_root / kind).resolve()).with_suffix("").as_posix()
+                   for path in hidden_paths if path.is_relative_to((self.config_root / kind).resolve())}
+            for kind in ("model", "agent", "env", "data", "eval", "plot")
+        }
+        self.model_names = sorted({model.name for model in self.models.values()} - hidden_model_names)
         # ``agents`` also includes short-name aliases for older configs. Keep a
         # canonical list for UI pickers so each installed profile appears once.
-        self.agent_names = sorted({agent.name for agent in self.agents.values()})
+        self.agent_names = sorted({agent.name for agent in self.agents.values()} - self._hidden_names["agent"])
 
         env_dir = self.config_root / "env"
         self.environments = {}
@@ -604,6 +618,10 @@ class ConfigTree:
                 return cls(config_root)
         raise FileNotFoundError(f"No in/config directory found above {current}")
 
+    def visible_environments(self):
+        return {env.name: env for env in self.environments.values()
+                if env.name not in self._hidden_names["env"]}.values()
+
     def agents_for(self, paradigm: str) -> list[Agent]:
         if paradigm not in self.paradigms:
             return []
@@ -611,6 +629,8 @@ class ConfigTree:
         seen: set[str] = set()
         result: list[Agent] = []
         for a in self.agents.values():
+            if a.name in self._hidden_names["agent"]:
+                continue
             # Manifest schema association can replace canonical and alias
             # entries independently, so object identity is not stable here.
             if a.name not in seen:
@@ -626,6 +646,8 @@ class ConfigTree:
         seen: set[int] = set()
         result: list[Environment] = []
         for e in self.environments.values():
+            if e.name in self._hidden_names["env"]:
+                continue
             if id(e) not in seen:
                 seen.add(id(e))
                 if rules.permits_environment(e):
@@ -634,11 +656,13 @@ class ConfigTree:
 
     def models_for(self, paradigm: str) -> list[Model]:
         if paradigm not in self.paradigms:
-            return list(self.models.values())
+            return [m for m in self.models.values() if m.name not in self._hidden_names["model"]]
         rules = self.paradigms[paradigm]
         seen: set[int] = set()
         result: list[Model] = []
         for m in self.models.values():
+            if m.name in self._hidden_names["model"]:
+                continue
             if id(m) not in seen:
                 seen.add(id(m))
                 if rules.permits_model(m):
