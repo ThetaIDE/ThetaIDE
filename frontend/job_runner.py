@@ -15,6 +15,44 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+class RunnerLifecycle:
+    """Check shutdown independently of queue/IPC failures and limit error output."""
+
+    def __init__(self, directory, manager, app):
+        self.directory = directory
+        self.manager = manager
+        self.app = app
+        self.last_request = time.monotonic()
+        self.last_error = float('-inf')
+
+    def should_stop(self):
+        # Temporary test/preview workspaces can be removed before the idle grace
+        # period expires. Never keep writing to their now-unlinked log files.
+        if not self.directory.is_dir():
+            return True
+        connected = False
+        for path in self.directory.glob('*.client'):
+            try:
+                connected = connected or time.time() - path.stat().st_mtime < 60
+            except FileNotFoundError:
+                pass
+        return (not self.manager.is_busy() and not connected
+                and time.monotonic() - self.last_request > 60)
+
+    def update(self, tick):
+        try:
+            # A failed snapshot or resource update must not bypass idle shutdown.
+            if self.should_stop():
+                self.app.quit()
+                return
+            tick()
+        except Exception:
+            now = time.monotonic()
+            if now - self.last_error >= 60:
+                self.last_error = now
+                logging.exception('Runner update failed')
+
+
 def main():
     config_path = Path(sys.argv[1])
     config = json.loads(config_path.read_text())
@@ -26,12 +64,12 @@ def main():
         return
     manager = JobManager(**config)
     allowed = {'launch', 'cancel', 'move', 'start_queue', 'pause_queue', 'set_max_parallel'}
-    last_request = [time.monotonic()]
+    lifecycle = RunnerLifecycle(directory, manager, app)
     last_snapshot = [0.0]
     def tick():
         manager.resource_tick()
         for request in sorted(directory.glob('*.request')):
-            last_request[0] = time.monotonic()
+            lifecycle.last_request = time.monotonic()
             try:
                 data = json.loads(request.read_text())
                 method = data['method']
@@ -57,14 +95,6 @@ def main():
                         'max_parallel': manager.max_parallel, 'updated': time.time()})
             # Reconcile files even when filesystem notifications were coalesced.
             manager._on_path_changed('')
-        connected = False
-        for path in directory.glob("*.client"):
-            try:
-                connected = connected or time.time() - path.stat().st_mtime < 60
-            except FileNotFoundError:
-                pass
-        if not manager.is_busy() and not connected and time.monotonic() - last_request[0] > 60:
-            app.quit()
         # Remove replies left behind by a client that exited during a request.
         for reply in directory.glob('*.reply'):
             try:
@@ -73,10 +103,7 @@ def main():
             except FileNotFoundError:
                 pass
     def safe_tick():
-        try:
-            tick()
-        except Exception:
-            logging.exception("Runner update failed")
+        lifecycle.update(tick)
 
     timer = QTimer()
     timer.timeout.connect(safe_tick)
