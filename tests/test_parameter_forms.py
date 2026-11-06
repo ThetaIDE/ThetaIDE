@@ -8,13 +8,32 @@ import yaml
 
 pytest.importorskip("PyQt6")
 from PyQt6.QtCore import QPoint
-from PyQt6.QtWidgets import QApplication, QAbstractSpinBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QToolButton, QWidget
-from frontend.config_model import ConfigTree
-from frontend.theme import stylesheet, current_theme
-from frontend.config_viewer import (
-    ConfigBox, ConfigViewer, IndentedHierarchyBlock, PARAM_FIELD_WIDTH, PARAM_LABEL_WIDTH,
-    NUMBER_FIELD_WIDTH, _RowHoverReveal, set_config_tree, invalidate_config_tree,
+from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QToolButton,
+    QWidget,
 )
+
+from frontend.config_model import ConfigTree
+from frontend.config_viewer import (
+    NUMBER_FIELD_WIDTH,
+    PARAM_FIELD_WIDTH,
+    PARAM_LABEL_WIDTH,
+    ConfigBox,
+    ConfigViewer,
+    IndentedHierarchyBlock,
+    _RowHoverReveal,
+    invalidate_config_tree,
+    set_config_tree,
+)
+from frontend.theme import current_theme, stylesheet
 
 app = QApplication.instance() or QApplication([])
 
@@ -56,6 +75,7 @@ def boxes(widget):
 
 def test_component_open_action_uses_latest_value_and_preserves_form(viewer):
     from types import SimpleNamespace
+
     from frontend.config_viewer import _RowHoverReveal
     widget, tree, root = viewer
     target = root / "chosen.txt"
@@ -78,6 +98,7 @@ def test_component_open_action_uses_latest_value_and_preserves_form(viewer):
 
 def test_objective_uses_shared_nested_forms_and_opens_source(viewer):
     from types import SimpleNamespace
+
     from src.app.objectives.api import load_objective
     widget = load(viewer, {"methods": {}, "objective": {"component": "learning_curve", "params": {}},
                            "variability": {"training_runs": 20}, "eval_episodes": 10,
@@ -104,7 +125,7 @@ def test_objective_uses_shared_nested_forms_and_opens_source(viewer):
                    for b in widget.findChildren(QToolButton))
     groups = {b.property("parameterPath"): b for b in widget.findChildren(IndentedHierarchyBlock)}
     assert "objective.params.curve" in groups
-    assert "20 training runs" in widget.findChild(QLabel, "objectiveSamplingSummary").text()
+    assert widget.raw_data["variability"]["training_runs"] == 20
     widget.remove_block("objective")
     assert "objective" not in widget.raw_data
 
@@ -128,23 +149,25 @@ def test_sweep_selects_objectives_and_replaces_their_children(viewer):
     assert widget.findChild(QLineEdit, "sweepMetric").text() == "val/accuracy"
 
 
-def test_objective_create_copy_preserves_params_and_opens_editor(viewer):
+def test_workspace_objective_opens_source_and_preserves_params(viewer):
     from types import SimpleNamespace
-    from PyQt6.QtWidgets import QPushButton
-    from src.app.objectives.api import load_objective
+
+    from src.app.objectives.api import create_objective
     widget, tree, root = viewer
-    widget = load(viewer, {"methods": {}, "objective": {"component": "learning_curve", "params": {"curve": {"half_life": 50}}}})
+    component = create_objective("editable_ui", workspace=tree.config_root.parent.parent)
+    widget = load(viewer, {"methods": {}, "objective": {"component": "editable_ui", "params": {"curve": {"half_life": 50}}}})
     opened = []
     widget.editor_service = SimpleNamespace(open_file=lambda path: opened.append(path) or True)
-    with patch("frontend.config_viewer.QInputDialog.getText", return_value=("new_copy_for_ui", True)):
-        widget.findChild(QPushButton, "objectiveCreate").click()
-    copied = load_objective("new_copy_for_ui", tree.config_root.parent.parent)
-    assert widget.raw_data["objective"] == {"component": "new_copy_for_ui", "params": {"curve": {"half_life": 50}}}
-    assert opened == [copied.source]
+    action = next(button for button in widget.findChildren(QToolButton)
+                  if button.property("parameterOpen") and button.property("parameterPath") == "objective.component")
+    action.click()
+    assert widget.raw_data["objective"] == {"component": "editable_ui", "params": {"curve": {"half_life": 50}}}
+    assert opened == [component.source]
 
 
 def test_objective_optional_children_add_remove_and_inherited_identity(viewer):
     import json
+
     from src.app.objectives.api import create_objective
     widget, tree, _ = viewer
     component = create_objective("optional_ui", workspace=tree.config_root.parent.parent)
@@ -208,6 +231,9 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
     })
     cards = boxes(widget)
     assert len(cards) >= 9
+    headings = [next(w for w in box.findChildren(QLabel)
+                     if w.objectName() in ("heading", "cardTitle")) for box in cards]
+    assert len({(heading.font().pixelSize(), heading.font().weight()) for heading in headings}) == 1
     for box in cards:
         if title(box) == "Methods":
             assert box.property("specialParameterLayout")
@@ -243,7 +269,7 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
         while not isinstance(box, ConfigBox):
             box = box.parentWidget()
         positions.append(field.mapTo(box, QPoint()).x())
-    assert len(set(positions)) == 1
+    assert positions[1] == positions[2]
 
 
 def test_recursive_groups_use_equal_indents_and_protect_required_fields(viewer):
@@ -324,3 +350,36 @@ def test_metric_picker_keeps_checkbox_behavior_with_shared_actions(viewer):
     delete = next(button for button in picker.findChildren(QToolButton) if button.toolTip() == "Remove custom/new")
     delete.click()
     assert widget.raw_data["telemetry"]["metrics"] == ["eval/reward"]
+
+
+def test_sweep_and_variability_use_two_columns_without_seed_summary(viewer):
+    widget = load(viewer, {"methods": {}, "tuning": {"direction": "maximize"},
+                           "variability": {"training_runs": 2, "starting_seed": 4,
+                                           "evaluation_seed": 7}, "eval_episodes": 10})
+    for name in ("Hyperparameter Sweep", "Training and Evaluation Variability"):
+        box = next(box for box in boxes(widget) if title(box) == name)
+        assert box.property("parameterColumns") == 2
+        grid = next(grid for grid in box.findChildren(QGridLayout)
+                    if any(grid.getItemPosition(i)[1] == 1 for i in range(grid.count())))
+        assert any(grid.getItemPosition(i)[1] == 0 for i in range(grid.count()))
+        widget.resize(1400, 1000)
+        app.processEvents()
+        left, right = grid.cellRect(0, 0), grid.cellRect(0, 1)
+        assert abs(left.width() - right.width()) <= 1
+        assert grid.columnCount() == 2
+    variance = next(box for box in boxes(widget) if title(box) == "Training and Evaluation Variability")
+    assert not any(label.text().startswith("Training seeds:") for label in variance.findChildren(QLabel))
+
+
+def test_sweep_parameters_fill_space_beside_objective_children(viewer):
+    widget = load(viewer, {"methods": {}, "tuning": {"direction": "maximize"},
+                           "objective": {"component": "learning_curve", "params": {}}})
+    sweep = next(box for box in boxes(widget) if title(box) == "Hyperparameter Sweep")
+    group = next(group for group in sweep.findChildren(IndentedHierarchyBlock)
+                 if group.property("parameterPath") == "objective.params")
+    direction = sweep.findChild(QComboBox, "sweepDirection")
+    tuner = sweep.findChild(QComboBox, "sweepComponent")
+    group_top = group.mapTo(sweep, QPoint()).y()
+    group_bottom = group_top + group.height()
+    assert direction.mapTo(sweep, QPoint()).x() > group.mapTo(sweep, QPoint()).x()
+    assert group_top <= tuner.mapTo(sweep, QPoint()).y() < group_bottom

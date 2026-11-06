@@ -252,11 +252,18 @@ def _parameter_row(widget, *, add=None, remove=None):
     return row
 
 
+def _parameter_title(title):
+    """Create the shared title used by configuration parameter boxes."""
+    title_widget = label(title, "heading")
+    title_widget.setStyleSheet("font-size: 23px; font-weight: 600;")
+    return title_widget
+
+
 def _parameter_header(title, *, add=None, remove=None, heading=True):
     """Every parameter container puts its adder immediately after its title."""
     row = QHBoxLayout()
     row.setSpacing(8)
-    title_widget = label(title, "heading" if heading else "muted")
+    title_widget = _parameter_title(title) if heading else label(title, "muted")
     row.addWidget(title_widget)
     if add is not None:
         row.addWidget(add)
@@ -285,6 +292,65 @@ class ParameterForm(QFormLayout):
             if item and isinstance(item.widget(), QLabel):
                 item.widget().setFixedWidth(PARAM_LABEL_WIDTH)
                 item.widget().setWordWrap(True)
+
+
+def _two_column_parameter_layout(form):
+    """Balance top-level rows across columns while keeping children with their parent."""
+    grid = QGridLayout()
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setHorizontalSpacing(14)
+    # Give each half the same share of the box, even when one side has wider
+    # controls or more content. This keeps the divider on the box midpoint.
+    grid.setColumnStretch(0, 1)
+    grid.setColumnStretch(1, 1)
+    grid.setProperty("equalParameterColumns", True)
+    columns = [QVBoxLayout(), QVBoxLayout()]
+    for index, column in enumerate(columns):
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(8)
+        grid.addLayout(column, 0, index)
+
+    def row_count(block):
+        count = 0
+        for index in range(block.form_layout.rowCount()):
+            item = block.form_layout.itemAt(index, QFormLayout.ItemRole.SpanningRole)
+            child = item.widget() if item else None
+            count += row_count(child) if isinstance(child, IndentedHierarchyBlock) else 1
+        return max(count, 1)
+
+    heights = [0, 0]
+    current = 0
+    while form.rowCount():
+        items = form.takeRow(0)
+        if items.labelItem is None:
+            item = items.fieldItem
+            if item is None:
+                continue
+            widget = item.widget()
+            if isinstance(widget, IndentedHierarchyBlock):
+                columns[current].addWidget(widget)
+                heights[current] += row_count(widget)
+            else:
+                current = 0 if heights[0] <= heights[1] else 1
+                if widget:
+                    columns[current].addWidget(widget)
+                elif item.layout():
+                    columns[current].addLayout(item.layout())
+                heights[current] += 1
+        else:
+            current = 0 if heights[0] <= heights[1] else 1
+            row = ParameterForm()
+            label_widget = items.labelItem.widget()
+            field = items.fieldItem
+            if field.widget():
+                row.addRow(label_widget, field.widget())
+            elif field.layout():
+                row.addRow(label_widget, field.layout())
+            columns[current].addLayout(row)
+            heights[current] += 1
+    for column in columns:
+        column.addStretch()
+    return grid
 
 
 class _SweepTypePicker(ComboBox):
@@ -1864,7 +1930,8 @@ class ConfigViewer(QWidget):
                 elif isinstance(widget, (QComboBox, QLineEdit)):
                     widget.setMaximumWidth(NUMBER_FIELD_WIDTH)
             # An empty last column takes the slack, so fields stay next to their labels
-            grid.setColumnStretch(grid.columnCount(), 1)
+            if not grid.property("equalParameterColumns"):
+                grid.setColumnStretch(grid.columnCount(), 1)
         for row_layout in self.container.findChildren(QHBoxLayout):
             for index in range(row_layout.count()):
                 widget = row_layout.itemAt(index).widget()
@@ -2534,8 +2601,7 @@ class ConfigViewer(QWidget):
         # own explicit action at the opposite edge of this header.
         methods_header = QHBoxLayout()
         methods_header.setSpacing(8)
-        lbl_methods_title = label("Methods", "heading")
-        lbl_methods_title.setStyleSheet("font-size: 23px; font-weight: 600;")
+        lbl_methods_title = _parameter_title("Methods")
         methods_header.addWidget(lbl_methods_title)
 
         btn_add_method = _make_subtle_tool_button("plus", "Add new empty method", size=24, icon_size=14)
@@ -3641,26 +3707,6 @@ class ConfigViewer(QWidget):
         episodes.setRange(0, 1000000)
         episodes.setValue(int(data.get("eval_episodes", resolved.get("eval_episodes", 0)) or 0))
         episodes.setToolTip("0 disables evaluation where supported; adding this box does not change the inherited value")
-        preview = label("", "muted")
-        preview.setWordWrap(True)
-        def update_preview():
-            try:
-                if explicit_seed_mode:
-                    parsed = [int(x.strip()) for x in seeds.text().split(",") if x.strip()]
-                else:
-                    start = int(start_seed.text())
-                    parsed = list(range(start, start + training_count.value()))
-                methods = data.get("methods", resolved.get("methods", {})) or {}
-                method_count = sum(1 for key, spec in methods.items() if key != "params" and isinstance(spec, dict) and spec.get("enabled", True))
-                total = len(parsed) * method_count
-                budget = data.get("total_timesteps", resolved.get("total_timesteps"))
-                frequency = data.get("eval_freq_steps", data.get("eval_freq", resolved.get("eval_freq_steps", resolved.get("eval_freq"))))
-                workload = ""
-                if isinstance(budget, int) and isinstance(frequency, int) and budget > 0 and frequency > 0:
-                    workload = f" · roughly {total * episodes.value() * (1 + math.ceil(budget / frequency))} evaluation episodes total"
-                preview.setText(f"Training seeds: {parsed} · {len(parsed)} trainings per method · {total} total · {episodes.value()} episodes per evaluation{workload}")
-            except ValueError:
-                preview.setText("Enter valid integer seeds and a positive training count.")
         def set_seeds():
             text = seeds.text().strip()
             try:
@@ -3668,7 +3714,6 @@ class ConfigViewer(QWidget):
             except ValueError:
                 parsed = text
             self._on_nested_edited("variability", "training_seeds", parsed)
-            update_preview()
         def set_start_seed():
             text = start_seed.text().strip()
             try:
@@ -3676,10 +3721,8 @@ class ConfigViewer(QWidget):
             except ValueError:
                 val = text
             self._on_nested_edited("variability", "starting_seed", val)
-            update_preview()
         def set_count(value_count):
             self._on_nested_edited("variability", "training_runs", value_count)
-            update_preview()
         def switch_seed_mode():
             if explicit_seed_mode:
                 self.raw_data.setdefault("variability", {}).pop("training_seeds", None)
@@ -3711,7 +3754,7 @@ class ConfigViewer(QWidget):
         start_seed.editingFinished.connect(set_start_seed)
         training_count.valueChanged.connect(set_count)
         evaluation.editingFinished.connect(set_evaluation)
-        episodes.valueChanged.connect(lambda v: (self._on_field_edited("eval_episodes", v), update_preview()))
+        episodes.valueChanged.connect(lambda v: self._on_field_edited("eval_episodes", v))
         if explicit_seed_mode:
             form.addRow("Training seeds", _parameter_row(seeds, remove=self._parameter_remove(("variability", "training_seeds"))))
         else:
@@ -3725,9 +3768,8 @@ class ConfigViewer(QWidget):
             form.addRow("Episodes per evaluation", _parameter_row(episodes, remove=self._parameter_remove(("eval_episodes",))))
         extra = {key: val for key, val in value.items() if key not in defaults and key != "parallel_runs"}
         self._render_generic_dict_contents(form, extra, ("variability",))
-        box.add_layout(form)
-        update_preview()
-        box.add_widget(preview)
+        box.setProperty("parameterColumns", 2)
+        box.add_layout(_two_column_parameter_layout(form))
         self.boxes_layout.addWidget(box)
 
     def add_component_override(self, kind: str, resolved: dict | None = None) -> None:
@@ -4010,6 +4052,7 @@ class ConfigViewer(QWidget):
         cards.setVerticalSpacing(14)
         cards.setColumnStretch(0, 1)
         cards.setColumnStretch(1, 1)
+        cards.setProperty("equalParameterColumns", True)
         for index, name in enumerate(selected):
             card = QFrame()
             card.setObjectName("card")
@@ -4086,8 +4129,7 @@ class ConfigViewer(QWidget):
         section_header = QHBoxLayout()
         section_header.setSpacing(8)
         is_base = self._is_base_config()
-        section_title = label("Group Defaults" if is_base else "Experiment", "heading")
-        section_title.setStyleSheet("font-size: 23px; font-weight: 600;")
+        section_title = _parameter_title("Group Defaults" if is_base else "Experiment")
         section_header.addWidget(section_title)
 
         tree = config_tree()
@@ -5898,15 +5940,11 @@ class ConfigViewer(QWidget):
             return
         tuning = tuning if has_tuning else {}
         box = ConfigBox("Hyperparameter Sweep", "Optimize each method independently")
-        header = QHBoxLayout()
-        title = label("Hyperparameter Sweep", "heading")
-        title.setStyleSheet("font-size: 23px; font-weight: 600;")
-        header.addWidget(title)
+        box.setProperty("parameterColumns", 2)
         add = _make_param_adder_button("Add optional sweep parameter", [], lambda _: None, allow_custom=False)
         add.setObjectName("sweepAddOption")
         optional_menu = add.menu()
-        header.addWidget(add)
-        header.addStretch()
+        header = _parameter_header("Hyperparameter Sweep", add=add)
         if tuning.get("enabled") is False:
             # Preserve old disabled configs without leaving an invisible run blocker.
             enable = QPushButton("Enable sweep")
@@ -5924,7 +5962,7 @@ class ConfigViewer(QWidget):
             action = optional_menu.addAction("Enable hyperparameter tuning")
             action.triggered.connect(lambda: self.add_block("tuning"))
             form.addRow(label("Objective scoring only. Add sweep settings to tune hyperparameters.", "muted"))
-            box.add_layout(form)
+            box.add_layout(_two_column_parameter_layout(form))
             self.boxes_layout.addWidget(box)
             return
         direction = ComboBox()
@@ -6043,7 +6081,7 @@ class ConfigViewer(QWidget):
                 target_form = groups[parent].form_layout
             target_form.addRow(str(field.get("label", key)), row)
         add.setEnabled(not optional_menu.isEmpty())
-        box.add_layout(form)
+        box.add_layout(_two_column_parameter_layout(form))
         for key, menu in child_menus.items():
             if button := box.findChild(QToolButton, "sweepAddSubOption_" + key):
                 button.setEnabled(not menu.isEmpty())
