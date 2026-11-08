@@ -1,0 +1,71 @@
+{
+  "storage_version": 2,
+  "packages": [
+    {
+      "id": "final_metric",
+      "root": "src/plugins/components/bundled/final_metric",
+      "kind": "objective",
+      "version": "1.0.0"
+    },
+    {
+      "id": "learning_curve",
+      "root": "src/plugins/components/bundled/learning_curve",
+      "kind": "objective",
+      "version": "1.0.0"
+    },
+    {
+      "id": "optuna",
+      "root": "src/plugins/components/bundled/optuna",
+      "kind": "tuner",
+      "version": "1.0.0"
+    },
+    {
+      "id": "sequential_spec",
+      "root": "src/plugins/components/bundled/sequential_spec",
+      "kind": "model",
+      "version": "1.0.0"
+    },
+    {
+      "id": "standard_figures",
+      "root": "src/plugins/components/bundled/standard_figures",
+      "kind": "plotter",
+      "version": "1.0.0"
+    },
+    {
+      "id": "arxiv_papers",
+      "root": "src/plugins/app/bundled/arxiv_papers",
+      "kind": "plugin",
+      "version": "1.0.0"
+    },
+    {
+      "id": "documentation",
+      "root": "src/plugins/app/bundled/documentation",
+      "kind": "plugin",
+      "version": "1.0.0"
+    },
+    {
+      "id": "model_builder",
+      "root": "src/plugins/app/bundled/model_builder",
+      "kind": "plugin",
+      "version": "1.0.0"
+    },
+    {
+      "id": "tensorboard",
+      "root": "src/plugins/app/bundled/tensorboard",
+      "kind": "plugin",
+      "version": "1.0.0"
+    },
+    {
+      "id": "text_editor",
+      "root": "src/plugins/app/bundled/text_editor",
+      "kind": "plugin",
+      "version": "1.0.0"
+    },
+    {
+      "id": "tensorboard_logger",
+      "root": "src/plugins/components/bundled/tensorboard_logger",
+      "kind": "package",
+      "version": "1.0.0"
+    }
+  ]
+}

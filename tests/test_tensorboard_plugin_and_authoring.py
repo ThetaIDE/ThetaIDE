@@ -25,7 +25,7 @@ app = QApplication.instance() or QApplication(sys.argv[:1])
 class TestPluginAuthoringAndTensorboard(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        self.window = Window(data_dir=self.temp_dir)
+        self.window = Window(data_dir=self.temp_dir, workspace=Path(self.temp_dir) / "workspace")
 
     def tearDown(self):
         if hasattr(self.window, "plugin_manager"):

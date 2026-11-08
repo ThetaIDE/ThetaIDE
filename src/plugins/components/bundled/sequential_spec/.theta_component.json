@@ -1,0 +1,28 @@
+{
+  "kind": "model",
+  "capabilities": [
+    {
+      "id": "sequential_spec",
+      "kind": "model",
+      "entry_point": "sequential_spec.py:SequentialSpecModel",
+      "aliases": [
+        "custom_sequential",
+        "visual"
+      ]
+    }
+  ],
+  "id": "sequential_spec",
+  "name": "sequential_spec",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "payload": {
+    "implementations": [
+      "__init__.py",
+      "sequential_spec.py"
+    ],
+    "resources": [],
+    "configs": {}
+  },
+  "config_paths": []
+}

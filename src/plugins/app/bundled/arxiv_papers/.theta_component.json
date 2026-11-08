@@ -1,0 +1,26 @@
+{
+  "id": "arxiv_papers",
+  "name": "arXiv Papers",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "arxiv_papers",
+      "kind": "plugin",
+      "entry_point": "__init__.py:ArxivPapersPlugin"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "catalog.py",
+      "__init__.py",
+      "search.py",
+      "panel.py"
+    ],
+    "resources": [],
+    "configs": {}
+  },
+  "config_paths": []
+}

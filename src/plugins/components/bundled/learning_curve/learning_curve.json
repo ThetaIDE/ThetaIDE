@@ -1,0 +1,39 @@
+{
+  "api_version": 1,
+  "source": "learning_curve.py",
+  "requires": {"episode_outcomes": true, "metrics": ["eval/reward"]},
+  "defaults": {
+    "metric": "eval/reward",
+    "curve": {"reward_scale": 500, "half_life": 0, "budget": 0, "start_fraction": 0},
+    "aggregation": {"method": "lower_tail", "fraction": 0.2, "std_penalty": 1, "tail_weight": 0.25},
+    "failed_run_score": 0
+  },
+  "schema": {
+    "type": "object", "additionalProperties": false,
+    "required": ["metric", "curve", "aggregation", "failed_run_score"],
+    "properties": {
+      "metric": {"type": "string", "enum": ["eval/reward"], "default": "eval/reward"},
+      "curve": {
+        "type": "object", "additionalProperties": false, "default": {"reward_scale": 500, "half_life": 0, "budget": 0, "start_fraction": 0},
+        "required": ["reward_scale", "half_life", "budget"],
+        "properties": {
+          "reward_scale": {"type": "number", "exclusiveMinimum": 0, "default": 500},
+          "half_life": {"type": "number", "minimum": 0, "default": 0, "description": "Weight halves after this many transitions; zero means uniform weighting."},
+          "budget": {"type": "number", "minimum": 0, "default": 0, "description": "Zero uses total_timesteps."},
+          "start_fraction": {"type": "number", "minimum": 0, "exclusiveMaximum": 1, "default": 0, "description": "Score only the curve after this fraction of the transition budget."}
+        }
+      },
+      "aggregation": {
+        "type": "object", "additionalProperties": false, "default": {"method": "lower_tail", "fraction": 0.2, "std_penalty": 1, "tail_weight": 0.25},
+        "required": ["method", "fraction", "std_penalty"],
+        "properties": {
+          "method": {"type": "string", "enum": ["lower_tail", "mean", "mean_minus_std", "mean_lower_tail"], "default": "lower_tail"},
+          "fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 0.2},
+          "std_penalty": {"type": "number", "minimum": 0, "default": 1},
+          "tail_weight": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.25, "description": "Lower-tail weight when combining mean and lower-tail scores."}
+        }
+      },
+      "failed_run_score": {"type": "number", "default": 0}
+    }
+  }
+}

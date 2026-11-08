@@ -1,0 +1,16 @@
+# @package hydra.sweeper
+_target_: hydra_plugins.theta_optuna_sweeper.ThetaOptunaSweeper
+sampler:
+  _target_: optuna.samplers.TPESampler
+  seed: 42
+direction: maximize
+storage: "sqlite:///results/optuna/optuna.db?timeout=60"
+study_name: "${experiment_id}"
+n_trials: 40
+n_jobs: 1
+pruner: none
+pruner_startup_trials: 5
+pruner_warmup_steps: 0
+timeout_seconds: 0
+max_failed_trials: 0
+search_space: null

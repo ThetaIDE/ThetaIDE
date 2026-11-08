@@ -28,7 +28,8 @@ class TestPluginSystem(unittest.TestCase):
         
         # Create a dynamic fixture plugin in the test data_dir to test plugin lifecycle
         self.plugin_id = "sample_plugin"
-        self.plugin_dir = Path(self.temp_dir) / "plugins" / self.plugin_id
+        self.workspace = Path(self.temp_dir) / "workspace"
+        self.plugin_dir = self.workspace / "src/plugins/app/installed" / self.plugin_id
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
         (self.plugin_dir / "plugin.json").write_text(json.dumps({
             "id": self.plugin_id,
@@ -61,7 +62,7 @@ class SamplePlugin(Plugin):
             self.context = None
 """)
 
-        self.window = Window(data_dir=self.temp_dir)
+        self.window = Window(data_dir=self.temp_dir, workspace=self.workspace)
 
     def tearDown(self):
         if hasattr(self, "window"):
@@ -137,7 +138,7 @@ class SamplePlugin(Plugin):
         self.assertIn("sample_plugin", self.window.settings_manager.plugins_enabled)
 
         # Simulate new Window instance loading same data directory
-        new_window = Window(data_dir=self.temp_dir)
+        new_window = Window(data_dir=self.temp_dir, workspace=self.workspace)
         self.assertTrue(new_window.plugin_manager.is_plugin_enabled("sample_plugin"))
         self.assertIn("sample_plugin", new_window.tabs.tabs)
 

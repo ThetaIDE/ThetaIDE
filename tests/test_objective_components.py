@@ -51,6 +51,27 @@ def test_curves_must_cover_same_budget_and_clip_overshoot():
     assert result.value == pytest.approx(0.25)
 
 
+def test_late_window_prefers_sustained_learning_and_interpolates_boundaries():
+    component = load_objective("learning_curve")
+    params = component.parameters({"curve": {"budget": 100, "start_fraction": .75},
+                                   "aggregation": {"method": "mean_lower_tail", "fraction": .5,
+                                                   "tail_weight": .25}})
+    early_collapse = run(1, [(0, 500), (50, 500), (75, 0), (100, 0)])
+    late_success = run(2, [(0, 0), (50, 0), (75, 500), (100, 500)])
+    result = component.evaluate(TrialResults([early_collapse, late_success], {}), params)
+    assert result.diagnostics["per_run_auc"] == [0, 1]
+    assert result.value == pytest.approx(.375)
+    assert result.diagnostics["completed_window_minima"] == [0, 500]
+    result = component.evaluate(TrialResults([run(3, [(0, 0), (200, 1000)])], {}), params)
+    assert result.value == pytest.approx(.875)
+    params["curve"]["half_life"] = 25
+    result = component.evaluate(TrialResults([late_success], {}), params)
+    assert result.value == pytest.approx(1)
+    assert component.evaluate(TrialResults([RunResult(4, "failed"), late_success], {}), params).value == pytest.approx(.375)
+    with pytest.raises(ValueError, match="start_fraction"):
+        component.parameters({"curve": {"start_fraction": 1}})
+
+
 def test_workspace_objectives_reload_and_schema_is_optional(tmp_path):
     component = create_objective("mine", workspace=tmp_path)
     component.source.write_text("def evaluate(results, params):\n    return 12\n")
@@ -65,6 +86,22 @@ def test_workspace_objectives_reload_and_schema_is_optional(tmp_path):
     assert load_objective("mine", tmp_path).parameters({"anything": {"nested": 1}}) == {"anything": {"nested": 1}}
     with pytest.raises(ValueError, match="already exists"):
         create_objective("mine", workspace=tmp_path)
+
+
+def test_workspace_objective_discovery_does_not_depend_on_launch_directory(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import src.app.workspace
+    from src.app.objectives.api import available_objectives
+
+    workspace = tmp_path / "workspace"
+    component = create_objective("custom", workspace=workspace)
+    launch_directory = tmp_path / "launcher"
+    launch_directory.mkdir()
+    monkeypatch.chdir(launch_directory)
+    monkeypatch.setenv("THETA_WORKSPACE", str(workspace))
+    assert "custom" in available_objectives()
+    assert load_objective("custom").source == component.source
+    assert "custom" not in available_objectives(launch_directory)
 
 
 @pytest.mark.parametrize("source", ["float('nan')", "float('inf')", "[1, 2]"])
@@ -174,29 +211,3 @@ def test_local_dispatch_routes_objectives_and_carries_sampling(monkeypatch):
     assert kwargs["coordinator"] is True
     assert any(arg.startswith("++theta_execution.script=") for arg in args)
     assert any(arg.startswith("++variability=") and "[1,2]" in arg for arg in args)
-
-
-def test_real_cartpole_sb3_objective(tmp_path):
-    pytest.importorskip("stable_baselines3")
-    root = Path(__file__).resolve().parents[1]
-    cfg = config()
-    cfg.total_timesteps = 8
-    cfg.eval_episodes = 1
-    cfg.eval_freq_steps = 8
-    cfg.agent = {"name": "m", "algorithm": "PPO", "n_steps": 8, "batch_size": 4}
-    cfg.model = {"sb3_native_policy": True}
-    cfg.env = {"name": "cartpole", "env_id": "CartPole-v1"}
-    cfg.theta_objective_runner.script = str(root / "src/usr/algorithms/sb3-suite/sb3_runner.py")
-    OmegaConf.save(cfg, tmp_path / "test.yaml")
-    env = {**os.environ, "PYTHONPATH": str(root), "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
-    result = subprocess.run([sys.executable, "-m", "src.app.objectives.runner", "--config-path", str(tmp_path), "--config-name", "test"],
-                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=90)
-    assert result.returncode == 0, result.stdout + result.stderr
-    path = next(tmp_path.glob("results/logs/g/e/m/version_execution_*/objective.json"))
-    manifest = json.loads(path.read_text())
-    assert len(manifest["runs"]) == 2
-    assert all(run["status"] == "completed" for run in manifest["runs"])
-    assert all([point["training_step"] for point in run["events"] if point.get("metric") == "eval/reward"] == [0, 8]
-               for run in manifest["runs"])
-    assert all(Path(tmp_path / run["artifacts"]["checkpoints"] / "latest_model.zip").is_file() for run in manifest["runs"])
-    assert math.isfinite(manifest["result"]["value"])

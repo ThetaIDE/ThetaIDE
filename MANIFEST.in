@@ -1,0 +1,25 @@
+include AGENTS.md COMPONENT_DEVELOPMENT.md CUSTOM_OBJECTIVES.md
+include src/plugins/inventory.json
+include docs/PLUGIN_STORAGE.md docs/PLUGIN_NATIVE_INTEGRATION.md docs/API.md
+recursive-include src/plugins/components/bundled *.py *.json *.yaml *.yml *.svg *.png *.md
+recursive-include src/plugins/app/bundled *.py *.json *.html *.css *.js *.svg *.png *.md *.txt *.mjs *.yaml
+recursive-include src/app/config_defaults *.yaml
+recursive-include frontend/icons *.svg *.png
+include frontend/*.qss frontend/themes/*.qss
+recursive-exclude src/plugins/components/installed *
+recursive-exclude src/plugins/app/installed *
+recursive-exclude src/usr *
+include src/usr/__init__.py src/usr/algorithms/__init__.py src/usr/algorithms/agent_registry.py src/usr/algorithms/base_agent.py
+include src/usr/models/__init__.py src/usr/models/sequential_spec/__init__.py src/usr/models/sequential_spec/sequential_spec.py
+prune .thetaide
+prune in/datasets
+prune results
+prune scratch
+global-exclude __pycache__ *.pyc .DS_Store
+
+prune frontend/.venv
+prune .venv
+prune venv
+prune build
+
+prune src/plugins/app/bundled/text_editor/web/node_modules

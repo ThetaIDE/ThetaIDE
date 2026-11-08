@@ -46,7 +46,7 @@ class TestDocumentationPlugin(unittest.TestCase):
             patch("frontend.app.TerminalPanel", self.HeadlessTerminalPanel),
             patch.object(Window, "init_default_experiment", lambda _self: None),
         ):
-            return Window(data_dir=data_dir)
+            return Window(data_dir=data_dir, workspace=Path(data_dir) / "workspace")
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp(prefix="theta_test_docs_")

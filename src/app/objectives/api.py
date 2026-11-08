@@ -73,13 +73,20 @@ class ObjectiveComponent:
 
     def evaluate(self, results: TrialResults, params) -> ObjectiveResult:
         # Execute freshly saved source on every scoring invocation, without stale pyc files.
-        import sys
-        import types
-        name = "theta_objective_" + hashlib.sha256(str(self.source).encode()).hexdigest()
-        module = types.ModuleType(name)
-        module.__file__ = str(self.source)
-        sys.modules[name] = module
-        exec(compile(self.source.read_text(encoding="utf-8"), str(self.source), "exec"), module.__dict__)
+        from src.app.core.provider_catalog import get_catalog
+        from src.app.core.provider_loader import load_module
+        from src.app.workspace import WorkspacePaths
+        paths = WorkspacePaths.for_process()
+        owners = [p for p in get_catalog(paths).packages if p.origin != "python_distribution" and self.source.is_relative_to(p.root)]
+        if owners:
+            owner = max(owners, key=lambda p: len(p.root.parts))
+            module = load_module(owner, self.source.relative_to(owner.root).as_posix(), paths=paths, fresh=True)
+        else:
+            # Explicitly provided standalone objectives still support fresh source execution.
+            import types
+            module = types.ModuleType("theta_objective_" + hashlib.sha256(str(self.source).encode()).hexdigest())
+            module.__file__ = str(self.source)
+            exec(compile(self.source.read_text(encoding="utf-8"), str(self.source), "exec"), module.__dict__)
         result = getattr(module, self.metadata.get("function", "evaluate"))(results, params)
         if not isinstance(result, ObjectiveResult):
             result = ObjectiveResult(float(result))
@@ -91,14 +98,22 @@ class ObjectiveComponent:
 
 
 def objective_root(workspace=None):
-    return Path(workspace or Path.cwd()) / "src" / "usr" / "objectives"
+    from src.app.workspace import WorkspacePaths
+    # Desktop launchers and workers need not start in the workspace directory.
+    root = Path(workspace) if workspace is not None else WorkspacePaths.for_process().root
+    return root / "src" / "usr" / "objectives"
 
 
 def available_objectives(workspace=None):
-    builtins = Path(__file__).parent / "builtins"
-    components = {path.stem: path for path in builtins.glob("*.json")}
-    components.update({path.stem: path for path in objective_root(workspace).glob("*.json")})
-    return dict(sorted(components.items()))
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(workspace) if workspace is not None else WorkspacePaths.for_process()
+    catalog = get_catalog(paths)
+    components = {}
+    for name in sorted({c.id for p in catalog.packages for c in p.capabilities if c.kind == "objective"}):
+        package, cap = catalog.resolve("objective", name)
+        components[name] = package.resource(cap.entry_point)
+    return components
 
 
 def load_objective(name: str, workspace=None) -> ObjectiveComponent:
@@ -109,7 +124,8 @@ def load_objective(name: str, workspace=None) -> ObjectiveComponent:
     metadata = json.loads(path.read_text(encoding="utf-8"))
     if metadata.get("api_version") != 1:
         raise ValueError(f"Objective {name!r} must declare api_version: 1")
-    source = (path.parent / metadata.get("source", path.with_suffix(".py").name)).resolve()
+    source = (path.parent / metadata["source"]).resolve()
+    if not source.is_relative_to(path.parent.resolve()): raise ValueError("Objective source must remain inside its package")
     if not source.is_file():
         raise ValueError(f"Objective source does not exist: {source}")
     Draft202012Validator.check_schema(metadata.get("schema", {}))
@@ -122,7 +138,9 @@ def create_objective(name: str, template="learning_curve", workspace=None):
     if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_-]*", name):
         raise ValueError("Use letters, numbers, underscores or hyphens for an objective name")
     component = load_objective(template, workspace)
-    root = objective_root(workspace)
+    root = objective_root(workspace) / name
+    if root.exists() or name in available_objectives(workspace):
+        raise ValueError(f"Objective {name!r} already exists")
     root.mkdir(parents=True, exist_ok=True)
     source, manifest = root / f"{name}.py", root / f"{name}.json"
     if source.exists() or manifest.exists() or name in available_objectives(workspace):
@@ -130,6 +148,10 @@ def create_objective(name: str, template="learning_curve", workspace=None):
     metadata = {**component.metadata, "source": source.name}
     source.write_text(component.source.read_text(encoding="utf-8"), encoding="utf-8")
     manifest.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    package = {'id':name,'name':name,'kind':'objective','version':'0.1.0','storage_version':2,'api_version':1,
+               'capabilities':[{'id':name,'kind':'objective','entry_point':manifest.name}],
+               'payload':{'implementations':[source.name],'resources':[manifest.name],'configs':{}}}
+    (root / '.theta_component.json').write_text(json.dumps(package,indent=2)+'\n')
     return load_objective(name, workspace)
 
 
@@ -162,11 +184,11 @@ def validate_objective(cfg, *, workspace=None):
     if requirements.get("episode_outcomes") and (cfg.get("paradigm") != "online_rl" or int(cfg.get("eval_episodes") or 0) < 1):
         raise ValueError("Objective requires online evaluation with eval_episodes > 0")
     if requirements.get("episode_outcomes"):
-        from src.app.pipeline.engine import resolve_engine, DEFAULT_ENGINE_SCRIPT
+        from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
         from src.app.pipeline.config import parse_methods_dict
         for name, method in parse_methods_dict(cfg).items():
             script = resolve_engine(method, cfg)[0]
-            if script != DEFAULT_ENGINE_SCRIPT and not script.endswith("sb3-suite/sb3_runner.py"):
+            if not runner_supports_episode_outcomes(script):
                 raise ValueError(f"Method {name!r} does not supply the episode outcomes required by this objective")
     tuning = cfg.get("tuning") or {}
     options = (tuning.get("options") or {}).get("optuna") or {}

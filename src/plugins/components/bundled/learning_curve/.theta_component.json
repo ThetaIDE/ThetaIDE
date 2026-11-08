@@ -1,0 +1,26 @@
+{
+  "kind": "objective",
+  "capabilities": [
+    {
+      "id": "learning_curve",
+      "kind": "objective",
+      "entry_point": "learning_curve.json"
+    }
+  ],
+  "id": "learning_curve",
+  "name": "learning_curve",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "payload": {
+    "implementations": [
+      "learning_curve.py",
+      "__init__.py"
+    ],
+    "resources": [
+      "learning_curve.json"
+    ],
+    "configs": {}
+  },
+  "config_paths": []
+}

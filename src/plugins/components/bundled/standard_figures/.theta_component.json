@@ -1,0 +1,42 @@
+{
+  "kind": "plotter",
+  "id": "standard_figures",
+  "name": "standard_figures",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "convergence",
+      "kind": "plotter",
+      "entry_point": "convergence.py:ConvergencePlotter"
+    },
+    {
+      "id": "losses",
+      "kind": "plotter",
+      "entry_point": "losses.py:LossesPlotter"
+    },
+    {
+      "id": "reports",
+      "kind": "plotter",
+      "entry_point": "reports.py:ReportsPlotter"
+    },
+    {
+      "id": "tuning",
+      "kind": "plotter",
+      "entry_point": "tuning.py:TuningPlotter"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "convergence.py",
+      "__init__.py",
+      "reports.py",
+      "tuning.py",
+      "losses.py"
+    ],
+    "resources": [],
+    "configs": {}
+  },
+  "config_paths": []
+}

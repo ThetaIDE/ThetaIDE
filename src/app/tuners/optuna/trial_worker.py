@@ -1,6 +1,3 @@
-"""Compatibility entrypoint for the shared resolved-task worker."""
-from src.app.pipeline.task_worker import main
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
+"""Legacy import alias."""
+from src.app.core.import_aliases import alias_module
+alias_module(__name__, 'src.plugins.components.bundled.optuna.trial_worker')

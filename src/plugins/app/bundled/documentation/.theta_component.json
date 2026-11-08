@@ -1,0 +1,27 @@
+{
+  "id": "documentation",
+  "name": "Documentation",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "documentation",
+      "kind": "plugin",
+      "entry_point": "__init__.py:DocumentationPlugin"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "__init__.py",
+      "content.py",
+      "panel.py"
+    ],
+    "resources": [
+      "diagrams"
+    ],
+    "configs": {}
+  },
+  "config_paths": []
+}

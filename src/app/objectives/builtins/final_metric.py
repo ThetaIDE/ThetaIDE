@@ -1,11 +1,3 @@
-"""Average the final recorded metric across independent training runs."""
-from src.app.objectives import ObjectiveResult
-
-
-def evaluate(results, params):
-    values = []
-    for run in results.runs:
-        if run.status != "completed":
-            raise ValueError(f"Training seed {run.seed} did not complete: {run.error}")
-        values.append(float(run.metrics[params["metric"]]))
-    return ObjectiveResult(sum(values) / len(values), {"per_run": values})
+"""Legacy objective import alias."""
+from src.app.core.import_aliases import alias_module
+alias_module(__name__, 'src.plugins.components.bundled.final_metric.final_metric')

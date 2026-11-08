@@ -1,0 +1,25 @@
+{
+  "id": "tensorboard_logger",
+  "name": "TensorBoard run logger",
+  "kind": "package",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "tensorboard",
+      "kind": "run_logger",
+      "entry_point": "provider.py:create_logger",
+      "activation_plugin": "tensorboard"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "provider.py",
+      "__init__.py"
+    ],
+    "resources": [],
+    "configs": {}
+  },
+  "config_paths": []
+}

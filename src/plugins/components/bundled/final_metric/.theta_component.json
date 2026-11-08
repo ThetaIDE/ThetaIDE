@@ -1,0 +1,26 @@
+{
+  "kind": "objective",
+  "capabilities": [
+    {
+      "id": "final_metric",
+      "kind": "objective",
+      "entry_point": "final_metric.json"
+    }
+  ],
+  "id": "final_metric",
+  "name": "final_metric",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "payload": {
+    "implementations": [
+      "__init__.py",
+      "final_metric.py"
+    ],
+    "resources": [
+      "final_metric.json"
+    ],
+    "configs": {}
+  },
+  "config_paths": []
+}

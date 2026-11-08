@@ -1,0 +1,28 @@
+{
+  "id": "text_editor",
+  "name": "Text Editor",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "text_editor",
+      "kind": "plugin",
+      "entry_point": "__init__.py:TextEditorPlugin"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "documents.py",
+      "__init__.py",
+      "explorer.py",
+      "panel.py"
+    ],
+    "resources": [
+      "web"
+    ],
+    "configs": {}
+  },
+  "config_paths": []
+}

@@ -73,24 +73,34 @@ all = [
 ]
 
 # ── Package discovery ────────────────────────────────────────
+[tool.setuptools]
+py-modules = ["run_pipeline"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
-    "src", "src.*",
-    "plot", "plot.*",
-    "hydra_plugins", "hydra_plugins.*",
+    "src", "src.app", "src.app.*", "src.plugins", "src.plugins.components", "src.plugins.components.bundled", "src.plugins.components.bundled.*",
+    "src.plugins.app", "src.plugins.app.bundled", "src.plugins.app.bundled.*",
+    "src.usr", "src.usr.algorithms", "src.usr.models", "src.usr.models.sequential_spec",
+    "frontend", "frontend.*", "plot", "plot.standard_figures", "hydra_plugins", "hydra_plugins.*",
 ]
-exclude = [
-]
+exclude = ["*.installed", "*.installed.*", "*.node_modules", "*.node_modules.*"]
 
 [tool.setuptools.package-data]
-"src.app.objectives" = ["builtins/*.json"]
+"src.plugins" = ["inventory.json"]
+"src.app" = ["config_defaults/**/*.yaml"]
+"src.plugins.components.bundled" = ["*/.theta_component.json", "**/*.json", "**/*.yaml"]
+"src.plugins.app.bundled" = ["**/*.json", "**/*.svg", "**/*.html", "**/*.js", "**/*.css", "**/*.png", "**/*.md", "**/*.txt", "**/*.mjs"]
+"frontend" = ["icons/*.svg", "icons/*.png", "*.qss", "themes/*.qss"]
 
 # ── Ruff (linting + formatting) ─────────────────────────────
 [tool.ruff]
 target-version = "py310"
 line-length = 120
 extend-exclude = [
+    "src/plugins/components/installed",
+    "src/plugins/app/installed",
+    "src/usr",
     "in/envs",
     "venv",
 ]
@@ -129,6 +139,9 @@ warn_unused_configs = true
 ignore_missing_imports = true
 follow_imports = "silent"
 exclude = [
+    "src/plugins/components/installed",
+    "src/plugins/app/installed",
+    "src/usr",
     "in/envs",
     "venv",
 ]
@@ -137,6 +150,8 @@ exclude = [
 [tool.coverage.run]
 source = ["src", "plot"]
 omit = [
+    "*/plugins/*/installed/*",
+    "*/usr/*",
     "*/test_*",
     "*/conftest.py",
 ]

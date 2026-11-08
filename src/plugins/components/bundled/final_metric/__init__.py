@@ -1,0 +1,1 @@
+"""Bundled objective provider."""

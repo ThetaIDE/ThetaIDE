@@ -23,10 +23,14 @@ class PluginManager(QObject):
     pluginStateChanged = pyqtSignal(str, bool)  # (plugin_id, enabled)
 
     def __init__(self, window: Window, plugin_dirs: Optional[List[Path]] = None,
-                 settings_manager: Optional["SettingsManager"] = None):
+                 settings_manager: Optional["SettingsManager"] = None, paths=None):
         super().__init__()
         self.window = window
-        self.plugin_dirs = plugin_dirs or [Path(__file__).parent / "core", Path(__file__).parent]
+        from src.app.workspace import WorkspacePaths
+        self.paths = paths or WorkspacePaths.for_process()
+        self.plugin_dirs = plugin_dirs or list(self.paths.app_roots)
+        self._provider_packages = {}
+        self._leases = {}
         self._settings = settings_manager
 
         # Legacy fallback file — used only when settings_manager is unavailable.
@@ -54,46 +58,26 @@ class PluginManager(QObject):
             self._states_loaded = True
 
         self.manifests.clear()
-        discovered_paths = set()
-        for pdir in self.plugin_dirs:
-            if not pdir.exists():
-                continue
-            candidates = list(pdir.glob("*/plugin.json"))
-            if (pdir / "core").is_dir():
-                candidates.extend((pdir / "core").glob("*/plugin.json"))
-
-            for manifest_path in candidates:
-                resolved = manifest_path.resolve()
-                if resolved in discovered_paths:
+        from src.app.core.provider_catalog import get_catalog
+        catalog = get_catalog(self.paths, app_roots=self.plugin_dirs)
+        self._provider_packages.clear()
+        for package in catalog.packages:
+            for cap in package.capabilities:
+                if cap.kind != "plugin":
                     continue
-                discovered_paths.add(resolved)
                 try:
-                    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    if data.get("kind", "plugin") != "plugin":
-                        continue
-                    pid = data["id"]
-                    is_core = bool(
-                        data.get("core", False)
-                        or data.get("is_core", False)
-                        or "core" in manifest_path.parts
-                        or manifest_path.is_relative_to(Path(__file__).parent)
-                    )
-                    manifest = PluginManifest(
-                        id=pid,
-                        name=data.get("name", pid),
-                        version=data.get("version", "0.1.0"),
-                        description=data.get("description", ""),
-                        author=data.get("author", "ThetaIDE Team"),
-                        default_enabled=data.get("default_enabled", False),
-                        icon=data.get("icon"),
-                        entry_point=data.get("entry_point", "Plugin"),
-                        plugin_dir=manifest_path.parent,
-                        is_core=is_core,
-                        extra=data,
-                    )
-                    self.manifests[pid] = manifest
+                    catalog.resolve("plugin", cap.id)
+                    data = cap.metadata
+                    pid = cap.id
+                    self.manifests[pid] = PluginManifest(
+                        id=pid, name=data.get("name", pid), version=package.version,
+                        description=data.get("description", ""), author=data.get("author", "ThetaIDE Team"),
+                        default_enabled=data.get("default_enabled", False), icon=data.get("icon"),
+                        entry_point=data.get("entry_point", "Plugin"), plugin_dir=package.root,
+                        is_core=package.origin == "bundled", extra={**data, "package_id":package.id, "origin": package.origin, "writable": package.writable})
+                    self._provider_packages[pid] = (package, cap)
                 except Exception as exc:
-                    self.window.log(f"Failed to load plugin manifest at {manifest_path}: {exc}")
+                    self.window.log(f"Cannot discover app plugin {cap.id}: {exc}")
 
         # Drop enabled state for any plugin that no longer exists on disk
         installed = set(self.manifests.keys())
@@ -183,25 +167,12 @@ class PluginManager(QObject):
 
         if not self.disable_plugin(plugin_id):
             return
-        manifest = self.manifests.pop(plugin_id, None)
+        package, capability = self._provider_packages[plugin_id]
+        from src.app.components.installer import HubInstaller
+        HubInstaller(self.paths.root, self.paths.data_dir).uninstall_by_metadata(
+            {**package.manifest, "target_dir": str(package.root)})
+        self.manifests.pop(plugin_id, None)
         self.enabled_states.pop(plugin_id, None)
-
-        plugin_dir = manifest.plugin_dir if manifest else None
-        if plugin_dir and plugin_dir.exists():
-            import shutil
-            shutil.rmtree(plugin_dir, ignore_errors=True)
-        else:
-            store = getattr(self.window, "store", None)
-            root_dir = (
-                getattr(store, "root", getattr(store, "data_dir", None)) if store
-                else getattr(self.window, "data_dir", None)
-            )
-            if root_dir:
-                import shutil
-                target = Path(root_dir) / "plugins" / plugin_id
-                if target.exists():
-                    shutil.rmtree(target, ignore_errors=True)
-
         self.save_states()
 
     def mark_uninstalled(self, plugin_id: str) -> None:
@@ -259,30 +230,16 @@ class PluginManager(QObject):
             return False
 
         try:
-            # Load the plugin module.
-            try:
-                module = importlib.import_module(f"frontend.plugins.{plugin_id}")
-            except (ImportError, ModuleNotFoundError):
-                try:
-                    module = importlib.import_module(f"frontend.plugins.core.{plugin_id}")
-                except (ImportError, ModuleNotFoundError):
-                    init_file = plugin_dir / "__init__.py" if plugin_dir else None
-                    if init_file and init_file.exists():
-                        mod_name = f"theta_plugin_{plugin_id}"
-                        spec = importlib.util.spec_from_file_location(
-                            mod_name, init_file, submodule_search_locations=[str(plugin_dir)]
-                        )
-                        if spec is None or spec.loader is None:
-                            raise ImportError(f"Cannot load spec from {init_file}")
-                        module = importlib.util.module_from_spec(spec)
-                        module.__path__ = [str(plugin_dir)]
-                        sys.modules[mod_name] = module
-                        sys.modules[f"frontend.plugins.{plugin_id}"] = module
-                        spec.loader.exec_module(module)
-                    else:
-                        raise
-
-            plugin_cls = getattr(module, manifest.entry_point)
+            from src.app.components.lifecycle import validate_dependencies, dependency_ids
+            from src.app.components.transactions import provider_lease
+            from src.app.core.provider_catalog import get_catalog
+            from src.app.core.provider_loader import load_capability
+            package, capability = self._provider_packages[plugin_id]
+            validate_dependencies(get_catalog(self.paths, app_roots=self.plugin_dirs), package.manifest)
+            lease = provider_lease(self.paths, [package.id, *dependency_ids(get_catalog(self.paths), package.manifest)], purpose=f"loaded app plugin {plugin_id}; disable it before replacement")
+            lease.__enter__()
+            self._leases[plugin_id] = lease
+            plugin_cls = load_capability(package, capability, paths=self.paths)
             instance: Plugin = plugin_cls(manifest)
 
             store = getattr(self.window, "store", None)
@@ -303,6 +260,8 @@ class PluginManager(QObject):
             return True
 
         except Exception as exc:
+            lease = self._leases.pop(plugin_id, None)
+            if lease: lease.__exit__(None, None, None)
             self.window.log(f"Failed to activate plugin {plugin_id}: {exc}")
             import traceback
             traceback.print_exc()
@@ -316,21 +275,27 @@ class PluginManager(QObject):
         instance = self.instances.get(plugin_id)
         if instance and not instance.can_deactivate():
             return False
-        instance = self.instances.pop(plugin_id, None)
-        context = self.contexts.pop(plugin_id, None)
+        instance = self.instances.get(plugin_id)
+        context = self.contexts.get(plugin_id)
 
         if instance:
             try:
                 instance.deactivate()
             except Exception as exc:
-                self.window.log(f"Error during deactivation of plugin {plugin_id}: {exc}")
+                self.window.log(f"Plugin {plugin_id} could not unload; restart before replacing it: {exc}")
+                return False
 
         if context:
             try:
                 context.cleanup()
             except Exception as exc:
-                self.window.log(f"Error cleaning up context for {plugin_id}: {exc}")
+                self.window.log(f"Plugin {plugin_id} cleanup failed; restart before replacing it: {exc}")
+                return False
 
+        self.instances.pop(plugin_id, None)
+        self.contexts.pop(plugin_id, None)
+        lease = self._leases.pop(plugin_id, None)
+        if lease: lease.__exit__(None, None, None)
         self.enabled_states[plugin_id] = False
         if self._settings is not None and self._settings.default_text_editor == plugin_id:
             self._settings.default_text_editor = "system"
@@ -347,22 +312,22 @@ class PluginManager(QObject):
         """Safely deactivate all running plugins on application exit without changing saved enabled states."""
         if check and not self.can_shutdown():
             return False
-        for pid in list(self.instances.keys()):
-            instance = self.instances.pop(pid, None)
-            context = self.contexts.pop(pid, None)
-            if instance:
-                try:
-                    instance.deactivate()
-                except Exception as exc:
-                    self.window.log(f"Error during shutdown deactivation of plugin {pid}: {exc}")
-            if context:
-                try:
-                    context.cleanup()
-                except Exception as exc:
-                    self.window.log(f"Error cleaning up context during shutdown for {pid}: {exc}")
-        self.instances.clear()
-        self.contexts.clear()
-        return True
+        failed = set()
+        for pid in list(self.instances):
+            instance, context = self.instances[pid], self.contexts.get(pid)
+            try:
+                instance.deactivate()
+                if context: context.cleanup()
+            except Exception as exc:
+                failed.add(pid)
+                self.window.log(f"Plugin {pid} could not unload; replacement requires process exit: {exc}")
+                continue
+            self.instances.pop(pid, None)
+            self.contexts.pop(pid, None)
+        for pid in list(self._leases):
+            if pid not in failed:
+                self._leases.pop(pid).__exit__(None, None, None)
+        return not failed
 
     # ── Events ───────────────────────────────────────────────────────────────
 

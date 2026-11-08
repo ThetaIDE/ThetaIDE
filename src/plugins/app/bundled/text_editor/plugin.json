@@ -1,0 +1,13 @@
+{
+  "id": "text_editor",
+  "name": "Text Editor",
+  "version": "1.0.0",
+  "description": "Tabbed CodeMirror 6 editor for code, configs, and notes. Enabling selects it as Theta's default text editor.",
+  "author": "ThetaIDE Team",
+  "default_enabled": false,
+  "icon": "editor",
+  "kind": "plugin",
+  "entry_point": "TextEditorPlugin",
+  "storage_version": 2,
+  "api_version": 1
+}

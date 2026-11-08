@@ -13,7 +13,7 @@ from src.app.pipeline.tuners import get_tuner
 
 
 def test_missing_component_fails_instead_of_falling_back_to_optuna(monkeypatch):
-    monkeypatch.setattr("src.app.core.plugin_discovery.discover_entry_points", lambda group: {})
+    monkeypatch.setattr("src.app.core.provider_loader.resolve_provider", lambda kind, name: None)
     with pytest.raises(ConfigurationError, match="not installed"):
         get_tuner({"tuning": {"component": "missing"}})
 
@@ -21,7 +21,7 @@ def test_missing_component_fails_instead_of_falling_back_to_optuna(monkeypatch):
 def test_incompatible_component_contract_is_rejected(monkeypatch):
     class OldTuner:
         api_version = 0
-    monkeypatch.setattr("src.app.core.plugin_discovery.discover_entry_points", lambda group: {"old": OldTuner})
+    monkeypatch.setattr("src.app.core.provider_loader.resolve_provider", lambda kind, name: OldTuner if (kind, name) == ("tuner", "old") else None)
     with pytest.raises(ConfigurationError, match="api_version = 1"):
         get_tuner(name="old")
 
@@ -211,8 +211,8 @@ def test_other_tuner_owns_compilation_and_lifecycle(monkeypatch):
             events.append(("finalize", group, experiment, method, storage, study))
 
     monkeypatch.setattr(
-        "src.app.core.plugin_discovery.discover_entry_points",
-        lambda group: {"example": ExampleTuner} if group == "theta.tuners" else {},
+        "src.app.core.provider_loader.resolve_provider",
+        lambda kind, name: ExampleTuner if (kind, name) == ("tuner", "example") else None,
     )
     cfg = OmegaConf.create({
         "group": "g", "experiment_id": "e", "paradigm": "online_rl",
@@ -249,7 +249,7 @@ def test_slurm_uses_the_selected_tuners_runner_and_finalizer(tmp_path, monkeypat
         def finalize(self, group, experiment, method, storage, study): pass
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("src.app.core.plugin_discovery.discover_entry_points", lambda group: {"example": ExampleTuner})
+    monkeypatch.setattr("src.app.core.provider_loader.resolve_provider", lambda kind, name: ExampleTuner if (kind, name) == ("tuner", "example") else None)
     monkeypatch.setattr(slurm_runner, "generate_sbatch_header", lambda **kwargs: "#!/bin/bash\n")
     monkeypatch.setattr(slurm_runner, "get_shell_env_block", lambda site: "")
     monkeypatch.setattr(slurm_runner, "get_shell_python_cmd", lambda site: "python")
@@ -307,7 +307,8 @@ def test_independently_installed_tuner_runs_and_produces_plotman_artifacts(tmp_p
         "run_experiment_plots('g/e')\n",
         encoding="utf-8",
     )
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(target), str(project)]), "MPLBACKEND": "Agg"}
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(target), str(project)]), "MPLBACKEND": "Agg",
+           "THETA_WORKSPACE": str(tmp_path), "THETA_DATA_DIR": str(tmp_path / '.thetaide')}
     result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / "results/checkpoints/g/e/m/best_params.yaml").read_text().strip() == "agent.lr: 0.1"

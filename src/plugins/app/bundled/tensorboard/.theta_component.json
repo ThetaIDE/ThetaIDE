@@ -1,0 +1,25 @@
+{
+  "id": "tensorboard",
+  "name": "TensorBoard",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "tensorboard",
+      "kind": "plugin",
+      "entry_point": "__init__.py:TensorBoardPlugin"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "server.py",
+      "__init__.py",
+      "panel.py"
+    ],
+    "resources": [],
+    "configs": {}
+  },
+  "config_paths": []
+}

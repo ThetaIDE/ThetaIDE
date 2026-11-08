@@ -92,6 +92,10 @@ temp/
 !/in/envs/.gitkeep
 /in/rules/*
 !/in/rules/.gitkeep
+# Old rules location is unsupported; component payloads use the research tree below.
+/in/rules
+/src/usr/rules/*
+!/src/usr/rules/.gitkeep
 /in/config/agent/*
 !/in/config/agent/.gitkeep
 /in/config/experiment/*
@@ -117,3 +121,16 @@ temp/
 !/src/usr/models/sequential_spec/
 
 /docs
+
+# Managed extensions are per-workspace payloads; bundled source and assets ship.
+/src/plugins/components/installed/
+/src/plugins/app/installed/
+!/src/plugins/app/bundled/**/assets/
+# User implementations can be versioned independently; preserve existing per-kind ignore policy.
+
+# Public provider documentation.
+!/docs/
+/docs/*
+!/docs/API.md
+!/docs/PLUGIN_STORAGE.md
+!/docs/PLUGIN_NATIVE_INTEGRATION.md

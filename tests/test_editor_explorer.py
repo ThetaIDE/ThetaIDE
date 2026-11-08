@@ -169,3 +169,25 @@ def test_folders_sort_first_and_all_entries_have_icons(explorer, tmp_path):
     entries = [model.index(row, 0, root) for row in range(5)]
     assert [index.data() for index in entries] == ["B_folder", "z_folder", "a.py", "B.py", "Z.py"]
     assert all(not index.data(Qt.ItemDataRole.DecorationRole).isNull() for index in entries)
+
+
+def test_double_click_folder_and_parent_navigation(explorer, tmp_path):
+    folder = tmp_path / "nested"
+    folder.mkdir()
+    (folder / "file.py").write_text("pass")
+    related = tmp_path.parent / (tmp_path.name + "-related.txt")
+    explorer.open_root(tmp_path, [related])
+    wait_for(lambda: index_for(explorer, folder).isValid())
+    index = index_for(explorer, folder)
+    QTest.mouseClick(explorer.source_tree.viewport(), Qt.MouseButton.LeftButton,
+                     pos=explorer.source_tree.visualRect(index).center())
+    QTest.mouseDClick(explorer.source_tree.viewport(), Qt.MouseButton.LeftButton,
+                      pos=explorer.source_tree.visualRect(index).center())
+    wait_for(lambda: explorer.root == folder)
+    assert explorer._related_paths == (related,)
+    explorer.up_button.click()
+    assert explorer.root == tmp_path
+    assert explorer._related_paths == (related,)
+    explorer.up_button.click()
+    assert explorer.root == tmp_path.parent
+    assert explorer.related_section.isHidden()

@@ -52,21 +52,17 @@ class RLDataModule(L.LightningDataModule, BaseDataModule):
             ):
                 preprocess_script = self.cfg.env.get("preprocess_script", None)
                 if not preprocess_script:
-                    env_name = self.cfg.env.get("name", getattr(self.cfg.env, "id", "env"))
-                    candidate = Path(f"in/envs/{env_name}/tools/preprocess_{env_name}_per_problem.py")
-                    if candidate.exists():
-                        preprocess_script = str(candidate)
-                    else:
-                        candidate2 = Path(f"in/envs/{env_name}/tools/preprocess.py")
-                        if candidate2.exists():
-                            preprocess_script = str(candidate2)
+                    raise ValueError('preprocess_on_load requires an explicit env.preprocess_script package URI or path')
 
+                if preprocess_script:
+                    from src.app.core.provider_loader import resolve_resource
+                    preprocess_script = str(resolve_resource(preprocess_script))
                 if preprocess_script and Path(preprocess_script).exists():
                     print(f"[RLDataModule] Dataset missing at '{dataset_path}'. Auto-running {preprocess_script}...")
                     import subprocess
                     import sys
 
-                    subprocess.run([sys.executable, str(preprocess_script)], check=True)
+                    subprocess.run([sys.executable, "-m", "src.app.pipeline.provider_worker", str(preprocess_script)], check=True)
 
             full_reader = DatasetReader(self.cfg.dataset_path)
 

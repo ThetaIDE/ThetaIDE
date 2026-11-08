@@ -1,0 +1,31 @@
+{
+  "id": "model_builder",
+  "name": "Visual Model Builder",
+  "kind": "plugin",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "model_builder",
+      "kind": "plugin",
+      "entry_point": "__init__.py:ModelBuilderPlugin"
+    }
+  ],
+  "dependencies": {
+    "components": [
+      "sequential_spec"
+    ]
+  },
+  "payload": {
+    "implementations": [
+      "dialog.py",
+      "graph.py",
+      "__init__.py",
+      "canvas.py"
+    ],
+    "resources": [],
+    "configs": {}
+  },
+  "config_paths": []
+}

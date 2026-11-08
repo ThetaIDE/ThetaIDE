@@ -1,0 +1,18 @@
+{
+  "id": "model_builder",
+  "name": "Visual Model Builder",
+  "version": "1.0.0",
+  "description": "Optional visual editor for designing neural networks and saving them as model configs. When enabled, adds a Design... button beside the model picker in the Experiment panel.",
+  "author": "ThetaIDE Team",
+  "default_enabled": false,
+  "icon": "components",
+  "kind": "plugin",
+  "entry_point": "ModelBuilderPlugin",
+  "dependencies": {
+    "components": [
+      "sequential_spec"
+    ]
+  },
+  "storage_version": 2,
+  "api_version": 1
+}
