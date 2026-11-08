@@ -227,7 +227,9 @@ class HubComponentCard(QFrame):
             self.btn_edit.setEnabled(self.component.is_installed)
             self.btn_edit.clicked.connect(self._edit_component)
             management.addWidget(self.btn_edit)
-            self.btn_deep_copy = QPushButton("Create editable copy")
+            # Visibility is set before layout insertion, so parent it now to
+            # avoid briefly showing a separate native window on first load.
+            self.btn_deep_copy = QPushButton("Create editable copy", self)
             self.btn_deep_copy.setVisible(self.component.kind not in ("experiment",))
             self.btn_deep_copy.setEnabled(self.component.is_installed)
             self.btn_deep_copy.clicked.connect(self._deep_copy_component)
