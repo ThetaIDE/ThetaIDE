@@ -104,6 +104,22 @@ class PluginScaffolder:
                 error=str(exc),
             )
 
+    def _native_metadata(self, meta, target_dir, code_file, class_name, cfg_file):
+        import shutil
+        from src.app.core.provider_catalog import kind_name
+        relative = 'configs/' + cfg_file.relative_to(self.workspace_root / 'in/config').as_posix()
+        packaged = target_dir / relative
+        packaged.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cfg_file, packaged)
+        kind = kind_name(meta['kind'])
+        meta.pop('target_path', None)
+        meta.update(storage_version=2, api_version=1,
+                    capabilities=[{'id':meta['id'], 'kind':kind, 'entry_point':code_file.name+':'+class_name}],
+                    config_paths=[meta['config_path']],
+                    payload={'implementations':[code_file.name, '__init__.py'], 'resources':[],
+                             'configs':{meta['config_path']:relative}})
+        if kind == 'env': meta['capabilities'][0]['resource_root'] = '.'
+
     def _scaffold_model(self, name: str, opts: ScaffoldOptions) -> ScaffoldResult:
         target_dir = opts.output_dir or (self.workspace_root / "src" / "usr" / "models" / name)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -199,24 +215,14 @@ hidden_sizes: [64, 64]
             },
         }
         meta_file = target_dir / ".theta_component.json"
+        self._native_metadata(meta, target_dir, code_file, class_name, cfg_file)
         meta_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         created.append(meta_file)
 
-        plugin_json_file = target_dir / "plugin.json"
-        plugin_json_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        created.append(plugin_json_file)
 
         # 5. pyproject.toml for standard entry points
         pyproject_file = target_dir / "pyproject.toml"
-        pyproject_content = f"""[project]
-name = "theta-model-{name}"
-version = "{opts.version}"
-description = "{desc}"
-dependencies = ["torch>=2.0.0"]
-
-[project.entry-points."theta.models"]
-{name} = "src.usr.models.{name}.{name}_model:{class_name}"
-"""
+        pyproject_content = '[tool.theta]\nformat = "native-archive"\nmanifest = ".theta_component.json"\n'
         pyproject_file.write_text(pyproject_content, encoding="utf-8")
         created.append(pyproject_file)
 
@@ -243,7 +249,7 @@ import torch.optim as optim
 
 from src.app.core.model_registry import build_model
 from src.app.core.protocols import AuxiliaryLossProtocol, OptimizerGroupsProtocol
-from src.usr.algorithms.agent_registry import register_agent, register_algorithm
+from src.app.core.agent_registry import register_agent, register_algorithm
 
 
 @register_algorithm("{name}")
@@ -329,31 +335,21 @@ epochs: 10
             "paradigms": paradigms,
         }
         meta_file = target_dir / ".theta_component.json"
+        self._native_metadata(meta, target_dir, code_file, class_name, cfg_file)
         meta_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         created.append(meta_file)
 
-        plugin_json_file = target_dir / "plugin.json"
-        plugin_json_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        created.append(plugin_json_file)
 
         # 5. pyproject.toml
         pyproject_file = target_dir / "pyproject.toml"
-        pyproject_content = f"""[project]
-name = "theta-agent-{name}"
-version = "{opts.version}"
-description = "{desc}"
-dependencies = ["torch>=2.0.0", "lightning>=2.0.0"]
-
-[project.entry-points."theta.agents"]
-{name} = "src.usr.algorithms.{name}.{name}_agent:{class_name}"
-"""
+        pyproject_content = '[tool.theta]\nformat = "native-archive"\nmanifest = ".theta_component.json"\n'
         pyproject_file.write_text(pyproject_content, encoding="utf-8")
         created.append(pyproject_file)
 
         return ScaffoldResult(success=True, component_id=name, target_dir=target_dir, created_files=created)
 
     def _scaffold_env(self, name: str, opts: ScaffoldOptions) -> ScaffoldResult:
-        target_dir = opts.output_dir or (self.workspace_root / "in" / "envs" / name)
+        target_dir = opts.output_dir or (self.paths.user("env") / name)
         target_dir.mkdir(parents=True, exist_ok=True)
         created: list[Path] = []
 
@@ -416,6 +412,27 @@ class {class_name}(EnvironmentPluginProtocol):
     def get_logic_valuation_hook(cls) -> Optional[Callable]:
         return None
 '''
+        env_content += f'''
+
+from src.app.core.env_vectorized import VectorizedBaseEnv, ActionCount
+import torch
+
+class VectorizedEnv(VectorizedBaseEnv):
+    def __init__(self, name="{name}", n_envs=1, mode="ppo", **kwargs):
+        super().__init__()
+        self.mode = mode
+        self.name = name
+        self.venv = gym.vector.SyncVectorEnv([lambda: {name.capitalize()}GymEnv() for _ in range(n_envs)])
+        self.observation_space = self.venv.single_observation_space
+        self.n_actions = ActionCount(self.venv.single_action_space.n)
+    def reset(self, seed=None):
+        obs, _ = self.venv.reset(seed=seed)
+        return torch.as_tensor(obs)
+    def step(self, actions, **kwargs):
+        if torch.is_tensor(actions): actions = actions.detach().cpu().numpy()
+        obs, rewards, terminations, truncations, info = self.venv.step(actions)
+        return torch.as_tensor(obs), rewards, terminations, truncations, info
+'''
         env_file.write_text(env_content, encoding="utf-8")
         created.append(env_file)
 
@@ -444,8 +461,8 @@ env:
         cfg_file.write_text(cfg_yaml, encoding="utf-8")
         created.append(cfg_file)
 
-        # 4. Optional starter domain rules in in/rules/<name>/rules.pl
-        rules_dir = self.workspace_root / "in" / "rules" / name
+        # 4. Optional starter domain rules in the research resources tree.
+        rules_dir = self.workspace_root / "src/usr/rules" / name
         rules_dir.mkdir(parents=True, exist_ok=True)
         rules_file = rules_dir / "default.rules"
         rules_file.write_text(
@@ -463,17 +480,15 @@ env:
             "description": desc,
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "target_path": f"in/envs/{name}",
+            "target_path": f"src/usr/environments/{name}",
             "config_path": f"in/config/env/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
+        self._native_metadata(meta, target_dir, env_file, "VectorizedEnv", cfg_file)
         meta_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         created.append(meta_file)
 
-        plugin_json_file = target_dir / "plugin.json"
-        plugin_json_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        created.append(plugin_json_file)
 
         return ScaffoldResult(success=True, component_id=name, target_dir=target_dir, created_files=created)
 
@@ -567,12 +582,10 @@ num_workers: 0
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
+        self._native_metadata(meta, target_dir, code_file, class_name, cfg_file)
         meta_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         created.append(meta_file)
 
-        plugin_json_file = target_dir / "plugin.json"
-        plugin_json_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        created.append(plugin_json_file)
 
         return ScaffoldResult(success=True, component_id=name, target_dir=target_dir, created_files=created)
 
@@ -647,17 +660,15 @@ frequency: 1
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
+        self._native_metadata(meta, target_dir, code_file, class_name, cfg_file)
         meta_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         created.append(meta_file)
 
-        plugin_json_file = target_dir / "plugin.json"
-        plugin_json_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        created.append(plugin_json_file)
 
         return ScaffoldResult(success=True, component_id=name, target_dir=target_dir, created_files=created)
 
     def _scaffold_plotter(self, name: str, opts: ScaffoldOptions) -> ScaffoldResult:
-        target_dir = opts.output_dir or (self.workspace_root / "plot" / name)
+        target_dir = opts.output_dir or (self.paths.user("plotter") / name)
         target_dir.mkdir(parents=True, exist_ok=True)
         created: list[Path] = []
 
@@ -674,7 +685,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from plot.base import BasePlotter, clean_label, get_style_info, moving_average
+from src.app.core.plotting.base import BasePlotter, clean_label, get_style_info, moving_average
 from src.app.core.plotter_registry import register_plotter
 
 
@@ -727,16 +738,14 @@ output_dir: null
             "description": desc,
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "target_path": f"plot/{name}",
+            "target_path": f"src/usr/plotters/{name}",
             "config_path": f"in/config/plot/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
+        self._native_metadata(meta, target_dir, code_file, class_name, config_file)
         meta_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         created.append(meta_file)
 
-        plugin_json_file = target_dir / "plugin.json"
-        plugin_json_file.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        created.append(plugin_json_file)
 
         return ScaffoldResult(success=True, component_id=name, target_dir=target_dir, created_files=created)

@@ -85,6 +85,26 @@ class HubComponent:
     installed_version: str | None = None
 
     @property
+    def storage_version(self) -> int:
+        return self.extra.get("storage_version", 1)
+
+    @property
+    def api_version(self) -> int:
+        return self.extra.get("api_version", 1)
+
+    @property
+    def capabilities(self) -> list[dict[str, Any]]:
+        return self.extra.get("capabilities", [])
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return self.extra.get("payload", {})
+
+    @property
+    def dependencies(self) -> dict[str, Any]:
+        return self.extra.get("dependencies", {})
+
+    @property
     def has_update(self) -> bool:
         if not self.is_installed or not self.installed_version:
             return False

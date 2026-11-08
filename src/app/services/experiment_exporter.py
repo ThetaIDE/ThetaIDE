@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set
 import yaml
 
 from . import PROJECT_ROOT
+from src.app.workspace import WorkspacePaths
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +101,8 @@ class ExperimentExporter:
         opts = options or ExportOptions()
 
         try:
+            from src.app.services.rulesets import require_canonical_rules_layout, reject_legacy_rules_paths
+            require_canonical_rules_layout(self.workspace_root)
             group, exp_name, exp_yaml_path = self._resolve_experiment_path(experiment_id_or_path)
             if not exp_yaml_path.exists():
                 return ExportResult(
@@ -116,6 +119,7 @@ class ExperimentExporter:
                     error=f"Failed to parse experiment YAML '{exp_yaml_path}': {e}",
                 )
 
+            reject_legacy_rules_paths(raw_cfg)
             # Dictionary mapping workspace-relative posix path -> source absolute Path
             files_to_pack: Dict[str, Path] = {}
 
@@ -128,12 +132,18 @@ class ExperimentExporter:
 
             # 3. Environment configs, wrappers, and valuation rules
             env_name = self._resolve_env_name(raw_cfg, group)
-            if opts.include_environment and env_name:
-                self._trace_environment_assets(env_name, files_to_pack)
+            environment = raw_cfg.get("env")
+            if isinstance(environment, dict):
+                environment = {"name": env_name, **environment}
+            else:
+                environment = environment or env_name
+            if opts.include_environment and environment:
+                self._trace_environment_assets(environment, files_to_pack)
 
-            # 4. Domain rules (in/rules/<env>/)
-            if opts.include_rules and env_name:
-                self._trace_rules(env_name, files_to_pack)
+            # 4. Canonical domain rules, including ruleset-owned predicates.
+            if opts.include_rules:
+                if environment:
+                    self._trace_rules(environment, files_to_pack)
 
             # 5. Model architectures and agent configs
             agents_found: Set[str] = set()
@@ -176,6 +186,8 @@ class ExperimentExporter:
                 output_path = Path(output_path)
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
+            # Managed implementations keep separate dependency ownership in an export.
+            self._package_dependencies = self._managed_dependencies(files_to_pack)
             # 7. Generate metadata manifest (.theta_component.json)
             manifest = self._generate_manifest(
                 group=group,
@@ -197,6 +209,8 @@ class ExperimentExporter:
                     error=f"Export manifest failed schema validation: {schema_err}",
                 )
 
+            self._validate_output(manifest, files_to_pack)
+
             # 8. Generate README.md
             readme_content = self._generate_readme(group, exp_name, env_name, opts)
 
@@ -209,7 +223,7 @@ class ExperimentExporter:
                 # Store all packaged assets with their relative workspace path
                 for rel_path, abs_path in sorted(files_to_pack.items()):
                     if abs_path.is_file():
-                        zf.write(abs_path, arcname=rel_path)
+                        zf.write(abs_path, arcname=('configs/'+rel_path.removeprefix('in/config/') if rel_path.startswith('in/config/') else rel_path))
 
             file_list = sorted(list(files_to_pack.keys()) + [".theta_component.json", "README.md"])
             log.info("Exported experiment '%s/%s' (%d files) to %s", group, exp_name, len(file_list), output_path)
@@ -336,140 +350,53 @@ class ExperimentExporter:
         direct_yml = root / f"{name}.yml"
         if direct_yml.is_file():
             return direct_yml
-        for p in sorted(root.rglob(f"{name}.yaml")):
-            if p.is_file():
-                return p
-        for p in sorted(root.rglob(f"{name}.yml")):
-            if p.is_file():
-                return p
         return None
 
-    def _trace_environment_assets(self, env_name: str, files_to_pack: Dict[str, Path]) -> None:
-        """Trace environment YAML config and custom environment code directory."""
-        # 1. in/config/env/<env_name>.yaml (direct or recursive)
-        env_yaml = self._find_config_file("env", env_name)
-        if env_yaml and env_yaml.is_file():
-            rel = env_yaml.relative_to(self.workspace_root).as_posix()
-            files_to_pack[rel] = env_yaml
+    def _trace_declared_provider(self, kind, selector, files_to_pack):
+        from src.app.core.provider_catalog import get_catalog
+        catalog = get_catalog(WorkspacePaths(self.workspace_root))
+        selected = catalog.resolve(kind, str(selector))
+        if selected is None: raise ValueError(f"No declared {kind} provider for {selector!r}; export/install its native package first")
+        package, cap = selected
+        if package.origin == 'python_distribution': return
+        # Managed providers retain independent ownership and become pinned dependencies.
+        for path in package.root.rglob('*'):
+            if path.is_file() and not any(v in path.parts for v in ('__pycache__','.git','node_modules')):
+                if path.name == '.theta_component.json': continue
+                try: relative = path.relative_to(self.workspace_root).as_posix()
+                except ValueError: continue
+                files_to_pack[relative] = path
+        for dest in package.manifest.get('payload',{}).get('configs',{}):
+            path = self.workspace_root / dest
+            if path.is_file(): files_to_pack[dest] = path
 
-        # 2. in/envs/<env_name>/
-        env_code_dir = self.workspace_root / "in" / "envs" / env_name
-        if env_code_dir.is_dir():
-            for p in sorted(env_code_dir.rglob("*")):
-                if p.is_file() and "__pycache__" not in p.parts:
-                    rel = p.relative_to(self.workspace_root).as_posix()
-                    files_to_pack[rel] = p
+    def _trace_environment_assets(self, env_name, files_to_pack):
+        from collections.abc import Mapping
+        selector = env_name.get('name') if isinstance(env_name,Mapping) else env_name
+        if selector: self._trace_declared_provider('env',selector,files_to_pack)
 
     def _trace_rules(self, env_name: str, files_to_pack: Dict[str, Path]) -> None:
         """Trace domain logic rules for the environment."""
-        rules_dir = self.workspace_root / "in" / "rules" / env_name
-        if rules_dir.is_dir():
-            for p in sorted(rules_dir.rglob("*")):
+        from src.app.services.rulesets import available_rulesets
+        for resource in available_rulesets(self.workspace_root, env_name):
+            for p in sorted(resource.directory.rglob("*")):
                 if p.is_file() and "__pycache__" not in p.parts:
-                    rel = p.relative_to(self.workspace_root).as_posix()
+                    rel = f"resources/rules/{resource.environment}/{resource.name}/{p.relative_to(resource.directory).as_posix()}"
                     files_to_pack[rel] = p
 
-    def _trace_evaluators(
-        self,
-        group: str,
-        env_name: str | None,
-        files_to_pack: Dict[str, Path],
-        raw_cfg: Dict[str, Any] | None = None,
-    ) -> None:
-        """Trace evaluator implementations and YAML configurations."""
-        candidates = {group}
-        if env_name:
-            candidates.add(env_name)
-        if raw_cfg:
-            for k in ("evaluator", "evaluators"):
-                candidates.update(_component_names(raw_cfg.get(k)))
+    def _trace_evaluators(self, group, env_name, files_to_pack, raw_cfg=None):
+        for key in ('evaluator','evaluators'):
+            for name in _component_names((raw_cfg or {}).get(key)):
+                self._trace_declared_provider('evaluator',name,files_to_pack)
 
-        for name in candidates:
-            eval_dir = self.workspace_root / "src" / "usr" / "eval" / name
-            if eval_dir.is_dir():
-                for p in sorted(eval_dir.rglob("*")):
-                    if p.is_file() and "__pycache__" not in p.parts:
-                        files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-            else:
-                eval_file = self.workspace_root / "src" / "usr" / "eval" / f"{name}.py"
-                if eval_file.is_file():
-                    files_to_pack[eval_file.relative_to(self.workspace_root).as_posix()] = eval_file
+    def _trace_plotters(self, group, env_name, files_to_pack, raw_cfg=None):
+        for name in _plot_names((raw_cfg or {}).get('plots')):
+            self._trace_declared_provider('plotter',name,files_to_pack)
 
-            cfg1 = self.workspace_root / "in" / "config" / "eval" / f"{name}.yaml"
-            if cfg1.is_file():
-                files_to_pack[cfg1.relative_to(self.workspace_root).as_posix()] = cfg1
-            cfg_dir = self.workspace_root / "in" / "config" / "eval" / name
-            if cfg_dir.is_dir():
-                for p in sorted(cfg_dir.rglob("*.yaml")):
-                    files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-
-    def _trace_plotters(
-        self, group: str, env_name: str | None, files_to_pack: Dict[str, Path], raw_cfg: Dict[str, Any] | None = None
-    ) -> None:
-        """Trace plotters and visualization configs."""
-        candidates = {group}
-        if env_name:
-            candidates.add(env_name)
-        if raw_cfg:
-            candidates.update(_plot_names(raw_cfg.get("plots")))
-
-        for name in candidates:
-            plot_dir = self.workspace_root / "plot" / name
-            if plot_dir.is_dir():
-                for p in sorted(plot_dir.rglob("*")):
-                    if p.is_file() and "__pycache__" not in p.parts:
-                        files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-            else:
-                plot_file = self.workspace_root / "plot" / f"{name}.py"
-                if plot_file.is_file():
-                    files_to_pack[plot_file.relative_to(self.workspace_root).as_posix()] = plot_file
-                else:
-                    for p in sorted((self.workspace_root / "plot").rglob(f"{name}.py")):
-                        files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-
-            pcfg_dir = self.workspace_root / "in" / "config" / "plot" / name
-            if pcfg_dir.is_dir():
-                for p in sorted(pcfg_dir.rglob("*.yaml")):
-                    files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-            else:
-                for p in sorted((self.workspace_root / "in" / "config" / "plot").rglob(f"{name}.yaml")):
-                    files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-
-    def _trace_data_modules(
-        self,
-        group: str,
-        env_name: str | None,
-        files_to_pack: Dict[str, Path],
-        raw_cfg: Dict[str, Any] | None = None,
-    ) -> None:
-        """Trace data modules and configurations."""
-        candidates = {group}
-        if env_name:
-            candidates.add(env_name)
-        if raw_cfg:
-            for k in ("data_module", "datamodule", "data"):
-                for name in _component_names(raw_cfg.get(k)):
-                    candidates.add(name)
-                    candidates.add(re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower())
-
-        for name in candidates:
-            data_dir = self.workspace_root / "src" / "usr" / "data" / name
-            if data_dir.is_dir():
-                for p in sorted(data_dir.rglob("*")):
-                    if p.is_file() and "__pycache__" not in p.parts:
-                        files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-            else:
-                data_file = self.workspace_root / "src" / "usr" / "data" / f"{name}.py"
-                if data_file.is_file():
-                    files_to_pack[data_file.relative_to(self.workspace_root).as_posix()] = data_file
-
-            dcfg_dir = self.workspace_root / "in" / "config" / "data" / name
-            if dcfg_dir.is_dir():
-                for p in sorted(dcfg_dir.rglob("*.yaml")):
-                    files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-            dcfg_file = self.workspace_root / "in" / "config" / "data" / f"{name}.yaml"
-            if dcfg_file.is_file():
-                files_to_pack[dcfg_file.relative_to(self.workspace_root).as_posix()] = dcfg_file
+    def _trace_data_modules(self, group, env_name, files_to_pack, raw_cfg=None):
+        for key in ('data_module','datamodule','data'):
+            for name in _component_names((raw_cfg or {}).get(key)):
+                self._trace_declared_provider('datamodule',name,files_to_pack)
 
     def _trace_workflows(
         self,
@@ -527,27 +454,23 @@ class ExperimentExporter:
         env_name: str | None = None
 
         for exp_yaml in sorted(group_dir.rglob("*.yaml")):
-            try:
-                cfg = yaml.safe_load(exp_yaml.read_text(encoding="utf-8")) or {}
-                if not env_name:
-                    env_name = self._resolve_env_name(cfg, group)
-                if "paradigm" in cfg and cfg["paradigm"]:
-                    paradigms_found.add(str(cfg["paradigm"]))
-                if "workflow" in cfg and cfg["workflow"]:
-                    workflows_found.add(str(cfg["workflow"]))
-                if "data_module" in cfg and cfg["data_module"]:
-                    data_modules_found.update(_component_names(cfg["data_module"]))
-                if "evaluator" in cfg and cfg["evaluator"]:
-                    evaluators_found.update(_component_names(cfg["evaluator"]))
-                plotters_found.update(_plot_names(cfg.get("plots")))
-                self._trace_methods_and_models(
-                    cfg, files_to_pack, agents_found, models_found, include_models=opts.include_models
-                )
-            except Exception:
-                pass
+            cfg = yaml.safe_load(exp_yaml.read_text(encoding="utf-8")) or {}
+            if not env_name:
+                env_name = self._resolve_env_name(cfg, group)
+            if "paradigm" in cfg and cfg["paradigm"]:
+                paradigms_found.add(str(cfg["paradigm"]))
+            if "workflow" in cfg and cfg["workflow"]:
+                workflows_found.add(str(cfg["workflow"]))
+            if "data_module" in cfg and cfg["data_module"]:
+                data_modules_found.update(_component_names(cfg["data_module"]))
+            if "evaluator" in cfg and cfg["evaluator"]:
+                evaluators_found.update(_component_names(cfg["evaluator"]))
+            plotters_found.update(_plot_names(cfg.get("plots")))
+            self._trace_methods_and_models(
+                cfg, files_to_pack, agents_found, models_found, include_models=opts.include_models
+            )
 
-        if not env_name:
-            env_name = group
+
 
         # 3. Environment, rules, evaluators, plotters, data loaders, workflows
         if opts.include_environment and env_name:
@@ -583,6 +506,7 @@ class ExperimentExporter:
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        self._package_dependencies = self._managed_dependencies(files_to_pack)
         # 5. Manifest
         manifest = self._generate_manifest(
             group=group,
@@ -604,6 +528,7 @@ class ExperimentExporter:
                 error=f"Export manifest failed schema validation: {schema_err}",
             )
 
+        self._validate_output(manifest, files_to_pack)
         readme_content = self._generate_readme(group, "all", env_name, opts)
 
         with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -611,7 +536,7 @@ class ExperimentExporter:
             zf.writestr("README.md", readme_content + "\n")
             for rel_path, abs_path in sorted(files_to_pack.items()):
                 if abs_path.is_file():
-                    zf.write(abs_path, arcname=rel_path)
+                    zf.write(abs_path, arcname=('configs/'+rel_path.removeprefix('in/config/') if rel_path.startswith('in/config/') else rel_path))
 
         file_list = sorted(list(files_to_pack.keys()) + [".theta_component.json", "README.md"])
         log.info("Exported experiment group '%s' (%d files) to %s", group, len(file_list), output_path)
@@ -643,6 +568,7 @@ class ExperimentExporter:
             agent_name = m_cfg.get("agent")
             if agent_name and isinstance(agent_name, str):
                 agents_found.add(agent_name)
+                self._trace_declared_provider('algorithm',agent_name,files_to_pack)
                 # in/config/agent/<agent>.yaml (direct or recursive)
                 agent_yaml = self._find_config_file("agent", agent_name)
                 if agent_yaml and agent_yaml.is_file():
@@ -701,19 +627,8 @@ class ExperimentExporter:
                     rel = model_yaml.relative_to(self.workspace_root).as_posix()
                     files_to_pack[rel] = model_yaml
 
-                # If include_models is True and model lives in src/usr/models/<m>
                 if include_models:
-                    model_dir = self.workspace_root / "src" / "usr" / "models" / m
-                    if model_dir.is_dir():
-                        for p in sorted(model_dir.rglob("*")):
-                            if p.is_file() and "__pycache__" not in p.parts:
-                                rel = p.relative_to(self.workspace_root).as_posix()
-                                files_to_pack[rel] = p
-                    else:
-                        model_file = self.workspace_root / "src" / "usr" / "models" / f"{m}.py"
-                        if model_file.is_file():
-                            rel = model_file.relative_to(self.workspace_root).as_posix()
-                            files_to_pack[rel] = model_file
+                    self._trace_declared_provider('model',m,files_to_pack)
 
     def _trace_checkpoints(
         self,
@@ -728,6 +643,34 @@ class ExperimentExporter:
                 if p.is_file() and p.suffix in (".ckpt", ".pt", ".pth", ".json"):
                     rel = p.relative_to(self.workspace_root).as_posix()
                     files_to_pack[rel] = p
+
+    def _validate_output(self, manifest, files):
+        import tempfile, shutil
+        from src.app.components.archive import validate_native_package
+        with tempfile.TemporaryDirectory(prefix='theta-experiment-export-') as temporary:
+            root=Path(temporary)
+            for relative, source in files.items():
+                relative='configs/'+relative.removeprefix('in/config/') if relative.startswith('in/config/') else relative
+                dest=root/relative;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,dest)
+            validate_native_package(manifest,root)
+
+    def _managed_dependencies(self, files):
+        from src.app.core.provider_catalog import get_catalog
+        from src.app.workspace import WorkspacePaths
+        catalog = get_catalog(WorkspacePaths(self.workspace_root))
+        dependencies = {}
+        for relative, source in list(files.items()):
+            owners = [p for p in catalog.packages if p.origin in ('bundled', 'hub', 'local_archive', 'user') and Path(source).resolve().is_relative_to(p.root)]
+            if not owners: continue
+            owner = max(owners, key=lambda p: len(p.root.parts))
+            dependencies[owner.id] = {'id': owner.id, 'version': '==' + owner.version}
+            if not relative.startswith('in/config/'):
+                files.pop(relative)
+        # Optional checkpoints are reproducibility resources, never runtime results to deploy.
+        for relative in list(files):
+            if relative.startswith('results/'):
+                files['resources/' + relative] = files.pop(relative)
+        return list(dependencies.values())
 
     def _generate_manifest(
         self,
@@ -753,7 +696,6 @@ class ExperimentExporter:
             or f"Complete {group} experiment suite: recipes, group defaults, environment hooks, evaluators, and plotters.",
             "author": {"name": options.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "target_path": f"in/config/experiment/{group}",
             "config_paths": config_paths,
             "compatibility": {"theta": ">=2.0.0"},
             "environment": env_name,
@@ -765,6 +707,27 @@ class ExperimentExporter:
             manifest["entry_point"] = f"in/config/experiment/{group}/{exp_name}.yaml"
         if paradigms:
             manifest["paradigms"] = paradigms
+        manifest.update(storage_version=2, api_version=1,
+            payload={'implementations':[f for f in files if f.endswith('.py')],
+                     'configs':{f:'configs/'+f.removeprefix('in/config/') for f in config_paths},
+                     'resources':[f for f in files if f not in config_paths and not f.endswith('.py')]},
+            dependencies={'components':getattr(self, '_package_dependencies', [])})
+        manifest['capabilities'] = []
+        if any(f.startswith('resources/rules/') for f in files): manifest['rules_root'] = 'resources/rules'
+        profile_schemas = {}
+        for relative in files:
+            if not relative.endswith(('.theta_component.json','plugin.json')): continue
+            source = self.workspace_root / relative
+            if not source.is_file(): continue
+            metadata = json.loads(source.read_text())
+            schema = metadata.get('parameter_schema')
+            if not isinstance(schema, dict): continue
+            declared = [*metadata.get('config_paths', []), *([metadata['config_path']] if metadata.get('config_path') else [])]
+            for profile in declared:
+                if profile in config_paths:
+                    profile_schemas[profile] = schema.get('x-theta-config-schemas', {}).get(profile, schema)
+        if profile_schemas:
+            manifest['parameter_schema'] = {'type':'object','properties':{},'x-theta-config-schemas':profile_schemas}
         return manifest
 
     def _generate_readme(
@@ -788,7 +751,8 @@ class ExperimentExporter:
             "## Installation",
             "You can install this component directly into your Theta-IDE workspace:",
             "1. **Via Theta Hub GUI**: Open Theta-IDE -> Components -> Hub, and import this package archive.",
-            "2. **Manual Extraction**: Extract the archive directly into your Theta-IDE workspace root.",
+            "2. **CLI**: `python -m src.app.components --root /path/to/workspace install package.zip`.",
+            "Managed provider dependencies retain separate ownership; the package never writes implementation code into the workspace source tree.",
             "",
             "## Running the Experiment",
             "Execute using the unified Theta pipeline:",

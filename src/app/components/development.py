@@ -15,18 +15,14 @@ from .installer import HubInstaller
 
 class ComponentDevelopment:
     def __init__(self, workspace=None):
-        self.paths = workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(workspace) if workspace else WorkspacePaths()
+        self.paths = workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(workspace) if workspace else WorkspacePaths.for_process()
         self.installer = HubInstaller(self.paths.root, self.paths.data_dir)
         self.configs = ConfigurationFiles(self.paths)
 
     def _records(self):
-        records = []
-        for manifest in self.paths.manifests():
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-            if not data.get("id"):
-                raise ValueError(f"Component manifest has no identity: {manifest}")
-            records.append((manifest, data))
-        return records
+        from src.app.core.provider_catalog import get_catalog
+        return [(p.root / ".theta_component.json", {**p.manifest, "origin": p.origin, "writable": p.writable})
+                for p in get_catalog(self.paths).packages if p.origin != "python_distribution" and not p.manifest.get("legacy_loose")]
 
     def _resolve(self, reference):
         reference = str(reference)
@@ -79,23 +75,19 @@ class ComponentDevelopment:
                                           "names": [arg.value for arg in node.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]})
         return {"id": meta["id"], "name": meta.get("name", meta["id"]), "kind": meta.get("kind"),
                 "version": meta.get("version"), "source": str(manifest.parent), "manifest": str(manifest),
-                "origin": "hub" if meta.get("installed_from") and meta.get("origin") != "local" else "local",
+                "origin": meta.get("origin", "user"),
                 "read_only": self.installer.is_installed_file(manifest), "profiles": profiles,
                 "registrations": registrations, "source_digest": digest.hexdigest(),
                 "dependencies": meta.get("dependencies", {}), "parent": meta.get("parent"),
-                "copy_supported": meta.get("kind") == "model"}
+                "copy_supported": True, "writable": meta.get("writable", False)}
 
     def copy(self, reference, new_id, name=None):
         from src.app.services.local_components import LocalComponents
 
         manifest, meta = self._resolve(reference)
         info = self.inspect(reference)
-        if not info["copy_supported"]:
-            raise ValueError(f"Independent copying currently supports directory-based models; {meta.get('kind')} is unsupported. Source: {manifest.parent}")
-        profiles = info["profiles"]
-        primary = next((p["path"] for p in profiles if p["exists"]), manifest)
-        copied = LocalComponents(self.paths.root).deep_copy(primary, new_id, name)
-        return copied
+        from src.app.components.forking import fork_package
+        return fork_package(self.paths, meta["id"], new_id, name)
 
     def _validate_schema(self, meta, path, data):
         schema = meta.get("parameter_schema") or {}
@@ -120,17 +112,12 @@ class ComponentDevelopment:
             selector = data.get("architecture") or data.get("name") or data.get("type")
             if not isinstance(selector, str):
                 raise ValueError(f"Model profile needs an architecture, name, or type selector: {path}")
-            candidates = []
-            for manifest, meta in self._records():
-                if meta.get("kind") == "model":
-                    info = self.inspect(manifest)
-                    if selector == info["id"] or any(selector in r["names"] for r in info["registrations"] if r["function"] == "register_model"):
-                        candidates.append((info, meta))
-            if len(candidates) != 1:
-                raise ValueError(f"Model selector {selector!r} must identify exactly one implementation; found {len(candidates)}.")
+            from src.app.core.provider_catalog import get_catalog
+            selected = get_catalog(self.paths).resolve('model', selector)
+            if selected is None: raise ValueError(f"No declared model provider for {selector!r}")
+            package, capability = selected
+            candidates = [(self.inspect(package.id), package.manifest)]
             info, meta = candidates[0]
-            if not any(selector in r["names"] for r in info["registrations"] if r["function"] == "register_model"):
-                raise ValueError(f"No literal model registration for {selector!r} in {info['source']}.")
             self._validate_schema(meta, path, data)
             result["components"].append({**info, "selector": selector})
         else:

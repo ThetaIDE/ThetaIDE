@@ -47,7 +47,7 @@ def test_scaffold_environment(tmp_path):
     assert res.success is True
     assert (res.target_dir / "env.py").is_file()
     assert (tmp_path / "in" / "config" / "env" / "quadrotor_sim.yaml").is_file()
-    assert (tmp_path / "in" / "rules" / "quadrotor_sim" / "default.rules").is_file()
+    assert (tmp_path / "src" / "usr" / "rules" / "quadrotor_sim" / "default.rules").is_file()
 
 
 def test_scaffold_datamodule(tmp_path):

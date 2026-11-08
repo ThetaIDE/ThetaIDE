@@ -44,9 +44,22 @@ def mock_isolated_workspace():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_experiment_exporter_export_group(fixture_workspace):
+@pytest.fixture
+def native_export_workspace(fixture_workspace):
+    from src.app.workspace import WorkspacePaths
+    paths=WorkspacePaths(fixture_workspace)
+    for kind,name,aliases in [('model','mlp_classifier',[]),('model','dnn',[]),('algorithm','ppo',[]),('env','cartpole',['gym_classic_control/cartpole'])]:
+        root=paths.user(kind)/name;root.mkdir(parents=True,exist_ok=True)
+        (root/'provider.py').write_text('class Provider: pass\n')
+        (root/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':2,'api_version':1,
+            'capabilities':[{'id':name,'aliases':aliases,'kind':kind,'entry_point':'provider.py:Provider','resource_root':'.'}],
+            'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}))
+    return fixture_workspace
+
+
+def test_experiment_exporter_export_group(native_export_workspace):
     """Test exporting an entire experiment group as an installable Experiment Plugin."""
-    ws = fixture_workspace
+    ws = native_export_workspace
     exporter = ExperimentExporter(workspace_root=ws)
 
     # Export tabular_classification group
@@ -75,9 +88,9 @@ def test_experiment_exporter_export_group(fixture_workspace):
         res.archive_path.unlink()
 
 
-def test_experiment_exporter_export_thetaide_group(fixture_workspace):
+def test_experiment_exporter_export_thetaide_group(native_export_workspace):
     """Test exporting thetaide experiment group."""
-    ws = fixture_workspace
+    ws = native_export_workspace
     exporter = ExperimentExporter(workspace_root=ws)
 
     opts = ExportOptions(
@@ -158,35 +171,36 @@ def test_experiment_plugin_mock_install_and_clean_uninstall(mock_isolated_worksp
 
     comp.releases["1.0.0"].url = f"file://{dist_pkg.resolve()}"
 
-    # Install
-    ok = installer.install(comp)
-    assert ok is True
+    # This historical archive contains in/rules, which the rules contract explicitly rejects.
+    with pytest.raises(ValueError, match="Unsupported"):
+        installer.install(comp)
+    assert not installer.resolve_target_dir(comp).exists()
+    assert not (ws / 'src/usr/eval/pyrenees_evaluator.py').exists()
 
-    # Verify everything Pyrenees needs was deployed
-    assert (ws / "in" / "config" / "experiment" / "pyrenees" / "_base.yaml").is_file()
-    assert (ws / "in" / "config" / "experiment" / "pyrenees" / "final.yaml").is_file()
-    assert (ws / "in" / "config" / "env" / "pyrenees.yaml").is_file()
-    assert (ws / "in" / "envs" / "pyrenees" / "valuation.py").is_file()
-    assert (ws / "src" / "usr" / "eval" / "pyrenees_evaluator.py").is_file()
-    assert (ws / "plot" / "pyrenees" / "action_distribution.py").is_file()
 
-    # Verify find_component_for_path maps files back to pyrenees
-    meta = installer.find_component_for_path(ws / "in" / "config" / "experiment" / "pyrenees" / "final.yaml")
-    assert meta is not None
-    assert meta["id"] == "pyrenees"
-    assert meta["kind"] == "experiment"
-
-    # Uninstall
-    uninstalled = installer.uninstall_by_metadata(meta)
-    assert uninstalled is True
-
-    # Verify files were removed
-    assert not (ws / "in" / "config" / "experiment" / "pyrenees" / "final.yaml").exists()
-    assert not (ws / "in" / "envs" / "pyrenees").exists()
-    assert not (ws / "src" / "usr" / "eval" / "pyrenees_evaluator.py").exists()
-    assert not (ws / "plot" / "pyrenees").exists()
-
-    # Root stops must still exist
-    assert (ws / "in" / "config" / "experiment").is_dir()
-    assert (ws / "in" / "envs").is_dir()
-    assert (ws / "plot").is_dir()
+def test_canonical_experiment_bundle_manages_one_owned_payload(tmp_path):
+    from zipfile import ZipFile
+    from src.app.components.models import ReleaseInfo
+    workspace = tmp_path / 'workspace'
+    installer = HubInstaller(workspace, tmp_path / 'state')
+    configs = ['in/config/experiment/demo/_base.yaml', 'in/config/experiment/demo/final.yaml', 'in/config/env/demo.yaml']
+    meta = {'id':'demo-suite','name':'Demo','kind':'experiment','version':'1.0.0','storage_version':2,'api_version':1,
+            'payload':{'configs':{path:path for path in configs}, 'implementations':['env/valuation.py','evaluation.py','plotter.py'], 'resources':['rules/clauses.txt']},
+            'capabilities':[{'id':'demo_eval','kind':'evaluator','entry_point':'evaluation.py:Evaluator'}]}
+    archive = tmp_path / 'demo.zip'
+    with ZipFile(archive,'w') as z:
+        z.writestr('.theta_component.json',json.dumps(meta))
+        for path in configs: z.writestr(path,'name: demo\n')
+        z.writestr('env/valuation.py','# predicates\n')
+        z.writestr('evaluation.py','class Evaluator: pass\n')
+        z.writestr('plotter.py','# plotting provider\n')
+        z.writestr('rules/clauses.txt','example(X).\n')
+    component=HubComponent.from_dict(meta)
+    component.releases={'1.0.0':ReleaseInfo('1.0.0',archive.as_uri(),'')}
+    installer.install(component,install_dependencies=False)
+    target=installer.resolve_target_dir(component)
+    assert (target/'env/valuation.py').is_file() and (target/'evaluation.py').is_file()
+    assert not (workspace/'src/usr').exists() and not (workspace/'in/envs').exists()
+    owner=installer.find_component_for_path(workspace/configs[1]);assert owner['id']=='demo-suite'
+    installer.uninstall_by_metadata(owner)
+    assert not target.exists() and not (workspace/configs[1]).exists()

@@ -25,18 +25,23 @@ def sample_component_workspace(tmp_path):
 
     code_dir = ws / "src" / "usr" / "models" / "dueling_resnet"
     code_dir.mkdir(parents=True)
-    (code_dir / "model.py").write_text("# dueling_resnet model code\n", encoding="utf-8")
+    (code_dir / "model.py").write_text("class Model: pass\n", encoding="utf-8")
     (code_dir / ".theta_component.json").write_text(
         json.dumps({
             "id": "dueling_resnet",
             "name": "Dueling ResNet",
             "kind": "model",
             "version": "1.0.0",
-            "target_dir": str(code_dir),
+            "storage_version":2,"api_version":1,
+            "capabilities":[{"id":"dueling_resnet","kind":"model","entry_point":"model.py:Model"}],
+            "payload":{"implementations":["model.py"],"resources":[],"configs":{"in/config/model/dueling_resnet.yaml":"profiles/default.yaml"}},
+            "config_paths":["in/config/model/dueling_resnet.yaml"],
             "config_path": "in/config/model/dueling_resnet.yaml",
         }),
         encoding="utf-8",
     )
+    (code_dir/"profiles").mkdir()
+    (code_dir/"profiles/default.yaml").write_bytes(cfg_file.read_bytes())
     return ws, cfg_file
 
 
@@ -63,7 +68,7 @@ def test_export_model_component_zip(tmp_path, sample_component_workspace):
         namelist = zf.namelist()
         assert ".theta_component.json" in namelist
         assert "README.md" in namelist
-        assert any("dueling_resnet.yaml" in n for n in namelist)
+        assert any(n.startswith("configs/") and n.endswith(".yaml") for n in namelist)
 
         # Inspect manifest
         manifest_raw = zf.read(".theta_component.json").decode("utf-8")
@@ -97,7 +102,8 @@ def test_export_component_folder(tmp_path, sample_component_workspace):
     assert (out_dir / "README.md").is_file()
     assert (out_dir / ".gitignore").is_file()
     assert (out_dir / "pyproject.toml").is_file()
-    assert any((out_dir / "in" / "config").rglob("dueling_resnet.yaml"))
+    assert (out_dir / "configs/model/dueling_resnet.yaml").is_file()
+    assert not {"legacy_paths","module_aliases","target_path"} & res.manifest.keys()
 
     # Validate manifest against schema
     is_valid, err = validate_manifest_file(out_dir / ".theta_component.json")
@@ -148,31 +154,36 @@ def test_hub_installer_can_install_exported_component(tmp_path, sample_component
 
     # Check installed assets
     assert any((target_ws / "in" / "config").rglob("dueling_resnet.yaml"))
-    assert (target_ws / "src" / "usr" / "models" / "dueling_resnet").is_dir()
-    assert (target_ws / "src" / "usr" / "models" / "dueling_resnet" / ".theta_component.json").is_file()
+    assert (target_ws / "src/plugins/components/installed/dueling_resnet").is_dir()
+    assert (target_ws / "src/plugins/components/installed/dueling_resnet" / ".theta_component.json").is_file()
 
 
 def test_export_plotter_component_zip(tmp_path):
     ws = tmp_path / "workspace"
-    plot_dir = ws / "plot" / "pareto"
+    plot_dir = ws / "src/usr/plotters/pareto"
     plot_dir.mkdir(parents=True)
     cfg_dir = ws / "in" / "config" / "plot"
     cfg_dir.mkdir(parents=True)
     cfg_file = cfg_dir / "pareto.yaml"
     cfg_file.write_text("metrics: ['eval/reward']\n", encoding="utf-8")
-    (plot_dir / "pareto_plotter.py").write_text("# pareto plotter code\n", encoding="utf-8")
+    (plot_dir / "pareto_plotter.py").write_text("class Plotter: pass\n", encoding="utf-8")
     (plot_dir / ".theta_component.json").write_text(
         json.dumps({
             "id": "pareto",
             "name": "ParetoPlotter",
             "kind": "plotter",
             "version": "1.0.0",
-            "target_dir": str(plot_dir),
+            "storage_version":2,"api_version":1,
+            "capabilities":[{"id":"pareto","kind":"plotter","entry_point":"pareto_plotter.py:Plotter"}],
+            "payload":{"implementations":["pareto_plotter.py"],"resources":[],"configs":{"in/config/plot/pareto.yaml":"profiles/default.yaml"}},
+            "config_paths":["in/config/plot/pareto.yaml"],
             "config_path": "in/config/plot/pareto.yaml",
         }),
         encoding="utf-8",
     )
 
+    (plot_dir/"profiles").mkdir()
+    (plot_dir/"profiles/default.yaml").write_bytes(cfg_file.read_bytes())
     exporter = ComponentExporter(workspace_root=ws)
     out_zip = tmp_path / "pareto_plotter.zip"
     opts = ComponentExportOptions(
@@ -190,7 +201,7 @@ def test_export_plotter_component_zip(tmp_path):
     with zipfile.ZipFile(out_zip, "r") as zf:
         namelist = zf.namelist()
         assert ".theta_component.json" in namelist
-        assert any("pareto.yaml" in n for n in namelist)
+        assert any(n.startswith("configs/") and n.endswith(".yaml") for n in namelist)
         manifest = json.loads(zf.read(".theta_component.json").decode("utf-8"))
         assert manifest["id"] == "pareto"
         assert manifest["kind"] == "plotter"
@@ -205,7 +216,13 @@ def test_export_namespaced_component(tmp_path):
 
     code_dir = ws / "src" / "usr" / "models" / "basics" / "mlp"
     code_dir.mkdir(parents=True)
-    (code_dir / "mlp_model.py").write_text("# mlp model code\n", encoding="utf-8")
+    (code_dir / "mlp_model.py").write_text("class MLP: pass\n", encoding="utf-8")
+    (code_dir/'profiles').mkdir()
+    (code_dir/'profiles/default.yaml').write_bytes(cfg_file.read_bytes())
+    (code_dir/'.theta_component.json').write_text(json.dumps({'id':'mlp','name':'MLP','kind':'model','version':'1.0.0','storage_version':2,'api_version':1,
+        'capabilities':[{'id':'mlp','kind':'model','entry_point':'mlp_model.py:MLP'}],
+        'payload':{'implementations':['mlp_model.py'],'resources':[],'configs':{'in/config/model/basics/mlp.yaml':'profiles/default.yaml'}},
+        'config_paths':['in/config/model/basics/mlp.yaml']}))
 
     exporter = ComponentExporter(workspace_root=ws)
     out_zip = tmp_path / "mlp_export.zip"
@@ -223,7 +240,8 @@ def test_export_namespaced_component(tmp_path):
     with zipfile.ZipFile(out_zip, "r") as zf:
         namelist = zf.namelist()
         assert ".theta_component.json" in namelist
-        assert "in/config/model/basics/mlp.yaml" in namelist
+        assert any(n.startswith("configs/") and n.endswith(".yaml") for n in namelist)
+        assert json.loads(zf.read(".theta_component.json"))["payload"]["configs"]["in/config/model/basics/mlp.yaml"] == "configs/model/basics/mlp.yaml"
         assert any("mlp_model.py" in n for n in namelist)
 
 

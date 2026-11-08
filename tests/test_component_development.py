@@ -44,7 +44,7 @@ def cli(root, *arguments):
 @pytest.fixture
 def installed_model(tmp_path):
     root = tmp_path / "research checkout with spaces"
-    source = root / "src/usr/models/original"
+    source = root / "src/plugins/components/installed/original"
     source.mkdir(parents=True)
     (source / "__init__.py").write_text("from .model import Example\n")
     (source / "model.py").write_text('''from src.app.core.model_registry import register_model
@@ -57,24 +57,22 @@ class Example:
     profile.parent.mkdir(parents=True)
     profile.write_text("# @package model\narchitecture: original\nwidth: 16\n")
     meta = {"id": "original", "kind": "model", "name": "Original", "version": "1.0.0",
-            "target_path": "src/usr/models/original", "installed_from": "https://example.invalid/release.zip",
+            "storage_version":2,"api_version":1,"origin":"hub",
+            "capabilities":[{"id":"original","kind":"model","entry_point":"model.py:Example"}],
+            "payload":{"implementations":["__init__.py","model.py"],"resources":[],"configs":{"in/config/model/original/default.yaml":"configs/model/original/default.yaml"}},
             "config_path": "in/config/model/original/default.yaml",
             "config_paths": ["in/config/model/original/default.yaml"],
             "parameter_schema": {"x-theta-validate": True, "type": "object",
                                  "properties": {"width": {"type": "integer", "minimum": 1}}}}
+    packaged=source/"configs/model/original/default.yaml";packaged.parent.mkdir(parents=True);packaged.write_bytes(profile.read_bytes())
     (source / ".theta_component.json").write_text(json.dumps(meta))
     HubInstaller(root, root / ".thetaide").protect_installed_components()
     return root, source, profile
 
 
 def run_model(root, component):
-    code = f'''import src.usr.models
-src.usr.models.__path__.insert(0, {str(root / 'src/usr/models')!r})
-import src.app.core.model_registry as registry
-registry.__file__ = {str(root / 'src/app/core/model_registry.py')!r}
-print(registry.build_model({component!r}).forward())
-'''
-    return subprocess.check_output([sys.executable, "-c", code], cwd=REPOSITORY, text=True).strip()
+    code = f"from src.app.core.model_registry import build_model; print(build_model({component!r}).forward())"
+    return subprocess.check_output([sys.executable,'-c',code],cwd=REPOSITORY,text=True,env={**os.environ,'THETA_WORKSPACE':str(root)}).strip()
 
 
 def test_terminal_copy_edit_configure_validate_and_fresh_execution(installed_model):
@@ -98,7 +96,7 @@ def test_terminal_copy_edit_configure_validate_and_fresh_execution(installed_mod
     assert all(p.read_bytes() == contents for p, contents in baseline.items())
     # Subsequent processes inspect the active implementation, not a stale retained snapshot.
     _, updated = cli(root, "inspect", "my_model")
-    assert updated["origin"] == "local" and not updated["read_only"]
+    assert updated["origin"] == "user" and not updated["read_only"]
     assert updated["parent"]["id"] == "original"
     assert updated["source_digest"] != info["source_digest"]
 
@@ -127,20 +125,21 @@ def test_shared_config_copy_protection_conflicts_and_schema(installed_model):
     assert (source / ".theta_component.json").stat().st_mode & 0o222 == 0
 
 
-def test_ambiguous_identity_and_unsupported_copy_fail_without_writes(installed_model):
-    root, source, _ = installed_model
-    other = root / "in/envs/other"
-    other.mkdir(parents=True)
-    manifest = other / ".theta_component.json"
-    manifest.write_text(json.dumps({"id": "original", "name": "Collision", "kind": "env", "version": "1.0.0"}))
-    service = ComponentDevelopment(root)
-    with pytest.raises(ValueError, match="Ambiguous"):
-        service.copy("original", "fork")
-    assert not (root / "src/usr/models/fork").exists()
-    manifest.write_text(json.dumps({"id": "other", "name": "Other", "kind": "env", "version": "1.0.0"}))
-    with pytest.raises(ValueError, match="unsupported"):
-        service.copy("other", "fork")
-    assert not (root / ".thetaide/components/packages/fork").exists()
+def test_ambiguous_native_identity_fails_without_writes(installed_model):
+    root,source,_=installed_model
+    other=root/'src/usr/environments/other';other.mkdir(parents=True)
+    (other/'env.py').write_text('class Env: pass\n')
+    manifest=other/'.theta_component.json'
+    meta={'id':'original','name':'Collision','kind':'env','version':'1.0.0','storage_version':2,'api_version':1,
+          'capabilities':[{'id':'other','kind':'env','entry_point':'env.py:Env'}],
+          'payload':{'implementations':['env.py'],'resources':[],'configs':{}}}
+    manifest.write_text(json.dumps(meta))
+    with pytest.raises(ValueError,match='Ambiguous'):ComponentDevelopment(root).copy('original','fork')
+    assert not (root/'src/usr/models/fork').exists()
+    meta['id']='other';manifest.write_text(json.dumps(meta))
+    result=ComponentDevelopment(root).copy('other','fork')
+    assert result==root/'src/usr/environments/fork/.theta_component.json'
+    assert result.is_file()
 
 
 def test_context_does_not_write_into_hub_payload(installed_model):
@@ -175,10 +174,13 @@ def test_nonmodel_profile_uses_its_declared_validation_schema(installed_model):
     profile.write_text("batch_size: 0\n")
     (source / ".theta_component.json").write_text(json.dumps({
         "id": "example", "name": "Example", "kind": "datamodule", "version": "1.0.0",
+        "storage_version":2,"api_version":1,"capabilities":[],
+        "payload":{"implementations":[],"resources":[],"configs":{"in/config/data/example/default.yaml":"default.yaml"}},
         "config_path": "in/config/data/example/default.yaml",
         "parameter_schema": {"x-theta-validate": True, "type": "object",
                              "properties": {"batch_size": {"type": "integer", "minimum": 1}}},
     }))
+    (source/"default.yaml").write_bytes(profile.read_bytes())
     process, error = cli(root, "config", "validate", "data/example/default")
     assert process.returncode == 2 and error["type"] == "ValidationError"
 
@@ -202,6 +204,12 @@ def test_experiment_preflight_reports_effective_method_source(installed_model, f
     # The UI fixture stores legacy defaults as a mapping; actual Hydra method
     # composition needs a normal runnable agent config.
     (root / "in/config/agent/ppo.yaml").write_text("algorithm: ppo\ncompatible_paradigms: [online_rl]\nlr: 0.0003\n")
+    for kind,name,aliases in [('algorithm','ppo',[]),('env','cartpole',['gym_classic_control/cartpole'])]:
+        package=WorkspacePaths(root).user(kind)/name;package.mkdir(parents=True)
+        (package/'provider.py').write_text('class Provider: pass\n')
+        (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':2,'api_version':1,
+            'capabilities':[{'id':name,'kind':kind,'entry_point':'provider.py:Provider','aliases':aliases}],
+            'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}))
     process, copied = cli(root, "copy", "original", "my_model")
     assert process.returncode == 0, copied
     arguments = ("validate-experiment", "thetaide/cartpole_ppo_reference", "++methods.ppo.model=my_model/default")

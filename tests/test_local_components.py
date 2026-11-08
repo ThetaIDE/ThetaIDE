@@ -20,7 +20,7 @@ def model_workspace(tmp_path):
     source = root / 'src/usr/models/parent'
     source.mkdir(parents=True)
     (root / 'pyproject.toml').write_text('version = "0.1.0"\n')
-    (source / '__init__.py').write_text('from src.usr.models.parent.model import Example\n')
+    (source / '__init__.py').write_text('from .model import Example\n')
     (source / 'model.py').write_text('from src.app.core.model_registry import register_model\n@register_model("parent", "legacy_parent")\nclass Example:\n    def __init__(self, **kwargs): pass\n    def forward(self): return 1\n')
     (source / 'rules.txt').write_text('owned asset')
     profiles = ['in/config/model/parent/default.yaml', 'in/config/model/parent/wide.yaml']
@@ -29,19 +29,23 @@ def model_workspace(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('architecture: parent\nchild:\n  name: external_child\n')
     meta = dict(id='parent', name='Parent', kind='model', version='1.0.0', target_path='src/usr/models/parent', config_path=profiles[0], config_paths=profiles, aliases=['legacy_parent'], parameter_schema={'type': 'object', 'properties': {}, 'x-theta-config-schemas': {p: {'properties': {'width': {'type': 'integer'}}} for p in profiles}})
+    meta.pop('target_path')
+    meta.update(storage_version=2,api_version=1,capabilities=[{'id':'parent','kind':'model','entry_point':'model.py:Example','aliases':['legacy_parent']}],
+        payload={'implementations':['__init__.py','model.py'],'resources':['rules.txt'],'configs':{v:'configs/'+v.removeprefix('in/config/') for v in profiles}})
+    for dest,relative in meta['payload']['configs'].items():
+        packaged=source/relative;packaged.parent.mkdir(parents=True,exist_ok=True);packaged.write_bytes((root/dest).read_bytes())
     (source / '.theta_component.json').write_text(json.dumps(meta))
     return root, root / profiles[0]
 
 
 def runtime(workspace, component):
     # A new interpreter is the same boundary used by experiment launches.
-    code = f"""import src.usr.models
-src.usr.models.__path__.insert(0, {str(workspace / 'src/usr/models')!r})
-import src.app.core.model_registry as registry
-registry.__file__ = {str(workspace / 'src/app/core/model_registry.py')!r}
-print(registry.build_model({component!r}).forward())
+    code = f"""from src.app.core.model_registry import build_model
+print(build_model({component!r}).forward())
 """
-    return subprocess.check_output([sys.executable, '-c', code], text=True, cwd=Path(__file__).parents[1]).strip()
+    return subprocess.check_output([sys.executable, '-c', code], text=True,
+        cwd=Path(__file__).parents[1], env={**os.environ, 'THETA_WORKSPACE': str(workspace)}).strip()
+
 
 
 def test_independent_identity_direct_save_profiles_context_and_hide(model_workspace):
@@ -54,6 +58,11 @@ def test_independent_identity_direct_save_profiles_context_and_hide(model_worksp
     assert set(meta['parameter_schema']['x-theta-config-schemas']) == set(meta['config_paths'])
     assert 'aliases' not in meta
     assert meta['parent']['id'] == 'parent'
+    from src.app.workspace import WorkspacePaths
+    copied.unlink()
+    assert WorkspacePaths(ws).resolve_config('model/fork/default.yaml') == ws/'src/usr/models/fork/configs/model/fork/default.yaml'
+    assert not (ws/'src/usr/models/fork/configs/model/parent/default.yaml').exists()
+    copied.write_bytes(WorkspacePaths(ws).resolve_config('model/fork/default.yaml').read_bytes())
     assert (ws / 'src/usr/models/fork/rules.txt').read_text() == 'owned asset'
     assert yaml.safe_load(copied.read_text())['child']['name'] == 'external_child'
     assert runtime(ws, 'parent') == runtime(ws, 'fork') == '1'
@@ -87,14 +96,14 @@ def test_uninstall_reinstall_retains_saved_source_and_offline_catalog(model_work
     implementation.write_text(implementation.read_text().replace('return 1', 'return 42'))
     component = service.entries()[0]
     installer = HubInstaller(ws, ws / '.thetaide')
-    with pytest.raises(ValueError, match='local changes'):
+    with pytest.raises(ValueError, match='user|local changes'):
         service.install(component, installer)
-    service.uninstall(component, installer)
+    service.archive_authored(component, installer)
     assert not implementation.exists()
     assert not (ws / 'in/config/model/fork/default.yaml').exists()
     assert Path(service.state()['records']['fork']['package']).is_dir()
     assert (ws / 'src/usr/models/parent/model.py').exists()
-    service.install(component, installer)
+    service.restore_authored(component)
     assert runtime(ws, 'fork') == '42'
     index = ws / 'index.json'
     index.write_text(json.dumps({'components': [dict(id='remote', kind='model', name='Remote', version='1.0.0')]}))
@@ -116,12 +125,12 @@ def test_conflict_and_failed_install_roll_back(model_workspace, monkeypatch):
     with pytest.raises(ValueError, match='Runtime identity already exists'):
         service.deep_copy(config, 'legacy_parent')
     original = config.read_bytes()
-    def failed(self, component, installer):
+    def failed(self, boundary, identity):
         target = ws / 'src/usr/models/broken'
-        target.mkdir(parents=True)
+        target.mkdir(parents=True, exist_ok=True)
         (target / 'partial.py').write_text('partial')
         raise OSError('interrupted')
-    monkeypatch.setattr(LocalComponents, 'install', failed)
+    monkeypatch.setattr(LocalComponents, '_authoring_failure_point', failed)
     with pytest.raises(OSError, match='interrupted'):
         service.deep_copy(config, 'broken')
     assert not (ws / 'src/usr/models/broken').exists()
@@ -140,13 +149,13 @@ def test_delete_moves_only_owned_paths_to_trash(model_workspace, monkeypatch, tm
     experiment = ws / 'in/config/experiment/uses_fork.yaml'
     experiment.parent.mkdir(parents=True)
     experiment.write_text('model: fork/default\n')
-    shared = ws / 'in/rules/shared.txt'
+    shared = ws / 'src/usr/rules/shared.txt'
     shared.parent.mkdir(parents=True)
     shared.write_text('shared dependency')
     for cid in ('parent', 'fork'):
         manifest = ws / f'src/usr/models/{cid}/.theta_component.json'
         data = json.loads(manifest.read_text())
-        data.setdefault('installed_files', []).append('in/rules/shared.txt')
+        data.setdefault('installed_files', []).append('src/usr/rules/shared.txt')
         manifest.write_text(json.dumps(data))
     paths, references = service.deletion_details(component, installer)
     assert references == [experiment]
@@ -230,17 +239,22 @@ def test_hub_hide_controls_and_current_hidden_selector(model_workspace, monkeypa
     app.processEvents()
 
 
-def test_implicit_profile_identity_and_imported_package(model_workspace):
+def test_profile_copy_rejects_old_imports_and_preserves_relative_imports(model_workspace):
     ws, config = model_workspace
     config.write_text('width: 16\n')
     source = ws / 'src/usr/models/parent'
     (source / 'helper.py').write_text('VALUE = 10\n')
-    (source / '__init__.py').write_text('from src.usr.models import parent as own_package\nfrom src.usr.models.parent.model import Example\n')
-    service = LocalComponents(ws)
-    copied = service.deep_copy(config, 'fork')
-    assert yaml.safe_load(copied.read_text())['architecture'] == 'fork'
-    assert 'from src.usr.models import fork as own_package' in (ws / 'src/usr/models/fork/__init__.py').read_text()
-    assert runtime(ws, 'fork') == '1'
+    (source / '__init__.py').write_text('from src.usr.models.parent.model import Example\n')
+    service=LocalComponents(ws)
+    with pytest.raises(ValueError,match='package-relative imports'):service.deep_copy(config,'fork')
+    assert not (ws/'src/usr/models/fork').exists()
+    (source/'__init__.py').write_text('from . import helper as own_package\nfrom .model import Example\n')
+    manifest=source/'.theta_component.json';meta=json.loads(manifest.read_text())
+    meta['payload']['implementations'].append('helper.py');manifest.write_text(json.dumps(meta))
+    copied=service.deep_copy(config,'fork')
+    assert yaml.safe_load(copied.read_text())['architecture']=='fork'
+    assert 'from . import helper as own_package' in (ws/'src/usr/models/fork/__init__.py').read_text()
+    assert runtime(ws,'fork')=='1'
 
 
 def test_schema_edits_are_protected_from_updates(model_workspace):
@@ -251,41 +265,32 @@ def test_schema_edits_are_protected_from_updates(model_workspace):
     meta = json.loads(manifest.read_text())
     meta['parameter_schema']['properties']['new_parameter'] = {'type': 'number'}
     manifest.write_text(json.dumps(meta))
-    with pytest.raises(ValueError, match='local changes'):
+    with pytest.raises(ValueError, match='user|local changes'):
         service.install(service.entries()[0], HubInstaller(ws, ws / '.thetaide'))
     assert json.loads(manifest.read_text())['parameter_schema']['properties']['new_parameter'] == {'type': 'number'}
 
 
-def test_external_owned_assets_are_copied_and_shared_assets_stay_shared(model_workspace):
-    ws, config = model_workspace
-    source = ws / 'src/usr/models/parent'
-    asset = ws / 'in/rules/parent/logic.txt'
-    asset.parent.mkdir(parents=True)
-    asset.write_text('parent rules')
-    manifest = source / '.theta_component.json'
-    meta = json.loads(manifest.read_text())
-    meta['installed_files'] = ['in/rules/parent/logic.txt']
-    meta['editor_actions'] = [{'label': 'Rules', 'path': 'in/rules/parent/logic.txt'}]
+def test_package_owned_assets_are_copied_independently(model_workspace):
+    ws,config=model_workspace
+    source=ws/'src/usr/models/parent'
+    asset=source/'resources/rules/logic.txt';asset.parent.mkdir(parents=True);asset.write_text('parent rules')
+    manifest=source/'.theta_component.json';meta=json.loads(manifest.read_text())
+    meta['payload']['resources'].append('resources/rules')
+    meta['editor_actions']=[{'label':'Rules','path':'package://parent/resources/rules/logic.txt'}]
     manifest.write_text(json.dumps(meta))
-    config.write_text(config.read_text() + 'rules: in/rules/parent/logic.txt\n')
-    implementation = source / 'model.py'
-    implementation.write_text(implementation.read_text() + "\nRULES = 'in/rules/parent/logic.txt'\n")
-    local = LocalComponents(ws)
-    copied = local.deep_copy(config, 'fork')
-    fork_asset = ws / 'in/rules/fork/logic.txt'
-    assert fork_asset.read_text() == 'parent rules'
-    assert yaml.safe_load(copied.read_text())['rules'] == 'in/rules/fork/logic.txt'
-    assert "RULES = 'in/rules/fork/logic.txt'" in (ws / 'src/usr/models/fork/model.py').read_text()
-    meta = json.loads((ws / 'src/usr/models/fork/.theta_component.json').read_text())
-    assert meta['editor_actions'][0]['path'] == 'in/rules/fork/logic.txt'
-    fork_asset.write_text('fork rules')
-    assert asset.read_text() == 'parent rules'
-    component = local.entries()[0]
-    installer = HubInstaller(ws, ws / '.thetaide')
-    local.uninstall(component, installer)
-    assert not fork_asset.exists()
-    local.install(component, installer)
-    assert fork_asset.read_text() == 'fork rules'
+    config.write_text(config.read_text()+'rules: package://parent/resources/rules/logic.txt\n')
+    implementation=source/'model.py';implementation.write_text(implementation.read_text()+"\nRULES = 'package://parent/resources/rules/logic.txt'\n")
+    local=LocalComponents(ws);copied=local.deep_copy(config,'fork')
+    fork_asset=ws/'src/usr/models/fork/resources/rules/logic.txt'
+    assert fork_asset.read_text()=='parent rules'
+    assert yaml.safe_load(copied.read_text())['rules']=='package://fork/resources/rules/logic.txt'
+    assert "RULES = 'package://fork/resources/rules/logic.txt'" in (ws/'src/usr/models/fork/model.py').read_text()
+    meta=json.loads((ws/'src/usr/models/fork/.theta_component.json').read_text())
+    assert meta['editor_actions'][0]['path']=='package://fork/resources/rules/logic.txt'
+    fork_asset.write_text('fork rules');assert asset.read_text()=='parent rules'
+    component=local.entries()[0];installer=HubInstaller(ws,ws/'.thetaide')
+    local.archive_authored(component,installer);assert not fork_asset.exists()
+    local.restore_authored(component);assert fork_asset.read_text()=='fork rules'
 
 
 def test_saved_experiment_profile_runs_its_declared_identity_after_restart(model_workspace):
@@ -342,8 +347,11 @@ def test_hub_inline_deep_copy_and_edit(model_workspace):
     from frontend.hub.dialog import HubView
     app = QApplication.instance() or QApplication([])
     ws, config = model_workspace
-    LocalComponents(ws).snapshot(config)
     client = HubClient(ws, ws / '.thetaide')
+    # Hub cards come from the registry, not a retained source snapshot.
+    parent = HubComponent.from_dict(json.loads((ws / 'src/usr/models/parent/.theta_component.json').read_text()))
+    client.components = [parent]
+    client.refresh_installed_status()
     host = QWidget()
     host.hub_client = client
     host.editor_service = EditorService(SimpleNamespace(default_text_editor='test'))
@@ -368,7 +376,7 @@ def test_hub_inline_deep_copy_and_edit(model_workspace):
     view.cards['private_fork'].btn_edit.click()
     assert opened[0][0] == ws / 'src/usr/models/private_fork'
     assert ws / 'in/config/model/private_fork/default.yaml' in opened[0][1]['owned_paths']
-    client.local_components.uninstall(client.get_component('private_fork'), client.installer)
+    client.local_components.archive_authored(client.get_component('private_fork'), client.installer)
     assert not view.cards['private_fork'].btn_edit.isEnabled()
     host.deleteLater()
     app.processEvents()
@@ -380,20 +388,20 @@ def test_failed_reinstall_rolls_back_and_retains_package(model_workspace, monkey
     local.deep_copy(config, 'fork')
     component = local.entries()[0]
     installer = HubInstaller(ws, ws / '.thetaide')
-    local.uninstall(component, installer)
+    local.archive_authored(component, installer)
     package = Path(local.state()['records']['fork']['package'])
     config = ws / 'in/config/model/fork/default.yaml'
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text('preexisting: keep me\n')
-    def fail(component, **kwargs):
+    def fail(boundary, identity):
         target = ws / 'src/usr/models/fork'
-        target.mkdir(parents=True)
+        target.mkdir(parents=True, exist_ok=True)
         (target / 'model.py').write_text('partial')
         config.write_text('overwritten')
         raise OSError('interrupted reinstall')
-    monkeypatch.setattr(installer, 'install', fail)
+    monkeypatch.setattr(local, '_authoring_failure_point', fail)
     with pytest.raises(OSError, match='interrupted reinstall'):
-        local.install(component, installer)
+        local.restore_authored(component)
     assert config.read_text() == 'preexisting: keep me\n'
     assert not (ws / 'src/usr/models/fork').exists()
     assert package.is_dir()
@@ -438,12 +446,12 @@ def test_retained_edits_remain_protected_after_reinstall(model_workspace):
     implementation = ws / 'src/usr/models/fork/model.py'
     implementation.write_text(implementation.read_text().replace('return 1', 'return 82'))
     installer = HubInstaller(ws, ws / '.thetaide')
-    local.uninstall(component, installer)
-    local.install(component, installer)
+    local.archive_authored(component, installer)
+    local.restore_authored(component)
     assert runtime(ws, 'fork') == '82'
     installed_meta = json.loads((implementation.parent / '.theta_component.json').read_text())
     assert installed_meta['saved_local_changes'] is True
-    with pytest.raises(ValueError, match='local changes'):
+    with pytest.raises(ValueError, match='user|local changes'):
         local.install(component, installer)
     assert runtime(ws, 'fork') == '82'
 
@@ -466,13 +474,16 @@ def test_install_release_then_copy_saved_implementation(model_workspace, tmp_pat
     ws.mkdir()
     installer = HubInstaller(ws, ws / '.thetaide')
     assert installer.install(component)
-    parent = ws / 'src/usr/models/parent/model.py'
+    from src.app.core.provider_catalog import ProviderCatalog
+    installed, capability = ProviderCatalog(installer.paths).resolve('model', 'parent')
+    parent = installed.resource(capability.entry_point.split(':')[0])
     parent.chmod(parent.stat().st_mode | 0o200)  # Simulate an installation edited before protection.
     parent.write_text(parent.read_text().replace('return 1', 'return 91'))
     assert runtime(ws, 'parent') == '91'
     local = LocalComponents(ws)
     local.deep_copy(ws / 'in/config/model/parent/default.yaml', 'fork')
-    fork = ws / 'src/usr/models/fork/model.py'
+    cloned_package, cloned_capability = ProviderCatalog(installer.paths).resolve('model', 'fork')
+    fork = cloned_package.resource(cloned_capability.entry_point.split(':')[0])
     fork.write_text(fork.read_text().replace('return 91', 'return 92'))
     assert runtime(ws, 'fork') == '92'
     assert runtime(ws, 'parent') == '91'
@@ -483,27 +494,22 @@ def test_install_release_then_copy_saved_implementation(model_workspace, tmp_pat
 
 
 def test_declared_asset_directory_keeps_its_new_ownership(model_workspace):
-    ws, config = model_workspace
-    rules = ws / 'in/rules/parent'
-    rules.mkdir(parents=True)
-    (rules / 'one.txt').write_text('one')
-    (rules / 'two.txt').write_text('two')
-    manifest = ws / 'src/usr/models/parent/.theta_component.json'
-    meta = json.loads(manifest.read_text())
-    meta['asset_paths'] = ['in/rules/parent']
-    manifest.write_text(json.dumps(meta))
-    local = LocalComponents(ws)
-    local.deep_copy(config, 'fork')
-    meta = json.loads((ws / 'src/usr/models/fork/.theta_component.json').read_text())
-    assert meta['asset_paths'] == ['in/rules/fork']
-    assert (ws / 'in/rules/fork/one.txt').read_text() == 'one'
-    local.snapshot(ws / 'in/config/model/fork/default.yaml', source='local')
-    package = Path(local.state()['records']['fork']['package'])
-    assert (package / 'in/rules/fork/two.txt').read_text() == 'two'
-    assert not (package / 'in/rules/parent').exists()
+    ws,config=model_workspace
+    source=ws/'src/usr/models/parent';rules=source/'resources/rules';rules.mkdir(parents=True)
+    (rules/'one.txt').write_text('one');(rules/'two.txt').write_text('two')
+    manifest=source/'.theta_component.json';meta=json.loads(manifest.read_text())
+    meta['payload']['resources'].append('resources/rules');manifest.write_text(json.dumps(meta))
+    local=LocalComponents(ws);local.deep_copy(config,'fork')
+    copied=json.loads((ws/'src/usr/models/fork/.theta_component.json').read_text())
+    assert 'resources/rules' in copied['payload']['resources']
+    assert (ws/'src/usr/models/fork/resources/rules/one.txt').read_text()=='one'
+    local.snapshot(ws/'in/config/model/fork/default.yaml',source='local')
+    package=Path(local.state()['records']['fork']['package'])
+    assert (package/'resources/rules/two.txt').read_text()=='two'
+    assert not (package/'src/usr').exists()
 
 
-def test_copy_preserves_hydra_directive_and_model_child_identity(model_workspace):
+def test_copy_preserves_hydra_directive_and_model_child_identity(model_workspace, monkeypatch):
     ws, config = model_workspace
     config.write_text('# @package model\n# Profile notes\narchitecture: parent\nmodel:\n  name: external_child\n')
     copied = LocalComponents(ws).deep_copy(config, 'fork')
@@ -513,17 +519,10 @@ def test_copy_preserves_hydra_directive_and_model_child_identity(model_workspace
     assert data['model']['name'] == 'external_child'
     # An explicit architecture makes model a constructor parameter, rather
     # than replacing the selected parent with its child during factory lookup.
-    from src.app.core.model_registry import MODEL_REGISTRY, build_model
-    previous = dict(MODEL_REGISTRY)
-    class Parent:
-        def __init__(self, model):
-            self.child = model
-    try:
-        MODEL_REGISTRY['fork'] = Parent
-        assert build_model(data).child == {'name': 'external_child'}
-    finally:
-        MODEL_REGISTRY.clear()
-        MODEL_REGISTRY.update(previous)
+    from src.app.core.model_registry import build_model
+    monkeypatch.setenv('THETA_WORKSPACE',str(ws))
+    (ws/'src/usr/models/fork/model.py').write_text('class Example:\n    def __init__(self,model): self.child=model\n')
+    assert build_model(data).child=={'name':'external_child'}
 
 
 def test_code_only_model_can_edit_copy_uninstall_and_reinstall(model_workspace):
@@ -535,6 +534,7 @@ def test_code_only_model_can_edit_copy_uninstall_and_reinstall(model_workspace):
         (ws / relative).unlink()
     meta.pop('config_path')
     meta['config_paths'] = []
+    meta['payload']['configs'] = {}
     meta.pop('parameter_schema')
     manifest.write_text(json.dumps(meta))
     local = LocalComponents(ws)
@@ -547,11 +547,10 @@ def test_code_only_model_can_edit_copy_uninstall_and_reinstall(model_workspace):
     copied = local.deep_copy(manifest, 'fork')
     assert yaml.safe_load(copied.read_text())['architecture'] == 'fork'
     assert runtime(ws, 'fork') == '1'
-    local.uninstall(component, installer)
+    local.archive_authored(component, installer)
     assert not source.exists()
-    retained = next(entry for entry in local.entries() if entry.id == 'parent')
-    local.install(retained, installer)
-    assert runtime(ws, 'parent') == '1'
+    assert 'parent' in local.state()['records']
+    assert any(entry.id == 'parent' for entry in local.entries())
 
 
 def test_copy_remaps_owned_hydra_defaults_but_keeps_external_defaults(model_workspace):
@@ -582,44 +581,33 @@ def test_copy_updates_selector_schema_without_changing_child_schema(model_worksp
 
 
 def test_copy_model_with_owned_plot_package_and_plot_profile(model_workspace):
-    ws, config = model_workspace
-    plot_config = ws / 'in/config/plot/parent/routing.yaml'
-    plot_config.parent.mkdir(parents=True)
-    plot_config.write_text('figsize: [8, 5]\nauthority_threshold: 0.9\n')
-    auxiliary = ws / 'plot/parent'
-    auxiliary.mkdir(parents=True)
-    (auxiliary / '__init__.py').write_text('from plot.parent.routing import render\n')
-    (auxiliary / 'routing.py').write_text('def render(): return "routing"\n')
-    source = ws / 'src/usr/models/parent/model.py'
-    source.write_text(source.read_text() + '\ndef plot_module():\n    import plot.parent.routing as routing\n    return routing\n')
-    flat_config = ws / 'in/config/model/parent.yaml'
-    flat_config.write_text('actor_mode: hybrid\nneural:\n  type: dnn\nsymbolic:\n  type: nsfr\n')
-    manifest = source.parent / '.theta_component.json'
-    meta = json.loads(manifest.read_text())
-    meta.update(config_path='in/config/model/parent.yaml',
-        config_paths=['in/config/model/parent.yaml', 'in/config/plot/parent/routing.yaml'],
-        installed_files=['plot/parent/__init__.py', 'plot/parent/routing.py'],
-        installed_components=['dnn', 'nsfr', 'neumann'],
-        dependencies={'components': ['dnn', 'nsfr', 'neumann']})
-    plot_schema = {'type': 'object', 'properties': {'figsize': {'type': 'array'}}}
-    meta['parameter_schema']['x-theta-config-schemas'] = {'in/config/plot/parent/routing.yaml': plot_schema}
-    manifest.write_text(json.dumps(meta))
-    copied = LocalComponents(ws).deep_copy(flat_config, 'fork')
-    assert copied == ws / 'in/config/model/fork.yaml'
-    result = yaml.safe_load(copied.read_text())
-    assert result['architecture'] == 'fork'
-    assert result['neural']['type'] == 'dnn'
-    assert result['symbolic']['type'] == 'nsfr'
-    new_plot = ws / 'in/config/plot/fork/routing.yaml'
-    assert yaml.safe_load(new_plot.read_text()) == yaml.safe_load(plot_config.read_text())
-    assert 'from plot.fork.routing import render' in (ws / 'plot/fork/__init__.py').read_text()
-    assert 'import plot.fork.routing as routing' in (ws / 'src/usr/models/fork/model.py').read_text()
-    new_meta = json.loads((ws / 'src/usr/models/fork/.theta_component.json').read_text())
-    assert new_meta['dependencies'] == meta['dependencies']
-    assert not new_meta.get('installed_components')
-    assert new_meta['parameter_schema']['x-theta-config-schemas']['in/config/plot/fork/routing.yaml'] == plot_schema
-    assert not (ws / 'src/usr/models/dnn').exists()
-    assert (auxiliary / 'routing.py').read_text() == 'def render(): return "routing"\n'
+    ws,config=model_workspace
+    source=ws/'src/usr/models/parent'
+    auxiliary=source/'plotters';auxiliary.mkdir()
+    (auxiliary/'__init__.py').write_text('from .routing import render\n')
+    (auxiliary/'routing.py').write_text('def render(): return "routing"\n')
+    code=source/'model.py';code.write_text(code.read_text()+'\ndef plot_module():\n    from .plotters import routing\n    return routing\n')
+    flat=ws/'in/config/model/parent.yaml';flat.write_text('architecture: parent\nneural: {type: dnn}\nsymbolic: {type: nsfr}\n')
+    plot=ws/'in/config/plot/parent/routing.yaml';plot.parent.mkdir(parents=True);plot.write_text('figsize: [8, 5]\n')
+    for dest in (flat,plot):
+        packaged=source/'configs'/dest.relative_to(ws/'in/config');packaged.parent.mkdir(parents=True,exist_ok=True);packaged.write_bytes(dest.read_bytes())
+    manifest=source/'.theta_component.json';meta=json.loads(manifest.read_text())
+    paths=[str(v.relative_to(ws)) for v in (flat,plot)]
+    meta.update(config_path=paths[0],config_paths=paths)
+    meta['payload']['configs']={v:'configs/'+v.removeprefix('in/config/') for v in paths}
+    meta['payload']['implementations'].append('plotters')
+    meta['capabilities'].append({'id':'routing','kind':'plotter','entry_point':'plotters/routing.py:render'})
+    schema={'type':'object','properties':{'figsize':{'type':'array'}}}
+    meta['parameter_schema']['x-theta-config-schemas']={paths[1]:schema};manifest.write_text(json.dumps(meta))
+    copied=LocalComponents(ws).deep_copy(flat,'fork')
+    assert copied==ws/'in/config/model/fork.yaml'
+    data=yaml.safe_load(copied.read_text());assert data['architecture']=='fork' and data['neural']['type']=='dnn' and data['symbolic']['type']=='nsfr'
+    new_plot=ws/'in/config/plot/fork/routing.yaml';assert yaml.safe_load(new_plot.read_text())==yaml.safe_load(plot.read_text())
+    assert 'from .routing import render' in (ws/'src/usr/models/fork/plotters/__init__.py').read_text()
+    assert 'from .plotters import routing' in (ws/'src/usr/models/fork/model.py').read_text()
+    fork=json.loads((ws/'src/usr/models/fork/.theta_component.json').read_text())
+    assert fork['parameter_schema']['x-theta-config-schemas']['in/config/plot/fork/routing.yaml']==schema
+    assert (auxiliary/'routing.py').read_text()=='def render(): return "routing"\n'
 
 
 def test_component_tree_copy_names_inline_and_opens_new_parameters(model_workspace, monkeypatch):
@@ -682,51 +670,12 @@ def test_inline_copy_conflict_and_escape_do_not_create_files(model_workspace):
     app.processEvents()
 
 
-def test_installed_blendrl_copy_preserves_original_identity(tmp_path):
-    """Exercise the downloaded package without changing the user's installation."""
-    import shutil
-    root = Path(__file__).resolve().parents[1]
-    config = root / 'in/config/model/blendrl.yaml'
-    manifest = root / 'src/usr/models/blendrl/.theta_component.json'
-    if not config.is_file() or not manifest.is_file():
-        pytest.skip('Downloaded BlendRL is not installed in this workspace')
-    meta = json.loads(manifest.read_text())
-    ws = tmp_path / 'workspace'
-    shutil.copytree(manifest.parent, ws / 'src/usr/models/blendrl', ignore=shutil.ignore_patterns('__pycache__'))
-    payload = list(dict.fromkeys(meta.get('config_paths', []) + meta.get('installed_files', [])))
-    original = {relative: (root / relative).read_bytes() for relative in payload}
-    for relative in payload:
-        (ws / relative).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(root / relative, ws / relative)
-    copied = LocalComponents(ws).deep_copy(ws / 'in/config/model/blendrl.yaml', 'blendrl_fork')
-    assert copied == ws / 'in/config/model/blendrl_fork.yaml'
-    cloned = json.loads((ws / 'src/usr/models/blendrl_fork/.theta_component.json').read_text())
-    assert cloned['dependencies'] == meta['dependencies']
-    assert (ws / 'plot/blendrl_fork/routing.py').exists()
-    assert 'in/config/plot/blendrl_fork/blend_routing.yaml' in cloned['config_paths']
-    assert yaml.safe_load((ws / 'in/config/plot/blendrl_fork/blend_routing.yaml').read_text()) == yaml.safe_load((ws / 'in/config/plot/blendrl/blend_routing.yaml').read_text())
-    # Only registration/import isolation is tested here. The developer's optional
-    # Captum/NSFR dependencies are stubbed; no training or dependency install runs.
-    code = f"""import sys, types, importlib
-import src.usr.models
-src.usr.models.__path__.insert(0, {str(ws / 'src/usr/models')!r})
-from src.app.core import model_registry as registry
-registry.__file__ = {str(ws / 'src/app/core/model_registry.py')!r}
-for name in ('captum', 'captum.attr', 'nsfr', 'nsfr.common', 'nsfr.utils', 'nsfr.utils.common'):
-    sys.modules[name] = types.ModuleType(name)
-for name in ('DeepLift', 'DeepLiftShap', 'GradientShap', 'IntegratedGradients', 'LayerConductance', 'NeuronConductance', 'NoiseTunnel'):
-    setattr(sys.modules['captum.attr'], name, type(name, (), {{}}))
-sys.modules['nsfr.common'].get_nsfr_model = lambda *args, **kwargs: None
-sys.modules['nsfr.utils.common'].load_module = lambda *args, **kwargs: None
-importlib.import_module('src.usr.models.blendrl')
-original = registry.get_model_class('blendrl')
-importlib.import_module('src.usr.models.blendrl_fork')
-fork = registry.get_model_class('blendrl_fork')
-assert original is not fork
-assert registry.get_model_class('blender') is original
-assert registry.get_model_class('blendrl') is original
-assert fork.__module__.startswith('src.usr.models.blendrl_fork.')
-print('independent')
-"""
-    assert subprocess.check_output([sys.executable, '-c', code], cwd=root, text=True).strip() == 'independent'
-    assert all((root / relative).read_bytes() == contents for relative, contents in original.items())
+def test_legacy_downloaded_copy_requires_native_source_declarations(tmp_path):
+    """Native BlendRL positive coverage lives with its maintained package sources."""
+    source=tmp_path/'src/usr/models/blendrl';source.mkdir(parents=True)
+    manifest=source/'.theta_component.json';manifest.write_text(json.dumps({'id':'blendrl','name':'BlendRL','kind':'model','version':'1.0.0'}))
+    config=tmp_path/'in/config/model/blendrl.yaml';config.parent.mkdir(parents=True);config.write_text('architecture: blendrl\n')
+    before=manifest.read_bytes()
+    with pytest.raises(ValueError,match='declared native package'):
+        LocalComponents(tmp_path).deep_copy(config,'blendrl_fork')
+    assert manifest.read_bytes()==before and not (source.parent/'blendrl_fork').exists()

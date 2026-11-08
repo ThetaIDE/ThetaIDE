@@ -13,10 +13,19 @@ from .development import ComponentDevelopment
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Inspect, copy and configure components in the existing Theta layout.")
-    parser.add_argument("--root", type=Path, default=PROJECT_ROOT,
-                        help="Existing Theta checkout root (defaults to this installation; creates no workspace).")
+    parser = argparse.ArgumentParser(description="Inspect, install, copy and configure native Theta packages.")
+    parser.add_argument("--root", type=Path, default=WorkspacePaths.for_process().root,
+                        help="Selected workspace root.")
+    parser.add_argument("--data-dir", type=Path, help="Selected state directory.")
     commands = parser.add_subparsers(dest="command", required=True)
+    inventory = commands.add_parser("inventory", help="Read-only provider/ownership inventory (never imports implementations)")
+    inventory.add_argument("--out", type=Path)
+    install = commands.add_parser("install", aliases=["update"], help="Install/update a local archive into managed storage")
+    install.add_argument("archive", type=Path)
+    install.add_argument("--no-dependencies", action="store_true")
+    commands.add_parser("uninstall", help="Remove a managed package while retaining edits").add_argument("component")
+    commands.add_parser("archive-authored", help="Explicitly archive a user implementation").add_argument("component")
+    commands.add_parser("restore-authored", help="Explicitly restore an archived user implementation").add_argument("component")
     commands.add_parser("list", help="List installed components without importing their Python code")
     inspect = commands.add_parser("inspect")
     inspect.add_argument("component", help="Component ID or workspace-relative source/config path")
@@ -43,9 +52,49 @@ def main(argv=None):
     validate.add_argument("experiment")
     validate.add_argument("overrides", nargs="*")
     args = parser.parse_args(argv)
-    service = ComponentDevelopment(WorkspacePaths(args.root))
+    service = ComponentDevelopment(WorkspacePaths(args.root, args.data_dir))
     try:
-        if args.command == "list":
+        if args.command in ("install", "update"):
+            import tempfile
+            from src.app.components.archive import extract
+            from src.app.components.models import HubComponent, ReleaseInfo
+            from src.app.core.provider_catalog import file_hash
+            archive = args.archive.expanduser().resolve()
+            with tempfile.TemporaryDirectory(prefix="theta-import-") as temporary:
+                source = extract(archive, Path(temporary))
+                manifest = source / ".theta_component.json"
+                if not manifest.is_file(): raise ValueError("Archive has no package manifest; export it with an explicit package ID first")
+                component = HubComponent.from_dict(json.loads(manifest.read_text()))
+            component.releases = {component.version: ReleaseInfo(component.version, archive.as_uri(), file_hash(archive))}
+            service.installer.install(component, install_dependencies=not args.no_dependencies)
+            result = {"id": component.id, "version": component.version, "root": str(service.installer.resolve_target_dir(component)),
+                      "origin": "local_archive", "retained_edits": component.extra.get("retained_edits", [])}
+        elif args.command == "uninstall":
+            from src.app.core.provider_catalog import get_catalog
+            from src.app.components.models import HubComponent
+            package = get_catalog(service.paths).package(args.component)
+            if package is None: raise ValueError(f"Unknown package {args.component!r}")
+            result = {"id": package.id, "removed": service.installer.uninstall(HubComponent.from_dict(package.manifest))}
+        elif args.command in ("archive-authored", "restore-authored"):
+            from src.app.services.local_components import LocalComponents
+            from src.app.components.models import HubComponent
+            local = LocalComponents(service.paths)
+            if args.command == "archive-authored":
+                manifest, meta = service._resolve(args.component)
+                local.archive_authored(HubComponent.from_dict(meta), service.installer)
+            else:
+                record = local.state()['records'].get(args.component)
+                if not record or record.get('source') != 'local': raise ValueError('No retained authored implementation with that ID')
+                meta = json.loads((Path(record['package']) / '.theta_component.json').read_text())
+                local.restore_authored(HubComponent.from_dict(meta))
+            result = {"id": args.component, "action": args.command}
+        elif args.command == "inventory":
+            from src.app.core.provider_catalog import ProviderCatalog
+            result = ProviderCatalog(service.paths).inventory()
+            if args.out:
+                args.out.write_text(json.dumps(result, indent=2, default=str) + "\n")
+                result = {"report":str(args.out)}
+        elif args.command == "list":
             result = service.list()
         elif args.command == "inspect":
             result = service.inspect(args.component)
@@ -57,7 +106,7 @@ def main(argv=None):
             info = service.inspect(args.component)
             primary = next((p["path"] for p in info["profiles"] if p["exists"]), info["manifest"])
             if args.command == "context":
-                _, path = LocalComponents(service.paths.root).context(primary)
+                _, path = LocalComponents(service.paths).context(primary)
                 result = {"context": str(path)}
             else:
                 from src.app.services.component_exporter import ComponentExporter, ComponentExportOptions
