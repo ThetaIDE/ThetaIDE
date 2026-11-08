@@ -253,6 +253,15 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     assert reward.series[0][0] == "dqn"
     assert theme_color(reward.series[0][2]) == theme_color(PALETTE[0])
     assert not monitor.charts_view.grid.lead_hidden
+    other = LiveRun()
+    other.rows = [{"step": 1, "eval/reward": 10.0}]
+    lives["ppo · study · trial 1"] = dqn
+    lives["ppo · study · trial 2"] = other
+    monitor.focus_agent("ppo · study · trial 2")
+    assert "Trial 2" in monitor.method_legend.text()
+    assert "Trial 1" not in monitor.method_legend.text()
+    assert "dqn" not in monitor.method_legend.text()
+    assert list(monitor.shown_lives(lives)) == ["ppo · study · trial 2"]
     monitor.focus_agent("dqn")
     assert monitor.charts_view._series_colors["dqn"] == PALETTE[0]
     monitor.close()

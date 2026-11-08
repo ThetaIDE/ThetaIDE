@@ -255,11 +255,6 @@ class MonitorPanel(QWidget):
         self.pipeline_strip = PipelineStrip(content)
         self.pipeline_strip.segment_clicked.connect(self.focus_agent)
         self.pipeline_strip.hide()
-        self.trial_details = QLabel()
-        self.trial_details.setWordWrap(True)
-        self.trial_details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.trial_details.hide()
-        layout.addWidget(self.trial_details)
         self.queue_overlay = QFrame(content)
         self.queue_overlay.setObjectName("card")
         self.queue_overlay.setFrameShape(QFrame.Shape.StyledPanel)
@@ -533,19 +528,10 @@ class MonitorPanel(QWidget):
         self.sidebar.update_run(run)
 
     def show_hardware(self, hw):
-        """Live CPU and memory use of the training process (and its children, when reported), on the System button."""
-        children = int(hw.get("children") or 0)
-        processes = f" across {children + 1} processes" if children else ""
-        parts = [f"CPU {hw['cpu_percent']:.1f}%{processes}", f"Process RAM {hw.get('memory_mb', 0):.0f} MB"]
-        gpu = sum(v for k, v in hw.items() if k.startswith("gpu") and k.endswith("_mem_allocated_mb"))
-        if gpu:
-            parts.append(f"GPU memory {gpu:.0f} MB")
-        if hw.get("host_cpu_percent") is not None:
-            parts.append(f"Machine CPU {hw['host_cpu_percent']:.0f}%")
+        """Keep the System navigation label stable as hardware samples arrive."""
         button = self.view_buttons["System"]
-        button.setText(f"System · CPU {hw['cpu_percent']:.0f}%")
-        button.setToolTip("  •  ".join(parts) + "\nClick for CPU, memory and GPU memory over time")
-
+        button.setText("System")
+        button.setToolTip("View CPU, memory and GPU memory over time")
 
     def _switch_to(self, run_id):
         run = self.host.by_id(run_id)
@@ -560,7 +546,6 @@ class MonitorPanel(QWidget):
             return
         self._refresh_run_selectors()
         config = run["config"]
-        metrics = run["metrics"]
         live = not run["simulated"]
         title = run_display_name(run)
         group = (run.get("backend") or {}).get("group")
@@ -583,8 +568,6 @@ class MonitorPanel(QWidget):
                         "this view follows it when it starts.")
                 if not host.queue_running:
                     note += " The queue is paused: use Start or pause queue (Ctrl+Shift+R)."
-            elif run["status"] == "starting" or (run["status"] == "running" and not metrics):
-                note = "Starting the pipeline — waiting for the first metrics."
             elif run["status"] == "running" and run.get("phase") == "plotting":
                 note = f"Training finished — the pipeline is generating plots in results/plots/{run['backend']['group']}/…"
             elif run["status"] == "incomplete":
@@ -614,7 +597,6 @@ class MonitorPanel(QWidget):
             self.method_legend.hide()
             self.method_button.hide()
             self.trial_button.hide()
-            self.trial_details.hide()
             self.problem_bar.hide()
             self.focused_agent = self.pipeline_strip.focused = None
             self.pipeline_strip.segments = []
@@ -742,19 +724,13 @@ class MonitorPanel(QWidget):
         self.method_button.setVisible(bool(method_names))
         self.trial_button.setText(f" / {trial_label}")
         self.trial_button.setVisible(bool(method_studies))
-        trial_states = {
-            f"{method} · {study['study']} · trial {trial['id']}": trial.get("state")
-            for method, study in studies for trial in study.get("trials", [])
-        }
-        selectable_methods = [name for name in methods if " · trial " not in name or (
-            live and trial_states.get(parent_trial_label(name), "running") == "running" and not lives[name].finish)]
-        self._show_trial_details(run, lives)
+        shown = self.shown_lives(lives)
         colors = {name: PALETTE[i % len(PALETTE)] for i, name in enumerate(methods)}
         self.method_legend.setText(" &nbsp; ".join(
             f'<span style="color:{theme_color(colors[name])}">●</span> {escape(monitor_method_label(name))}'
-            for name in selectable_methods
+            for name in shown
         ))
-        self.method_legend.setVisible(bool(selectable_methods))
+        self.method_legend.setVisible(bool(shown) and view is not self.sweep_view)
         self.pipeline_strip.segments = pipeline_segments(list((run.get("backend") or {}).get("agents") or []), lives)
         # The bottom bar: the newest warning or error (with the log), else what the run is waiting for.
         problem = latest_problem(lives)
@@ -767,10 +743,9 @@ class MonitorPanel(QWidget):
         self.open_log.setVisible(problem is not None)
         self.problem_bar.setVisible(problem is not None or bool(self.status_note))
         if view is self.charts_view:
-            shown = self.shown_lives(lives)
             view.show_lives(shown, colors, live, comparing=False)
         elif view is self.system_view:
-            view.show_lives(self.shown_lives(lives), colors)
+            view.show_lives(shown, colors)
         elif view is self.feed_view:
             self.feed_view.show_lives(lives)
         elif view is self.files_view:
@@ -812,29 +787,6 @@ class MonitorPanel(QWidget):
                 name = next((source for source in lives if parent_trial_label(source) == name), name)
         self.focus_agent(name)
         self.show_view("Overview")
-
-    def _show_trial_details(self, run, lives):
-        from .sweep_view import study_summaries
-        selected = self.focused_agent or ""
-        if " · trial " not in selected:
-            self.trial_details.hide()
-            return
-        for method, study in study_summaries(self.host.jobs.project_root, run):
-            for trial in study.get("trials", []):
-                if parent_trial_label(selected) == f"{method} · {study['study']} · trial {trial['id']}":
-                    metric = study.get("objective_metric") or "Objective"
-                    value = trial.get("value")
-                    live = lives.get(selected)
-                    if value is None and live is not None:
-                        value = live.latest(metric)
-                    waiting = "Awaiting completed seed panel" if metric.startswith("objective/") else "Awaiting metric"
-                    formatted = f"{value:.5g}" if isinstance(value, (int, float)) else waiting
-                    seed = " · Seed " + selected.split(" · seed ", 1)[1] if " · seed " in selected else ""
-                    self.trial_details.setText(f"Trial {trial['id']}{seed} · {str(trial.get('state', 'unknown')).capitalize()}   |   {metric}: {formatted}")
-                    self.trial_details.setToolTip("\n".join(f"{key}: {val}" for key, val in trial.get("parameters", {}).items()))
-                    self.trial_details.show()
-                    return
-        self.trial_details.hide()
 
     def append_log(self, run, lines):
         """New output of `run`: shown at once if its log is the one loaded (otherwise read when opened)."""

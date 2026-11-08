@@ -269,17 +269,9 @@ class Chart(QWidget):
         painter.setPen(QColor(theme_color("text")))
         # Stop short of the corner control (e.g. a Hide button) so a long title never runs under it.
         corner = self.corner.width() + 8 if self.corner is not None and self.corner.isVisible() else 0
-        # Say why the curve stops short of the right edge, where there is room: a small chart keeps it for
-        # the title, and the reward chart's "max possible" note takes that corner.
         reserved = 170 if self.reference is not None else 0
-        note = "x fixed to budget" if self.show_future and self.xmax and self.width() >= 520 else ""
-        room = self.width() - 32 - corner - reserved - (110 if note else 0)
+        room = self.width() - 32 - corner - reserved
         painter.drawText(16, 24, painter.fontMetrics().elidedText(self.title, Qt.TextElideMode.ElideMiddle, max(40, room)))
-        if note:
-            painter.setFont(QFont("Segoe UI", 8))
-            painter.setPen(QColor(theme_color("muted")))
-            painter.drawText(QRectF(self.width() - 16 - corner - reserved - 110, 12, 110, 16),
-                             Qt.AlignmentFlag.AlignRight, note)
         area = QRectF(52, 45, self.width() - 74, self.height() - 80)
         points = [m for _, metrics, _ in self.series for m in metrics]
         xmax = self.xmax or max([m["step"] for m in points] or [10000])

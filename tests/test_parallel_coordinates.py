@@ -32,11 +32,14 @@ def study():
 def view():
     view = SweepView()
     view.set_studies([("method", study())])
-    tabs = view.findChild(QTabWidget)
-    tabs.setCurrentIndex(next(i for i in range(tabs.count()) if tabs.tabText(i) == "Parallel coordinates"))
+    assert view.findChild(QTabWidget) is None
     view.resize(1100, 680)
     view.show()
     app.processEvents()
+    view.scroll.ensureWidgetVisible(view.parallel_plot)
+    app.processEvents()
+    assert view.scroll.verticalScrollBar().maximum() > 0
+    assert not view.table.isVisible()
     yield view
     view.close()
     view.deleteLater()
