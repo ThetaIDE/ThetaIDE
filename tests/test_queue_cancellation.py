@@ -147,7 +147,7 @@ def test_cancel_pending_trial_keeps_next_trial(tmp_path, monkeypatch):
     monkeypatch.setattr(parallel.subprocess, 'Popen', Process)
     def load(config, overrides):
         return OmegaConf.create({'hydra': {'job': {}, 'sweep': {'dir': str(tmp_path)}}, 'theta_tuning': {'log_version': overrides[0]}})
-    impl = SimpleNamespace(task_function=load, config=OmegaConf.create({'hydra': {'sweep': {'dir': str(tmp_path)}}}), job_idx=0,
+    impl = SimpleNamespace(task_function=load, config=OmegaConf.create({'hydra': {'sweep': {'dir': str(tmp_path)}}}), job_idx=0, n_jobs=2,
                            hydra_context=SimpleNamespace(config_loader=SimpleNamespace(load_sweep_config=load)))
     results = launch_trials(impl, [('selected',), ('sibling',)])
     assert results[0].return_value == {'theta_trial_status': 'pruned'}

@@ -7,12 +7,15 @@ from pathlib import Path
 import pytest
 
 
-def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path):
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path, jobs):
     optuna = pytest.importorskip('optuna')
     project = Path(__file__).resolve().parents[1]
     settings = tmp_path / 'settings.toml'
     # Resource estimates allow two workers. The legacy count of one is ignored.
-    settings.write_text('[training]\ncpu_percent=100\nmemory_percent=10\nmax_parallel=1\n')
+    # Hold both large-model reservations through completion, including the
+    # portion this synthetic worker never allocates.
+    settings.write_text('[training]\ncpu_percent=100\nmemory_percent=20\nmax_parallel=1\n')
     script = tmp_path / 'objective.py'
     script.write_text(
         'import hydra, time, os, json\nfrom pathlib import Path\n'
@@ -34,7 +37,7 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path):
            'OMP_NUM_THREADS': '1'}
     result = subprocess.run([sys.executable, str(script), '--multirun', 'hydra/sweeper=optuna_offline',
         f'hydra.sweeper.storage={storage}', 'hydra.sweeper.study_name=parallel', 'hydra.sweeper.n_trials=3',
-        'hydra.sweeper.n_jobs=1', f'hydra.sweep.dir={tmp_path}/hydra', '++trainer.accelerator=cpu',
+        f'hydra.sweeper.n_jobs={jobs}', f'hydra.sweep.dir={tmp_path}/hydra', '++trainer.accelerator=cpu',
         '++model.hidden_sizes=[8000,8000]',
         '++hydra.job.env_set.THETA_TEST_ENV=passed', '++hydra.job.env_set.OMP_NUM_THREADS=64',
         '+x=interval(1.0,2.0)'], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=45)
@@ -43,10 +46,15 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path):
     second = json.loads((tmp_path / 'trial_1.json').read_text())
     third = json.loads((tmp_path / 'trial_2.json').read_text())
     assert first['pid'] != second['pid']
-    assert max(first['start'], second['start']) < min(first['end'], second['end'])
+    if jobs == 1:
+        assert first['end'] <= second['start']
+        assert second['end'] <= third['start']
+    else:
+        assert max(first['start'], second['start']) < min(first['end'], second['end'])
     assert first['version'] != second['version']
     # A free slot must be refilled while a slower sibling is still running.
-    assert first['end'] <= third['start'] < second['end']
+    if jobs == 2:
+        assert first['end'] <= third['start'] < second['end']
     study = optuna.load_study(study_name='parallel', storage=storage)
     assert len(study.trials) == 3
     assert all(t.state == optuna.trial.TrialState.COMPLETE for t in study.trials)

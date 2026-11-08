@@ -1,6 +1,7 @@
 """Conservative local admission and process-tree memory accounting.
 
-Reservations are estimates. Monitoring is a circuit breaker, not OS isolation.
+Reservations are estimates, not OS isolation. Capacity controls new starts;
+admitted workers run to completion without scheduler-driven restarts.
 """
 from __future__ import annotations
 
@@ -193,7 +194,7 @@ def learned_usage(path):
 
 
 class ResourceCapacityRetry(RuntimeError):
-    """A worker exceeded its estimate and must wait for room before restarting."""
+    """Legacy retry signal; built-in training launchers no longer emit it."""
 
 
 class ResourcePool:
@@ -260,7 +261,9 @@ class ResourcePool:
                 estimate_cpu = max(.25, task['cpu'] * .8 + cpu * .2) if measured else task['cpu']
                 peak = max(task['peak'], rss)
                 warmed = now - task['created'] >= 5
-                memory = max(task['floor'], peak * 1.15) if warmed else max(task['memory'], rss * 1.15)
+                # Hold the original reservation for the whole run. Quiet
+                # startup must not lend its headroom to another worker.
+                memory = max(task['memory'], task['admitted_memory'], task['floor'], peak * 1.15)
                 # Learn after imports/warmup, rather than mistaking an empty
                 # starting interpreter for the size of a training workload.
                 if warmed:
@@ -338,9 +341,6 @@ class ResourcePool:
             if paused and paused[0]:
                 return None, 'Training starts are paused.'
             active = self._sample(db)
-            self._rebalance(db, active, budget, (cores, total, available))
-            if any(t['retry'] for t in active) or db.execute('SELECT 1 FROM tasks WHERE retry=1').fetchone():
-                return None, 'Waiting for an underestimated worker to release capacity.'
             if not samples and any(time.time() - t['created'] < 5 for t in active):
                 return None, 'Learning workload usage before starting another task.'
             reason = budget.admission_reason(
@@ -384,37 +384,14 @@ class ResourcePool:
             db.execute('DELETE FROM tasks WHERE pid=? AND birth=?',
                        (pid, psutil.Process(pid).create_time()))
 
-    def _rebalance(self, db, active, budget, capacity):
-        # A reduced soft target alone does not evict work. Recover when measured
-        # growth exceeded a reservation and the combined workers no longer fit.
-        if len(active) < 2 or any(t['retry'] for t in active):
-            return
-        _cores, total, available = capacity
-        limit = total * min(95, budget.memory_percent + 5) / 100
-        if sum(t['rss'] for t in active) <= limit and available >= total * .05:
-            return
-        underestimated = [t for t in active if t['rss'] > (t['admitted_memory'] or t['memory'])]
-        if not underestimated:
-            return
-        worker = max(underestimated, key=lambda t: t['created'])
-        # Capture the peak even if startup exceeded the estimate before warmup.
-        db.execute('INSERT INTO profiles VALUES (?, ?, ?, 1) ON CONFLICT(key) DO UPDATE SET '
-                   'memory=MAX(memory,excluded.memory), cpu=MAX(cpu,excluded.cpu), samples=samples+1',
-                   (worker['key'], worker['rss'], worker['cpu']))
-        db.execute('UPDATE tasks SET retry=1 WHERE id=?', (worker['id'],))
-
     def should_retry(self, token):
-        with self.connect() as db:
-            row = db.execute('SELECT retry FROM tasks WHERE id=?', (token,)).fetchone()
-        return bool(row and row[0])
+        """Compatibility for older launchers: resource growth never evicts a run."""
+        return False
 
     def sample(self):
-        budget = ResourceBudget.from_settings(load_training_settings(self.settings_path))
-        capacity = host_capacity()
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            active = self._sample(db)
-            self._rebalance(db, active, budget, capacity)
+            self._sample(db)
 
     def set_paused(self, paused):
         with self.connect() as db:
