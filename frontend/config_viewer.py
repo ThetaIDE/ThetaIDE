@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .config_model import ConfigTree, default_method_model
+from .config_model import COMPONENT_ID_KEYS, ConfigTree, component_selection, default_method_model
 from .config_model import add_method as add_method_to
 from .config_model import remove_method as remove_method_from
 from .sidetabs import svg_icon
@@ -2831,6 +2831,10 @@ class ConfigViewer(QWidget):
             for m_name, m_spec in methods_dict.items():
                 if m_name == "params" or not isinstance(m_spec, dict):
                     continue
+                # Render nested algorithm overrides through the existing method
+                # controls; edits still target their original YAML container.
+                _, agent_inner = component_selection(m_spec.get("agent"))
+                m_spec = {**agent_inner, **m_spec}
                 sub_card = QFrame()
                 sub_card.setObjectName("card")
                 card_vbox = QVBoxLayout(sub_card)
@@ -2867,9 +2871,7 @@ class ConfigViewer(QWidget):
                 title_row.addWidget(m_edit)
 
                 cand_train = get_training_candidate_hyperparameters(set(m_spec.keys()))
-                selected_agent = m_spec.get("agent")
-                if isinstance(selected_agent, dict):
-                    selected_agent = selected_agent.get("name") or selected_agent.get("algorithm") or next(iter(selected_agent), "")
+                selected_agent, _ = component_selection(m_spec.get("agent"))
                 agent_defaults = tree.agent_hyperparameters(selected_agent) if tree and selected_agent else {}
                 if agent_defaults:
                     cand_train = [key for key in cand_train if key not in ("lr", "batch_size", "gamma") or key in agent_defaults]
@@ -2935,10 +2937,8 @@ class ConfigViewer(QWidget):
 
                 # --- AGENT SECTION ---
                 agent_raw = m_spec.get("agent")
-                if isinstance(agent_raw, dict):
-                    agent_val = (agent_raw.get("algorithm") or agent_raw.get("name") or next((k for k in agent_raw if k != "name"), ""))
-                else:
-                    agent_val = str(agent_raw or "")
+                agent_val, _ = component_selection(agent_raw)
+                agent_val = agent_val or ""
                 rules = tree.paradigms.get(paradigm) if tree else None
                 # This is a contract of the paradigm, not a proxy for whether
                 # a compatible plugin happens to be installed today.
@@ -2982,7 +2982,9 @@ class ConfigViewer(QWidget):
                         methods = self.raw_data.setdefault("methods", {})
                         ms = methods.setdefault(mn, {})
                         if v:
-                            ms["agent"] = v
+                            previous = ms.get("agent")
+                            _, overrides = component_selection(previous)
+                            ms["agent"] = {"name": v, **overrides} if isinstance(previous, dict) else v
                         else:
                             ms.pop("agent", None)
                         self._mark_dirty()
@@ -2999,6 +3001,7 @@ class ConfigViewer(QWidget):
 
                 agent_keys_present = set()
                 if txt_agent is not None:
+                    txt_agent.setObjectName(f"methodAgent_{m_name}")
                     agent_rows = []
                     btn_add_ap = None
                     if agent_val:
@@ -3015,7 +3018,7 @@ class ConfigViewer(QWidget):
 
                         # 1. Overridden keys in m_spec
                         _m_raw = m_spec.get("model", "")
-                        _m_name = next(iter(_m_raw)) if isinstance(_m_raw, dict) and _m_raw else str(_m_raw or "")
+                        _m_name, _ = component_selection(_m_raw)
                         known_model_params = set(tree.model_parameter_keys(_m_name)) if (tree and _m_name in tree.models) else set()
                         for ak, av in list(m_spec.items()):
                             if ak in ("agent", "model", "base") or ak in known_model_params:
@@ -3092,12 +3095,8 @@ class ConfigViewer(QWidget):
 
                 # --- MODEL SECTION ---
                 model_raw = m_spec.get("model", "")
-                if isinstance(model_raw, dict):
-                    model_name = next(iter(model_raw))
-                    model_inner = model_raw.get(model_name) if isinstance(model_raw.get(model_name), dict) else {}
-                else:
-                    model_name = str(model_raw or "")
-                    model_inner = {}
+                model_name, model_inner = component_selection(model_raw)
+                model_name = model_name or ""
 
                 # Older configs may use a model's short-name lookup alias.
                 # Display and newly saved selections should use the unique
@@ -3155,6 +3154,7 @@ class ConfigViewer(QWidget):
                         lambda v, mn=m_name: self._on_method_param_edited(mn, "model", v)
                     )
 
+                txt_model.setObjectName(f"methodModel_{m_name}")
                 model_keys_present = set()
                 model_rows = []
                 btn_add_mp = None
@@ -5157,10 +5157,20 @@ class ConfigViewer(QWidget):
         methods = self.raw_data.setdefault("methods", {})
         m_spec = methods.setdefault(method_name, {})
         parsed_val = _parse_yaml_value(value) if isinstance(value, str) else value
-        if isinstance(m_spec.get("model"), dict):
-            model_name = next(iter(m_spec["model"]))
-            if isinstance(m_spec["model"].get(model_name), dict) and param_key in m_spec["model"][model_name]:
-                m_spec["model"][model_name][param_key] = parsed_val
+        if param_key not in ("agent", "model", "enabled", "base", "from_study"):
+            for kind in ("agent", "model"):
+                target = self._method_component_parameter_root(method_name, kind)
+                if target is not m_spec and param_key in target:
+                    target[param_key] = parsed_val
+                    self._mark_dirty()
+                    return
+            target = self._method_component_parameter_root(method_name, "agent")
+            agent_name, _ = component_selection(m_spec.get("agent"))
+            tree = config_tree()
+            agent_keys = set(tree.agent_hyperparameters(agent_name)) if tree and agent_name else set()
+            agent_keys.update(get_agent_candidate_hyperparameters(agent_name, tree))
+            if target is not m_spec and param_key in agent_keys:
+                target[param_key] = parsed_val
                 self._mark_dirty()
                 return
         m_spec[param_key] = parsed_val
@@ -5172,13 +5182,11 @@ class ConfigViewer(QWidget):
             return
         m_spec = self.raw_data.setdefault("methods", {}).setdefault(method_name, {})
         parsed_val = _parse_yaml_value(value) if isinstance(value, str) else value
-        model_spec = m_spec.get("model")
-        if isinstance(model_spec, dict):
-            for model_config in model_spec.values():
-                if isinstance(model_config, dict) and isinstance(model_config.get(parent_key), dict):
-                    model_config[parent_key][child_key] = parsed_val
-                    self._mark_dirty()
-                    return
+        model_config = self._method_component_parameter_root(method_name, "model")
+        if isinstance(model_config.get(parent_key), dict):
+            model_config[parent_key][child_key] = parsed_val
+            self._mark_dirty()
+            return
         nested = m_spec.setdefault(parent_key, {})
         if not isinstance(nested, dict):
             nested = m_spec[parent_key] = {}
@@ -5190,29 +5198,33 @@ class ConfigViewer(QWidget):
         methods = self.raw_data.get("methods", {})
         m_spec = methods.get(method_name, {}) if isinstance(methods, dict) else {}
         if isinstance(m_spec, dict):
-            model_spec = m_spec.get("model")
-            if isinstance(model_spec, dict):
-                for model_config in model_spec.values():
-                    if isinstance(model_config, dict) and isinstance(model_config.get(parent_key), dict):
-                        model_config[parent_key].pop(child_key, None)
+            model_config = self._method_component_parameter_root(method_name, "model")
+            if isinstance(model_config.get(parent_key), dict):
+                model_config[parent_key].pop(child_key, None)
             nested = m_spec.get(parent_key)
             if isinstance(nested, dict):
                 nested.pop(child_key, None)
         self._mark_dirty()
         self._render_boxes()
 
-    def _method_model_parameter_root(self, method_name: str, model_name: str, create: bool = False) -> dict:
+    def _method_component_parameter_root(self, method_name: str, kind: str, create: bool = False) -> dict:
         methods = self.raw_data.setdefault("methods", {})
         m_spec = methods.setdefault(method_name, {})
-        model_spec = m_spec.get("model")
-        if isinstance(model_spec, dict) and model_name in model_spec:
+        model_spec = m_spec.get(kind)
+        if isinstance(model_spec, dict):
+            if any(isinstance(model_spec.get(key), str) for key in COMPONENT_ID_KEYS):
+                return model_spec
+            model_name, _ = component_selection(model_spec)
             value = model_spec.get(model_name)
             if isinstance(value, dict):
                 return value
-            if create:
+            if create and model_name:
                 model_spec[model_name] = {}
                 return model_spec[model_name]
         return m_spec
+
+    def _method_model_parameter_root(self, method_name: str, model_name: str, create: bool = False) -> dict:
+        return self._method_component_parameter_root(method_name, "model", create=create)
 
     def _on_method_model_parameter_edited(
         self,
@@ -6312,14 +6324,8 @@ class ConfigViewer(QWidget):
             if isinstance(methods, dict) and isinstance(methods.get(method_name), dict)
             else {}
         )
-        agent_raw = m_spec.get("agent")
-        agent_name = (
-            (agent_raw.get("name") or agent_raw.get("algorithm") or next((k for k in agent_raw if k != "name"), None))
-            if isinstance(agent_raw, dict)
-            else agent_raw
-        )
-        model_raw = m_spec.get("model")
-        model_name = next(iter(model_raw)) if isinstance(model_raw, dict) else model_raw
+        agent_name, _ = component_selection(m_spec.get("agent"))
+        model_name, _ = component_selection(m_spec.get("model"))
 
         tree = config_tree()
         group = self._group_name()
@@ -6372,11 +6378,13 @@ class ConfigViewer(QWidget):
     def _remove_method_param(self, method_name, param_key):
         if "methods" in self.raw_data and method_name in self.raw_data["methods"]:
             m_spec = self.raw_data["methods"][method_name]
-            if isinstance(m_spec.get("model"), dict):
-                model_name = next(iter(m_spec["model"]))
-                if isinstance(m_spec["model"].get(model_name), dict):
-                    m_spec["model"][model_name].pop(param_key, None)
-            m_spec.pop(param_key, None)
+            for kind in ("agent", "model"):
+                target = self._method_component_parameter_root(method_name, kind)
+                if param_key in target:
+                    target.pop(param_key)
+                    break
+            else:
+                m_spec.pop(param_key, None)
             dimensions = m_spec.get("tune", {})
             if isinstance(dimensions, dict):
                 dimensions.pop("agent." + param_key, None)
@@ -6391,11 +6399,7 @@ class ConfigViewer(QWidget):
             return
         methods = self.raw_data.setdefault("methods", {})
         m_spec = methods.setdefault(method_name, {})
-        model_name = None
-        if isinstance(m_spec.get("model"), str):
-            model_name = m_spec["model"]
-        elif isinstance(m_spec.get("model"), dict):
-            model_name = next(iter(m_spec["model"]), None)
+        model_name, _ = component_selection(m_spec.get("model"))
 
         if self.tree and model_name and param_key in self.tree.model_parameter_keys(model_name):
             self._add_method_model_parameter(method_name, model_name, (param_key,))
@@ -6404,14 +6408,7 @@ class ConfigViewer(QWidget):
         if value is None or value == "":
             value = self._resolve_default_param_value(method_name, param_key)
         parsed_val = _parse_yaml_value(value)
-        if isinstance(m_spec.get("model"), dict) and model_name:
-            if self.tree and model_name in self.tree.models and param_key in self.tree.model_parameters(model_name):
-                m_spec["model"].setdefault(model_name, {})[param_key] = parsed_val
-                self._mark_dirty()
-                self._render_boxes()
-                return
-        m_spec[param_key] = parsed_val
-        self._mark_dirty()
+        self._on_method_param_edited(method_name, param_key, parsed_val)
         self._render_boxes()
 
     def _checkpoint_row(self, data, resolved):

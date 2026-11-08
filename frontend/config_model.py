@@ -27,6 +27,24 @@ _ALLOW_FLAGS = {
 
 _GROUPS = ("paradigms", "env", "agent", "model", "site")
 
+COMPONENT_ID_KEYS = ("name", "algorithm", "type", "algo", "architecture", "base")
+
+
+def component_selection(value: Any) -> tuple[str | None, dict[str, Any]]:
+    """Read scalar, named, and component-keyed method selections consistently."""
+    if isinstance(value, str):
+        return value, {}
+    if not isinstance(value, Mapping):
+        return None, {}
+    for key in COMPONENT_ID_KEYS:
+        if isinstance(value.get(key), str) and value[key]:
+            return value[key], {k: v for k, v in value.items() if k not in COMPONENT_ID_KEYS}
+    if len(value) == 1:
+        key, params = next(iter(value.items()))
+        if params is None or isinstance(params, Mapping):
+            return key, dict(params or {})
+    return None, dict(value)
+
 
 # path -> (file bytes, parsed value). The tree is rebuilt often (every save invalidates it) but
 # usually only one file changed, and parsing is what costs: reading the bytes is ~100x cheaper.

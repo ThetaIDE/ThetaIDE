@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from frontend.config_model import ConfigTree
+from frontend.config_model import ConfigTree, component_selection
 from frontend.config_viewer import (
     NUMBER_FIELD_WIDTH,
     PARAM_FIELD_WIDTH,
@@ -262,6 +262,64 @@ def test_rules_control_opens_selected_folder_with_effective_environment(viewer, 
 
 def title(box):
     return next(w.text() for w in box.findChildren(QLabel) if w.objectName() in ("heading", "cardTitle"))
+
+
+@pytest.mark.parametrize("shape", ["named", "keyed", "scalar"])
+def test_method_component_identity_and_nested_edits_round_trip(viewer, shape):
+    widget, tree, root = viewer
+    for folder in ["agent", "model"]:
+        (tree.config_root / folder).mkdir(exist_ok=True)
+    (tree.config_root / "agent/ppo.yaml").write_text("algorithm: ppo\nlearning_rate: 0.0003\nn_epochs: 10\nmax_grad_norm: 0.5\n")
+    (tree.config_root / "model/example.yaml").write_text("architecture: example\nwidth: 16\nbackbone: {dim: 64}\n")
+    set_config_tree(ConfigTree(tree.config_root))
+    agent_params = {"learning_rate": .001, "n_epochs": 8}
+    model_params = {"width": 32, "backbone": {"dim": 128}}
+    if shape == "named":
+        method = {"agent": {"name": "ppo", **agent_params}, "model": {"name": "example", **model_params}}
+    elif shape == "keyed":
+        method = {"agent": {"ppo": agent_params}, "model": {"example": model_params}}
+    else:
+        method = {"agent": "ppo", "model": "example", **agent_params, **model_params}
+    widget = load(viewer, {"paradigm": "online_rl", "methods": {"demo": method}})
+    assert widget.findChild(QComboBox, "methodAgent_demo").currentText() == "ppo"
+    assert widget.findChild(QComboBox, "methodModel_demo").currentText() == "example"
+    assert widget.raw_data["methods"]["demo"] == method
+
+    def field_for(text):
+        for form in widget.findChildren(QFormLayout):
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                if item and isinstance(item.widget(), QLabel) and item.widget().text() == text:
+                    field = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                    if field and field.layout():
+                        return field.layout().itemAt(0).widget()
+        raise AssertionError(f"Missing parameter {text}")
+
+    rate = field_for("learning_rate")
+    rate.setValue(.002)
+    width = field_for("width")
+    if isinstance(width, QLineEdit):
+        width.setText("48")
+        width.editingFinished.emit()
+    else:
+        width.setValue(48)
+    widget._on_method_nested_param_edited("demo", "backbone", "dim", 256)
+    widget._add_method_param("demo", "max_grad_norm", .7)
+    remove = next(b for b in widget.findChildren(QToolButton) if b.toolTip() == "Remove 'n_epochs'")
+    assert remove.findChild(_RowHoverReveal)
+    remove.click()
+    widget.save_to_disk()
+    saved = yaml.safe_load((root / "test.yaml").read_text())["methods"]["demo"]
+    agent_name, agent = component_selection(saved["agent"])
+    model_name, model = component_selection(saved["model"])
+    if shape == "scalar":
+        agent = model = saved
+    assert (agent_name, model_name) == ("ppo", "example")
+    assert agent["learning_rate"] == .002 and agent["max_grad_norm"] == .7
+    assert "n_epochs" not in agent
+    assert model["width"] == 48 and model["backbone"]["dim"] == 256
+    if shape != "scalar":
+        assert not {"learning_rate", "max_grad_norm", "width", "backbone"} & saved.keys()
 
 
 def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
