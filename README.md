@@ -153,14 +153,13 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 │   │   ├── services/          # Shared run catalog, exports, metrics and job store
 │   │   ├── data/              # Offline replay data modules
 │   │   └── train.py           # PyTorch Lightning training driver
-│   └── usr/                   # Components: algorithms, methods, models, environments, evaluators
-│                              # (most are installed from the Theta Hub, not tracked in git)
+│   ├── plugins/               # components/ and app/, each with bundled/ and installed/
+│   └── usr/                   # User-authored implementations, environments and rules
 ├── in/
 │   ├── config/                # Hydra configs: experiment/, agent/, model/, env/, paradigms/, site/, plot/
-│   ├── envs/  rules/          # Environment definitions and symbolic rule sets
 │   └── datasets/              # Local datasets (not tracked)
-├── plot/                      # Plotting framework; research plotters supplied by components
-├── .thetaide/                 # IDE state, installed GUI plugins, retained packages and cache (not tracked)
+├── plot/                      # Compatibility imports/CLI for framework plotting
+├── .thetaide/                 # IDE state, ownership records, retained packages and cache
 ├── tests/                     # pytest suite
 ├── docs/                      # Guides and the README media
 └── results/                   # Run output (not tracked): logs/, plots/, checkpoints/, tensorboard/
@@ -173,6 +172,7 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 - [CONTRIBUTING.md](CONTRIBUTING.md): development workflow, tests and code style.
 - [Component Plugin Authoring Guide](docs/COMPONENT_PLUGIN_GUIDE.md): writing algorithms, models,
   environments and IDE plugins.
+- [Native provider storage](docs/PLUGIN_STORAGE.md): ownership, version 2 archives, workers and rollback.
 - [Component development](COMPONENT_DEVELOPMENT.md): GUI/terminal copying, editing, validation and storage.
 - [Pipeline interface](docs/API.md): shared services and desktop execution.
 - [Archived workflow notes](docs/WORKFLOW_GUIDE.md): historical BlendRL commands; use the CLI section above for current commands.

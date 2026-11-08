@@ -37,7 +37,7 @@ ruff check src/ plot/ run_pipeline.py
 ruff format --check src/ plot/ run_pipeline.py
 
 # Type check
-mypy src/app/pipeline/ src/usr/algorithms/agent_registry.py
+mypy src/app/pipeline/ src/app/core/agent_registry.py
 
 # Tests, as CI runs them
 QT_QPA_PLATFORM=offscreen pytest tests/ --timeout=120 --cov=src --cov=frontend
@@ -68,7 +68,7 @@ isolated fixtures rather than a fixed set of private researcher files.
 ```
 run_pipeline.py          # Command-line entry point
 frontend/                # The desktop IDE (PyQt6)
-  plugins/core/          # Built-in IDE plugins: documentation, TensorBoard, arXiv papers
+  plugins/               # Generic Qt plugin infrastructure and compatibility imports
   hub/                   # Theta Hub GUI client and compatibility imports
 src/app/                 # Framework
   components/            # Headless installer, development operations, config I/O and CLI
@@ -77,15 +77,15 @@ src/app/                 # Framework
   core/                  # Interfaces, registries (agents, plotters, ...), factories, callbacks
   services/              # Run catalog, metrics and job store used by the IDE
   data/                  # Offline replay data modules
-src/usr/                 # Components: algorithms, methods, models, environments, evaluators
+src/plugins/             # Bundled and managed research providers and app plugins
+src/usr/                 # User-authored implementations and rules
 in/config/               # Hydra configs: experiment/, agent/, model/, env/, paradigms/, plot/
-plot/                    # Plotting framework and component-supplied research plotters
+plot/                    # Compatibility imports and plotting CLI
 tests/                   # pytest suite
 ```
 
-Most runtime files under `src/usr/`, `in/config/agent/`, `in/config/model/` and `in/config/env/` are installed
-from the Theta Hub and gitignored. Component authors can develop packages separately and publish them to the
-Hub.
+Managed packages under `src/plugins/{components,app}/installed/` and active component profiles are
+gitignored. Component authors develop native packages separately and install built archives for verification.
 
 ## Common contributions
 
@@ -98,10 +98,10 @@ Plugin…** (Ctrl+Shift+P) generates a starting point.
 
 ### A new plotter
 
-Plotters are discovered automatically from modules in `plot/` and its subfolders, such as
-`plot/standard_figures/`:
+Plotters are declared as capabilities in native package manifests. Bundled examples live under
+`src/plugins/components/bundled/standard_figures/`:
 
-1. Subclass `BasePlotter` from `plot/base.py`, passing the plotter's name to `super().__init__("my_plot")`.
+1. Subclass `BasePlotter` from `src/app/core/plotting/base.py`, passing the plotter's name to `super().__init__("my_plot")`.
 2. Implement `run(self, exp_id, cli_overrides=None)`. Call `self.get_effective_config(exp_id, cli_overrides)`
    to get the merged settings, the experiment's group and the output folder.
 3. Put the default settings in `in/config/plot/<library>/my_plot.yaml`. Research plotters and their defaults
@@ -111,11 +111,11 @@ Plotters are discovered automatically from modules in `plot/` and its subfolders
 ### An IDE feature or plugin
 
 The IDE lives in `frontend/`. Self-contained features (a new sidebar tab, for example) work best as plugins:
-see `frontend/plugins/core/` for working examples, and the **Authoring Guide: All Component & Plugin Types**
+see `src/plugins/app/bundled/` for working examples, and the **Authoring Guide: All Component & Plugin Types**
 article in the built-in documentation (press **F1**).
 
 If your change affects what users see or do, update the built-in documentation in
-`frontend/plugins/core/documentation/content.py` in the same pull request.
+`src/plugins/app/bundled/documentation/content.py` in the same pull request.
 
 ## Commit messages
 
@@ -133,3 +133,5 @@ Use [Conventional Commits](https://www.conventionalcommits.org/), with a scope w
   120-character lines.
 - Type checker: [mypy](https://mypy-lang.org/), configured in `pyproject.toml`.
 - Python 3.10+ syntax. Code must also run on 3.10, so avoid features newer than that.
+
+Provider implementations belong in `src/plugins/{components,app}/bundled`; managed local payloads belong in the matching `installed` roots, and authored code stays in `src/usr`. Follow [the storage contract](docs/PLUGIN_STORAGE.md) for package manifests, exports, headless discovery and lifecycle operations. See [provider integration checks](docs/PLUGIN_NATIVE_INTEGRATION.md) for targeted verification.

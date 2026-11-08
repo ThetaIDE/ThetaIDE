@@ -124,7 +124,7 @@ environments from the Theta Hub:
 2. Install **ThetaIDE Basics**. It brings Stable-Baselines3, d3rlpy, Gymnasium classic control, Atari and the
    basic network models.
 
-Components are written into the repository (`in/config/` and `src/usr/`) and are not tracked by git. The
+Managed components install into `src/plugins/components/installed`, app extensions into `src/plugins/app/installed`, and active profiles into `in/config`. `src/usr` is reserved for authored implementations. See [provider storage](docs/PLUGIN_STORAGE.md). The
 README's [Run your first experiment](README.md#run-your-first-experiment) section continues from here.
 
 Hub-installed files are read-only; make an independent model copy to change its implementation, or copy

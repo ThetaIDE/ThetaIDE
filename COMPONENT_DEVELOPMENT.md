@@ -1,6 +1,8 @@
 # Component development from the GUI or terminal
 
-Theta keeps its current checkout layout: active research code in `src/usr/`, configurations in `in/config/`, and existing environment, rule, plot, and output directories. This feature does not move user files or introduce a separate workspace lifecycle.
+Theta keeps authored research code in `src/usr/`, managed packages in `src/plugins/components/installed/<package-id>`, bundled providers in `src/plugins/components/bundled`, and active configurations in `in/config/`. See [the native storage contract](docs/PLUGIN_STORAGE.md) for ownership, explicit manifests and package-relative exports.
+
+Author component changes in the `../theta-plugins` source repository. Installed Hub payloads in this workspace are read-only runtime copies, not the component authoring source. Build and install a package to validate a component update; use an isolated workspace first.
 
 The desktop and terminal share headless component services in `src/app/components/`, the path policy in `src/app/workspace.py`, and existing services in `src/app/services/`. Installer/model imports under `frontend.hub` remain compatibility aliases to the same classes.
 
@@ -70,7 +72,9 @@ python run_pipeline.py component export my_blendrl --out my_blendrl.zip
 
 Existing GUI uninstall/update and visibility operations continue using the shared installer and local collection. Copying, editing, and exporting do not publish anything. Production publication remains a separate operation following `THETA_HUB_RELEASE_WORKFLOW.md`.
 
-Uninstall removes the active installation, including active local source, after retaining saved content for reinstall. A retained snapshot is not an editable live source folder. Delete local component is a separate GUI action that moves owned local files to Trash. The terminal commands above do not currently expose remote Hub install/update/uninstall, Hide, or Delete actions; the shared Python services provide their core operations.
+Uninstalling a Hub component removes its installed source and any obsolete saved Hub-source snapshot. Installing it again downloads the published Hub archive. Hub package source is read-only and updates replace it; edited YAML profiles are preserved separately. Make an independent component copy to develop editable source.
+
+Private component copies retain their saved source for offline reinstall. A retained private snapshot is not an editable live source folder. Delete local component is a separate GUI action that moves owned local files to Trash. The terminal commands above do not currently expose remote Hub install/update/uninstall, Hide, or Delete actions; the shared Python services provide their core operations.
 
 ## Current storage map
 
@@ -78,19 +82,47 @@ All paths below are relative to the existing checkout, using the default app dat
 
 | What | Location |
 | --- | --- |
-| Active models, algorithms, data modules and evaluators | `src/usr/models/`, `src/usr/algorithms/`, `src/usr/data/`, `src/usr/eval/` (legacy methods may use `src/usr/methods/`) |
-| Active environment, symbolic and plotting assets | `in/envs/`, `in/rules/`, `plot/`, plus package-declared assets |
+| Authored models, algorithms, data modules and evaluators | `src/usr/models/`, `src/usr/algorithms/`, `src/usr/data/`, `src/usr/eval/` |
+| Authored environments and independent plotters | `src/usr/environments/`, `src/usr/plotters/`; owned auxiliary sources stay inside their package |
+| Managed research packages | `src/plugins/components/installed/<package-id>/` |
+| Symbolic rules and ruleset-owned predicate code | `src/usr/rules/<environment>/<ruleset>/` |
 | Experiment recipes and component profiles | `in/config/` by category; local files and protected Hub defaults share this tree |
 | Local datasets | `in/datasets/`, or explicitly configured data paths |
 | Research outputs | `results/` (logs, plots, checkpoints, exports and related outputs) |
-| Hub GUI plugins | `.thetaide/plugins/<id>/` unless their install target/data directory specifies otherwise |
-| Built-in GUI plugins | `frontend/plugins/core/` |
+| Managed GUI plugins | `src/plugins/app/installed/<id>/`; custom data directories hold state, not new source installs |
+| Built-in GUI plugins | `src/plugins/app/bundled/` |
 | Retained component packages, collection state and generated context | `.thetaide/components/packages/`, `collection.json`, `context/` |
 | Hub cache and retained YAML/backups | `.thetaide/cache/hub/`, `.thetaide/retained_configs/`, `.thetaide/config_backups/` |
 | IDE run records and queue | `.thetaide/runs/` (queue DB at `jobs/jobs.db` beneath the app data directory) |
 | Workspace preferences and personal appearance | `.thetaide/settings.toml`, `.thetaide/runs/.appearance.json` by default |
 | User-global preferences | `~/.config/thetaide/settings.toml` |
 
-Backing up `.thetaide/` alone misses active research files, configurations, datasets and results. No unified package store, standalone research-workspace lifecycle, or application namespace move is implemented. `PROJECT_ORGANIZATION_PLAN.md` describes deferred design options.
+Backing up `.thetaide/` alone misses research packages, authored files, configurations, datasets and results. Package storage is unified by ownership and capability metadata; update maintained source packages, build their native archives and install normally. No workspace migration is needed.
 
 Read-only file modes and IDE write guards protect Hub originals from ordinary edits. The account owning the files can change permissions or replace them; this is not a privileged store or plugin sandbox.
+
+## Logic resources
+
+Dropdown discovery, editor actions and NSFR/NEUMANN use `src.app.services.rulesets`.
+The selected environment profile's `symbolic_name`, plus explicit experiment
+overrides, determine the rules namespace. A scoped dropdown shows names such as
+`default` and `anticipatory_v1`; unscoped component profiles use qualified names
+such as `cartpole/default`. The open button opens that ruleset folder. Without an
+environment or qualified selector, it opens the rules catalog once.
+
+Each ruleset contains the usual `clauses.txt`, `preds.txt`, `neural_preds.txt`,
+`consts.txt`, `bk.txt` and optional `blender_clauses.txt`. A `ruleset.yaml` may set
+`format_version: 1` and `valuation: valuation.py`. This loads predicate functions
+from a file inside the ruleset; otherwise the environment's valuation module is
+used. Copy a ruleset directory under a new name to create editable user rules
+without modifying a Hub-owned resource.
+
+Authored rules use `src/usr/rules/`; installed rules remain assets of their owning package. The former `in/rules` location, including a
+symlink at that location, is rejected. Package archives and manifests referencing
+old rule paths are rejected before modifying the installation. There is no path
+translation, discovery fallback or migration alias. Update source packages and
+references explicitly before using them. Shared packaged files survive until
+their last owner is uninstalled; unrelated user rules are not component-owned
+or removed.
+
+Installed source is protected; **Create editable copy** creates a new user ID and provenance. Ordinary lifecycle operations never replace authored code. Environment and plotter authoring uses `src/usr/environments` and `src/usr/plotters`. Exports use `storage_version: 2`; importing an export creates a managed installation. Explicit development archival is separate from uninstall.

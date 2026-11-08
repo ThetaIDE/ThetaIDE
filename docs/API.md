@@ -56,7 +56,7 @@ directly and launches `run_pipeline.py` as a child process, so there is nothing 
 Everything the GUI used to request over HTTP is now a direct call. The pure-Python services live in
 `src/app/services/` and have no Qt dependency, so scripts and tests can use them too. The Qt side lives in
 `frontend/job_manager.py`, `frontend/local_backend.py` and the built-in plugins. `frontend/tensorboard.py`
-is a compatibility import for `frontend/plugins/core/tensorboard/`.
+is a compatibility import for `src/plugins/app/bundled/tensorboard/`.
 
 ### 3.1 Services (`src/app/services/`)
 
@@ -86,6 +86,12 @@ is a compatibility import for `frontend/plugins/core/tensorboard/`.
 It launches the existing pipeline command from the project root. The client sends requests through
 file-based IPC, polls durable runner state and tails logs/metrics; the runner also uses Qt process signals
 and filesystem watching. Closing the desktop does not itself cancel training.
+
+Resource admission happens before each training worker (one seed) starts. The worker keeps its memory
+reservation until it exits; observed growth increases the reservation and updates estimates for future
+starts. Soft CPU/RAM targets can delay queued workers, but never suspend or automatically restart an
+admitted worker. Actual process failures are reported as failures, and explicit cancellation still stops
+the worker. A multi-seed trial may have pending seeds while its admitted seeds continue training.
 
 | Method | Behaviour |
 |---|---|
@@ -134,3 +140,7 @@ switch or migrate standalone research workspaces. Component implementations live
 Run `python run_pipeline.py component --help` or `python -m src.app.components --help` for the terminal
 adapter. See [Component development](../COMPONENT_DEVELOPMENT.md) for concrete commands, copy limitations,
 storage paths and lifecycle semantics. Hub originals are read-only; edit an independent local copy.
+
+## Provider ownership and execution
+
+`WorkspacePaths` separates distribution assets from selected-workspace installed/user content. `ProviderCatalog`/`get_catalog` list metadata and resolve kind-qualified capabilities; `resolve_provider`, `resolve_resource`, and `environment_resource` load selected implementations/resources. The canonical agent registry is `src.app.core.agent_registry`, with compatible shared-object re-exports. See [native storage, exports, leases and worker contracts](PLUGIN_STORAGE.md).
