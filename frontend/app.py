@@ -1089,6 +1089,12 @@ class Window(QMainWindow):
         from .config_viewer import invalidate_config_tree
         invalidate_config_tree()
 
+        # The last compose result describes the providers before this change.
+        # Invalidate it now and debounce a fresh check, including suite installs
+        # that emit several dependency events in the same transaction.
+        if action in ("install", "uninstall", "copy", "delete") and getattr(self, "current_experiment", None):
+            self.update_config()
+
         comp = self.hub_client.get_component(component_id) if hasattr(self, "hub_client") else None
 
         # Determine target category folder in in/config/ (e.g. "agent", "model", "env", "experiment")

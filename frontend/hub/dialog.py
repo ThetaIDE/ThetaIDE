@@ -121,7 +121,7 @@ class HubComponentCard(QFrame):
         hidden = self.client.local_components.hidden(self.component.id)
         self.btn_visibility.setText("Unhide" if hidden else "Hide")
         source = "Local" if self.component.extra.get("local_source") == "local" else "Hub"
-        retained = " · retained saved source" if self.component.extra.get("retained_source") else ""
+        retained = ""
         self.source_label.setText(source + retained + (" · Hidden" if hidden else " · Visible"))
         self.btn_edit.setEnabled(self.component.is_installed)
         self.btn_deep_copy.setEnabled(self.component.is_installed)
@@ -227,8 +227,8 @@ class HubComponentCard(QFrame):
             self.btn_edit.setEnabled(self.component.is_installed)
             self.btn_edit.clicked.connect(self._edit_component)
             management.addWidget(self.btn_edit)
-            self.btn_deep_copy = QPushButton("Deep Copy")
-            self.btn_deep_copy.setVisible(self.component.kind == "model")
+            self.btn_deep_copy = QPushButton("Create editable copy")
+            self.btn_deep_copy.setVisible(self.component.kind not in ("experiment",))
             self.btn_deep_copy.setEnabled(self.component.is_installed)
             self.btn_deep_copy.clicked.connect(self._deep_copy_component)
             management.addWidget(self.btn_deep_copy)
@@ -332,12 +332,21 @@ class HubComponentCard(QFrame):
         self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
+        self.operation_error = QLabel()
+        self.operation_error.setWordWrap(True)
+        self.operation_error.setTextFormat(Qt.TextFormat.PlainText)
+        self.operation_error.hide()
+        layout.addWidget(self.operation_error)
 
         self.update_action_state()  # text and role for the install state
         self._apply_theme()
 
     def update_action_state(self):
+        current = self.client.get_component(self.component.id)
+        if current is not None:
+            self.component = current
         self._refresh_development_state()
+        self.version_label.setText(f"v{self.component.version}")
         """Set the action button's text for the local installation state, and color it."""
         if self.component.is_installed and self.component.has_update:
             self.btn_action.setText(f"Update to v{self.component.version}")
@@ -349,7 +358,7 @@ class HubComponentCard(QFrame):
             self.btn_action.setText("Uninstall")
             self.btn_action.setObjectName("actionUninstall")
         else:
-            self.btn_action.setText("Reinstall saved source" if self.component.extra.get("retained_source") else "Install")
+            self.btn_action.setText("Install")
             self.btn_action.setObjectName("actionInstall")
         self.btn_action.setVisible(not (self.is_bundle and self.component.is_installed and not self.component.has_update))
         self.btn_action.setEnabled(True)
@@ -369,11 +378,18 @@ class HubComponentCard(QFrame):
             self.btn_uninstall_all.setEnabled(not busy)
             self.btn_action.setEnabled(not busy)
             self.btn_uninstall_update.setEnabled(not busy)
-        for child, button in self.child_rows.values():
+        for child_id, (child, button) in list(self.child_rows.items()):
+            child = self.client.get_component(child_id) or child
+            self.child_rows[child_id] = (child, button)
             button.setText("Uninstall" if child.is_installed else "Install")
             button.setEnabled(not busy)
             color = DANGER if child.is_installed else theme_color("primary")
             button.setStyleSheet(_filled_button_css(color, DANGER_HOVER if child.is_installed else theme_color("primary_hover"), ON_DANGER if child.is_installed else _text_on(color)))
+        if self.component.id in getattr(self.client, "_busy", set()):
+            self.btn_action.setEnabled(False)
+            self.btn_uninstall_update.setEnabled(False)
+            self.btn_action.setText("Working…")
+            self.progress_bar.show()
 
     def _start_bulk(self, install):
         children = [child for child, _ in self.child_rows.values() if child.is_installed != install]
@@ -457,6 +473,7 @@ class HubComponentCard(QFrame):
         self.btn_uninstall_update.style().polish(self.btn_uninstall_update)
 
     def _on_action_clicked(self):
+        self.operation_error.hide()
         self.btn_action.setEnabled(False)
         self.btn_uninstall_update.setEnabled(False)
         if self.component.is_installed and not self.component.has_update:
@@ -500,8 +517,9 @@ class UninstallComponentDialog(QDialog):
         layout.addWidget(title)
 
         desc = QLabel(
-            "Its configuration files will be hidden while the component is uninstalled. "
-            "Your edits and copied profiles will be restored if you install it again."
+            "The installed source code will be removed. Hub components will be downloaded "
+            "from the Hub when installed again. Edited YAML profiles are preserved separately "
+            "and restored on reinstall."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet(f"color: {theme_color('muted')}; font-size: 12px; line-height: 1.4;")
@@ -760,15 +778,22 @@ class HubView(QWidget):
         self._populate_cards(self.client.components)
 
     def _populate_cards(self, components: List[HubComponent]):
-        # Remove existing cards
-        for card in self.cards.values():
+        wanted = {c.id: c for c in components if self._matches_mode(c)}
+        # Keep live cards and their bulk queues while operations finish.
+        for comp_id, card in list(self.cards.items()):
+            if comp_id in wanted:
+                continue
             self.card_layout.removeWidget(card)
             card.deleteLater()
-        self.cards.clear()
+            self.cards.pop(comp_id)
 
         # Build cards for components matching current mode
         for comp in components:
             if not self._matches_mode(comp):
+                continue
+            if comp.id in self.cards:
+                self.cards[comp.id].component = comp
+                self.cards[comp.id].update_action_state()
                 continue
             card = HubComponentCard(comp, self.client, self.card_container)
             self.cards[comp.id] = card
@@ -817,6 +842,7 @@ class HubView(QWidget):
             self.cards[comp_id].set_progress(percent)
 
     def _on_install_finished(self, comp_id: str, success: bool, message: str):
+        self._apply_filters()
         if comp_id in self.cards:
             card = self.cards[comp_id]
             card.progress_bar.hide()
@@ -824,26 +850,30 @@ class HubView(QWidget):
             if success:
                 self._set_status(f"Installed {card.component.name} successfully.")
             else:
+                card.operation_error.setText(message)
+                card.operation_error.show()
                 self._set_status(f"Installation failed: {message}")
         if comp_id not in self.cards:
             self._set_status(("Installation complete." if success else f"Installation failed: {message}"))
         for other_card in self.cards.values():
             other_card.update_action_state()
-        self._apply_filters()
 
     def _on_uninstall_finished(self, comp_id: str, success: bool, message: str):
+        self._apply_filters()
         if comp_id in self.cards:
             card = self.cards[comp_id]
+            card.progress_bar.hide()
             card.update_action_state()
             if success:
                 self._set_status(f"Uninstalled {card.component.name}.")
             else:
+                card.operation_error.setText(message)
+                card.operation_error.show()
                 self._set_status(f"Uninstall failed: {message}")
         if comp_id not in self.cards:
             self._set_status(("Uninstalled successfully." if success else f"Uninstall failed: {message}"))
         for other_card in self.cards.values():
             other_card.update_action_state()
-        self._apply_filters()
 
 
 class HubDialog(QDialog):

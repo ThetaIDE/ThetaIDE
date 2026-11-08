@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 
 from .installer import HubInstaller
 from .models import AuthorInfo, HubComponent, ReleaseInfo
@@ -24,6 +24,9 @@ class HubClient(QObject):
     installFinished = pyqtSignal(str, bool, str)  # (component_id, success, message)
     uninstallFinished = pyqtSignal(str, bool, str)  # (component_id, success, message)
     componentChanged = pyqtSignal(str, str)  # (component_id, action: "install" | "uninstall")
+    _indexFetched = pyqtSignal(object, str)
+    _operationDone = pyqtSignal(str, str, bool, str, object)
+    _installerChanged = pyqtSignal(str, str)
 
     def __init__(
         self,
@@ -34,6 +37,14 @@ class HubClient(QObject):
         settings_manager=None,
     ):
         super().__init__()
+        self._operation_lock = threading.RLock()
+        self._worker_state = threading.local()
+        self._busy = set()
+        self._fetching = False
+        self._refresh_pending = False
+        self._indexFetched.connect(self._accept_index, Qt.ConnectionType.QueuedConnection)
+        self._operationDone.connect(self._finish_operation, Qt.ConnectionType.QueuedConnection)
+        self._installerChanged.connect(self._handle_installer_change, Qt.ConnectionType.QueuedConnection)
         self.workspace_dir = Path(workspace_dir)
         self.data_dir = Path(data_dir)
         self.registry_url = registry_url
@@ -47,7 +58,7 @@ class HubClient(QObject):
         self.installer = HubInstaller(
             workspace_dir=self.workspace_dir,
             data_dir=self.data_dir,
-            on_change_callback=self._handle_installer_change,
+            on_change_callback=self._record_installer_change,
             settings_manager=self.settings_manager,
             lookup_component_fn=self.get_component,
         )
@@ -56,14 +67,69 @@ class HubClient(QObject):
             self.componentChanged.connect(on_change_callback)
 
         from src.app.services.local_components import LocalComponents
-        self.local_components = LocalComponents(self.workspace_dir)
+        self.local_components = LocalComponents(self.installer.paths)
+        for component_id, record in list(self.local_components.state()["records"].items()):
+            if record["source"] != "local":
+                self.local_components.discard_hub_snapshot(component_id)
         self.components: List[HubComponent] = self.local_components.entries()
         self.refresh_installed_status()
 
+    def _record_installer_change(self, component_id, action):
+        events = getattr(self._worker_state, "events", None)
+        if events is not None:
+            events.append((component_id, action))
+        elif QThread.currentThread() == self.thread():
+            self._handle_installer_change(component_id, action)
+        else:
+            self._safe_emit(self._installerChanged, component_id, action)
+
+    @staticmethod
+    def _safe_emit(signal, *args):
+        try:
+            signal.emit(*args)
+        except RuntimeError:
+            pass  # The owning window/client was destroyed while work finished.
+
+    @pyqtSlot(str, str)
     def _handle_installer_change(self, component_id: str, action: str):
-        self.refresh_local_components()
+        try:
+            self.refresh_local_components()
+        except Exception as exc:
+            self.fetchFailed.emit(str(exc))
+            return
         self.componentChanged.emit(component_id, action)
         self.indexLoaded.emit(self.components)
+
+    @pyqtSlot(object, str)
+    def _accept_index(self, components, error):
+        self._fetching = False
+        if error:
+            self.fetchFailed.emit(error)
+        else:
+            self.components = components
+            try:
+                self.refresh_local_components()
+            except Exception as exc:
+                self.fetchFailed.emit(str(exc))
+            else:
+                self.indexLoaded.emit(self.components)
+        if self._refresh_pending:
+            self._refresh_pending = False
+            self.fetch_index_async(force=True)
+
+    @pyqtSlot(str, str, bool, str, object)
+    def _finish_operation(self, component_id, action, success, message, events):
+        self._busy.discard(component_id)
+        try:
+            self.refresh_local_components()
+        except Exception as exc:
+            success, message = False, f"Could not refresh installed status: {exc}"
+        for changed_id, changed_action in dict.fromkeys(events):
+            self.componentChanged.emit(changed_id, changed_action)
+        # Rebuild only once, after the complete dependency transaction finishes.
+        self.indexLoaded.emit(self.components)
+        signal = self.installFinished if action == "install" else self.uninstallFinished
+        signal.emit(component_id, success, message)
 
     def refresh_installed_status(self) -> None:
         """Update each loaded component with its local installation state."""
@@ -84,12 +150,13 @@ class HubClient(QObject):
                 current = by_id[local.id]
                 current.extra.update(local.extra)
                 current.name, current.version, current.target_path = local.name, local.version, local.target_path
-            else:
-                by_id[local.id].extra["retained_source"] = True
+        for component in by_id.values():
+            if component.extra.get("local_source") != "local":
+                component.extra.pop("retained_source", None)
         self.components = list(by_id.values())
         self.refresh_installed_status()
 
-    def fetch_index_sync(self, force: bool = False) -> List[HubComponent]:
+    def fetch_index_sync(self, force: bool = False, *, _publish=True) -> List[HubComponent]:
         """Fetch index synchronously using HTTP conditional caching (ETag)."""
         headers = {"User-Agent": "ThetaIDE-HubClient/1.0"}
         
@@ -173,24 +240,24 @@ class HubClient(QObject):
 
         raw_list = data if isinstance(data, list) else data.get("components", [])
         components = [HubComponent.from_dict(item) for item in raw_list]
-        self.components = components
-        self.refresh_local_components()
-        return self.components
+        if _publish:
+            self.components = components
+            self.refresh_local_components()
+            return self.components
+        return components
 
     def fetch_index_async(self, force: bool = False) -> None:
         """Fetch registry asynchronously in a background thread."""
+        if self._fetching:
+            self._refresh_pending |= force
+            return
+        self._fetching = True
         def worker():
             try:
-                comps = self.fetch_index_sync(force=force)
-                try:
-                    self.indexLoaded.emit(comps)
-                except RuntimeError:
-                    pass
+                comps = self.fetch_index_sync(force=force, _publish=False)
+                self._safe_emit(self._indexFetched, comps, "")
             except Exception as exc:
-                try:
-                    self.fetchFailed.emit(str(exc))
-                except RuntimeError:
-                    pass
+                self._safe_emit(self._indexFetched, None, str(exc))
 
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
@@ -294,37 +361,44 @@ class HubClient(QObject):
         return results
 
     def install_async(self, component: HubComponent, version: Optional[str] = None) -> None:
-        """Install component in a background thread with progress notifications."""
-        def progress_cb(downloaded: int, total: int):
-            if total > 0:
-                pct = int((downloaded / total) * 100)
-                self.installProgress.emit(component.id, pct)
-
-        def worker():
-            try:
-                if component.id in self.local_components.state()["records"] and not component.is_installed:
-                    self.local_components.install(component, self.installer)
-                else:
-                    self.installer.install(component=component, version=version, progress_callback=progress_cb)
-                self.refresh_installed_status()
-                self.installFinished.emit(component.id, True, "Installation complete.")
-            except Exception as exc:
-                self.installFinished.emit(component.id, False, str(exc))
-
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
+        self._start_operation(component, "install", version)
 
     def uninstall_async(self, component: HubComponent) -> None:
-        """Uninstall component code and hide its configs in a background thread."""
-        def worker():
-            try:
-                removed = self.installer.uninstall(component)
-                if removed is False:
-                    raise RuntimeError("The installer could not remove this component.")
-                self.refresh_installed_status()
-                self.uninstallFinished.emit(component.id, True, "Uninstalled.")
-            except Exception as exc:
-                self.uninstallFinished.emit(component.id, False, str(exc))
+        self._start_operation(component, "uninstall")
 
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
+    def _start_operation(self, component, action, version=None):
+        if component.id in self._busy:
+            return
+        self._busy.add(component.id)
+
+        def progress_cb(downloaded, total):
+            if total > 0:
+                self._safe_emit(self.installProgress, component.id, min(95, int(downloaded / total * 95)))
+
+        def worker():
+            success, message = False, ""
+            events = []
+            with self._operation_lock:
+                self._worker_state.events = events
+                try:
+                    if action == "install":
+                        record = self.local_components.state()["records"].get(component.id)
+                        if record and record['source'] == 'local' and not component.is_installed:
+                            result = self.local_components.install(component, self.installer)
+                        else:
+                            result = self.installer.install(component=component, version=version, progress_callback=progress_cb)
+                            if result is not False:
+                                self.local_components.discard_hub_snapshot(component.id)
+                    else:
+                        result = self.installer.uninstall(component)
+                    if result is False:
+                        raise RuntimeError(f"The installer could not {action} this component.")
+                    success = True
+                    message = "Installation complete." if action == "install" else "Uninstalled."
+                except Exception as exc:
+                    message = str(exc)
+                finally:
+                    del self._worker_state.events
+            self._safe_emit(self._operationDone, component.id, action, success, message, events)
+
+        threading.Thread(target=worker, daemon=True).start()
