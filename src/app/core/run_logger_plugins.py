@@ -28,16 +28,12 @@ class RunLoggerContext:
 
 
 def _tensorboard_logger(settings: Mapping[str, Any], context: RunLoggerContext):
-    """Create TensorBoard lazily, keeping its optional dependency off the default path."""
-    from lightning.pytorch.loggers import TensorBoardLogger
-
-    log_dir = context.base_root / "results" / "tensorboard" / context.group_name / context.experiment_id
-    logger = TensorBoardLogger(str(log_dir), name=context.method_name, default_hp_metric=False)
-    _ = logger.experiment
-    return logger
+    """Compatibility wrapper for the historical default logger factory."""
+    from src.app.core.provider_loader import resolve_provider
+    return resolve_provider("run_logger", "tensorboard")(settings, context)
 
 
-_BUILTIN_PROVIDERS: dict[str, Callable] = {"tensorboard": _tensorboard_logger}
+_BUILTIN_PROVIDERS: dict[str, Callable] = {}
 
 
 def _configured_backends(cfg) -> dict[str, dict[str, Any]]:
@@ -73,6 +69,14 @@ def _entry_points():
 
 
 def _provider_for(backend_id: str, discovered) -> Callable | None:
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.core.provider_loader import load_capability
+    catalog = get_catalog()
+    local = [(p, c) for p, c in catalog.candidates("run_logger", backend_id) if p.origin != "python_distribution"]
+    if local:
+        if len(local) != 1 or any(point.name == backend_id for point in discovered) or backend_id in _BUILTIN_PROVIDERS:
+            raise RuntimeError(f"Duplicate run logger provider id: {backend_id}")
+        return load_capability(*local[0], paths=catalog.paths)
     builtin = _BUILTIN_PROVIDERS.get(backend_id)
     matches = [point for point in discovered if point.name == backend_id]
     if builtin is not None:
@@ -89,7 +93,7 @@ def _provider_for(backend_id: str, discovered) -> Callable | None:
     return provider
 
 
-def _tensorboard_plugin_enabled() -> bool:
+def _plugin_enabled(plugin_id: str) -> bool:
     """Honor the IDE's plugin toggle in child runs and standalone CLI runs."""
     env_state = os.environ.get("THETA_ENABLED_PLUGINS")
     if env_state is not None:
@@ -97,11 +101,12 @@ def _tensorboard_plugin_enabled() -> bool:
             enabled = json.loads(env_state)
         except (TypeError, json.JSONDecodeError):
             enabled = []
-        return isinstance(enabled, list) and "tensorboard" in enabled
+        return isinstance(enabled, list) and plugin_id in enabled
 
     paths = [Path.home() / ".config" / "thetaide" / "settings.toml"]
     workspace_settings = os.environ.get("THETAIDE_SETTINGS_FILE")
-    paths.append(Path(workspace_settings) if workspace_settings else Path.cwd() / ".thetaide" / "settings.toml")
+    from src.app.workspace import WorkspacePaths
+    paths.append(Path(workspace_settings) if workspace_settings else WorkspacePaths.for_process().data_dir / "settings.toml")
     plugins: dict[str, Any] = {}
     for path in paths:
         try:
@@ -114,12 +119,13 @@ def _tensorboard_plugin_enabled() -> bool:
 
     enabled = plugins.get("enabled", [])
     disabled = plugins.get("disabled", [])
-    if "tensorboard" in disabled:
+    if plugin_id in disabled:
         return False
-    if "tensorboard" in enabled:
+    if plugin_id in enabled:
         return True
-    # Match the TensorBoard core plugin's manifest default on a fresh workspace.
-    return True
+    from src.app.core.provider_catalog import get_catalog
+    selected = get_catalog().resolve("plugin", plugin_id)
+    return bool(selected and selected[1].metadata.get("default_enabled", False))
 
 
 def create_run_loggers(cfg, context: RunLoggerContext) -> list:
@@ -130,7 +136,10 @@ def create_run_loggers(cfg, context: RunLoggerContext) -> list:
     discovered = _entry_points()
     created = []
     for backend_id, settings in configured.items():
-        if backend_id == "tensorboard" and not _tensorboard_plugin_enabled():
+        from src.app.core.provider_catalog import get_catalog
+        selected = get_catalog().resolve("run_logger", backend_id)
+        activation = selected[1].metadata.get("activation_plugin") if selected else None
+        if activation and not _plugin_enabled(activation):
             continue
         provider = _provider_for(backend_id, discovered)
         if provider is None:

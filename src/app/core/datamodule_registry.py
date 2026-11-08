@@ -41,85 +41,20 @@ def register_datamodule(*names: str) -> Callable[[Type[Any]], Type[Any]]:
     return decorator
 
 
-def get_datamodule_class(dm_name: str) -> Type[Any] | None:
-    """Resolve a data module name to its registered class.
-
-    Args:
-        dm_name: Identifier of the data module (e.g., 'SimulatorDataModule').
-
-    Returns:
-        The registered class or None if not found.
-    """
-    if not dm_name:
-        return None
-
-    if not DATAMODULE_REGISTRY:
-        auto_discover_datamodules()
-
-    clean_name = str(dm_name).strip()
-    if clean_name in DATAMODULE_REGISTRY:
-        return DATAMODULE_REGISTRY[clean_name]
-    if clean_name.lower() in DATAMODULE_REGISTRY:
-        return DATAMODULE_REGISTRY[clean_name.lower()]
-
-    # Fallback to paradigm_loader's component registry
-    try:
-        from src.app.core.paradigm_loader import get_component
-
-        cls = get_component(clean_name)
-        if cls is not None:
-            return cls
-    except Exception:
-        pass
-
-    return None
+def get_datamodule_class(dm_name):
+    if not dm_name: return None
+    from src.app.core.provider_loader import resolve_provider
+    selected = resolve_provider("datamodule", str(dm_name))
+    if selected is not None: return selected
+    _register_builtins()
+    value = DATAMODULE_REGISTRY.get(str(dm_name)) or DATAMODULE_REGISTRY.get(str(dm_name).lower())
+    return value if value is not None and value.__module__.startswith('src.app.') else None
 
 
 def auto_discover_datamodules() -> None:
     """Auto-discover data modules in src/usr/data/, src/app/data/, and plugin entrypoints."""
-    import sys
-
-    global _DISCOVERY_COMPLETE
-    if _DISCOVERY_COMPLETE:
-        return
-    # Discovery is invoked whenever the UI asks for choices.  Mark it complete
-    # up front so a missing optional training dependency cannot repeatedly
-    # emit the same import warning while the user edits a config.
-    _DISCOVERY_COMPLETE = True
-
-    core_dir = os.path.dirname(os.path.abspath(__file__))
-    app_dir = os.path.dirname(core_dir)
-    src_dir = os.path.dirname(app_dir)
-    usr_dir = os.path.join(src_dir, "usr")
-    data_dir = os.path.join(usr_dir, "data")
-    app_data_dir = os.path.join(app_dir, "data")
-
-    for p in (data_dir, app_data_dir):
-        if os.path.isdir(p) and p not in sys.path:
-            sys.path.insert(0, p)
-
-    # 1. Discover in src/usr/data/
-    if os.path.isdir(data_dir):
-        for module_info in pkgutil.iter_modules([data_dir]):
-            if module_info.name.startswith("_"):
-                continue
-            try:
-                importlib.import_module(f"src.usr.data.{module_info.name}")
-            except ModuleNotFoundError as exc:
-                if exc.name in {"lightning", "pytorch_lightning"}:
-                    log.debug(
-                        "Skipping data module '%s': Lightning is not installed.",
-                        module_info.name,
-                    )
-                    continue
-                log.debug("Skipping data module '%s': %s", module_info.name, exc, exc_info=True)
-            except Exception as e:
-                # User-contributed data modules are optional.  Preserve the
-                # traceback for diagnostics without turning a picker refresh
-                # into a visible application warning.
-                log.debug("Skipping data module '%s': %s", module_info.name, e, exc_info=True)
-
-    # 2. Register core built-in data modules
+    from src.app.core.provider_loader import discover_kind
+    discover_kind("datamodule")
     _register_builtins()
 
 
@@ -171,5 +106,6 @@ def _register_builtins() -> None:
 
 def list_registered_datamodules() -> List[str]:
     """Return sorted list of registered data module names."""
-    auto_discover_datamodules()
-    return sorted(set(DATAMODULE_REGISTRY.keys()))
+    from src.app.core.provider_catalog import get_catalog
+    names = {key for p in get_catalog().packages for c in p.capabilities if c.kind == "datamodule" for key in (c.id, *c.aliases)}
+    return sorted({key for key,value in DATAMODULE_REGISTRY.items() if value.__module__.startswith("src.app.")} | names | {"RLDataModule", "SimulatorDataModule", "RLReplayBufferDataModule", "SupervisedDataModule", "CrossValidationDataModule", "TabularNpzDataModule", "SupervisedNpzDataModule", "UnsupervisedDataModule"})

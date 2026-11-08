@@ -60,55 +60,20 @@ class VectorizedBaseEnv(ABC):
 
     @staticmethod
     def from_name(name: str, **kwargs):
-        """Factory to load environment by name.
-
-        Resolves an installed ``theta.environments`` entry point first, then a
-        Hub-installed environment in ``in/envs/``, and finally a Gymnasium ID.
-        Entry points must be callables that accept the environment name when
-        needed and return an object implementing the vector environment API.
-        """
+        """Instantiate a declared environment provider lazily."""
         import inspect
-        import os
-
-        from src.app.core.plugin_discovery import ENVIRONMENT_REGISTRY, discover_entry_points
-
-        providers = {
-            **{key.lower(): value for key, value in discover_entry_points("theta.environments").items()},
-            **ENVIRONMENT_REGISTRY,
-        }
-        provider = providers.get(name.lower()) or providers.get(name.rsplit("/", 1)[-1].lower())
-        if provider is not None:
-            target = provider.__init__ if isinstance(provider, type) else provider
-            try:
-                sig = inspect.signature(target)
-            except (TypeError, ValueError):
-                env = provider(**kwargs)
-            else:
-                accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-                accepted = kwargs if accepts_kwargs else {k: v for k, v in kwargs.items() if k in sig.parameters}
-                if "name" in sig.parameters or accepts_kwargs:
-                    accepted["name"] = name
-                env = provider(**accepted)
-            if env is None or not all(callable(getattr(env, method, None)) for method in ("reset", "step")):
-                raise TypeError(f"Environment provider '{name}' must return an object implementing reset() and step().")
-            return env
-
-        env_path = f"in/envs/{name}/env_vectorized.py"
-        if not os.path.exists(env_path) and "/" in name:
-            parent_cat = name.split("/")[0]
-            candidate = f"in/envs/{parent_cat}/env_vectorized.py"
-            if os.path.exists(candidate):
-                env_path = candidate
-
-        if os.path.exists(env_path):
-            env_module = load_module(env_path)
-            cls = getattr(env_module, "VectorizedEnv", None)
-            if cls is not None:
-                return cls(name=name, **kwargs)
-
-        # Standard Gymnasium fallback
-        env_id = kwargs.pop("env_id", None) or name
-        return StandardGymVectorEnv(env_id=env_id, **kwargs)
+        from src.app.core.provider_loader import resolve_provider
+        provider = resolve_provider("env", name)
+        if provider is None: raise ValueError(f"No declared environment provider: {name!r}")
+        target = provider.__init__ if isinstance(provider, type) else provider
+        sig = inspect.signature(target)
+        accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+        accepted = dict(kwargs) if accepts_kwargs else {k: v for k, v in kwargs.items() if k in sig.parameters}
+        if "name" in sig.parameters or accepts_kwargs: accepted["name"] = name
+        env = provider(**accepted)
+        if env is None or not all(callable(getattr(env, method, None)) for method in ("reset", "step")):
+            raise TypeError(f"Environment provider {name!r} must implement reset() and step()")
+        return env
 
     def close(self):
         if hasattr(self, "env") and hasattr(self.env, "close"):

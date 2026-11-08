@@ -12,7 +12,7 @@ from src.app.core.plotter_registry import (
 )
 
 
-def test_register_and_get_plotter():
+def test_register_and_get_plotter(tmp_path, monkeypatch):
     @register_plotter("custom_scatter_test")
     class CustomScatterPlotter(BasePlotter):
         def __init__(self):
@@ -21,15 +21,13 @@ def test_register_and_get_plotter():
         def run(self, exp_id: str, cli_overrides=None):
             return "ran_custom_scatter"
 
-    cls = get_plotter_class("custom_scatter_test")
-    assert cls is CustomScatterPlotter
-
-    inst = cls()
-    assert inst.name == "custom_scatter_test"
-    assert inst.run("test_exp") == "ran_custom_scatter"
+    assert PLOTTER_REGISTRY['custom_scatter_test'] is CustomScatterPlotter
+    monkeypatch.setenv('THETA_WORKSPACE',str(tmp_path))
+    assert get_plotter_class('custom_scatter_test') is None
 
 
-def test_auto_discover_plotters():
+def test_auto_discover_plotters(tmp_path, monkeypatch):
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     auto_discover_plotters()
     plotters = list_registered_plotters()
 
@@ -40,8 +38,8 @@ def test_auto_discover_plotters():
         assert "reports" in plotters
 
     # Verify discovery can find plotters in installed modular subfolders
-    subpkg = Path(__file__).resolve().parent.parent / "plot" / "mock_test_suite"
-    subpkg.mkdir(exist_ok=True)
+    subpkg = tmp_path / "src/usr/plotters/mock_test_suite"
+    subpkg.mkdir(parents=True, exist_ok=True)
     try:
         (subpkg / "__init__.py").write_text("", encoding="utf-8")
         (subpkg / "mock_plot.py").write_text(
@@ -53,8 +51,13 @@ def test_auto_discover_plotters():
             "        super().__init__('mock_suite_metric')\n",
             encoding="utf-8",
         )
+        import json
+        (subpkg/'.theta_component.json').write_text(json.dumps({'id':'mock_test_suite','name':'Mock','kind':'plotter','version':'1.0.0','storage_version':2,'api_version':1,
+            'capabilities':[{'id':'mock_suite_metric','kind':'plotter','entry_point':'mock_plot.py:MockSuitePlotter'}],
+            'payload':{'implementations':['__init__.py','mock_plot.py'],'resources':[],'configs':{}}}))
         auto_discover_plotters()
         assert "mock_suite_metric" in list_registered_plotters()
+        assert get_plotter_class('mock_suite_metric').__name__ == 'MockSuitePlotter'
     finally:
         import shutil
         shutil.rmtree(subpkg, ignore_errors=True)

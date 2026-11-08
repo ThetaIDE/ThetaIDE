@@ -14,8 +14,9 @@ def test_register_and_get_evaluator():
         def evaluate(self, agent, data_source, cfg):
             return {"val/custom_metric": 0.95}
 
-    cls = get_evaluator_class("dummy_custom_eval")
-    assert cls is DummyCustomEvaluator
+    assert EVALUATOR_REGISTRY["dummy_custom_eval"] is DummyCustomEvaluator
+    assert get_evaluator_class("dummy_custom_eval") is None
+    cls = DummyCustomEvaluator
     instance = cls()
     res = instance.evaluate(None, None, None)
     assert res == {"val/custom_metric": 0.95}

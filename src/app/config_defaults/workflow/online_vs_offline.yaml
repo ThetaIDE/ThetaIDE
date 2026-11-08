@@ -1,0 +1,123 @@
+id: online_vs_offline_comparison
+name: Online vs. Offline RL Comparison
+description: Exploration buffer collected by online PPO is piped to offline IQL, and
+  both performance curves are compared.
+nodes:
+  online_ppo:
+    id: online_ppo
+    label: CartPole PPO (Online)
+    category: paradigm
+    paradigm: online_rl
+    experiment_ref: csc510/cartpole_demo
+    overrides: []
+    pos:
+    - 60
+    - 80
+    inputs:
+    - name: initial_weights
+      direction: input
+      port_type: checkpoint
+      description: Warm-start weights for fine-tuning / transfer learning.
+      param_binding: ++model.checkpoint_path=${source.checkpoint_path}
+      required: false
+    outputs:
+    - name: checkpoint
+      direction: output
+      port_type: checkpoint
+      description: Saved policy checkpoint (.ckpt)
+      param_binding: ''
+      required: false
+    - name: dataset
+      direction: output
+      port_type: dataset
+      description: Generated trajectory buffer chunk files (.pkl)
+      param_binding: ''
+      required: false
+    - name: metrics
+      direction: output
+      port_type: metrics
+      description: Online training log CSV metrics
+      param_binding: ''
+      required: false
+  offline_iql:
+    id: offline_iql
+    label: CartPole IQL (Offline)
+    category: paradigm
+    paradigm: offline_rl
+    experiment_ref: cartpole/offline_cartpole
+    overrides: []
+    pos:
+    - 440
+    - 80
+    inputs:
+    - name: dataset
+      direction: input
+      port_type: dataset
+      description: Replay buffer dataset for offline training
+      param_binding: ++mode.dataset_path=${source.dataset_path}
+      required: true
+    - name: initial_weights
+      direction: input
+      port_type: checkpoint
+      description: Warm-start or initialization weights
+      param_binding: ++model.checkpoint_path=${source.checkpoint_path}
+      required: false
+    outputs:
+    - name: checkpoint
+      direction: output
+      port_type: checkpoint
+      description: Offline-trained policy checkpoint
+      param_binding: ''
+      required: false
+    - name: metrics
+      direction: output
+      port_type: metrics
+      description: Offline training loss & Bellman error metrics
+      param_binding: ''
+      required: false
+  comparator:
+    id: comparator
+    label: Convergence Comparator
+    category: eval
+    paradigm: eval
+    experiment_ref: ''
+    overrides: []
+    pos:
+    - 800
+    - 150
+    inputs:
+    - name: metrics_a
+      direction: input
+      port_type: metrics
+      description: First method metrics CSV
+      param_binding: ''
+      required: false
+    - name: metrics_b
+      direction: input
+      port_type: metrics
+      description: Second method metrics CSV
+      param_binding: ''
+      required: false
+    outputs:
+    - name: comparison_report
+      direction: output
+      port_type: generic
+      description: Generated comparative PNG plots and Markdown reports
+      param_binding: ''
+      required: false
+strings:
+- id: wire_online_ppo_dataset_to_offline_iql_dataset
+  from: online_ppo.dataset
+  to: offline_iql.dataset
+  port_type: dataset
+  binding: ++mode.dataset_path=${source.dataset_path}
+- id: wire_online_ppo_metrics_to_comparator_metrics_a
+  from: online_ppo.metrics
+  to: comparator.metrics_a
+  port_type: metrics
+  binding: ''
+- id: wire_offline_iql_metrics_to_comparator_metrics_b
+  from: offline_iql.metrics
+  to: comparator.metrics_b
+  port_type: metrics
+  binding: ''

@@ -13,6 +13,15 @@ from src.usr.algorithms.agent_registry import (
 )
 
 
+def declare_agent(root,name,class_name):
+    import json
+    package=root/'src/usr/algorithms'/name;package.mkdir(parents=True)
+    (package/'agent.py').write_text(f'class {class_name}: pass\n')
+    (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':'algorithm','version':'1.0.0','storage_version':2,'api_version':1,
+        'capabilities':[{'id':name,'kind':'algorithm','entry_point':'agent.py:'+class_name}],
+        'payload':{'implementations':['agent.py'],'resources':[],'configs':{}}}))
+
+
 @pytest.fixture(autouse=True)
 def clean_registry():
     auto_discover()
@@ -41,16 +50,18 @@ def test_register_agent_multiple():
     assert "algo2" in AGENT_REGISTRY
 
 
-def test_get_agent_class_exact_match():
+def test_get_agent_class_exact_match(tmp_path, monkeypatch):
     @register_agent("exact")
     class DummyAgent:
         pass
 
-    cls = get_agent_class("exact")
-    assert cls is DummyAgent
+    monkeypatch.setenv("THETA_WORKSPACE",str(tmp_path))
+    with pytest.raises(ValueError):get_agent_class("exact")
+    declare_agent(tmp_path,"exact","DummyAgent")
+    assert get_agent_class("exact").__name__=="DummyAgent"
 
 
-def test_get_agent_class_longest_prefix():
+def test_get_agent_class_longest_prefix(tmp_path, monkeypatch):
     @register_agent("base")
     class BaseAgent:
         pass
@@ -59,15 +70,17 @@ def test_get_agent_class_longest_prefix():
     class AdvancedAgent:
         pass
 
+    monkeypatch.setenv("THETA_WORKSPACE",str(tmp_path))
+    declare_agent(tmp_path,"base","BaseAgent");declare_agent(tmp_path,"base_advanced","AdvancedAgent")
     cls1 = get_agent_class("base_advanced_suffix")
-    assert cls1 is AdvancedAgent
+    assert cls1.__name__=="AdvancedAgent"
 
     cls2 = get_agent_class("base_other")
-    assert cls2 is BaseAgent
+    assert cls2.__name__=="BaseAgent"
 
 
 def test_get_agent_unknown_raises():
-    with pytest.raises(ValueError, match="Unknown agent algorithm"):
+    with pytest.raises(ValueError, match="Unknown algorithm provider"):
         get_agent_class("unknown_algo")
 
 
@@ -78,8 +91,8 @@ def test_list_registered_agents():
 
     agents = list_registered_agents()
     assert isinstance(agents, list)
-    assert "a_algo" in agents
-    assert "z_algo" in agents
+    assert "a_algo" not in agents and "z_algo" not in agents
+    assert "a_algo" in AGENT_REGISTRY and "z_algo" in AGENT_REGISTRY
 
 
 def test_algorithm_aliases():
@@ -88,7 +101,7 @@ def test_algorithm_aliases():
         pass
 
     assert "custom_algo" in ALGORITHM_REGISTRY
-    assert get_algorithm_class("custom_algo") is CustomAlgo
+    with pytest.raises(ValueError):get_algorithm_class("custom_algo")
     algos = list_registered_algorithms()
-    assert "custom_algo" in algos
+    assert "custom_algo" not in algos
 

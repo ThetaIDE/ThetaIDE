@@ -49,10 +49,14 @@ def get_component(name: str | None) -> Type[Any] | None:
     global _discovered
     if not name:
         return None
+    from src.app.core.provider_loader import resolve_provider
+    for kind in ('component','datamodule','evaluator'):
+        selected = resolve_provider(kind, name)
+        if selected is not None: return selected
     if not _discovered:
         _auto_discover_components()
         _discovered = True
-    if name not in _COMPONENT_REGISTRY:
+    if name not in _COMPONENT_REGISTRY or not _COMPONENT_REGISTRY[name].__module__.startswith("src.app."):
         msg = f"Component '{name}' is not registered. Registered components: {sorted(_COMPONENT_REGISTRY.keys())}."
         if not _COMPONENT_REGISTRY:
             msg += " No components could be registered; ensure the project backend virtual environment (venv/) is active and dependencies (e.g. lightning, torch) are installed."
@@ -81,33 +85,9 @@ def _auto_discover_components():
             except Exception as e:
                 logger.debug("Failed to auto-discover paradigm implementation %s.%s: %s", sub, module_info.name, e)
 
-    # Dynamically discover user data modules, evaluators, and components in src/usr/
-    usr_dir = Path(__file__).resolve().parents[2] / "usr"
-    for sub in ["eval", "data"]:
-        sub_dir = usr_dir / sub
-        if not sub_dir.is_dir():
-            continue
-        for mod_path in sorted(sub_dir.rglob("*.py")):
-            if mod_path.name.startswith("_") or "__pycache__" in mod_path.parts:
-                continue
-            try:
-                rel = mod_path.relative_to(usr_dir.parent)
-                mod_name = ".".join(rel.with_suffix("").parts)
-                importlib.import_module(mod_name)
-            except Exception as e:
-                logger.debug("Failed to auto-discover user component %s: %s", mod_name, e)
-
-    # Discover components declared via pyproject.toml entry-points
-    try:
-        from src.app.core.plugin_discovery import discover_entry_points
-
-        for group in ("theta.datamodules", "theta.components"):
-            for comp_name, comp_cls in discover_entry_points(group).items():
-                if isinstance(comp_cls, type):
-                    register_component(comp_name)(comp_cls)
-    except Exception:
-        pass
-
+    from src.app.core.provider_loader import discover_kind
+    for kind in ("datamodule", "evaluator", "component"):
+        discover_kind(kind)
 
 # ---------------------------------------------------------------------------
 # ParadigmDefinition dataclass

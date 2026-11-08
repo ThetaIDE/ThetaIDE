@@ -1,0 +1,19 @@
+type: base
+description: "Online policy learning with a live simulator."
+environment_source: live_environment
+method:
+  algorithm: required
+  model: required
+training:
+  budget: timesteps
+runner: OnlineRLRunner
+default_data_module: SimulatorDataModule
+eval_protocol: EpisodicRewardEvalProtocol
+allows_eval_episodes: true
+default_callbacks:
+  - EnvironmentEvaluatorCallback
+constraints:
+  requires:
+    methods: non_empty
+    agent: required
+    env: non_empty

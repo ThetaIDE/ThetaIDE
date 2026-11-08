@@ -8,7 +8,7 @@ from pathlib import Path
 
 from src.app.workspace import WorkspacePaths
 
-PROJECT_ROOT = WorkspacePaths().root
+PROJECT_ROOT = WorkspacePaths.for_process().root
 LOGS_DIR = PROJECT_ROOT / "results" / "logs"
 PLOTS_DIR = PROJECT_ROOT / "results" / "plots"
 JOBS_DIR = PROJECT_ROOT / "results" / "jobs"
@@ -38,3 +38,22 @@ from .test_suite import (  # noqa: E402
     parse_test_suite_manifest,
     run_pipeline_case,
 )
+
+
+def configure_workspace(paths):
+    """Bind in-process desktop adapters to the explicitly selected workspace."""
+    import sys
+    values = {"PROJECT_ROOT": paths.root, "LOGS_DIR": paths.results / "logs", "PLOTS_DIR": paths.results / "plots",
+              "JOBS_DIR": paths.results / "jobs", "TENSORBOARD_DIR": paths.results / "tensorboard", "EXPORTS_DIR": paths.results / "exports"}
+    globals().update(values)
+    for name, module in list(sys.modules.items()):
+        if name.startswith("src.app.services.") and module:
+            for key, value in values.items():
+                if hasattr(module, key): setattr(module, key, value)
+    from src.app.pipeline import compose
+    compose.CONFIG_DIR = paths.config
+    config = sys.modules.get("src.app.services.config_service")
+    if config:
+        config.CONFIG_DIR = paths.config
+        config._USER_CODE_DIR = paths.research
+        config.clear_compose_cache()

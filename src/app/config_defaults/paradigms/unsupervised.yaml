@@ -1,0 +1,23 @@
+type: base
+description: "Unsupervised representation learning on unlabeled static data (autoencoders, anomaly detection)"
+environment_source: static_dataset
+method:
+  algorithm: forbidden
+  model: required
+training:
+  budget: epochs
+runner: UnsupervisedRunner
+default_data_module: UnsupervisedDataModule
+eval_protocol: ReconstructionEvalProtocol
+monitor_metric: val/loss
+# default_callbacks is intentionally omitted: paradigm_loader resolves these
+# names through get_component, and no callback classes are registered yet.
+constraints:
+  requires:
+    methods: non_empty
+  forbids:
+    eval_episodes: non_zero
+
+# No policy chooses actions here, so methods name a model only, exactly as in
+# supervised. The empty allow-list is what makes that a rule rather than a habit.
+allowed_agents: []

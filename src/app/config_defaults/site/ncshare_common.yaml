@@ -1,0 +1,12 @@
+# Site profile: NCSU HPC (ncshare) cluster - CPU Compute Nodes (common partition)
+defaults:
+  - ncshare
+  - _self_
+
+# Resources for CPU compute nodes (partition: common)
+resources:
+  partition: common
+  cores: 4
+  memory: "8G"
+  gpus: 0
+  no_gres: true

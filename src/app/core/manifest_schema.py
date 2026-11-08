@@ -12,8 +12,18 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
     "title": "ThetaComponentManifest",
     "description": "Manifest metadata describing an installable Theta-IDE research component or plugin.",
     "type": "object",
-    "required": ["id", "name", "kind", "version"],
+    "required": ["id", "name", "kind", "version", "storage_version", "api_version", "capabilities", "payload"],
     "properties": {
+        "storage_version": {"type": "integer", "enum": [2]},
+        "api_version": {"type": "integer", "const": 1},
+        "capabilities": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "entry_point"],
+            "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"type": "string"},
+                           "entry_point": {"type": "string", "minLength": 1},
+                           "aliases": {"type": "array", "items": {"type": "string"}}}}},
+        "payload": {"type": "object", "required":["implementations","resources","configs"], "properties": {
+            "implementations": {"type": "array", "items": {"type": "string"}},
+            "resources": {"type": "array", "items": {"type": "string"}},
+            "configs": {"type": "object", "additionalProperties": {"type": "string"}}}},
         "id": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]+$",
@@ -28,6 +38,10 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
             "type": "string",
             "enum": [
                 "model",
+                "algorithm",
+                "objective",
+                "tuner",
+                "rules",
                 "method",
                 "agent",
                 "env",
@@ -78,7 +92,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
             "type": "object",
             "properties": {
                 "pip": {"type": "array", "items": {"type": "string"}},
-                "components": {"type": "array", "items": {"type": "string"}},
+                "components": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}, "version": {"type": "string"}}}]}},
             },
         },
         "suite": {
@@ -194,6 +208,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
 SEMVER_REGEX = re.compile(r"^\d+\.\d+\.\d+.*$")
 ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
 VALID_KINDS = {
+    "algorithm", "objective", "tuner", "rules",
     "model",
     "method",
     "agent",
@@ -223,6 +238,17 @@ def validate_manifest_data(data: Dict[str, Any]) -> Tuple[bool, str | None]:
     if not isinstance(data, dict):
         return False, "Manifest must be a JSON object dictionary."
 
+    if data.get("storage_version") != 2 or data.get("api_version") != 1:
+        return False, "Unsupported archive storage_version or provider api_version"
+    for field in ('capabilities','payload'):
+        if field not in data: return False, f"Missing native manifest field: {field}"
+    if not isinstance(data['capabilities'],list) or not isinstance(data['payload'],dict):
+        return False, "capabilities must be an array and payload must be an object"
+    if not all(k in data['payload'] for k in ('implementations','resources','configs')):
+        return False, "Declare all three native payload sections"
+    for cap in data['capabilities']:
+        if not isinstance(cap,dict) or not all(isinstance(cap.get(k),str) and cap[k] for k in ('id','kind','entry_point')):
+            return False, "Every capability requires id, kind and entry_point"
     # Try standard jsonschema library first
     try:
         import jsonschema

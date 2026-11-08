@@ -17,8 +17,9 @@ def test_register_and_get_datamodule():
             self.cfg = cfg
             self.kwargs = kwargs
 
-    cls = get_datamodule_class("dummy_custom_dm")
-    assert cls is DummyCustomDataModule
+    assert DATAMODULE_REGISTRY["dummy_custom_dm"] is DummyCustomDataModule
+    assert get_datamodule_class("dummy_custom_dm") is None
+    cls = DummyCustomDataModule
 
     instance = cls(None, grayscale=True, frame_size=[84, 84])
     assert instance.kwargs == {"grayscale": True, "frame_size": [84, 84]}

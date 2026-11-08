@@ -1,0 +1,19 @@
+type: base
+description: "Offline reinforcement learning on a static transition dataset"
+environment_source: static_dataset
+method:
+  algorithm: required
+  model: required
+training:
+  budget: epochs
+runner: OfflineRLRunner
+default_data_module: RLReplayBufferDataModule
+eval_protocol: OfflineRLEvalProtocol
+default_callbacks:
+  - ModelCheckpointCallback
+constraints:
+  requires:
+    methods: non_empty
+    agent: required
+  forbids:
+    eval_episodes: non_zero

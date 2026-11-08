@@ -1,0 +1,58 @@
+defaults:
+  - optional agent: null
+  - optional model: null
+  - optional env: null
+  - site: local
+  - optional workflow: null
+  - _self_
+
+experiment_id: "default_exp"
+experiment_name: "ungrouped/default_exp"
+group: "ungrouped"
+seed: 1
+total_timesteps: 10000
+eval_episodes: 0
+save_dataset: false
+recover: false
+paradigm: null
+dataset_path: null
+
+# Pipeline Orchestration Flags
+consolidate: null
+partition: null
+# Optional external training loggers. Providers are discovered from the
+# ``thetaide.run_loggers`` Python entry-point group in the training environment.
+logging:
+  backends: {}
+plot_style: null
+plot_only: false
+no_plot: false
+dry_run: false
+dash: false
+dash_only: false
+sweep: false
+remake: false
+use_cache: false
+
+# Default Slurm / Hardware Resources Schema
+resources:
+  partition: null
+  cores: null
+  memory: null
+  time: null
+  gpus: null
+  nodes: null
+  gpu_type: null
+
+# Paths
+results_dir: "results"
+
+# Redirect Hydra output and multirun directories inside results/hydra/
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: results/hydra/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: results/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

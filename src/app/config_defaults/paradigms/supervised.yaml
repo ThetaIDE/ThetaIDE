@@ -1,0 +1,21 @@
+type: base
+description: "Supervised learning on labeled static data (classifiers, regressors, sequence models)"
+environment_source: static_dataset
+method:
+  algorithm: forbidden
+  model: required
+training:
+  budget: epochs
+runner: SupervisedRunner
+default_data_module: SupervisedDataModule
+eval_protocol: ClassificationEvalProtocol
+default_callbacks:
+  - EarlyStoppingCallback
+  - BestCheckpointCallback
+constraints:
+  requires:
+    methods: non_empty
+  forbids:
+    eval_episodes: non_zero
+
+allowed_agents: []

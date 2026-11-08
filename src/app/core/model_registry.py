@@ -50,66 +50,16 @@ def register_model(*names: str):
 
 def auto_discover_models():
     """Discover and import all model modules in src/usr/models to trigger @register_model."""
-    models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "usr", "models")
-    if not os.path.exists(models_dir):
-        return
-
-    for item in os.listdir(models_dir):
-        sub_path = os.path.join(models_dir, item)
-        if os.path.isdir(sub_path) and not item.startswith("_") and not item.startswith("."):
-            try:
-                importlib.import_module(f"src.usr.models.{item}")
-            except Exception as e:
-                logger.debug("Could not auto-import src.usr.models.%s: %s", item, e)
+    from src.app.core.provider_loader import discover_kind
+    discover_kind("model")
 
 
-def get_model_class(model_name: str) -> Any:
-    """Resolve a model name to its registered class or factory."""
-    if not MODEL_REGISTRY:
-        auto_discover_models()
-
-    clean_name = model_name.lower().strip()
-    basename = clean_name.split("/")[-1]
-    # Prefer the component with the requested name over another component that
-    # happens to register the same alias. Discovery order must not choose the model.
-    models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "usr", "models")
-    if basename.isidentifier() and os.path.isdir(os.path.join(models_dir, basename)):
-        try:
-            importlib.import_module(f"src.usr.models.{basename}")
-        except ImportError:
-            pass
-        module_prefix = f"src.usr.models.{basename}."
-        matches = [candidate for candidate in _MODEL_CANDIDATES.get(basename, [])
-                   if getattr(candidate, "__module__", "").startswith(module_prefix)]
-        if len(matches) == 1:
-            return matches[0]
-    if clean_name in MODEL_REGISTRY:
-        return MODEL_REGISTRY[clean_name]
-
-    if basename in MODEL_REGISTRY:
-        return MODEL_REGISTRY[basename]
-
-    # A composite model may register itself before requesting a child.  A
-    # nonempty registry does not imply that the remaining plugins were loaded.
-    auto_discover_models()
-    if clean_name in MODEL_REGISTRY:
-        return MODEL_REGISTRY[clean_name]
-    if basename in MODEL_REGISTRY:
-        return MODEL_REGISTRY[basename]
-
-    # Prefix match if exact match not found
-    matches = [
-        (prefix, cls)
-        for prefix, cls in MODEL_REGISTRY.items()
-        if clean_name == prefix
-        or clean_name.startswith(prefix + "_")
-        or basename == prefix
-        or basename.startswith(prefix + "_")
-    ]
-    if matches:
-        return max(matches, key=lambda x: len(x[0]))[1]
-
-    raise ValueError(f"Unknown model architecture: '{model_name}'. Registered models: {sorted(MODEL_REGISTRY.keys())}")
+def get_model_class(model_name):
+    """Load the selected declared provider; missing declarations never use registry fallbacks."""
+    from src.app.core.provider_loader import resolve_provider
+    selected = resolve_provider("model", str(model_name))
+    if selected is None: raise ValueError(f"Unknown model provider: {model_name!r}; declare it in a native manifest")
+    return selected
 
 
 def build_model(
@@ -133,9 +83,6 @@ def build_model(
         obs_dim: Observation input dimension (inferred from env if None).
         kwargs: Overriding parameters passed to model constructor.
     """
-    if not MODEL_REGISTRY:
-        auto_discover_models()
-
     if device is None:
         device = torch.device("cpu")
 
@@ -212,15 +159,18 @@ def build_model(
     call_kwargs = {}
     if obs_dim is not None:
         call_kwargs["obs_dim"] = obs_dim
+        call_kwargs["input_dim"] = obs_dim
         call_kwargs["n_inputs"] = obs_dim
         call_kwargs["num_in_features"] = obs_dim
     if n_actions is not None:
         call_kwargs["n_actions"] = n_actions
+        call_kwargs["num_classes"] = n_actions
         call_kwargs["out_size"] = n_actions
     if device is not None:
         call_kwargs["device"] = device
     if env is not None:
         call_kwargs["env"] = env
+        call_kwargs["env_name"] = env_name
     for k, v in merged_kwargs.items():
         if v is not None or k not in call_kwargs:
             call_kwargs[k] = v
