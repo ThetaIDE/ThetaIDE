@@ -221,12 +221,12 @@ class ConfigTabManager(QTabWidget):
 
         If pinned is False (single click), reuses the current clean preview tab if one exists.
         If pinned is True, opens or pins as a permanent tab.
-        If new_tab is True, always creates a separate permanent tab.
+        If new_tab is True, keeps a permanent tab, focusing it if already open.
         """
         norm_rel = Path(rel_path).as_posix()
 
         # 1. Already open in an existing tab?
-        if not new_tab and norm_rel in self._tabs:
+        if norm_rel in self._tabs:
             viewer = self._tabs[norm_rel]
             if not viewer.is_dirty and hasattr(viewer, "reload_data"):
                 from .config_viewer import invalidate_config_tree
@@ -235,7 +235,7 @@ class ConfigTabManager(QTabWidget):
             idx = self.indexOf(viewer)
             if idx >= 0:
                 self.setCurrentIndex(idx)
-            if pinned:
+            if pinned or new_tab:
                 self.pin_tab(norm_rel)
             return viewer
 

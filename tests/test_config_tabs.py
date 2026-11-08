@@ -88,34 +88,44 @@ class TestConfigTabManager(unittest.TestCase):
         self.assertEqual(self.mgr.tabBar().tabData(1), "preview")
         self.assertNotEqual(v1, v2)
 
-    def test_explicit_new_tab_duplicates_an_open_config_and_tracks_closing(self):
+    def test_explicit_new_tab_focuses_existing_config(self):
         rel = "experiment/demo/exp1.yaml"
         original = self.mgr.open_file(self.f1, rel, pinned=True)
-        duplicate = self.mgr.open_file(self.f1, rel, pinned=True, new_tab=True)
-        self.assertIsNot(original, duplicate)
-        self.assertEqual(self.mgr.count(), 2)
-        self.assertIs(self.mgr.current_viewer(), duplicate)
-        self.assertTrue(self.mgr.close_tab_by_index(0))
-        self.assertIs(self.mgr._tabs[rel], duplicate)
-        self.assertIs(self.mgr.open_file(self.f1, rel), duplicate)
+        for _ in range(3):
+            self.assertIs(self.mgr.open_file(self.f1, rel, pinned=True, new_tab=True), original)
+        self.assertEqual(self.mgr.count(), 1)
+        self.assertIs(self.mgr.current_viewer(), original)
         self.assertTrue(self.mgr.close_tab_by_index(0))
         self.assertNotIn(rel, self.mgr._tabs)
 
-    def test_reusing_preview_preserves_tracking_of_duplicate(self):
+    def test_new_tab_promotes_preview_without_duplicate(self):
         rel = "experiment/demo/exp1.yaml"
-        self.mgr.open_file(self.f1, rel)
-        duplicate = self.mgr.open_file(self.f1, rel, new_tab=True)
+        preview = self.mgr.open_file(self.f1, rel)
+        self.assertIs(self.mgr.open_file(self.f1, rel, new_tab=True), preview)
+        self.assertEqual(self.mgr.count(), 1)
+        self.assertEqual(self.mgr.tabBar().tabData(0), "pinned")
         self.mgr.open_file(self.f2, "experiment/demo/exp2.yaml")
-        self.assertIs(self.mgr._tabs[rel], duplicate)
-        self.assertIs(self.mgr.open_file(self.f1, rel), duplicate)
+        self.assertEqual(self.mgr.count(), 2)
+        self.assertIs(self.mgr._tabs[rel], preview)
 
     def test_new_tab_does_not_overwrite_dirty_open_config(self):
         rel = "experiment/demo/exp1.yaml"
         original = self.mgr.open_file(self.f1, rel, pinned=True)
         original.is_dirty = True
-        duplicate = self.mgr.open_file(self.f1, rel, pinned=True, new_tab=True)
+        original.raw_data["seed"] = 1234
+        reopened = self.mgr.open_file(self.f1, rel, pinned=True, new_tab=True)
         self.assertTrue(original.is_dirty)
-        self.assertIsNot(original, duplicate)
+        self.assertIs(original, reopened)
+        self.assertEqual(reopened.raw_data["seed"], 1234)
+        self.assertEqual(self.mgr.count(), 1)
+
+    def test_new_tab_keeps_other_preview(self):
+        preview = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml")
+        permanent = self.mgr.open_file(self.f2, "experiment/demo/exp2.yaml", new_tab=True)
+        self.assertEqual(self.mgr.count(), 2)
+        self.assertIsNot(preview, permanent)
+        self.assertEqual(self.mgr.tabBar().tabData(0), "preview")
+        self.assertEqual(self.mgr.tabBar().tabData(1), "pinned")
 
     def test_pin_tab_method_converts_preview_to_pinned(self):
         self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=False)

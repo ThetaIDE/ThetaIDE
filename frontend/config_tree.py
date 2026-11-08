@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -107,6 +108,7 @@ class ComponentConfigTree(QTreeWidget):
         super().__init__(parent)
         self.move_handler = None
         self.delete_handler = None
+        self.move_many_handler = None
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.delete_handler:
@@ -115,10 +117,16 @@ class ComponentConfigTree(QTreeWidget):
             return
         super().keyPressEvent(event)
 
+    def _dragged_yamls(self):
+        items = self.selectedItems()
+        data = [item.data(0, Qt.ItemDataRole.UserRole) for item in items]
+        return data if data and all(entry and entry.get("type") == "file"
+            and Path(entry.get("rel_path", "")).suffix.lower() in (".yaml", ".yml")
+            for entry in data) else []
+
     def _dragged_yaml(self):
-        item = self.currentItem()
-        data = item.data(0, Qt.ItemDataRole.UserRole) if item else None
-        return data if data and data.get("type") == "file" and Path(data.get("rel_path", "")).suffix.lower() in (".yaml", ".yml") else None
+        sources = self._dragged_yamls()
+        return sources[0] if sources else None
 
     def _valid_drop_target(self, event):
         source = self._dragged_yaml()
@@ -128,7 +136,8 @@ class ComponentConfigTree(QTreeWidget):
             return None
         src_category = Path(source["rel_path"]).parts[0]
         dst_category = Path(target.get("rel_path", "")).parts[0] if target.get("rel_path") else ""
-        return target if src_category == dst_category else None
+        return target if all(Path(entry["rel_path"]).parts[0] == dst_category
+                             for entry in self._dragged_yamls()) else None
 
     def dragEnterEvent(self, event):
         if event.source() is self and self._dragged_yaml():
@@ -147,10 +156,14 @@ class ComponentConfigTree(QTreeWidget):
     def dropEvent(self, event):
         target = self._valid_drop_target(event) if event.source() is self else None
         source = self._dragged_yaml()
-        if not target or not source or not self.move_handler:
+        if not target or not source or not (self.move_handler or self.move_many_handler):
             event.ignore()
             return
-        new_rel, error = self.move_handler(source["rel_path"], target["rel_path"])
+        if self.move_many_handler:
+            new_rel, error = self.move_many_handler(
+                [entry["rel_path"] for entry in self._dragged_yamls()], target["rel_path"])
+        else:
+            new_rel, error = self.move_handler(source["rel_path"], target["rel_path"] )
         if error:
             event.ignore()
             return
@@ -502,14 +515,19 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.tree.currentItemChanged.connect(self._on_tree_current_changed)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
-        if self.mode == "components":
-            self.tree.move_handler = self._handle_component_tree_drop
+        if self.mode in ("components", "experiments", "experiment"):
+            if self.mode == "components":
+                self.tree.move_handler = self._handle_component_tree_drop
+            else:
+                self.tree.move_many_handler = self._handle_experiment_tree_drop
             self.tree.setDragEnabled(True)
             self.tree.setAcceptDrops(True)
             self.tree.setDropIndicatorShown(True)
             self.tree.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
             self.tree.setDefaultDropAction(Qt.DropAction.MoveAction)
-            self.tree.setToolTip("Drag a YAML file onto a folder in the same category to move it.")
+            self.tree.setToolTip("Drag selected experiments onto a folder in the same group to move them."
+                                 if self.mode != "components" else
+                                 "Drag a YAML file onto a folder in the same category to move it.")
         layout.addWidget(self.tree, 1)
 
         self.footer = None
@@ -909,6 +927,12 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             if grp:
                 self.last_focused_group = grp
         if data.get("type") == "file":
+            # Modified clicks belong to the selection model. Opening a preview here
+            # synchronizes its tab back to the tree and collapses the selection.
+            modifiers = QApplication.keyboardModifiers()
+            if (modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+                    or len(self.tree.selectedItems()) > 1 or not item.isSelected()):
+                return
             self.current_rel_path = data["rel_path"]
             self.file_selected.emit(Path(data["path"]), data["rel_path"])
 
@@ -1005,7 +1029,10 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Find and select an item by its relative path."""
         found = self.find_file_item(target_rel_path)
         if found:
-            self.tree.setCurrentItem(found)
+            # Tab synchronization often echoes the row that is already current.
+            # setCurrentItem would clear an extended selection even in that case.
+            if self.tree.currentItem() is not found:
+                self.tree.setCurrentItem(found)
             # Ensure all parent items are expanded
             curr = found.parent()
             while curr:
@@ -1646,6 +1673,59 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.dir_renamed.emit(rel_path, new_rel)
         self.populate(ensure_expanded=new_rel)
         return new_rel, None
+
+    def move_experiment_yamls(self, rel_paths, target_dir_rel):
+        """Preflight a batch before moving experiments within their group."""
+        if self.mode not in ("experiment", "experiments"):
+            return None, "Experiment moves are only available in the Experiments tree."
+        root = self.root_dir.resolve()
+        destination = root / target_dir_rel
+        moves = []
+        try:
+            destination.resolve().relative_to(root)
+            if not destination.is_dir():
+                raise ValueError("The destination folder does not exist.")
+            for rel in dict.fromkeys(rel_paths):
+                source = root / rel
+                source_rel = source.resolve().relative_to(root)
+                dest_rel = destination.resolve().relative_to(root)
+                group_index = 1 if source_rel.parts[0] in ("experiment", "experiments") else 0
+                if source_rel.parts[:group_index + 1] != dest_rel.parts[:group_index + 1]:
+                    raise ValueError("Move experiments into a folder in the same group.")
+                if source.is_symlink() or not source.is_file() or source.suffix not in (".yaml", ".yml"):
+                    raise ValueError("Select experiment YAML files to move.")
+                if source.stem == "_base":
+                    raise ValueError("Group defaults cannot be moved with experiments.")
+                target = destination / source.name
+                if target == source:
+                    continue
+                if target.exists() or any(other == target for _, other in moves):
+                    raise ValueError(f"A file named '{source.name}' already exists in that folder.")
+                moves.append((source, target))
+        except (ValueError, OSError) as exc:
+            return None, str(exc)
+        moved = []
+        try:
+            for source, target in moves:
+                source.rename(target)
+                moved.append((source, target))
+        except OSError as exc:
+            for source, target in reversed(moved):
+                target.rename(source)
+            return None, str(exc)
+        from .config_viewer import invalidate_config_tree
+        invalidate_config_tree()
+        self.populate(ensure_expanded=target_dir_rel)
+        paths = [target.relative_to(root).as_posix() for _, target in moves]
+        if paths:
+            self.select_file(paths[0])
+        return paths, None
+
+    def _handle_experiment_tree_drop(self, sources, destination):
+        result = self.move_experiment_yamls(sources, destination)
+        if result[1]:
+            QMessageBox.warning(self, "Move Failed", result[1])
+        return result
 
     def move_component_yaml(self, rel_path: str, target_dir_rel: str) -> tuple[str | None, str | None]:
         """Move a YAML within its component category and update install tracking."""

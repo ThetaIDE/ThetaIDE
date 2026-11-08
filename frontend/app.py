@@ -571,7 +571,7 @@ class Window(QMainWindow):
 
     def on_config_file_opened(self, file_path, rel_path):
         if hasattr(self, "config_tab_manager"):
-            self.config_tab_manager.open_file(file_path, rel_path, pinned=True, new_tab=True)
+            self.config_tab_manager.open_file(file_path, rel_path, pinned=True)
 
     def on_config_file_deleted(self, rel_path):
         norm = Path(rel_path).as_posix()
