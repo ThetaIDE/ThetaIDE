@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTableWidget,
@@ -240,6 +241,7 @@ class ArtifactBrowser(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(8)
         splitter.setChildrenCollapsible(False)
         self.tree = QTreeWidget()
         self.tree.setColumnCount(1)
@@ -250,6 +252,10 @@ class ArtifactBrowser(QWidget):
         splitter.addWidget(self.tree)
 
         right = QWidget()
+        # File paths and hidden preview widgets must not raise the splitter's
+        # minimum width as files are selected. The tree owns its own width.
+        right.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        right.setMinimumWidth(320)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(8, 0, 0, 0)
         header = QHBoxLayout()

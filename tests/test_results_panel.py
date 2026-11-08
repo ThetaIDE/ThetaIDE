@@ -206,6 +206,58 @@ def tick(panel, *names):
         items[name].setCheckState(0, Qt.CheckState.Checked)
 
 
+def test_results_run_tree_drag_after_visiting_curves():
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtTest import QTest
+
+    panel, _ = make_panel()
+    panel.resize(1100, 800)
+    panel.show()
+    app.processEvents()
+    panel.explorer.select_run("cartpole", "ppo_run")
+    panel.tabs.setCurrentWidget(panel.curves_page)
+    app.processEvents()
+    panel.tabs.setCurrentWidget(panel._pages["Files"])
+    app.processEvents()
+    splitter = panel.explorer.parentWidget()
+    try:
+        for target in (400, 240, 480, 280):
+            handle = splitter.handle(1)
+            QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=handle.rect().center())
+            destination = splitter.mapToGlobal(QPoint(target + handle.width() // 2, handle.height() // 2))
+            QTest.mouseMove(handle, handle.mapFromGlobal(destination))
+            QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=handle.mapFromGlobal(destination))
+            app.processEvents()
+            assert abs(panel.explorer.width() - target) <= 2
+    finally:
+        panel.close()
+        panel.deleteLater()
+
+
+@pytest.mark.parametrize("tab", ["Files", "Reports", "Config"])
+def test_results_preview_content_does_not_pin_tree_width(tab):
+    panel, _ = make_panel()
+    panel.resize(1100, 800)
+    browser = panel.browser(tab)
+    panel.tabs.setCurrentWidget(panel._pages[tab])
+    panel.show()
+    app.processEvents()
+    splitter = browser.tree.parentWidget()
+    try:
+        # An unbroken filename in the info preview used to raise the minimum
+        # width of both nested splitters, preventing either tree from resizing.
+        browser.info.show_info({"path": "checkpoints/" + "weights_" * 40 + ".ckpt"})
+        app.processEvents()
+        for target in (400, 200, 320):
+            splitter.moveSplitter(target, 1)
+            app.processEvents()
+            assert abs(browser.tree.width() - target) <= 2
+        assert panel.width() == 1100
+    finally:
+        panel.close()
+        panel.deleteLater()
+
+
 def series_names(panel, metric):
     return [title for title, _, _ in panel.grid.cards[metric].chart.series]
 

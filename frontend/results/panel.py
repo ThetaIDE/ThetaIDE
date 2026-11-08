@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QTabWidget,
@@ -157,9 +159,15 @@ class ResultsPanel(QWidget):
         self.explorer.refresh_requested.connect(self.refresh)
         self.explorer.archive_requested.connect(self._archive_run)
         self.explorer.delete_requested.connect(self._delete_run)
+        self.explorer.delete_selection_requested.connect(self._delete_selection)
         self.explorer.archive_group_requested.connect(self._archive_group)
         self.explorer.delete_group_requested.connect(self._delete_group)
         self.tabs = QTabWidget()
+        # Hidden pages participate in QTabWidget's minimumSizeHint. In particular,
+        # the Curves toolbar can otherwise consume the entire splitter width and
+        # leave the explorer handle with no legal travel, even back on Files.
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        self.tabs.setMinimumWidth(360)
         self.tabs.setDocumentMode(True)
         self.tab_corner = QWidget()  # buttons a layout puts beside the tabs (the Control rail's Export)
         QHBoxLayout(self.tab_corner).setContentsMargins(0, 0, 4, 0)
@@ -257,6 +265,7 @@ class ResultsPanel(QWidget):
         self.curves_page.layout().addWidget(self.curves_body)
         self.root.insertWidget(0, self.frame, 1)
         split = QSplitter(Qt.Orientation.Horizontal)
+        split.setHandleWidth(8)
         split.setChildrenCollapsible(False)
         split.addWidget(self.explorer)
         split.addWidget(self.tabs)
@@ -264,12 +273,23 @@ class ResultsPanel(QWidget):
         split.setStretchFactor(1, 1)
         split.setSizes([260, 900])
         frame.addWidget(split, 1)
-        controls = QHBoxLayout()
+        controls_widget = QWidget()
+        controls = QHBoxLayout(controls_widget)
+        controls.setContentsMargins(0, 0, 0, 0)
         for widget in (self.plots_button, self.axis_select, self.smoothing_label, self.smoothing_slider,
                        self.combine_select, self.primary_select, self.export_button, self.refresh_button):
             controls.addWidget(widget)
         controls.addStretch()
-        body.addLayout(controls)
+        # Keep every control reachable when the user gives the explorer more room.
+        controls_scroll = QScrollArea()
+        controls_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        controls_scroll.setWidget(controls_widget)
+        controls_scroll.setFixedHeight(
+            controls_widget.sizeHint().height() + controls_scroll.horizontalScrollBar().sizeHint().height()
+        )
+        body.addWidget(controls_scroll)
         body.addWidget(self.legend)
         body.addWidget(self.grid, 1)
 
@@ -301,6 +321,40 @@ class ResultsPanel(QWidget):
         self.status.setText(f"Archiving {group}/{experiment}…")
         self.loader.backend.archive_run(group, experiment, path,
                                         lambda _, error: self._run_action_done("Archive", error, path))
+
+    def _delete_selection(self, targets):
+        if not targets:
+            return
+        names = [f"{group}/{run}" if run else f"{group} (all runs)" for group, run in targets]
+        live = any((f"{group}/{run}" in self.unfinished if run else
+                    any(key.startswith(f"{group}/") for key in self.unfinished))
+                   for group, run in targets)
+        warning = "\nSome selected runs may still be training." if live else ""
+        answer = QMessageBox.question(
+            self, "Delete selected folders",
+            "Permanently delete these results and their files across results folders?\n\n"
+            + "\n".join(names) + warning,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.status.setText("Deleting selected results…")
+        pending = len(targets)
+        errors = []
+
+        def done(_, error):
+            nonlocal pending
+            if error:
+                errors.append(str(error))
+            pending -= 1
+            if pending == 0:
+                self._run_action_done("Delete", "\n".join(errors) or None)
+
+        for group, run in targets:
+            if run is None:
+                self.loader.backend.delete_group(group, done)
+            else:
+                self.loader.backend.delete_run(group, run, done)
 
     def _delete_run(self, group, experiment):
         live = f"{group}/{experiment}" in self.unfinished
@@ -388,7 +442,7 @@ class ResultsPanel(QWidget):
         self.update_artifacts()
 
     def run_keys(self) -> list[str]:
-        """Ticked runs, in tree order, each once (several agents or versions share a run)."""
+        """Selected runs, each once (several agents or versions can share a run)."""
         return list(dict.fromkeys(source.run_key for source in self.sources))
 
     # ── Artifacts ────────────────────────────────────────────────────────────
