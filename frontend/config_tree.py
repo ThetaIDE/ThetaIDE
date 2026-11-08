@@ -305,17 +305,9 @@ class ComponentDeleteDialog(QDialog):
 
 
 def find_config_root():
-    """Locate in/config directory from cwd or parent directories."""
-    candidates = [
-        Path.cwd() / "in" / "config",
-        Path.cwd() / "in" / "configs",
-        Path(__file__).resolve().parent.parent / "in" / "config",
-        Path(__file__).resolve().parent.parent / "in" / "configs",
-    ]
-    for p in candidates:
-        if p.exists() and p.is_dir():
-            return p.resolve()
-    return (Path(__file__).resolve().parent.parent / "in" / "config").resolve()
+    """Return the selected workspace's active configuration directory."""
+    from src.app.workspace import WorkspacePaths
+    return WorkspacePaths.for_process().config
 
 
 class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
@@ -1929,7 +1921,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                             client.indexLoaded.emit(client.components)
                         self.populate()
                     menu.addAction("Hide component", hide_component)
-                action_deep = menu.addAction("Deep Copy Component")
+                action_deep = menu.addAction("Create editable copy")
                 action_deep.triggered.connect(lambda: self.prompt_deep_copy_component(data["rel_path"]))
             rel = data["rel_path"]
             action_rename = menu.addAction("Rename…")
@@ -2083,7 +2075,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             window.scaffold_plugin()
         else:
             from .scaffold_dialog import ScaffoldPluginDialog
-            workspace_root = find_config_root().parent
+            from src.app.workspace import WorkspacePaths
+            workspace_root = WorkspacePaths.from_config_root(self.root_dir).root
             dialog = ScaffoldPluginDialog(workspace_root=workspace_root, parent=self)
             if dialog.exec() and dialog.scaffold_result and dialog.scaffold_result.success:
                 from .config_viewer import invalidate_config_tree

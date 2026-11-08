@@ -67,7 +67,7 @@ class ScaffoldPluginDialog(QDialog):
         self.combo_kind = QComboBox()
         self.combo_kind.addItem("Model Architecture (src/usr/models/)", "model")
         self.combo_kind.addItem("RL Algorithm / Agent (src/usr/algorithms/)", "algorithm")
-        self.combo_kind.addItem("Environment & Grounding (in/envs/)", "env")
+        self.combo_kind.addItem("Environment & Grounding (src/usr/environments/)", "env")
         self.combo_kind.addItem("DataModule & Sampler (src/usr/data/)", "datamodule")
         self.combo_kind.addItem("Evaluator & Verification Hook (src/usr/eval/)", "evaluator")
         self.combo_kind.addItem("Plotter & Visualization (plot/)", "plotter")
@@ -191,11 +191,11 @@ class ScaffoldPluginDialog(QDialog):
             ]
         elif kind == "env":
             lines = [
-                f"• in/envs/{name}/env.py",
-                f"• in/envs/{name}/__init__.py",
-                f"• in/envs/{name}/.theta_component.json",
+                f"• src/usr/environments/{name}/env.py",
+                f"• src/usr/environments/{name}/__init__.py",
+                f"• src/usr/environments/{name}/.theta_component.json",
                 f"• in/config/env/{name}.yaml",
-                f"• in/rules/{name}/default.rules",
+                f"• src/usr/rules/{name}/default.rules",
             ]
         elif kind == "datamodule":
             lines = [
@@ -211,9 +211,9 @@ class ScaffoldPluginDialog(QDialog):
             ]
         elif kind in ("plotter", "plot"):
             lines = [
-                f"• plot/{name}/{name}_plotter.py",
-                f"• plot/{name}/__init__.py",
-                f"• plot/{name}/.theta_component.json",
+                f"• src/usr/plotters/{name}/{name}_plotter.py",
+                f"• src/usr/plotters/{name}/__init__.py",
+                f"• src/usr/plotters/{name}/.theta_component.json",
                 f"• in/config/plot/{name}.yaml",
             ]
         else:

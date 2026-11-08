@@ -213,6 +213,53 @@ def test_method_model_open_action_retains_component_owned_parameter_context(view
     assert buttons[0].property("parameterPath") == "methods.demo.model.rules"
 
 
+def test_rules_control_opens_selected_folder_with_effective_environment(viewer, tmp_path):
+    from types import SimpleNamespace
+    widget, _, _ = viewer
+    config = tmp_path / "workspace/in/config"
+    profile = config / "env/gym/cartpole.yaml"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("symbolic_name: cartpole\n")
+    root = config.parent.parent
+    for env in ["cartpole", "mountaincar"]:
+        for name in ["default", "anticipatory_v1"]:
+            folder = root / f"src/usr/rules/{env}/{name}"
+            folder.mkdir(parents=True)
+            (folder / "clauses.txt").write_text("rules\n")
+    tree = ConfigTree(config)
+    tree.component_parameter_schemas["model/test.yaml"] = {"properties": {
+        "rules": {"type": "string", "x-theta-domain": "ruleset", "x-theta-actions": [
+            {"type": "open-in-editor", "handler": {"path": "obsolete_handler.py", "function": "unused"}}
+        ]}}}
+    set_config_tree(tree)
+    widget = load(viewer, {"rules": "default", "defaults": [{"override /env": "gym/cartpole"}],
+                           "env": {"num_envs": 1}}, "model/test.yaml")
+    opened = []
+    widget.editor_service = SimpleNamespace(open_folder=lambda path: opened.append(path) or True,
+                                            open_file=lambda path: pytest.fail("Rules must open as a folder"))
+    assert widget._ruleset_domain_choices() == ["anticipatory_v1", "default"]
+    button = next(b for b in widget.findChildren(QToolButton) if b.property("parameterOpen"))
+    combo = next(c for c in widget.findChildren(QComboBox)
+                 if {"anticipatory_v1", "default"}.issubset({c.itemText(i) for i in range(c.count())}))
+    with patch("frontend.config_viewer.QMenu.exec") as menu:
+        button.click()
+        combo.setCurrentText("anticipatory_v1")
+        button.click()
+        assert not menu.called
+    assert opened == [root / "src/usr/rules/cartpole/default", root / "src/usr/rules/cartpole/anticipatory_v1"]
+    # Explicit overrides must also affect discovery and opening.
+    widget.raw_data["env"]["symbolic_name"] = "mountaincar"
+    button.click()
+    assert opened[-1] == root / "src/usr/rules/mountaincar/anticipatory_v1"
+    # A component profile without any environment opens the catalog once.
+    widget.raw_data = {"rules": "default"}
+    widget._get_resolved_defaults = lambda: {}
+    with patch("frontend.config_viewer.QMenu.exec") as menu:
+        button.click()
+        assert not menu.called
+    assert opened[-1] == root / "src/usr/rules"
+
+
 def title(box):
     return next(w.text() for w in box.findChildren(QLabel) if w.objectName() in ("heading", "cardTitle"))
 

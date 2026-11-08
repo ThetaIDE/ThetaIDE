@@ -53,8 +53,8 @@ def config_fingerprint(config_root: Path) -> int:
     root = Path(config_root)
     workspace = root.parent.parent
     candidates = set(root.rglob("*.yaml")) | set(root.rglob("*.yml"))
-    for source_root in ("src/usr/models", "src/usr/algorithms", "src/usr/methods", "src/usr/data", "src/usr/eval", "in/envs", "plot"):
-        candidates.update((workspace / source_root).rglob(".theta_component.json"))
+    from src.app.workspace import WorkspacePaths
+    candidates.update(WorkspacePaths(workspace).manifests())
     candidates.add(workspace / ".thetaide/components/collection.json")
     entries = []
     for path in sorted(candidates):
@@ -394,7 +394,10 @@ class ConfigTree:
     def __init__(self, config_root: Path):
         self.config_root = Path(config_root)
         self._experiment_groups: dict[str, ExperimentGroup] | None = None
-        self.paradigms = {p.stem: Paradigm.from_file(p) for p in _yaml_files(self.config_root / "paradigms")}
+        from src.app.workspace import WorkspacePaths
+        framework = WorkspacePaths.from_config_root(self.config_root).framework_config
+        self.paradigms = {p.stem: Paradigm.from_file(p) for p in _yaml_files(framework / "paradigms")}
+        self.paradigms.update({p.stem: Paradigm.from_file(p) for p in _yaml_files(self.config_root / "paradigms")})
         agent_dir = self.config_root / "agent"
         self.agents = {}
         for a in _yaml_files(agent_dir):
@@ -463,22 +466,13 @@ class ConfigTree:
         else:
             ws_root = self.config_root.parent
 
-        scan_dirs = [
-            (ws_root / "src" / "usr" / "algorithms", "agent"),
-            (ws_root / "src" / "usr" / "methods", "agent"),
-            (ws_root / "src" / "usr" / "models", "model"),
-            (ws_root / "src" / "usr" / "data", "datamodule"),
-            (ws_root / "src" / "usr" / "eval", "evaluator"),
-            (ws_root / "in" / "envs", "env"),
-            (ws_root / "plot", "plotter"),
-        ]
-
-        for sdir, default_kind in scan_dirs:
-            if not sdir.is_dir():
-                continue
-            for meta_file in sorted(list(sdir.glob("*/.theta_component.json")) + list(sdir.glob("*/plugin.json"))):
+        from src.app.core.provider_catalog import get_catalog
+        from src.app.workspace import WorkspacePaths
+        for package in get_catalog(WorkspacePaths(ws_root)).packages:
                 try:
-                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                    meta = package.manifest
+                    default_kind = meta.get("kind", "component")
+                    meta_file = package.root / ".theta_component.json"
                     kind = str(meta.get("kind", default_kind)).lower()
                     comp_id = str(meta.get("id") or meta_file.parent.name)
                     parameter_schema = meta.get("parameter_schema")
@@ -717,30 +711,14 @@ class ConfigTree:
             return {}
         return dict(self.models[model_name].parameters)
 
-    def ruleset_names(self, environment: str | None = None) -> list[str]:
-        """Return available rule-set directory names, optionally for one environment."""
-        workspace_root = self.config_root.parent.parent
-        rules_root = workspace_root / "in" / "rules"
-        if not rules_root.is_dir():
-            return []
+    def ruleset_names(self, environment=None) -> list[str]:
+        """Use the runtime catalog; unscoped profiles get qualified selectors."""
+        from src.app.services.rulesets import available_rulesets, symbolic_environment
 
-        environment_roots = []
-        if environment:
-            environment_roots.append(rules_root / environment)
-            short_name = Path(environment).name
-            if short_name != environment:
-                environment_roots.append(rules_root / short_name)
-        else:
-            environment_roots.extend(path for path in rules_root.iterdir() if path.is_dir())
-
-        names = {
-            path.name
-            for root in environment_roots
-            if root.is_dir()
-            for path in root.iterdir()
-            if path.is_dir()
-        }
-        return sorted(names, key=str.casefold)
+        workspace = self.config_root.parent.parent
+        scoped = symbolic_environment(environment, workspace)
+        return [r.name if scoped else f"{r.environment}/{r.name}"
+                for r in available_rulesets(workspace, environment)]
 
     def model_parameter_schema(self, model_name: str | None, path: tuple[str, ...] = ()) -> dict[str, Any]:
         """Return the JSON Schema node describing a model parameter or nested object."""

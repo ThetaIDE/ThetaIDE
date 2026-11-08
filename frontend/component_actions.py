@@ -221,10 +221,11 @@ class ComponentDevelopmentActions:
     def __init__(self, workspace, parent, client=None):
         from src.app.services.local_components import LocalComponents
         from src.app.components.development import ComponentDevelopment
-        self.service = LocalComponents(workspace)
-        self.development = ComponentDevelopment(workspace)
         self.parent = parent
         self.client = client or component_host_attribute(parent, "hub_client")
+        paths = self.client.installer.paths if self.client is not None else workspace
+        self.service = LocalComponents(paths)
+        self.development = ComponentDevelopment(paths)
         self.editor = component_host_attribute(parent, "editor_service")
 
     def changed(self, component_id, action):

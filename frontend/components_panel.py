@@ -372,7 +372,7 @@ class ComponentsPanel(QWidget):
         workspace_dir = (
             self.components_tree.root_dir.parent.parent
             if hasattr(self, "components_tree") and self.components_tree.root_dir
-            else Path(__file__).resolve().parents[2]
+            else __import__("src.app.workspace", fromlist=["WorkspacePaths"]).WorkspacePaths.for_process().root
         )
         data_dir = workspace_dir / ".thetaide"
         self.hub_client = HubClient(

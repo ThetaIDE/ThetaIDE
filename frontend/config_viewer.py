@@ -90,12 +90,8 @@ CATEGORICAL_CHOICES = {
 
 def _get_available_paradigms() -> list[str]:
     """Return all paradigm names defined in in/config/paradigms/*.yaml."""
-    paradigms_dir = PROJECT_ROOT / "in" / "config" / "paradigms"
-    if paradigms_dir.is_dir():
-        names = [p.stem for p in paradigms_dir.glob("*.yaml") if not p.name.startswith(("_", "."))]
-        if names:
-            return sorted(names)
-    return []
+    from src.app.pipeline.validation import list_paradigms
+    return list_paradigms()
 
 
 def _get_component_kind(rel_path: str) -> tuple[str, str]:
@@ -4428,18 +4424,32 @@ class ConfigViewer(QWidget):
         return widget
 
     def _ruleset_domain_choices(self):
-        """List rule sets for the active environment, or all installed environments."""
+        """Use the same effective environment as parameter actions and training."""
         tree = config_tree()
         if tree is None:
             return []
-        environment = None
+        return tree.ruleset_names(self._parameter_context_config().get("env"))
+
+    def _parameter_context_config(self):
+        config = copy.deepcopy(self._get_resolved_defaults())
+        def merge(target, source):
+            for key, item in source.items():
+                if isinstance(item, dict) and isinstance(target.get(key), dict):
+                    merge(target[key], item)
+                else:
+                    target[key] = copy.deepcopy(item)
+        merge(config, self.raw_data)
+        # An environment selected through Hydra defaults can coexist with a
+        # mapping of overrides in env:. Keep both, including symbolic_name.
         for resolver in ("env_selection", "_get_explicit_env", "_inherited_env"):
             method = getattr(self, resolver, None)
             if callable(method):
                 environment = method()
                 if environment:
+                    overrides = config.get("env")
+                    config["env"] = {"name": environment, **(overrides if isinstance(overrides, dict) else {})}
                     break
-        return tree.ruleset_names(environment)
+        return config
 
     def _schema_widget(self, value, schema, write, *, action_path=()):
         actions = schema.get("x-theta-actions", []) if isinstance(schema, dict) else []
@@ -4461,7 +4471,8 @@ class ConfigViewer(QWidget):
             button.setProperty("parameterPath", ".".join(action_path))
             row.insertWidget(row.count() - 1, button)
             _reveal_remove_on_row_hover(row, button)
-            button.clicked.connect(lambda _checked=False, a=action, b=button: self._open_parameter_action(
+            effective_action = {**action, "domain": schema.get("x-theta-domain")}
+            button.clicked.connect(lambda _checked=False, a=effective_action, b=button: self._open_parameter_action(
                 a, current[0], action_path or tuple(str(wrapper.property("parameterPath") or "").split(".")), b))
         return wrapper
 
@@ -4470,14 +4481,7 @@ class ConfigViewer(QWidget):
         tree = config_tree()
         workspace = tree.config_root.parent.parent if tree else PROJECT_ROOT
         try:
-            config = copy.deepcopy(self._get_resolved_defaults())
-            def merge(target, source):
-                for key, item in source.items():
-                    if isinstance(item, dict) and isinstance(target.get(key), dict):
-                        merge(target[key], item)
-                    else:
-                        target[key] = copy.deepcopy(item)
-            merge(config, self.raw_data)
+            config = self._parameter_context_config()
             targets = opening_targets(action, value=value, workspace=workspace, context={
                 "workspace_root": str(workspace), "config": config, "parameter_path": list(path),
                 "config_path": str(self.current_rel_path or ""),
@@ -4485,13 +4489,17 @@ class ConfigViewer(QWidget):
             service = getattr(self.window(), "editor_service", None)
             if service is None:
                 raise ValueError("The host editor service is unavailable")
+            def open_target(target):
+                if target.is_dir():
+                    return service.open_folder(target)
+                return service.open_file(target)
             if len(targets) == 1:
-                if not service.open_file(targets[0][1]):
-                    raise ValueError("The editor could not open the component's file")
+                if not open_target(targets[0][1]):
+                    raise ValueError("The editor could not open the component's resource")
             else:
                 menu = QMenu(button)
                 for title, target in targets:
-                    menu.addAction(title, lambda p=target: service.open_file(p))
+                    menu.addAction(title, lambda p=target: open_target(p))
                 menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
         except Exception as exc:
             QMessageBox.warning(self, "Cannot open parameter file", str(exc))

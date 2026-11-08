@@ -32,7 +32,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.app.services import PROJECT_ROOT
 from src.app.services.config_service import LaunchError
 
 from . import wheel_guard
@@ -209,7 +208,7 @@ def activate_macos_window(window):
 
 
 class Window(QMainWindow):
-    def __init__(self, data_dir, progress=None):
+    def __init__(self, data_dir, progress=None, workspace=None):
         """`progress(message, fraction)` reports startup steps (the splash screen shows them)."""
         step = progress or (lambda message, fraction: None)
         super().__init__()
@@ -236,24 +235,21 @@ class Window(QMainWindow):
         )
         self.pane_sliders = {}
         self.plugin_sliders = {}
+        from src.app.workspace import WorkspacePaths
         data_p = Path(data_dir).resolve()
-        if data_p.name == "runs" and data_p.parent.name == ".thetaide":
-            workspace_dir = data_p.parent.parent
-            ide_data_dir = data_p.parent
-        elif data_p.name == ".thetaide":
-            workspace_dir = data_p.parent
-            ide_data_dir = data_p
-        else:
-            workspace_dir = data_p.parent
-            ide_data_dir = data_p
-
+        ide_data_dir = data_p.parent if data_p.name == "runs" and data_p.parent.name == ".thetaide" else data_p
+        paths = WorkspacePaths(workspace or WorkspacePaths.for_process().root, ide_data_dir)
+        self.workspace_paths = paths
+        workspace_dir = paths.root
+        os.environ.update(paths.process_environment())
+        from src.app.services import configure_workspace
+        configure_workspace(paths)
         self.extension_slots = ExtensionSlotRegistry(parent=self)
         self.command_registry = CommandRegistry(parent=self)
 
         step("Discovering plugins…", 0.04)
         self.plugin_manager = PluginManager(
-            self,
-            [Path(__file__).parent / "plugins" / "core", Path(__file__).parent / "plugins", ide_data_dir / "plugins"],
+            self, list(paths.app_roots), paths=paths,
             settings_manager=self.settings_manager,
         )
         self.plugin_manager.discover()
@@ -279,6 +275,8 @@ class Window(QMainWindow):
         # Configs compose in-process and training runs as a QProcess: no server to start.
         self.backend = LocalBackend(self)
         self.jobs = JobManager(
+            project_root=workspace_dir,
+            logs_dir=WorkspacePaths(workspace_dir, ide_data_dir).results / "logs",
             store_path=Path(data_dir) / "jobs" / "jobs.db",
             settings_path=self.settings_manager.workspace_settings_path,
             enabled_plugins_provider=lambda: list(self.plugin_manager.instances),
@@ -2750,7 +2748,7 @@ class Window(QMainWindow):
         if not exp_target and hasattr(self, "config_viewer") and getattr(self.config_viewer, "current_path", None):
             cur = self.config_viewer.current_path
             try:
-                exp_target = str(cur.relative_to(PROJECT_ROOT / "in" / "config" / "experiment"))
+                exp_target = str(cur.relative_to(self.workspace_paths.config / "experiment"))
             except Exception:
                 exp_target = cur.stem
         if not exp_target:
@@ -2764,7 +2762,7 @@ class Window(QMainWindow):
 
         dialog = ExportExperimentDialog(
             experiment_id=str(exp_target),
-            workspace_root=PROJECT_ROOT,
+            workspace_root=self.workspace_paths.root,
             raw_yaml_text=raw_yaml,
             parent=self,
         )
@@ -2782,7 +2780,7 @@ class Window(QMainWindow):
 
     def scaffold_plugin(self):
         from .scaffold_dialog import ScaffoldPluginDialog
-        dialog = ScaffoldPluginDialog(workspace_root=PROJECT_ROOT, parent=self)
+        dialog = ScaffoldPluginDialog(workspace_root=self.workspace_paths.root, parent=self)
         if dialog.exec() and dialog.scaffold_result and dialog.scaffold_result.success:
             from .config_viewer import invalidate_config_tree
             invalidate_config_tree()
@@ -2893,10 +2891,15 @@ class Window(QMainWindow):
 
 def main():
     parser = argparse.ArgumentParser(description="ThetaIDE PyQt frontend proof of concept")
-    parser.add_argument("--data-dir", type=Path, default=Path(__file__).resolve().parent.parent / ".thetaide" / "runs")
+    from src.app.workspace import WorkspacePaths
+    parser.add_argument("--workspace", type=Path, default=WorkspacePaths.for_process().root)
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--install-desktop-entry", action="store_true",
                         help="Linux: add ThetaIDE (with its icon) to the application menu and exit")
     args = parser.parse_args()
+    if args.data_dir is None:
+        state_dir = WorkspacePaths(args.workspace).data_dir
+        args.data_dir = state_dir / "runs" if state_dir.name == ".thetaide" else state_dir
     if args.install_desktop_entry:
         entry, icon = install_desktop_entry()
         print(f"Installed {entry}\nInstalled {icon}")
@@ -2939,7 +2942,7 @@ def main():
     splash.show()
     app.processEvents()  # paint it now: the event loop doesn't run until the window is built
     try:
-        window = Window(args.data_dir, progress=splash.set_progress)
+        window = Window(args.data_dir, progress=splash.set_progress, workspace=args.workspace)
     except OSError as exc:
         splash.close()
         QMessageBox.critical(None, "Workspace unavailable", f"Could not open local run storage:\n{exc}")
