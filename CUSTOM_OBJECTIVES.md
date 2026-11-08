@@ -114,6 +114,19 @@ interpolation. Failed runs receive `failed_run_score` (default zero). This
 default assumes a nonnegative normalized reward scale; customize it for other
 tasks. The final-metric scorer fails if any sample fails or omits its metric.
 
+For convergence-focused selection, set `curve.start_fraction: 0.75` to score
+only the last quarter of the budget. Window boundaries are interpolated; the
+same complete-curve coverage requirement still applies. Combine overall
+performance with robustness using `aggregation.method: mean_lower_tail` and
+`aggregation.tail_weight: 0.25`: 75% of the mean score plus 25% of the lower-tail
+score, using the existing `fraction` to select tail samples. Failed runs remain
+in both aggregates. Defaults preserve full-budget scoring. Positive
+`curve.half_life` emphasizes the beginning of the selected window.
+
+Learning-curve diagnostics include `window_start`, `completed_final_values`,
+and `completed_window_minima`, alongside `per_run_auc`. These help distinguish
+an early reward peak from sustained late performance.
+
 ## Results and current boundaries
 
 Each independent sample has its own log/checkpoint version and a worker log
@@ -135,3 +148,5 @@ require pruning disabled and receive the complete sample panel once training
 finishes. Scoring code never starts workers, reserves resources, or publishes
 training status. Existing experiments without an objective retain their scalar-metric
 behavior.
+
+Bundled objectives now live in `src/plugins/components/bundled/{final_metric,learning_curve}`; the API stays in `src/app/objectives`. Package objectives are discoverable through the shared catalog and standalone authored descriptors remain under `src/usr/objectives`. Colliding IDs require an explicit user override; see [provider storage](docs/PLUGIN_STORAGE.md). New-format metadata listings do not execute objective code.
