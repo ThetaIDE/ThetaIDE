@@ -59,57 +59,22 @@ def mock_cfg_supervised():
 
 
 @pytest.fixture(autouse=True)
-def _register_test_agents():
-    """Register test agent components with declared supported paradigms."""
-    from src.usr.algorithms.agent_registry import AGENT_REGISTRY, register_agent
-    from src.usr.algorithms.base_agent import OfflineAgentBase, OnlineAgentBase
-
-    old_registry = AGENT_REGISTRY.copy()
-
-    @register_agent("ppo")
-    class MockPPO(OnlineAgentBase):
-        def get_action_and_value(self, obs, action=None):
-            pass
-
-        def get_value(self, obs):
-            pass
-
-    @register_agent("cql")
-    class MockCQL(OfflineAgentBase):
-        def get_action_and_value(self, obs, action=None):
-            pass
-
-        def get_value(self, obs):
-            pass
-
-    @register_agent("iql")
-    class MockIQL(OfflineAgentBase):
-        def get_action_and_value(self, obs, action=None):
-            pass
-
-        def get_value(self, obs):
-            pass
-
-    @register_agent("cew")
-    class MockCEW(OfflineAgentBase):
-        def get_action_and_value(self, obs, action=None):
-            pass
-
-        def get_value(self, obs):
-            pass
-
-    @register_agent("unsupported_algo")
-    class MockUnsupported(OfflineAgentBase):
-        def get_action_and_value(self, obs, action=None):
-            pass
-
-        def get_value(self, obs):
-            pass
-
-    yield
-
-    AGENT_REGISTRY.clear()
-    AGENT_REGISTRY.update(old_registry)
+def _declare_test_providers(tmp_path, monkeypatch):
+    """Preflight exercises real native declarations rather than registry side effects."""
+    import json
+    from src.app.workspace import WorkspacePaths
+    paths=WorkspacePaths(tmp_path/'providers')
+    for kind, names in [('algorithm',['ppo','cql','iql','cew','unsupported_algo']),('model',['dnn','mlp_classifier']),('env',['cartpole','mimic'])]:
+        for name in names:
+            root=paths.user(kind)/name;root.mkdir(parents=True)
+            (root/'provider.py').write_text('class Provider: pass\n')
+            paradigms=['online_rl'] if name=='ppo' else ['offline_rl'] if kind=='algorithm' else []
+            meta={'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':2,'api_version':1,
+                  'capabilities':[{'id':name,'kind':kind,'entry_point':'provider.py:Provider','paradigms':paradigms}],
+                  'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}
+            (root/'.theta_component.json').write_text(json.dumps(meta))
+    monkeypatch.setenv('THETA_WORKSPACE',str(paths.root))
+    return paths
 
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
@@ -163,7 +128,8 @@ def test_supervised_paradigm_passes_without_component_plugins(mock_yaml, mock_cf
 
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
-def test_successful_validation_online_rl(mock_yaml, mock_cfg_online):
+def test_successful_validation_online_rl(mock_yaml, mock_cfg_online, _declare_test_providers, monkeypatch):
+    monkeypatch.chdir(_declare_test_providers.root)
     notices = validate_experiment_config(mock_cfg_online, "test_exp")
     assert isinstance(notices, list)
 
@@ -278,9 +244,11 @@ def test_agent_supported_paradigms_from_installed_manifest(tmp_path, monkeypatch
     method_dir = tmp_path / "src" / "usr" / "algorithms" / "custom_agent"
     method_dir.mkdir(parents=True, exist_ok=True)
     manifest = method_dir / ".theta_component.json"
-    manifest.write_text(json.dumps({"id": "custom_agent", "paradigms": ["offline_rl"]}), encoding="utf-8")
+    manifest.write_text(json.dumps({"id":"custom_agent","name":"Custom agent","kind":"algorithm","version":"1.0.0","storage_version":2,"api_version":1,"capabilities":[{"id":"custom_agent","kind":"algorithm","entry_point":"agent.py:Agent"}],"payload":{"implementations":["agent.py"],"resources":[],"configs":{}},"paradigms":["offline_rl"]}), encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    (method_dir / "agent.py").write_text("class Agent: pass\n")
     paradigms = _get_agent_supported_paradigms("custom_agent")
     assert paradigms == ["offline_rl"]
 

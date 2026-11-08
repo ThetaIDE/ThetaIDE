@@ -17,6 +17,7 @@ import yaml
 
 from src.app.core.checkpoints import checkpoint_errors
 from src.app.pipeline.config import (
+    deep_merge,
     method_is_enabled,
     normalize_agent_name,
     parse_methods_dict,
@@ -30,8 +31,7 @@ from src.app.telemetry.selection import selection_errors
 # Paradigm registry loading
 # ---------------------------------------------------------------------------
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_PARADIGMS_DIR = _PROJECT_ROOT / "in" / "config" / "paradigms"
+from src.app.workspace import WorkspacePaths
 
 
 def _load_all_paradigms() -> dict[str, dict]:
@@ -40,11 +40,14 @@ def _load_all_paradigms() -> dict[str, dict]:
     Returns a dict mapping paradigm name → paradigm definition dict.
     """
     paradigms: dict[str, dict] = {}
-    for yaml_path in sorted(_PARADIGMS_DIR.glob("**/*.yaml")):
-        name = yaml_path.stem  # filename without extension = paradigm name
-        with open(yaml_path) as f:
-            defn = yaml.safe_load(f) or {}
-        paradigms[name] = defn
+    # Workspace definitions override provider/framework defaults individually.
+    # A partial workspace must retain the framework's four base paradigms.
+    for root in reversed(WorkspacePaths.for_process().config_roots()):
+        for yaml_path in sorted((root / "paradigms").glob("**/*.yaml")):
+            name = yaml_path.stem
+            with open(yaml_path) as f:
+                defn = yaml.safe_load(f) or {}
+            paradigms[name] = defn
     return paradigms
 
 
@@ -209,7 +212,7 @@ def _check_paradigm_constraints(cfg: Any, paradigm_name: str, constraints: dict,
 def _load_raw_experiment_yaml(experiment_name: str, config_dir: Path | None = None) -> dict:
     """Return the raw (pre-Hydra-composition) experiment YAML as a dict, or {} on failure."""
     rel_path = resolve_experiment_config_name(experiment_name)
-    exp_path = (config_dir or Path("in/config")) / "experiment" / f"{rel_path}.yaml"
+    exp_path = (config_dir or WorkspacePaths.for_process().config) / "experiment" / f"{rel_path}.yaml"
     if not exp_path.exists():
         return {}
     with open(exp_path) as f:
@@ -356,12 +359,13 @@ def _validate_tuning(cfg: Any) -> None:
                     if isinstance(agent, dict):
                         agent = agent.get("name") or agent.get("algorithm") or agent.get("type")
                     if isinstance(agent, str):
-                        root = (_PROJECT_ROOT / "in" / "config" / "agent").resolve()
-                        path = (root / (agent + ".yaml")).resolve()
-                        if path.is_relative_to(root) and path.is_file():
+                        path = WorkspacePaths.for_process().resolve_config("agent/" + agent + ".yaml")
+                        if path.is_file():
                             base = yaml.safe_load(path.read_text()) or {}
                             if isinstance(base, dict) and "defaults" not in base:
-                                value = base
+                                # Method overrides can declare supported optional
+                                # controls absent from the component's base YAML.
+                                value = deep_merge(base, method.get("agent_params") or {})
                                 for part in str(target).split(".")[1:]:
                                     if not isinstance(value, dict) or part not in value:
                                         hint = " Did you mean agent.learning_rate?" if target == "agent.lr" and "learning_rate" in base else ""
@@ -470,217 +474,33 @@ def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: d
 
 
 def _get_agent_supported_paradigms(agent_algo: str) -> list[str] | None:
-    """Query supported paradigms from agent class or config YAML."""
-    clean_algo = agent_algo.lower().replace("-", "_")
+    from src.app.core.provider_catalog import get_catalog
+    selected = get_catalog().resolve("algorithm", agent_algo)
+    if selected is None: return None
+    package, cap = selected
+    paradigms = cap.metadata.get("paradigms", package.manifest.get("paradigms"))
+    return [str(p).lower() for p in paradigms] if paradigms else None
+
+
+def _provider_exists(kind, selector):
+    if not selector: return False
+    from src.app.core.provider_loader import resolve_provider
     try:
-        from src.usr.algorithms.agent_registry import AGENT_REGISTRY, auto_discover, get_agent_class
-
-        if not AGENT_REGISTRY:
-            auto_discover()
-        agent_cls = None
-        try:
-            agent_cls = get_agent_class(clean_algo)
-        except Exception:
-            agent_cls = AGENT_REGISTRY.get(clean_algo) or AGENT_REGISTRY.get(agent_algo)
-
-        if agent_cls is not None:
-            if hasattr(agent_cls, "get_supported_paradigms"):
-                return [str(p).lower() for p in agent_cls.get_supported_paradigms()]
-            if hasattr(agent_cls, "supported_paradigms"):
-                p = getattr(agent_cls, "supported_paradigms")
-                if isinstance(p, (list, tuple, set)):
-                    return [str(x).lower() for x in p]
-                return [str(p).lower()]
-            if hasattr(agent_cls, "compatible_paradigms"):
-                p = getattr(agent_cls, "compatible_paradigms")
-                if isinstance(p, (list, tuple, set)):
-                    return [str(x).lower() for x in p]
-                return [str(p).lower()]
-    except Exception:
-        pass
-
-    # Search config files in in/config/agent/
-    agent_dir = Path("in/config/agent")
-    if agent_dir.exists():
-        for p in [
-            agent_dir / f"{agent_algo}.yaml",
-            agent_dir / f"{agent_algo.replace('_', '/')}.yaml",
-            agent_dir / f"{clean_algo}.yaml",
-        ]:
-            if p.is_file():
-                try:
-                    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-                    paradigms = (
-                        data.get("paradigms") or data.get("compatible_paradigms") or data.get("supported_paradigms")
-                    )
-                    if paradigms:
-                        if isinstance(paradigms, list):
-                            return [str(x).lower() for x in paradigms]
-                        return [str(paradigms).lower()]
-                except Exception:
-                    pass
-
-        # Glob match for nested package profiles like in/config/agent/<package>/<profile>.yaml
-        for y in agent_dir.rglob("*.yaml"):
-            if y.stem.lower() in (clean_algo, agent_algo.lower()):
-                try:
-                    data = yaml.safe_load(y.read_text(encoding="utf-8")) or {}
-                    paradigms = (
-                        data.get("paradigms") or data.get("compatible_paradigms") or data.get("supported_paradigms")
-                    )
-                    if paradigms:
-                        if isinstance(paradigms, list):
-                            return [str(x).lower() for x in paradigms]
-                        return [str(paradigms).lower()]
-                except Exception:
-                    pass
-
-    # Search installed component manifests in the algorithm component directory.
-    base_dir = Path("src/usr/algorithms")
-    if base_dir.exists():
-        candidates = [
-            base_dir / agent_algo,
-            base_dir / clean_algo,
-            base_dir / (agent_algo.split("/")[0] if "/" in agent_algo else agent_algo),
-            base_dir / (clean_algo.split("_")[0] if "_" in clean_algo else clean_algo),
-        ]
-        for candidate_dir in candidates:
-            if candidate_dir.is_dir():
-                for meta_file in [candidate_dir / ".theta_component.json", candidate_dir / "plugin.json"]:
-                    if meta_file.is_file():
-                        try:
-                            import json
-
-                            meta = json.loads(meta_file.read_text(encoding="utf-8"))
-                            paradigms = meta.get("paradigms") or meta.get("compatible_paradigms")
-                            if paradigms:
-                                if isinstance(paradigms, list):
-                                    return [str(x).lower() for x in paradigms]
-                                return [str(paradigms).lower()]
-                        except Exception:
-                            pass
-
-    return None
+        return resolve_provider(kind, str(selector)) is not None
+    except Exception as exc:
+        raise ConfigurationError(f"Cannot load declared {kind} provider {selector!r}: {exc}") from exc
 
 
 def _agent_exists(agent_algo: str) -> bool:
-    """Check whether an agent is registered or has an installed agent profile."""
-    if not agent_algo:
-        return False
-    clean_algo = str(agent_algo).lower().replace("-", "_")
-    try:
-        from src.usr.algorithms.agent_registry import AGENT_REGISTRY, auto_discover
-
-        if not AGENT_REGISTRY:
-            auto_discover()
-        if clean_algo in AGENT_REGISTRY or agent_algo in AGENT_REGISTRY:
-            return True
-    except Exception:
-        pass
-
-    prefix = str(agent_algo).split("/")[0].lower()
-    project_root = _PROJECT_ROOT
-
-    for root in dict.fromkeys((Path.cwd(), project_root)):
-        algorithms_dir = root / "src/usr/algorithms"
-        for d in (algorithms_dir / agent_algo, algorithms_dir / clean_algo, algorithms_dir / prefix):
-            if d.is_dir():
-                return True
-
-        agent_dir = root / "in/config/agent"
-        if agent_dir.exists():
-            for p in (
-                agent_dir / f"{agent_algo}.yaml",
-                agent_dir / f"{agent_algo.replace('_', '/')}.yaml",
-                agent_dir / f"{clean_algo}.yaml",
-            ):
-                if p.is_file():
-                    return True
-            for y in agent_dir.rglob("*.yaml"):
-                if y.stem.lower() in (clean_algo, str(agent_algo).lower()):
-                    return True
-    return False
+    return _provider_exists("algorithm", agent_algo)
 
 
 def _model_exists(name: str) -> bool:
-    """Check whether a model architecture is registered, installed as a plugin, or configured in in/config/model/."""
-    if not name:
-        return True
-    clean = str(name).lower().strip()
-    stem = clean.split("/")[-1]
-
-    # Model registry
-    try:
-        from src.app.core.model_registry import MODEL_REGISTRY, auto_discover_models
-
-        if not MODEL_REGISTRY:
-            auto_discover_models()
-        if clean in MODEL_REGISTRY or stem in MODEL_REGISTRY:
-            return True
-        if any(
-            clean == p or clean.startswith(p + "_") or stem == p or stem.startswith(p + "_") for p in MODEL_REGISTRY
-        ):
-            return True
-    except Exception:
-        pass
-
-    # Configs in in/config/model
-    cfg_root = Path("in/config/model")
-    if cfg_root.is_dir():
-        for p in [cfg_root / f"{clean}.yaml", cfg_root / f"{stem}.yaml", cfg_root / "basics" / f"{stem}.yaml"]:
-            if p.is_file():
-                return True
-        for y in cfg_root.rglob("*.yaml"):
-            if y.stem.lower() in (clean, stem):
-                return True
-
-    # Directories in src/usr/models
-    models_dir = Path("src/usr/models")
-    if models_dir.is_dir():
-        for d in [models_dir / clean, models_dir / stem]:
-            if d.is_dir():
-                return True
-
-    return False
+    return _provider_exists("model", name)
 
 
 def _env_exists(env_name: str) -> bool:
-    """Check whether an environment exists as a plugin, config, registered env, or Gymnasium env."""
-    if not env_name or env_name == "unknown":
-        return True
-    clean = str(env_name).strip().lower()
-    stem = clean.split("/")[-1]
-
-    cfg_root = Path("in/config/env")
-    if cfg_root.is_dir():
-        for p in [cfg_root / f"{clean}.yaml", cfg_root / f"{stem}.yaml"]:
-            if p.is_file():
-                return True
-        for y in cfg_root.rglob("*.yaml"):
-            if y.stem.lower() == stem or y.relative_to(cfg_root).with_suffix("").as_posix().lower() == clean:
-                return True
-
-    for envs_dir in [Path("in/envs"), Path("src/usr/environments")]:
-        if envs_dir.is_dir():
-            for d in [envs_dir / clean, envs_dir / stem]:
-                if d.is_dir():
-                    return True
-
-    try:
-        import gymnasium as gym
-
-        for spec_id in gym.envs.registry.keys():
-            spec_clean = spec_id.lower()
-            if clean == spec_clean or stem == spec_clean:
-                return True
-            spec_stem = spec_clean.split("/")[-1].split("-v")[0]
-            if stem == spec_stem or clean == spec_stem:
-                return True
-    except Exception:
-        pass
-
-    return False
-
+    return _provider_exists("env", env_name)
 
 def find_missing_components(cfg_or_dict: Any) -> list[str]:
     """Inspect an experiment configuration and return a list of all missing components.
@@ -802,6 +622,10 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
             if mo_str and not _model_exists(mo_str):
                 missing.append(f"model: {mo_str}")
 
+    effective_model = cfg_or_dict.get('model') if hasattr(cfg_or_dict,'get') else getattr(cfg_or_dict,'model',None)
+    if hasattr(effective_model,'get'):
+        selected = effective_model.get('architecture') or effective_model.get('type') or effective_model.get('name')
+        if isinstance(selected,str) and not _model_exists(selected): missing.append(f'model: {selected}')
     return list(dict.fromkeys(missing))
 
 

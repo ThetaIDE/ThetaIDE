@@ -59,11 +59,11 @@ def test_slurm_compute_node_defaults():
 
 def test_slurm_ncshare_split_sites():
     """Verify live site=ncshare_common and site=ncshare_gpu Hydra profiles."""
-    from hydra import compose, initialize
+    from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    initialize(config_path="../in/config", version_base=None)
+    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "in/config"), version_base=None)
 
     # 1. ncshare_common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
     cfg_common = compose(config_name="config", overrides=["site=ncshare_common"])
@@ -75,7 +75,7 @@ def test_slurm_ncshare_split_sites():
     assert cfg_common.site.consolidate is False
 
     GlobalHydra.instance().clear()
-    initialize(config_path="../in/config", version_base=None)
+    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "in/config"), version_base=None)
 
     # 2. ncshare_gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
     cfg_gpu = compose(config_name="config", overrides=["site=ncshare_gpu"])
@@ -91,11 +91,11 @@ def test_slurm_ncshare_split_sites():
 
 def test_slurm_script_is_depersonalized():
     """Verify that generated Slurm scripts contain no hardcoded home paths or user emails."""
-    from hydra import compose, initialize
+    from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    initialize(config_path="../in/config", version_base=None)
+    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "in/config"), version_base=None)
     cfg = compose(config_name="config", overrides=["site=ncshare"])
     script = generate_sbatch_script(
         job_name="depersonalized_test",

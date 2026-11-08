@@ -41,7 +41,8 @@ def execute_resolved(cfg, run, on_start, on_wait, *, script):
         targets.append(f"trial:{runtime['log_version']}")
     task_config = OmegaConf.to_container(cfg, resolve=True)
     task_config["entrypoint"] = script
-    run_experiment(["src.app.pipeline.task_worker", str(Path(script).resolve()),
+    from src.app.core.provider_loader import resolve_resource
+    run_experiment(["src.app.pipeline.task_worker", str(resolve_resource(script)),
                     str(config_path.resolve()), str(result_path.resolve())],
                    script_entrypoint="-m", python_executable=sys.executable,
                    task_config=task_config, output_log=run["output_log"],

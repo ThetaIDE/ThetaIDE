@@ -17,19 +17,21 @@ from typing import Any, cast
 
 log = logging.getLogger(__name__)
 
-_WORKFLOW_CONFIG_DIR = Path("in/config/workflow")
+from src.app.workspace import WorkspacePaths
 
 
 def load_workflow(workflow_ref: Any):
     """Load a WorkflowGraph from in/config/workflow/<workflow_id>.yaml or from dict/DictConfig."""
     from omegaconf import DictConfig, OmegaConf
 
+    config_dir = WorkspacePaths.for_process().config / "workflow"
+
     from src.app.pipeline.workflow.model import WorkflowGraph
 
     if isinstance(workflow_ref, (dict, DictConfig)):
         w_id = workflow_ref.get("id") if hasattr(workflow_ref, "get") else getattr(workflow_ref, "id", None)
-        if w_id and (_WORKFLOW_CONFIG_DIR / f"{w_id}.yaml").exists():
-            return WorkflowGraph.load_yaml(_WORKFLOW_CONFIG_DIR / f"{w_id}.yaml")
+        if w_id and (config_dir / f"{w_id}.yaml").exists():
+            return WorkflowGraph.load_yaml(config_dir / f"{w_id}.yaml")
 
         data = (
             OmegaConf.to_container(workflow_ref, resolve=False)
@@ -39,12 +41,12 @@ def load_workflow(workflow_ref: Any):
         return WorkflowGraph.from_dict(cast(dict[str, Any], data))
 
     workflow_id = str(workflow_ref)
-    yaml_path = _WORKFLOW_CONFIG_DIR / f"{workflow_id}.yaml"
+    yaml_path = config_dir / f"{workflow_id}.yaml"
     if not yaml_path.exists():
         raise FileNotFoundError(
             f"Workflow '{workflow_id}' not found. "
             f"Expected: {yaml_path}. "
-            f"Available: {[p.stem for p in _WORKFLOW_CONFIG_DIR.glob('*.yaml')]}"
+            f"Available: {[p.stem for p in config_dir.glob('*.yaml')]}"
         )
     return WorkflowGraph.load_yaml(yaml_path)
 

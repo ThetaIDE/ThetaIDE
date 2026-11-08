@@ -50,3 +50,55 @@ def test_sb3_pruning_is_accepted_before_launch():
     cfg["methods"]["one"]["entrypoint"] = "src/usr/algorithms/sb3-suite/sb3_runner.py"
     cfg["tuning"]["options"] = {"optuna": {"pruner": "median"}}
     _validate_tuning(cfg)
+
+
+def test_sweep_accepts_optional_agent_parameter_declared_by_method(tmp_path, monkeypatch):
+    import src.app.pipeline.validation as validation
+
+    agent_dir = tmp_path / "in/config/agent/sb3"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "ppo.yaml").write_text("learning_rate: 0.0003\n")
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    cfg = config()
+    cfg["methods"]["one"] = {
+        "agent": {"name": "sb3/ppo", "learning_rate_final": 0.0001},
+        "model": "dnn",
+        "tune": {"agent.learning_rate_final": {"type": "log_float", "low": 1e-6, "high": 1e-4}},
+    }
+    _validate_tuning(cfg)
+    # An undeclared path must still fail, even if another optional field exists.
+    cfg["methods"]["one"]["tune"] = {"agent.typo": {"type": "float", "low": 0, "high": 1}}
+    with pytest.raises(ConfigurationError, match="agent.typo.*absent"):
+        _validate_tuning(cfg)
+
+
+def test_optional_sweep_controls_keep_hydra_prefix_without_polluting_trial_names(tmp_path):
+    optuna = pytest.importorskip("optuna")
+    from omegaconf import OmegaConf
+    from types import SimpleNamespace
+    from src.app.pipeline.commands import build_method_overrides
+    from src.app.tuners.optuna.sweeper import ThetaOptunaSweeper
+
+    method = {
+        "agent": {"name": "sb3/ppo", "learning_rate_final": 0.0001}, "model": "blendrl",
+        "tune": {"agent.learning_rate_final": {"type": "choice", "values": [1e-6, 1e-4]}},
+    }
+    args = build_method_overrides("m", method, cfg={"paradigm": "online_rl", "tuning": {"direction": "minimize"}})
+    dimension = next(arg for arg in args if "agent.learning_rate_final=" in arg)
+    assert dimension.startswith("++agent.learning_rate_final=choice(")
+    jobs_seen = []
+
+    class Launcher:
+        def launch(self, jobs, initial_job_idx):
+            jobs_seen.extend(jobs)
+            return [SimpleNamespace(return_value=0.5) for _ in jobs]
+
+    storage = f"sqlite:///{tmp_path / 'optional.db'}"
+    sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(seed=1), "minimize", storage,
+                                 "optional", 1, 1, None)
+    sweeper.impl.config = OmegaConf.create({"hydra": {"sweep": {"dir": str(tmp_path)}}})
+    sweeper.impl.launcher = Launcher()
+    sweeper.sweep([dimension])
+    params = optuna.load_study(study_name="optional", storage=storage).trials[0].params
+    assert set(params) == {"agent.learning_rate_final"}
+    assert any(arg.startswith("++agent.learning_rate_final=") for arg in jobs_seen[0])

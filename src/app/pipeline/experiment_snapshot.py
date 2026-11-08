@@ -45,3 +45,11 @@ def save_run_config(cfg):
     temporary = directory / "config.yaml.tmp"
     temporary.write_text(OmegaConf.to_yaml(OmegaConf.create(snapshot), resolve=False), encoding="utf-8")
     temporary.replace(target)
+
+    from src.app.pipeline.provider_worker import provider_snapshot
+    from src.app.components.transactions import write_json
+    providers = directory / "providers.json"
+    if providers.exists(): providers = directory / f"providers_{time_ns()}.json"
+    write_json(providers, provider_snapshot())
+    import os
+    os.environ["THETA_PROVIDER_SNAPSHOT"] = str(providers.resolve())

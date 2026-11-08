@@ -40,7 +40,13 @@ def main():
     OmegaConf.save(task_config, metadata / 'config.yaml')
     OmegaConf.save(config.hydra, metadata / 'hydra.yaml')
     try:
-        namespace = runpy.run_path(script, run_name='_theta_trial')
+        from src.app.core.provider_loader import resolve_resource
+        from src.app.components.transactions import provider_lease
+        from src.app.workspace import WorkspacePaths
+        lease = provider_lease(WorkspacePaths.for_process())
+        lease.__enter__()
+        from src.app.pipeline.provider_worker import run as run_provider_script
+        namespace = run_provider_script(str(resolve_resource(script)), run_name='_theta_trial')
         entrypoint = namespace['main']
         # The config is already composed in the coordinator. Calling Hydra's
         # wrapped task avoids starting a second sweep in this worker.
@@ -52,6 +58,8 @@ def main():
     except BaseException as exc:
         traceback.print_exc()
         result = {'error': f'{type(exc).__name__}: {exc}'}
+    finally:
+        if "lease" in locals(): lease.__exit__(None, None, None)
     Path(result_path).write_text(json.dumps(result))
     return 1 if 'error' in result else 0
 

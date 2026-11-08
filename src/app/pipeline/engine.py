@@ -17,6 +17,22 @@ ENGINE_SCRIPT_MAP = {
 }
 
 
+def runner_supports_episode_outcomes(script: str) -> bool:
+    """Query the declared runner contract without importing optional providers."""
+    if script == DEFAULT_ENGINE_SCRIPT:
+        return True
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.core.provider_loader import resolve_resource
+    try:
+        source = resolve_resource(script).resolve()
+    except (ValueError, FileNotFoundError):
+        return False
+    return any(cap.metadata.get('episode_outcomes') is True
+               and package.resource(cap.entry_point.split(':', 1)[0]).resolve() == source
+               for package in get_catalog().packages if package.origin != 'python_distribution'
+               for cap in package.capabilities if cap.kind == 'algorithm')
+
+
 def resolve_engine(
     method_cfg: Dict[str, Any] | None = None,
     cfg: Any | None = None,
@@ -70,7 +86,8 @@ def resolve_engine(
                 engine_name = agent_str
 
             if not engine_name and agent_str:
-                agent_yaml = Path("in/config/agent") / f"{agent_str}.yaml"
+                from src.app.workspace import WorkspacePaths
+                agent_yaml = WorkspacePaths.for_process().resolve_config(f"agent/{agent_str}.yaml")
                 if agent_yaml.exists():
                     try:
                         import yaml

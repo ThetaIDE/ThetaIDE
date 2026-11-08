@@ -321,6 +321,7 @@ def test_real_sb3_training_sweep_selects_its_checkpoint(tmp_path, monkeypatch, a
     runner = tmp_path / "src/usr/algorithms/sb3-suite/sb3_runner.py"
     runner.parent.mkdir(parents=True)
     shutil.copy2(project / "src/usr/algorithms/sb3-suite/sb3_runner.py", runner)
+    shutil.copy2(project / "src/usr/algorithms/sb3-suite/theta_sb3_policy.py", runner.parent / "theta_sb3_policy.py")
     storage = f"sqlite:///{tmp_path / 'sb3.db'}"
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")]),
            "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
@@ -360,6 +361,7 @@ def test_real_sb3_sweep_records_a_pruned_trial(tmp_path):
     runner = tmp_path / "src/usr/algorithms/sb3-suite/sb3_runner.py"
     runner.parent.mkdir(parents=True)
     shutil.copy2(project / "src/usr/algorithms/sb3-suite/sb3_runner.py", runner)
+    shutil.copy2(project / "src/usr/algorithms/sb3-suite/theta_sb3_policy.py", runner.parent / "theta_sb3_policy.py")
     storage = f"sqlite:///{tmp_path / 'sb3-pruning.db'}"
     study = optuna.create_study(study_name="sb3-pruning", storage=storage, direction="maximize")
     study.add_trial(optuna.trial.create_trial(value=1000, intermediate_values={0: 1000}))
@@ -383,12 +385,14 @@ def test_local_pipeline_sweep_trains_the_selected_blendrl(tmp_path, monkeypatch)
     from omegaconf import OmegaConf
     from stable_baselines3 import PPO
     from src.app.pipeline.local_runner import _run_methods_sequential
-    from src.usr.models.blendrl.agents.blender_agent import BlenderActorCritic
 
     project = Path(__file__).resolve().parents[1]
     config = tmp_path / "in/config"
     shutil.copytree(project / "in/config", config)
-    shutil.copytree(project / "in/rules/cartpole", tmp_path / "in/rules/cartpole")
+    for provider in ("blendrl", "dnn", "nsfr"):
+        shutil.copytree(project / "src/usr/models" / provider, tmp_path / "src/usr/models" / provider)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    shutil.copytree(project / "src/usr/rules/cartpole", tmp_path / "src/usr/rules/cartpole")
     shutil.copytree(project / "in/envs/cartpole", tmp_path / "in/envs/cartpole")
     (config / "agent/ppo.yaml").write_text("algorithm: ppo\nn_steps: 8\nbatch_size: 4\nn_epochs: 1\nlearning_rate: 0.001\n")
     (config / "experiment/smoke.yaml").write_text(
@@ -400,6 +404,7 @@ def test_local_pipeline_sweep_trains_the_selected_blendrl(tmp_path, monkeypatch)
     runner = tmp_path / "src/usr/algorithms/sb3-suite/sb3_runner.py"
     runner.parent.mkdir(parents=True)
     shutil.copy2(project / "src/usr/algorithms/sb3-suite/sb3_runner.py", runner)
+    shutil.copy2(project / "src/usr/algorithms/sb3-suite/theta_sb3_policy.py", runner.parent / "theta_sb3_policy.py")
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "experiment_name": "smoke",
                             "paradigm": "online_rl", "tuning": {"metric": "eval/reward", "direction": "maximize",
@@ -420,7 +425,8 @@ def test_local_pipeline_sweep_trains_the_selected_blendrl(tmp_path, monkeypatch)
     root = Path("results/checkpoints/g/e/m")
     saved = PPO.load(root / "best_model.zip")
     selected = saved.policy.theta_model_module
-    assert isinstance(selected, BlenderActorCritic)
+    from src.app.core.provider_loader import resolve_provider
+    assert type(selected) is resolve_provider("model", "blendrl")
     assert selected.module_types == ["logic", "neural"]
     assert selected.policy_modules[1].network[0].out_features in (24, 32)
     assert selected.blender.network[0].out_features == 16
@@ -434,17 +440,33 @@ def test_cartpole_blendrl_experiment_sweep_compiles_and_runs(tmp_path, monkeypat
     from stable_baselines3 import PPO
     from src.app.pipeline.local_runner import _run_methods_sequential
     from src.app.pipeline.validation import _validate_tuning
-    from src.usr.models.blendrl.agents.blender_agent import BlenderActorCritic
 
     project = Path(__file__).resolve().parents[1]
     config = tmp_path / "in/config"
     shutil.copytree(project / "in/config", config)
-    shutil.copytree(project / "in/rules/cartpole", tmp_path / "in/rules/cartpole")
+    for provider in ("blendrl", "dnn", "nsfr"):
+        shutil.copytree(project / "src/usr/models" / provider, tmp_path / "src/usr/models" / provider)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    shutil.copytree(project / "src/usr/rules/cartpole", tmp_path / "src/usr/rules/cartpole")
     shutil.copytree(project / "in/envs/cartpole", tmp_path / "in/envs/cartpole")
     experiment = config / "experiment/Belndrl Bench/CartpoleSweeping.yaml"
-    data = yaml.safe_load(experiment.read_text())
-    data.update({"total_timesteps": 16, "eval_freq_steps": 8, "eval_episodes": 1})
-    data["tuning"]["n_trials"] = 1
+    # Keep this integration fixture independent of mutable user experiments.
+    experiment.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "defaults": [{"override /env": "gym_classic_control/cartpole"}, "_self_"],
+        "paradigm": "online_rl",
+        "total_timesteps": 16, "eval_freq_steps": 8, "eval_episodes": 1,
+        "methods": {"Ruleset2": {
+            "agent": "sb3/ppo", "model": "blendrl", "actor_mode": "hybrid",
+            "neural": {"type": "dnn", "hidden_sizes": [32, 32]},
+            "symbolic": {"type": "nsfr", "rules": "variant2"},
+            "blender": {"mode": "neural", "model": {"name": "basics/dnn", "hidden_sizes": [16, 16]}},
+            "tune": {"agent.learning_rate": {"type": "log_float", "low": .0003, "high": .001},
+                     "model.actor_mode": {"type": "choice", "values": ["hybrid", "neural"]},
+                     "model.neural.hidden_sizes.0": {"type": "choice", "values": [24, 32]},
+                     "model.blender.model.hidden_sizes.0": {"type": "choice", "values": [8, 16]}}}},
+        "tuning": {"component": "optuna", "metric": "eval/reward", "direction": "maximize", "n_trials": 1},
+    }
     dimensions = data["methods"]["Ruleset2"]["tune"]
     dimensions["agent.n_steps"] = {"type": "choice", "values": [8]}
     dimensions["agent.batch_size"] = {"type": "choice", "values": [4]}
@@ -453,6 +475,7 @@ def test_cartpole_blendrl_experiment_sweep_compiles_and_runs(tmp_path, monkeypat
     runner = tmp_path / "src/usr/algorithms/sb3-suite/sb3_runner.py"
     runner.parent.mkdir(parents=True)
     shutil.copy2(project / "src/usr/algorithms/sb3-suite/sb3_runner.py", runner)
+    shutil.copy2(project / "src/usr/algorithms/sb3-suite/theta_sb3_policy.py", runner.parent / "theta_sb3_policy.py")
     storage = f"sqlite:///{tmp_path / 'cartpole.db'}"
     data.update({"group": "g", "experiment_id": "e", "experiment_name": "Belndrl Bench/CartpoleSweeping",
                  "paradigm": "online_rl"})
@@ -468,7 +491,8 @@ def test_cartpole_blendrl_experiment_sweep_compiles_and_runs(tmp_path, monkeypat
                                                    "storage_url": storage, "is_sweep": True})
     root = Path("results/checkpoints/g/e/Ruleset2")
     selected = PPO.load(root / "best_model.zip").policy.theta_model_module
-    assert isinstance(selected, BlenderActorCritic)
+    from src.app.core.provider_loader import resolve_provider
+    assert type(selected) is resolve_provider("model", "blendrl")
     summary = json.loads((root / "tuning_summary.json").read_text())
     parameters = summary["trials"][0]["parameters"]
     assert set(parameters) == set(dimensions)
@@ -499,6 +523,7 @@ def test_local_pipeline_runs_a_real_sb3_sweep(tmp_path, monkeypatch):
     runner = tmp_path / "src/usr/algorithms/sb3-suite/sb3_runner.py"
     runner.parent.mkdir(parents=True)
     shutil.copy2(project / "src/usr/algorithms/sb3-suite/sb3_runner.py", runner)
+    shutil.copy2(project / "src/usr/algorithms/sb3-suite/theta_sb3_policy.py", runner.parent / "theta_sb3_policy.py")
     cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "experiment_name": "smoke",
                             "paradigm": "online_rl", "tuning": {"metric": "eval/reward",
                             "direction": "maximize", "n_trials": 1}})

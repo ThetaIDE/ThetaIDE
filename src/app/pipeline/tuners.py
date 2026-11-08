@@ -33,8 +33,8 @@ def tuner_name(cfg: Any) -> str:
 
 
 def available_tuners() -> list[str]:
-    from src.app.core.plugin_discovery import discover_entry_points
-    return sorted({"optuna", *discover_entry_points("theta.tuners")})
+    from src.app.core.provider_catalog import get_catalog
+    return sorted({c.id for p in get_catalog().packages for c in p.capabilities if c.kind == "tuner"})
 
 
 def training_callbacks(cfg: Any) -> list[Any]:
@@ -60,13 +60,8 @@ def trial_monitor(cfg: Any) -> Any:
 
 def get_tuner(cfg: Any = None, *, name: str | None = None) -> Tuner:
     selected = name or tuner_name(cfg)
-    if selected == "optuna":
-        from src.app.tuners.optuna.component import OptunaTuner
-
-        return OptunaTuner()
-    from src.app.core.plugin_discovery import discover_entry_points
-
-    factory = discover_entry_points("theta.tuners").get(selected)
+    from src.app.core.provider_loader import resolve_provider
+    factory = resolve_provider("tuner", selected)
     if factory is None:
         raise ConfigurationError(f"Tuning component {selected!r} is not installed (entry point: theta.tuners).")
     component = factory() if callable(factory) else factory

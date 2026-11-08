@@ -137,7 +137,10 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None, is
 
     # Construct the python command using site-aware venv path
     python_cmd = get_shell_python_cmd(site_cfg)
-    cmd_str = python_cmd + " src/app/train.py " + " ".join(shlex.quote(arg) for arg in cmd_args)
+    from src.app.pipeline.engine import resolve_engine
+    engine_script, engine_python = resolve_engine({}, cfg)
+    if engine_python: python_cmd = shlex.quote(engine_python)
+    cmd_str = python_cmd + " -m src.app.pipeline.provider_worker " + shlex.quote(engine_script) + " " + " ".join(shlex.quote(arg) for arg in cmd_args)
     script += f'echo "Running: {cmd_str}"\n'
     script += f"{cmd_str}\n"
 

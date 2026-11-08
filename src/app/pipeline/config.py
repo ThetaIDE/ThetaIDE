@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
+from src.app.workspace import WorkspacePaths
 
 
 def normalize_agent_name(agent_config: str) -> str:
@@ -49,46 +50,21 @@ _KNOWN_ALGORITHMS: set[str] = set()
 _KNOWN_MODELS: set[str] = set()
 
 
-def get_known_algorithms() -> set[str]:
-    """Return all known algorithm names, including any registered dynamically."""
-    algos = set(_KNOWN_ALGORITHMS)
-    try:
-        from src.usr.algorithms.agent_registry import AGENT_REGISTRY
+def _declared_selectors(kind, group):
+    from src.app.core.provider_catalog import get_catalog
+    values = {selector for p in get_catalog().packages for c in p.capabilities if c.kind==kind for selector in (c.id,*c.aliases)}
+    prefix='in/config/'+group+'/'
+    values.update(dest.removeprefix(prefix).rsplit('.',1)[0] for p in get_catalog().packages
+                  for dest in p.manifest.get('payload',{}).get('configs',{}) if dest.startswith(prefix))
+    return values
 
-        algos.update(AGENT_REGISTRY.keys())
-    except Exception:
-        pass
-    agent_dir = Path("in/config/agent")
-    if agent_dir.is_dir():
-        for p in agent_dir.glob("**/*.yaml"):
-            algos.add(p.stem)
-            try:
-                rel = p.relative_to(agent_dir).with_suffix("").as_posix()
-                algos.add(rel)
-            except Exception:
-                pass
-    return algos
+
+def get_known_algorithms() -> set[str]:
+    return _declared_selectors('algorithm','agent')
 
 
 def get_known_models() -> set[str]:
-    """Return all known model architecture names, including any registered dynamically."""
-    models = set(_KNOWN_MODELS)
-    try:
-        from src.app.core.model_registry import MODEL_REGISTRY
-
-        models.update(MODEL_REGISTRY.keys())
-    except Exception:
-        pass
-    model_dir = Path("in/config/model")
-    if model_dir.is_dir():
-        for p in model_dir.glob("**/*.yaml"):
-            models.add(p.stem)
-            try:
-                rel = p.relative_to(model_dir).with_suffix("").as_posix()
-                models.add(rel)
-            except Exception:
-                pass
-    return models
+    return _declared_selectors('model','model')
 
 
 _MODEL_KEYS = {
@@ -166,10 +142,10 @@ def find_group_method_config(method_name: str, group: str | None = None) -> dict
 
     clean_name = normalize_agent_name(method_name)
     candidates = [
-        Path("in/config/experiment") / group / "methods" / f"{clean_name}.yaml",
+        WorkspacePaths.for_process().config / "experiment" / group / "methods" / f"{clean_name}.yaml",
     ]
     if method_name != clean_name:
-        candidates.append(Path("in/config/experiment") / group / "methods" / f"{method_name}.yaml")
+        candidates.append(WorkspacePaths.for_process().config / "experiment" / group / "methods" / f"{method_name}.yaml")
 
     for path in candidates:
         if path.is_file():
@@ -246,12 +222,10 @@ def load_model_base_config(model_name: str, config_dir=None) -> dict:
 
     import yaml
 
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths.for_process() if config_dir is None else WorkspacePaths.from_config_root(Path(config_dir).parent)
     if config_dir is None:
-        base_dir = Path("in/config/model")
-        if not base_dir.exists():
-            base_dir = Path(__file__).resolve().parents[3] / "in" / "config" / "model"
-        config_dir = base_dir
-
+        config_dir = paths.config / "model"
     target = Path(config_dir) / f"{model_name}.yaml"
     if not target.exists():
         found = list(Path(config_dir).rglob(f"{model_name}.yaml"))
@@ -267,31 +241,21 @@ def load_model_base_config(model_name: str, config_dir=None) -> dict:
         except Exception:
             pass
 
-    # Dynamic check: look in src/usr/models/ for component manifests or configs
-    workspace = Path(__file__).resolve().parents[3]
-    candidate_dirs = [
-        Path("src/usr/models") / model_name,
-        workspace / "src" / "usr" / "models" / model_name,
-    ]
-    for cdir in candidate_dirs:
-        if cdir.is_dir():
-            for meta_name in [".theta_component.json", "plugin.json"]:
-                meta_file = cdir / meta_name
-                if meta_file.is_file():
-                    try:
-                        meta = json.loads(meta_file.read_text(encoding="utf-8"))
-                        cfg_rel = meta.get("config_path")
-                        if cfg_rel:
-                            cfg_path = (workspace / cfg_rel) if not Path(cfg_rel).is_absolute() else Path(cfg_rel)
-                            if cfg_path.is_file():
-                                with open(cfg_path) as f:
-                                    data = yaml.safe_load(f)
-                                if isinstance(data, dict):
-                                    return dict(data)
-                        if "parameters" in meta and isinstance(meta["parameters"], dict):
-                            return dict(meta["parameters"])
-                    except Exception:
-                        pass
+    from src.app.core.provider_catalog import get_catalog
+    catalog = get_catalog(paths)
+    selected = catalog.resolve("model", model_name) or catalog.resolve("model", model_name.rsplit("/", 1)[-1])
+    if selected:
+        package, cap = selected
+        meta = package.manifest
+        config = meta.get("config_path")
+        if config:
+            active = paths.config_file(config)
+            packaged = package.root / meta.get("payload", {}).get("configs", {}).get(config, config)
+            source = active if active.is_file() else packaged
+            if source.is_file():
+                data = yaml.safe_load(source.read_text())
+                if isinstance(data, dict): return data
+        if isinstance(meta.get("parameters"), dict): return dict(meta["parameters"])
 
     return {}
 
@@ -620,9 +584,7 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
 def resolve_experiment_config_name(exp_input: str) -> str:
     """Resolve an experiment name (e.g. 'group_run' or 'group/run')
     to its relative Hydra config path inside in/config/experiment/."""
-    from pathlib import Path
-
-    exp_dir = Path("in/config/experiment")
+    exp_dir = WorkspacePaths.for_process().config / "experiment"
     if not exp_dir.exists():
         return exp_input
 

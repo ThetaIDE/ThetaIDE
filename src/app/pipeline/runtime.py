@@ -39,15 +39,9 @@ def get_pythonpath_entries(site_cfg=None) -> list:
     Always includes PROJECT_ROOT and src directories (app, usr, models, environments, eval).
     Adds site_cfg.extra_pythonpath entries (relative to PROJECT_ROOT).
     """
-    entries = [
-        str(PROJECT_ROOT),
-        str(PROJECT_ROOT / "src"),
-        str(PROJECT_ROOT / "src" / "app"),
-        str(PROJECT_ROOT / "src" / "usr"),
-        str(PROJECT_ROOT / "src" / "usr" / "models"),
-        str(PROJECT_ROOT / "src" / "usr" / "environments"),
-        str(PROJECT_ROOT / "src" / "usr" / "eval"),
-    ]
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths.for_process()
+    entries = [str(paths.application)]
     if site_cfg:
         for extra in getattr(site_cfg, "extra_pythonpath", []) or []:
             entries.append(str(PROJECT_ROOT / extra))
@@ -57,6 +51,8 @@ def get_pythonpath_entries(site_cfg=None) -> list:
 def get_subprocess_env(site_cfg=None) -> dict:
     """Build a subprocess environment dict with correct PYTHONPATH and extras."""
     env = os.environ.copy()
+    from src.app.workspace import WorkspacePaths
+    env.update(WorkspacePaths.for_process().process_environment())
     pp_entries = get_pythonpath_entries(site_cfg)
     env["PYTHONPATH"] = ":".join(pp_entries) + ":" + env.get("PYTHONPATH", "")
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
@@ -95,6 +91,9 @@ def get_shell_env_block(site_cfg=None) -> str:
         for mod in mod_list:
             lines.append(f"command -v module &> /dev/null && module load {mod} || true")
 
+    # Remote workspaces resolve installed/user providers from the explicitly selected tree.
+    lines.extend(['export THETA_WORKSPACE="${THETA_WORKSPACE:-$PROJECT_ROOT}"',
+                  'export THETA_DATA_DIR="${THETA_DATA_DIR:-$THETA_WORKSPACE/.thetaide}"'])
     # PYTHONPATH
     pp_parts = ["$PROJECT_ROOT", "$PROJECT_ROOT/src"]
     for extra in getattr(site_cfg, "extra_pythonpath", []) or []:
@@ -102,6 +101,15 @@ def get_shell_env_block(site_cfg=None) -> str:
     pp_parts.append("$PYTHONPATH")
     lines.append(f"export PYTHONPATH={':'.join(pp_parts)}")
 
+    snapshot = os.environ.get("THETA_PROVIDER_SNAPSHOT")
+    if snapshot:
+        from src.app.workspace import WorkspacePaths
+        try:
+            relative = Path(snapshot).relative_to(WorkspacePaths.for_process().root)
+            lines.append(f'export THETA_PROVIDER_SNAPSHOT="$THETA_WORKSPACE/{relative.as_posix()}"')
+        except ValueError:
+            import shlex
+            lines.append("export THETA_PROVIDER_SNAPSHOT=" + shlex.quote(snapshot))
     # Extra env vars
     for k, v in (getattr(site_cfg, "extra_env_vars", {}) or {}).items():
         lines.append(f"export {k}={v}")

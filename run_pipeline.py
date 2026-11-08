@@ -10,18 +10,11 @@ import time
 from pathlib import Path
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = os.path.join(PROJECT_ROOT, "src")
-for p in [
-    PROJECT_ROOT,
-    SRC_DIR,
-    os.path.join(SRC_DIR, "app"),
-    os.path.join(SRC_DIR, "usr"),
-    os.path.join(SRC_DIR, "usr", "models"),
-    os.path.join(SRC_DIR, "usr", "environments"),
-    os.path.join(SRC_DIR, "usr", "eval"),
-]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+from src.app.workspace import WorkspacePaths
+_process_paths = WorkspacePaths.for_process()
+os.environ.update(_process_paths.process_environment())
 
 # Dispatch component tooling before importing training/configuration backends.
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "component":
@@ -307,4 +300,6 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] not in ("-h", "--help"):
         print(f"Initializing Theta pipeline for: {sys.argv[1]} ...", flush=True)
-    main()
+    from src.app.components.transactions import provider_lease
+    with provider_lease(_process_paths):
+        main()

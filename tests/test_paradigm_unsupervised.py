@@ -26,10 +26,8 @@ from src.app.pipeline.validation import (
 )
 
 # Plugin-specific checks run only when the component exports its training module.
-AUTOENCODER_INSTALLED = any(
-    point.name == "autoencoder_training"
-    for point in entry_points().select(group="theta.components")
-)
+from src.app.core.provider_catalog import get_catalog
+AUTOENCODER_INSTALLED = get_catalog().resolve('component','autoencoder_training') is not None
 needs_autoencoder = pytest.mark.skipif(
     not AUTOENCODER_INSTALLED,
     reason="the autoencoder model component is not installed",
@@ -188,13 +186,14 @@ def test_architectures_are_registered():
     from src.app.core.model_registry import MODEL_REGISTRY, auto_discover_models
 
     auto_discover_models()
-    assert "autoencoder" in MODEL_REGISTRY
-    assert "dense_autoencoder" in MODEL_REGISTRY
+    assert get_catalog().resolve("model","autoencoder") is not None
+    assert get_catalog().resolve("model","dense_autoencoder") is not None
 
 
 @needs_autoencoder
 def test_sequence_autoencoder_reconstructs_its_input_shape():
-    from src.usr.models.autoencoder.autoencoder_model import SequenceAutoencoder
+    from src.app.core.model_registry import get_model_class
+    SequenceAutoencoder = get_model_class("autoencoder")
 
     model = SequenceAutoencoder(input_dim=7, hidden_dim=16, latent_dim=8)
     x = torch.randn(4, 12, 7)
@@ -206,7 +205,8 @@ def test_sequence_autoencoder_reconstructs_its_input_shape():
 @needs_autoencoder
 def test_sequence_encoder_reads_the_last_real_step_not_the_padding():
     """A padded tail must not change the representation of a shorter sequence."""
-    from src.usr.models.autoencoder.autoencoder_model import SequenceAutoencoder
+    from src.app.core.model_registry import get_model_class
+    SequenceAutoencoder = get_model_class("autoencoder")
 
     torch.manual_seed(0)
     model = SequenceAutoencoder(input_dim=3, hidden_dim=8, latent_dim=4).eval()
@@ -221,7 +221,8 @@ def test_sequence_encoder_reads_the_last_real_step_not_the_padding():
 
 @needs_autoencoder
 def test_dense_autoencoder_round_trips_flat_features():
-    from src.usr.models.autoencoder.autoencoder_model import DenseAutoencoder
+    from src.app.core.model_registry import get_model_class
+    DenseAutoencoder = get_model_class("dense_autoencoder")
 
     model = DenseAutoencoder(input_dim=9, hidden_dim=8, latent_dim=4)
     x = torch.randn(5, 9)
@@ -402,66 +403,8 @@ def test_evaluating_restores_eval_mode_when_that_is_where_it_started():
     assert module.training is False
 
 
-def test_train_py_resolves_the_autoencoder_from_a_composed_config():
-    """The link a unit test cannot see: model YAML -> component registry -> module.
-
-    Replays train.py's own resolution steps against the real Hydra composition,
-    so a typo in `lightning_module` or a missing registration fails here rather
-    than silently falling back to the supervised classifier at run time.
-    """
-    from pathlib import Path
-
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    # Other suites leave GlobalHydra initialized, and initialize_config_dir
-    # refuses to run on top of it, so clear before and after rather than
-    # depending on test order.
-    GlobalHydra.instance().clear()
-    if not (Path("in/config/model/autoencoder.yaml")).is_file() and not (Path("in/config/model/basics/autoencoder.yaml")).is_file():
-        pytest.skip("autoencoder model is uninstalled")
-    mo_override = "model=autoencoder" if (Path("in/config/model/autoencoder.yaml")).is_file() else "model=basics/autoencoder"
-    try:
-        with initialize_config_dir(config_dir=str(Path("in/config").resolve()), version_base=None):
-            cfg = compose(
-                config_name="config",
-                overrides=[
-                    "+experiment=representation/quick_test",
-                    "paradigm=unsupervised",
-                    mo_override,
-                    "++model.name=ae_sequence",
-                ],
-            )
-    finally:
-        GlobalHydra.instance().clear()
-
-
-
-    assert paradigm_uses_agents(cfg.get("paradigm")) is False
-
-    model_cfg = cfg.model
-    cls = get_component(model_cfg.get("lightning_module") or model_cfg.get("module"))
-    assert cls.__name__ == "AutoencoderLightningModule"
-
-    reserved = {
-        "architecture",
-        "name",
-        "lightning_module",
-        "module",
-        "lr",
-        "type",
-        "epochs",
-        "eval_every_n_epochs",
-    }
-    kwargs = {k: v for k, v in model_cfg.items() if k not in reserved and v is not None}
-    module = cls(
-        architecture_name=str(model_cfg.get("architecture")).lower(),
-        input_dim=64,
-        lr=float(model_cfg.get("lr", cfg.get("lr", 1e-3))),
-        **kwargs,
-    )
-    assert type(module.model).__name__ == "SequenceAutoencoder"
-    assert module.model.latent_dim == model_cfg.get("latent_dim")
+# Native package/config/training resolution is exercised in the maintained
+# theta-plugins/tests/test_native_integration.py suite.
 
 
 # ---------------------------------------------------------------------------

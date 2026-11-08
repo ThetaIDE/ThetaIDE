@@ -25,14 +25,10 @@ def schemas_for_method(workspace: Path, settings: dict, *, validation_only: bool
         if isinstance(selected, str) and selected:
             wanted[f"in/config/{kind}/{selected}.yaml"] = kind
     result = {}
-    root = workspace / "src/usr"
-    manifests = {path.parent: path for path in root.glob("*/*/plugin.json")}
-    manifests.update({path.parent: path for path in root.glob("*/*/.theta_component.json")})
-    for path in sorted(manifests.values()):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue  # An unrelated broken package must not invalidate every experiment.
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.workspace import WorkspacePaths
+    for package in get_catalog(WorkspacePaths(workspace)).packages:
+        data = package.manifest
         schema = data.get("parameter_schema")
         if not isinstance(schema, dict):
             continue

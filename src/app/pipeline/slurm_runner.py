@@ -107,7 +107,7 @@ def run_slurm_training(cfg, context):
             job_python = shlex.quote(engine_python) if engine_python else python_cmd
             train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
             script_content += f'echo "=== [Phase: Training] {method_name} ==="\n'
-            script_content += f"{job_python} {shlex.quote(engine_script)} {train_cmd}\n\n"
+            script_content += f"{job_python} -m src.app.pipeline.provider_worker {shlex.quote(engine_script)} {train_cmd}\n\n"
 
             if method_is_sweep:
                 script_content += f'echo "=== Promoting Winning Checkpoint for {method_name} ==="\n'
@@ -179,7 +179,7 @@ def run_slurm_training(cfg, context):
         job_python = shlex.quote(engine_python) if engine_python else python_cmd
         train_cmd = " ".join(shlex.quote(arg) for arg in cmd_args)
         script_content += f'echo "=== [Phase: Training] {method_name} ==="\n'
-        script_content += f"{job_python} {shlex.quote(engine_script)} {train_cmd}\n\n"
+        script_content += f"{job_python} -m src.app.pipeline.provider_worker {shlex.quote(engine_script)} {train_cmd}\n\n"
 
         if method_is_sweep:
             script_content += f'echo "=== Promoting Winning Checkpoint for {method_name} ==="\n'

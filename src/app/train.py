@@ -4,17 +4,10 @@ import sys
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(APP_DIR)
 PROJECT_ROOT = os.path.dirname(SRC_DIR)
-for p in [
-    PROJECT_ROOT,
-    SRC_DIR,
-    os.path.join(SRC_DIR, "app"),
-    os.path.join(SRC_DIR, "usr"),
-    os.path.join(SRC_DIR, "usr", "models"),
-    os.path.join(SRC_DIR, "usr", "environments"),
-    os.path.join(SRC_DIR, "usr", "eval"),
-]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# Direct script execution needs only the framework import root. Providers use
+# declared package namespaces and never add authored directories to sys.path.
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 import logging
 import time
@@ -44,10 +37,13 @@ except Exception as e:
     logger.debug("Unexpected error registering safe globals: %s", e)
 
 from src.app.core.lightning_builder import build_trainer, finalize_training
-from src.usr.algorithms.agent_registry import auto_discover, get_agent_class
+from src.app.core.agent_registry import auto_discover, get_agent_class
 
 
-@hydra.main(version_base=None, config_path="../../in/config", config_name="config")
+from src.app.workspace import WorkspacePaths
+
+
+@hydra.main(version_base=None, config_path=str(WorkspacePaths.for_process().primary_config), config_name="config")
 def main(cfg: DictConfig):
     if os.environ.get('THETA_MANAGED_THREADS'):
         torch.set_num_threads(int(os.environ['THETA_MANAGED_THREADS']))
@@ -225,5 +221,13 @@ def main(cfg: DictConfig):
     return metric
 
 
-if __name__ == "__main__":
+def launch():
+    paths = WorkspacePaths.for_process()
+    search = [f"file://{p}" for p in paths.config_roots() if p.is_dir() and p != paths.primary_config]
+    if not any(arg.lstrip('+').startswith('hydra.searchpath=') for arg in sys.argv[1:]):
+        sys.argv.append('hydra.searchpath=[' + ','.join(search) + ']')
     main()
+
+
+if __name__ == "__main__":
+    launch()

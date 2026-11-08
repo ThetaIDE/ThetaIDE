@@ -426,10 +426,14 @@ class JobManager(QObject):
         request = job.get("request", {})
         process = QProcess(self)
         process.setProgram(self.python)
-        process.setArguments(["-u", "run_pipeline.py", request.get("experiment", job["experiment"]),
+        from src.app.workspace import PROJECT_ROOT as APPLICATION_ROOT
+        process.setArguments(["-u", str(APPLICATION_ROOT / "run_pipeline.py"), request.get("experiment", job["experiment"]),
                               *request.get("overrides", [])])
         process.setWorkingDirectory(str(self.project_root))
         env = QProcessEnvironment.systemEnvironment()
+        from src.app.workspace import WorkspacePaths
+        for key, value in WorkspacePaths(self.project_root).process_environment().items():
+            env.insert(key, value)
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("THETA_CANCEL_DIR", str((self.jobs_dir / "cancellations" / job_id).resolve()))
         env.insert("PYTHONIOENCODING", "utf-8")

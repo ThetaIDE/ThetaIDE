@@ -20,7 +20,7 @@ from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
 from src.app.pipeline.validation import validate_experiment_config
 from src.app.workspace import WorkspacePaths
 
-CONFIG_DIR = WorkspacePaths().config
+CONFIG_DIR = WorkspacePaths.for_process().config
 
 # The compose API cannot parse Optuna sweep operators or hydra internal configs
 _SWEEP_MARKERS = ("interval(", "choice(", "range(", "hydra.", "hydra/")
@@ -71,7 +71,14 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
 
     with _HYDRA_LOCK:
         GlobalHydra.instance().clear()
-        initialize_config_dir(version_base=None, config_dir=str(config_dir or CONFIG_DIR))
+        primary = Path(config_dir or workspace.config)
+        search = [f"file://{root}" for root in workspace.config_roots() if root != primary and root.is_dir()]
+        if not primary.is_dir():
+            primary = workspace.framework_config
+            search = [value for value in search if value != f"file://{primary}"]
+        if search and not any(arg.startswith("hydra.searchpath=") for arg in overrides):
+            overrides.append("hydra.searchpath=" + str(search).replace("'", ""))
+        initialize_config_dir(version_base=None, config_dir=str(primary))
         cfg = compose(config_name="config", overrides=overrides, return_hydra_config=True)
 
     exp_stem = Path(experiment).stem
@@ -141,16 +148,14 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
     methods = parse_methods_dict(composed.cfg)
     workspace = (composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR)).root
     schemas = {name: schemas_for_method(workspace, settings) for name, settings in methods.items()}
-    sweep = not tuning_disabled(composed.cfg) and tuner_name(composed.cfg) == "optuna"
+    sweep = not tuning_disabled(composed.cfg) and composed.is_sweep
     if not any(schemas.values()) and not (sweep and any(m.get("tune") or m.get("search_space") for m in methods.values())):
         return
     import json
 
     from hydra.core.override_parser.overrides_parser import OverridesParser
-    if sweep:
-        from optuna.distributions import BaseDistribution, CategoricalDistribution
-
-        from src.app.tuners.optuna.sweeper import _distribution_from_override
+    from src.app.pipeline.tuners import get_tuner
+    inspect_override = getattr(get_tuner(composed.cfg), "preview_override", None) if sweep else None
 
     parser = OverridesParser.create()
     for name, plan in method_plans(composed).items():
@@ -164,10 +169,9 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
                 if arg in ("--multirun", "-m") or arg.startswith(("+experiment=", "hydra/", "++hydra.", "hydra.")):
                     continue
                 override = parser.parse_override(arg)
-                value = _distribution_from_override(override) if has_sweep else None
+                value = inspect_override(override) if has_sweep and callable(inspect_override) else None
                 key = override.get_key_element()
-                if has_sweep and isinstance(value, BaseDistribution):
-                    value = value.choices[0] if isinstance(value, CategoricalDistribution) else value.low
+                if has_sweep and value is not None:
                     sampled[key] = f"{key}={json.dumps(value)}"
                 else:
                     fixed[key] = arg

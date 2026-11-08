@@ -16,7 +16,7 @@ from pathlib import Path
 
 from omegaconf import OmegaConf, open_dict
 
-from src.app.pipeline.engine import DEFAULT_ENGINE_SCRIPT, resolve_engine
+from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.config import normalize_agent_name
 
@@ -72,7 +72,7 @@ def make_plan(cfg, context):
         raise ConfigurationError("variability evaluation requires telemetry.metrics to include eval/reward")
     for name, method in context["methods"].items():
         script = resolve_engine(method, cfg)[0]
-        runner_supports_eval = script == DEFAULT_ENGINE_SCRIPT or script.endswith("sb3-suite/sb3_runner.py")
+        runner_supports_eval = runner_supports_episode_outcomes(script)
         episode_events = (runner_supports_eval and cfg.get("paradigm") == "online_rl"
                           and isinstance(episodes, int) and not isinstance(episodes, bool) and episodes > 0
                           and selection.keeps("eval/reward"))

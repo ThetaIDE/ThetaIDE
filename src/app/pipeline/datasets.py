@@ -168,11 +168,12 @@ def run_experiment(
 
     venv_python = python_executable or get_python_executable(site_cfg)
     target_script = script_entrypoint or "src/app/train.py"
-    cmd = [venv_python, "-u", str(target_script)] + list(overrides)
+    cmd = ([venv_python, "-u", "-m"] + list(overrides) if target_script == "-m" else
+           [venv_python, "-u", "-m", "src.app.pipeline.provider_worker", str(target_script)] + list(overrides))
     print(f"Running: {' '.join(cmd)}")
     if env.get('THETA_RESOURCE_POOL') and not coordinator and not any(arg in ('-m', '--multirun') for arg in overrides):
         import json
-        from src.app.services.resource_budget import ResourcePool, ResourceCapacityRetry, workload_estimate, uses_accelerator
+        from src.app.services.resource_budget import ResourcePool, workload_estimate, uses_accelerator
         from omegaconf import OmegaConf
         pool = ResourcePool(env['THETA_RESOURCE_POOL'], env.get('THETAIDE_SETTINGS_FILE'))
         inherited = json.loads(env.get('THETA_RESOURCE_SPEC', '{}'))
@@ -192,42 +193,29 @@ def run_experiment(
         def check_cancel():
             if requested(cancel_targets, env.get('THETA_CANCEL_DIR')):
                 raise TrainingCancelled()
-        while True:
-            try:
-                with pool.slot(spec, accelerator=uses_accelerator(task_config), check_cancel=check_cancel, ticket=resource_ticket) as token:
-                    def started(pid):
-                        pool.attach(token, pid)
-                        if on_start:
-                            on_start(pid)
-                    return _execute_training(cmd, env, output_log, on_start=started,
-                                             should_retry=lambda: pool.should_retry(token))
-            except ResourceCapacityRetry as exc:
-                resource_ticket = getattr(exc, "resource_ticket", None)
-                print('[System usage] Worker outgrew its estimate; pending restart with learned usage.', flush=True)
-                if on_wait:
-                    on_wait()
+        with pool.slot(spec, accelerator=uses_accelerator(task_config), check_cancel=check_cancel, ticket=resource_ticket) as token:
+            def started(pid):
+                pool.attach(token, pid)
+                if on_start:
+                    on_start(pid)
+            return _execute_training(cmd, env, output_log, on_start=started)
     if resource_ticket:
         env['THETA_RESOURCE_QUEUE_PARENT'] = resource_ticket
     return _execute_training(cmd, env, output_log, on_start=on_start)
 
 
-def _execute_training(cmd, env, output_log, on_start=None, should_retry=None):
+def _execute_training(cmd, env, output_log, on_start=None):
     import json
     from src.app.services.cancellation import requested, TrainingCancelled
     from src.app.services.processes import kill_process_tree
     targets = json.loads(env.get("THETA_CANCEL_TARGETS", "[]"))
     stopped = threading.Event()
     cancelled = threading.Event()
-    retry = threading.Event()
 
     def watch():
         while not stopped.wait(.2):
             if requested(targets, env.get("THETA_CANCEL_DIR")):
                 cancelled.set()
-                kill_process_tree(process.pid)
-                return
-            if should_retry and should_retry():
-                retry.set()
                 kill_process_tree(process.pid)
                 return
 
@@ -247,9 +235,6 @@ def _execute_training(cmd, env, output_log, on_start=None, should_retry=None):
             watcher.join()
         if cancelled.is_set():
             raise TrainingCancelled()
-        if retry.is_set():
-            from src.app.services.resource_budget import ResourceCapacityRetry
-            raise ResourceCapacityRetry()
         if code:
             raise subprocess.CalledProcessError(code, cmd)
         return
@@ -279,9 +264,6 @@ def _execute_training(cmd, env, output_log, on_start=None, should_retry=None):
             watcher.join()
     if cancelled.is_set():
         raise TrainingCancelled()
-    if retry.is_set():
-        from src.app.services.resource_budget import ResourceCapacityRetry
-        raise ResourceCapacityRetry()
     if return_code:
         raise subprocess.CalledProcessError(return_code, cmd)
 
