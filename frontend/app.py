@@ -434,6 +434,7 @@ class Window(QMainWindow):
         self.config_tab_manager.file_renamed.connect(self.on_config_file_renamed)
         self.config_tab_manager.current_tab_changed.connect(self.on_config_tab_switched)
         self.config_tree.dir_renamed.connect(self.config_tab_manager.on_dir_renamed)
+        self.config_tree.refresh_requested.connect(self.config_tab_manager.reload_open_files)
         preview_splitter.addWidget(self.config_tab_manager)
 
         # Preview Panel (Hydra YAML - hidden by default!)
@@ -615,6 +616,7 @@ class Window(QMainWindow):
             self.config_tree.select_file(rel_path, emit_signal=False)
 
         if Path(rel_path).name.startswith("_") or not norm_rel.startswith("experiment/"):
+            is_group_base = viewer._is_base_config()
             self.compose_valid = False
             self.update_launch_state()
             if getattr(self, "preview_status", None) is not None:
@@ -623,13 +625,18 @@ class Window(QMainWindow):
                 self.preview_errors.hide()
             if getattr(self, "builder_status", None) is not None:
                 self.builder_status.setObjectName("muted")
-                self.builder_status.setText("Base template: provides group defaults inherited by experiments in this directory.")
+                self.builder_status.setText(
+                    "Group defaults: inherited by experiments throughout this group."
+                    if is_group_base else "Template configuration: inherited only when explicitly referenced."
+                )
                 self.builder_status.setStyle(self.builder_status.style())
             if getattr(self, "preview", None) is not None:
                 if getattr(viewer, "current_path", None) and viewer.current_path.is_file():
-                    self.preview.setPlainText(f"# {viewer.current_path.name} (Base Template)\n# Experiments in this group inherit these settings:\n\n" + viewer.current_path.read_text(encoding="utf-8"))
+                    description = ("Experiments throughout this group inherit these settings."
+                                   if is_group_base else "Inherited only when explicitly referenced.")
+                    self.preview.setPlainText(f"# {viewer.current_path.name} (Template)\n# {description}\n\n" + viewer.current_path.read_text(encoding="utf-8"))
                 else:
-                    self.preview.setPlainText("# Base Template\n# Group defaults inherited by experiments.")
+                    self.preview.setPlainText("# Group Defaults" if is_group_base else "# Template Configuration")
             if hasattr(self, "plugin_manager"):
                 self.plugin_manager.notify_experiment_changed(self.current_experiment, self.active_config_path)
             return
@@ -2033,6 +2040,7 @@ class Window(QMainWindow):
         missing_components = Window.check_missing_components(self) if has_experiment else []
         if not isinstance(missing_components, list):
             missing_components = []
+        remote_site = ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm"
         ready = self.compose_valid and has_experiment and not missing_components
         for button in launch_buttons(self):
             button.setEnabled(ready)
@@ -2051,6 +2059,9 @@ class Window(QMainWindow):
                 self.builder_status.setObjectName("configError")
                 self.builder_status.setText(f"✗ Missing component: {missing_str}")
                 self.builder_status.setStyle(self.builder_status.style())
+        elif remote_site:
+            tip = "Upload project, copy the submission command, and open an SSH terminal. Paste and Enter to submit."
+            btn_text = "Open cluster terminal"
         elif not self.compose_valid:
             err = getattr(self, "compose_error", None) or "This configuration has not passed pipeline validation."
             tip = f"Cannot run: {err}"
@@ -2091,6 +2102,10 @@ class Window(QMainWindow):
 
     def launch_training(self):
         """Submit through the queue; available slots decide when training starts."""
+        if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm":
+            from .site_launch import launch
+            launch(self)
+            return
         self.add_to_queue(start=True)
 
     def config_for_run(self, config):
@@ -2343,6 +2358,8 @@ class Window(QMainWindow):
         return name
 
     def add_to_queue(self, *, start=False):
+        if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm":
+            return
         missing = self.check_missing_components()
         if missing:
             self.statusBar().showMessage(f"Cannot queue: Missing component ({', '.join(missing)})", 6000)
@@ -2367,7 +2384,9 @@ class Window(QMainWindow):
             is_recover = bool(self.config_viewer.raw_data.get("recover", False))
         timestamp = bool(getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
                          and self.config_viewer.chk_timestamp_experiment.isChecked())
-        experiment_id = self.unique_experiment_id(config.name, is_recover=is_recover) if timestamp else config.name
+        from src.app.pipeline.result_paths import result_identity
+        _, result_id = result_identity(exp_target, experiment_id=config.name)
+        experiment_id = self.unique_experiment_id(result_id, is_recover=is_recover) if timestamp else result_id
         overrides = [] if hasattr(self, "config_viewer") else config.overrides()
         overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
         self.log(f"Queuing {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
@@ -2555,6 +2574,8 @@ class Window(QMainWindow):
     # ── Shared lifecycle ─────────────────────────────────────────────────────
 
     def stop_run(self):
+        if (getattr(self, "selected", None) or {}).get("remote"):
+            return
         run = self.active
         if not run:
             return

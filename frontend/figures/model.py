@@ -292,8 +292,9 @@ def available_experiments(logs_root: Path | None = None) -> list[tuple[str, str]
         return []
 
     found = []
-    for group_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        for exp_dir in sorted(p for p in group_dir.iterdir() if p.is_dir()):
-            if next(exp_dir.rglob("metrics.csv"), None) is not None:
-                found.append((group_dir.name, exp_dir.name))
+    from src.app.pipeline.result_paths import iter_run_dirs
+    for exp_dir in iter_run_dirs(root):
+        if next(exp_dir.rglob("metrics.csv"), None) is not None:
+            group, experiment = exp_dir.relative_to(root).as_posix().split("/", 1)
+            found.append((group, experiment))
     return found

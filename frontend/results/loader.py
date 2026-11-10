@@ -21,6 +21,7 @@ class ResultsLoader(QObject):
     manifest_loaded = pyqtSignal(object)  # Manifest
     table_loaded = pyqtSignal(object)  # Source whose MetricTable is now in self.tables
     file_loaded = pyqtSignal(str, str)  # run key, artifact path now in self.files
+    file_failed = pyqtSignal(str, str, str)  # run key, artifact path, error
     failed = pyqtSignal(str)
 
     def __init__(self, backend, parent=None):
@@ -107,6 +108,7 @@ class ResultsLoader(QObject):
     def _file_received(self, key, data, error):
         self._pending.discard(key)
         if error:
+            self.file_failed.emit(*key, str(error))
             self.failed.emit(f"{key[1]}: {error}")
             return
         self.files[key] = data

@@ -1,7 +1,7 @@
 """The experiment pane's Recorded metrics box: pick the metrics a run records (telemetry.metrics).
 
-A section's own checkbox records every metric of that section, including ones not seen yet ("losses/");
-under it, one checkbox per metric this experiment's newest earlier run logged ("losses/total_loss").
+A section's toggle records every metric of that section, including ones not seen yet ("losses/");
+under it, one toggle per metric this experiment's newest earlier run logged ("losses/total_loss").
 What each choice skips is in src/app/telemetry/selection.py.
 """
 
@@ -11,11 +11,11 @@ import csv
 from pathlib import Path
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from src.app.telemetry.selection import ALWAYS_KEPT, SECTIONS
 
-from .widgets import label
+from .widgets import ToggleSlider, label
 
 COLUMNS = 4  # sections per row
 SECTION_HINTS = {
@@ -48,7 +48,7 @@ def section_of(name: str) -> str:
 
 
 class MetricPicker(QWidget):
-    """Checkboxes for sections and metrics; `changed` carries the telemetry.metrics list."""
+    """Shared toggles for sections and metrics; `changed` carries telemetry.metrics."""
 
     changed = pyqtSignal(list)
 
@@ -64,8 +64,21 @@ class MetricPicker(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        self.section_boxes: dict[str, QCheckBox] = {}
-        self.metric_boxes: dict[str, QCheckBox] = {}
+        self.section_boxes: dict[str, ToggleSlider] = {}
+        self.metric_boxes: dict[str, ToggleSlider] = {}
+
+        def choice_row(name, toggle, text, section):
+            row = QWidget()
+            content = QHBoxLayout(row)
+            content.setContentsMargins(0 if section else indent, 0, 0, 0)
+            caption = label(text)
+            caption.setWordWrap(True)
+            caption.setToolTip(name)
+            content.addWidget(caption, 1)
+            content.addWidget(row_factory(name, toggle, section) if row_factory else toggle)
+            toggle.setAccessibleName(name)
+            return row
+
         row_layout = None
         for index, section in enumerate(sections):
             if index % COLUMNS == 0:  # a new row of sections, each one a column of checkboxes
@@ -75,34 +88,33 @@ class MetricPicker(QWidget):
             column = QVBoxLayout()
             column.setSpacing(4)
             row_layout.addLayout(column, 1)
-            whole = QCheckBox(f"{section}/  (all)")
+            whole = ToggleSlider()
             whole.setToolTip(f"Record every {section}/ metric, including ones not logged yet"
                              + (f": {SECTION_HINTS[section]}" if section in SECTION_HINTS else ""))
             whole.setChecked(f"{section}/" in selected)
             whole.toggled.connect(lambda _on, s=section: self._section_toggled(s))
             self.section_boxes[section] = whole
-            column.addWidget(row_factory(section + "/", whole, True) if row_factory else whole)
+            column.addWidget(choice_row(section + "/", whole, f"{section}/ (all)", True))
             for name in (n for n in known if "/" in n and section_of(n) == section):
-                box = QCheckBox(name.split("/", 1)[1])
+                box = ToggleSlider()
                 box.setToolTip(name)
                 box.setChecked(name in selected or whole.isChecked())
                 box.setEnabled(not whole.isChecked())
-                box.setStyleSheet(f"margin-left: {indent}px;")
                 box.toggled.connect(lambda _on: self._emit())
                 self.metric_boxes[name] = box
-                column.addWidget(row_factory(name, box, False) if row_factory else box)
+                column.addWidget(choice_row(name, box, name.split("/", 1)[1], False))
             column.addStretch(1)
         if unsectioned:
             other = QVBoxLayout()
             other.setSpacing(4)
             other.addWidget(label("Other metrics", "heading"))
             for name in unsectioned:
-                box = QCheckBox(name)
+                box = ToggleSlider()
                 box.setToolTip(name)
                 box.setChecked(name in selected)
                 box.toggled.connect(lambda _on: self._emit())
                 self.metric_boxes[name] = box
-                other.addWidget(row_factory(name, box, False) if row_factory else box)
+                other.addWidget(choice_row(name, box, name, False))
             other.addStretch(1)
             layout.addLayout(other)
         if row_layout is not None:

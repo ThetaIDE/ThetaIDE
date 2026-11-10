@@ -29,9 +29,12 @@ def test_known_metrics_come_from_the_newest_earlier_run(tmp_path):
 
 
 def test_a_section_records_all_of_it_and_unticking_it_starts_from_nothing():
+    from frontend.widgets import ToggleSlider
     picker = MetricPicker(["eval/", "losses/total_loss"], ["eval/reward", "eval/reward_std", "losses/total_loss",
                                                           "losses/value_loss"])
     emitted = []
+    assert not picker.findChildren(QtWidgets.QCheckBox)
+    assert all(isinstance(toggle, ToggleSlider) for toggle in picker.section_boxes.values())
     picker.changed.connect(emitted.append)
     assert picker.selection() == ["eval/", "losses/total_loss"]
     assert not picker.metric_boxes["eval/reward"].isEnabled()  # covered by eval/ (all)
@@ -57,7 +60,7 @@ def test_the_box_edits_telemetry_metrics_and_trash_records_everything_again(tmp_
     viewer.add_block("metrics")
     picker = viewer.field_widgets["telemetry.metrics"]
     assert set(viewer.raw_data["telemetry"]["metrics"]) == {f"{s}/" for s in picker.section_boxes}  # all, at first
-    for section in ("train", "losses", "val", "test", "time", "system"):
+    for section in ("train", "losses", "diagnostics", "val", "test", "time", "system"):
         picker.section_boxes[section].setChecked(False)
     assert viewer.raw_data["telemetry"] == {"sinks": ["csv", "stream"], "metrics": ["eval/"]}
     viewer.remove_block("metrics")

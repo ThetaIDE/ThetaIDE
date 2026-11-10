@@ -79,6 +79,9 @@ def headline_metric(run, config):
         env = tree.environments.get(env_name) if tree else None
         if env is not None:
             declared = env.raw.get("monitor_metric")
+    if (declared in (None, "eval/reward") and run.get("metrics")
+            and "eval/greedy_reward" in available_metrics(run)):
+        return "reward", describe("eval/greedy_reward")
     if not declared:
         return "reward", describe("eval/reward")
     key = _RECORD_KEY.get(str(declared), str(declared))
@@ -154,7 +157,7 @@ class MonitorPanel(QWidget):
         "run_title", "run_caption",
     )
     # The views besides the workspace, opened from the status row in its place.
-    VIEW_NAMES = ("System", "Logs", "Feed", "Files")
+    VIEW_NAMES = ("Diagnostics", "System", "Logs", "Feed", "Files")
 
     def __init__(self, host: Window):
         super().__init__()
@@ -170,6 +173,10 @@ class MonitorPanel(QWidget):
         self.content = content
         # One status row: badge, the run's name and description, its numbers, and the other views.
         self.status_strip = StatusStrip()
+        from ..site_sync import SiteSyncControl
+        self.site_sync = SiteSyncControl('metrics', self)
+        self.site_sync.synced.connect(lambda _: host.request_disk_runs())
+        self.status_strip.add_trailing(self.site_sync)
         # Long names give way first, ending in … (the full text is on the tooltip), so the row fits.
         self.run_title = ElidedLabel("Your next experiment")
         self.run_title.setObjectName("heading")
@@ -262,6 +269,7 @@ class MonitorPanel(QWidget):
         self.queue_layout.setContentsMargins(0, 0, 0, 0)
         self.queue_preview = QueuePanel(self._open_queue_job, split_methods=True,
                                         lives_for_job=self._queue_lives_for_job,
+                                        phases_for_job=self._queue_phases_for_job,
                                         on_cancel=getattr(getattr(host, "jobs", None), "cancel", None))
         self.queue_preview.structure_changed.connect(self._place_queue_overlay)
         self.queue_layout.addWidget(self.queue_preview)
@@ -291,11 +299,13 @@ class MonitorPanel(QWidget):
         self.log_view = LogView()
         self.feed_view = FeedView()
         self.files_view = FilesView()
+        from .visual_view import VisualsView
+        self.visuals_view = VisualsView()
         from .sweep_view import SweepView
         self.sweep_view = SweepView()
         self.sweep_view.trial_selected.connect(self._open_sweep_trial)
         self.views = QStackedWidget()
-        self._views = {"Overview": self.charts_view, "System": self.system_view, "Logs": self.log_view,
+        self._views = {"Overview": self.charts_view, "Diagnostics": self.visuals_view, "System": self.system_view, "Logs": self.log_view,
                        "Feed": self.feed_view, "Files": self.files_view, "Sweep": self.sweep_view}
         for view in self._views.values():
             self.views.addWidget(view)
@@ -416,6 +426,10 @@ class MonitorPanel(QWidget):
     def _queue_lives_for_job(self, job_id):
         run = self.host.run_for_job(job_id)
         return self.host.live_for_run(run, load=False) if run else {}
+
+    def _queue_phases_for_job(self, job_id):
+        lives = getattr(self.host, 'live_runs_for_job', lambda _: {})(job_id)
+        return {name: live.stage for name, live in lives.items() if not live.is_finished()}
 
     def _queue_changed(self, _data):
         if self.queue_overlay.isVisible():
@@ -573,6 +587,11 @@ class MonitorPanel(QWidget):
             elif run["status"] == "incomplete":
                 note = (f"Metrics from {where} · this run was started outside the app and has no recorded end "
                         "time: it may still be training, or it stopped early.")
+        if run.get("remote"):
+            remote = run["remote"]
+            note = f"{remote['site']} · {remote.get('state', 'unknown')} · last synced {remote.get('last_sync') or 'never'}"
+            if remote.get('status_error'):
+                note += " · scheduler status unavailable"
         self.status_note = note
         self.sidebar.update_run(run)
         self.live_changed()
@@ -602,6 +621,7 @@ class MonitorPanel(QWidget):
             self.pipeline_strip.segments = []
             self.status_strip.show_run("", {}, None, False)
             self.charts_view.show_lives({})
+            self.visuals_view.show_lives({})
             self.system_view.show_lives({})
             self.feed_view.show_lives({})
             self.files_view.show_lives({}, None)
@@ -659,7 +679,7 @@ class MonitorPanel(QWidget):
             self.sweep_view.set_lives(lives)
         if self.focused_agent and (run["id"] != self._focus_run_id or self.focused_agent not in lives):
             self.focused_agent = self.pipeline_strip.focused = None
-        self.status_strip.show_run(run.get("status", ""), lives, None, live)
+        self.status_strip.show_run(run.get("status", ""), lives, None, live and not run.get("remote"))
         methods = list(lives)
         if not self.focused_agent:
             self.focused_agent = methods[0] if methods else None
@@ -744,6 +764,8 @@ class MonitorPanel(QWidget):
         self.problem_bar.setVisible(problem is not None or bool(self.status_note))
         if view is self.charts_view:
             view.show_lives(shown, colors, live, comparing=False)
+        elif view is self.visuals_view:
+            view.show_lives(shown)
         elif view is self.system_view:
             view.show_lives(shown, colors)
         elif view is self.feed_view:

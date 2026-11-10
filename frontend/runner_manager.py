@@ -67,12 +67,11 @@ class JobManager(QObject):
         self.jobs: dict[str, dict[str, Any]] = {}
         self.queue_order: list[str] = []
         self.queue_running = False  # queued jobs start only after start_queue(); it pauses itself when drained
-        self.max_parallel = None  # legacy snapshot field; resources determine width
+        self.max_parallel = None  # zero/None means the shared worker cap is automatic
         self.resource_budget = ResourceBudget()
         self.resource_pool = ResourcePool(self.jobs_dir / 'resource_usage.db', self.settings_path)
         self.waiting_reason = ''
         self._last_resource_tick = 0.0
-        self._memory_pressure_samples = 0
         self._load_resource_settings()
         self._processes: dict[str, QProcess] = {}
         self._decoders: dict[str, Any] = {}
@@ -146,6 +145,7 @@ class JobManager(QObject):
             except (OSError, ValueError, TypeError):
                 pass
         self.resource_budget = ResourceBudget.from_settings(values)
+        self.max_parallel = self.resource_budget.max_parallel or None
 
     def _resource_reason(self, job):
         if not job.get('request', {}).get('local', True):
@@ -169,21 +169,6 @@ class JobManager(QObject):
         self._load_resource_settings()
         try:
             self.resource_pool.sample()
-            _cores, total, available = host_capacity()
-            active = [j for key, j in self.jobs.items() if key in self._processes
-                      and j.get('status') in ACTIVE_STATUSES and j.get('request', {}).get('local', True)]
-            # Targets regulate admission. Only severe physical pressure can
-            # terminate work, irrespective of a user's much lower soft target.
-            pressure = available < total * .05
-            self._memory_pressure_samples = self._memory_pressure_samples + 1 if pressure and active else 0
-            if self._memory_pressure_samples >= 3:
-                # Pause first: process exit must not immediately launch a replacement.
-                self.queue_running = False
-                self.resource_pool.set_paused(True)
-                newest = max(active, key=lambda j: j.get('started', 0))
-                newest['error'] = 'Stopped: available system RAM stayed below 5%. Queue paused.'
-                self.cancel(newest['job_id'])
-                self._memory_pressure_samples = 0
         except (OSError, RuntimeError, psutil.Error):
             self.waiting_reason = 'Waiting: system resource measurements are unavailable.'
             return
@@ -193,7 +178,14 @@ class JobManager(QObject):
             self._emit_queue()
 
     def set_max_parallel(self, count: int):
-        """Compatibility with old clients; numeric task caps are no longer used."""
+        """Update the workspace-wide leaf-worker cap, including detached workers."""
+        from frontend.settings import _parse_toml_file, _write_toml_file
+        if self.settings_path is None:
+            self.settings_path = self.project_root / '.thetaide/settings.toml'
+        values = _parse_toml_file(self.settings_path)
+        values.setdefault('training', {})['max_parallel'] = max(0, int(count))
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_toml_file(self.settings_path, values)
         self._start_next_queued()
         self._emit_queue()
 
@@ -303,6 +295,7 @@ class JobManager(QObject):
                             target = (f"trial:{trial.get('log_version')}" if replicate.get('legacy_execution')
                                       else f"replicate:{replicate['run_id']}")
                             items.append(dict(job, queue_method=method, queue_trial=trial["id"], queue_study=summary.get("study", ""), sweep_trial=True, status=state, agents=[label],
+                                              waiting_reason=replicate.get("waiting_reason", ""),
                                               cancel_target=target,
                                               execution_started=replicate.get("execution_started"),
                                               queue_seed=replicate.get("training_seed"),
@@ -341,6 +334,7 @@ class JobManager(QObject):
                 item = dict(job)
                 state = self._replicate_state(replicate)
                 item.update(status=state, queue_method=method, queue_seed=replicate.get("training_seed"),
+                            waiting_reason=replicate.get("waiting_reason", ""),
                             execution_started=replicate.get("execution_started"),
                             experiment_id=manifest.get("result_experiment_id", job.get("experiment_id")),
                             agents=[label], cancel_target=f"replicate:{replicate.get('run_id')}", description=f"Replicate {replicate.get('version', '')}".strip())
@@ -667,7 +661,7 @@ class JobManager(QObject):
                 output = Path(run.get("output_log") or "__missing_worker_log__")
                 if not output.is_absolute():
                     output = self.project_root / output
-                signature.append((run.get("run_id"), run.get("status"), output.is_file()))
+                signature.append((run.get("run_id"), run.get("status"), run.get("waiting_reason"), output.is_file()))
         for method, summary in self._sweep_summaries(job):
             signature.append((method, summary.get("stop_reason"),
                               tuple((t.get("id"), t.get("state"),
@@ -694,6 +688,10 @@ class JobManager(QObject):
             records, reset = feed.read()
             if not records and not reset:
                 continue
+            # A telemetry run owns its resource policy, even when it deliberately
+            # sends no system records. Do not restart external probing then.
+            if any(record.get("type") == "start" for record in records):
+                self._streamed_hardware.add(job_id)
             self.job_records.emit(job_id, label, records, reset)
             rows = [metrics_row(r) for r in records if r.get("type") == "metrics"]
             rows = [row for row in rows if row]

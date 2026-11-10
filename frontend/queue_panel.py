@@ -114,9 +114,12 @@ class ProcessCard(QFrame):
         self.experiment_id.setText(f"{experiment_id} · {method_label}" if self.method_name else experiment_id + suffix)
         self.experiment_id.setToolTip(self.experiment_id.text())
         self.description.setText(str(job.get("description") or "No description"))
+        if job.get('waiting_reason'):
+            self.description.setText(self.description.text() + '\n' + str(job['waiting_reason']))
         if job.get('queue_title'):
             self.experiment_id.setText(str(job['queue_title']))
         self.status.setText(str(job.get("status") or "Starting").capitalize())
+        self.status.setToolTip(str(job.get("waiting_reason") or ""))
         self._training_budget = job.get("effective_timesteps") or job.get("total_timesteps")
         progress = job.get('queue_progress') or {
             'completed': job.get('trials_finished', 0), 'total': job.get('trials_total'), 'unit': 'trials'}
@@ -158,6 +161,9 @@ class ProcessCard(QFrame):
         from .monitor.pipeline_strip import pipeline_segments
         live = lives.get(self.method_name)
         segment = pipeline_segments([self.method_name], {self.method_name: live} if live else {})[0]
+        self.status.setText({"running": "Training", "testing": "Testing", "starting": "Starting",
+                             "diagnostics": "Diagnostics", "done": "Completed", "failed": "Failed"}.get(
+                                 segment.state, "Starting" if self._execution_started else "Waiting"))
         self._set_progress(live.progress() if live else 0, live.budget if live else self._training_budget, 'steps')
         self.progress_fraction = segment.fraction
         if segment.state == "pending":
@@ -231,12 +237,13 @@ class QueuePanel(QWidget):
 
     structure_changed = pyqtSignal()
 
-    def __init__(self, on_open, parent=None, *, split_methods=False, lives_for_job=None, on_cancel=None):
+    def __init__(self, on_open, parent=None, *, split_methods=False, lives_for_job=None, on_cancel=None, phases_for_job=None):
         super().__init__(parent)
         self.on_open = on_open
         self.on_cancel = on_cancel
         self.split_methods = split_methods
         self.lives_for_job = lives_for_job
+        self.phases_for_job = phases_for_job
         self.card_jobs = []
         self.cards = {}
         self._expanded = {}
@@ -356,6 +363,14 @@ class QueuePanel(QWidget):
         self.structure_changed.emit()
 
     def _render_nodes(self):
+        self._phase_ancestors = {}
+        for key, (job, method, parent, _children) in self._nodes.items():
+            if method:
+                ancestors = []
+                while parent:
+                    ancestors.append(parent)
+                    parent = self._nodes[parent][2]
+                self._phase_ancestors[(job.get('job_id'), method)] = ancestors
         previous_cards = self.cards
         self.cards = {}
         self.card_jobs = []
@@ -435,3 +450,29 @@ class QueuePanel(QWidget):
                     if job_id not in lives_by_job:
                         lives_by_job[job_id] = self.lives_for_job(job_id)
                     card.update_progress(lives_by_job[job_id])
+        # Aggregate cached active phases once; hidden branches never read files.
+        phase_nodes, seen_jobs = {}, set()
+        if self.phases_for_job:
+            for card in self.cards.values():
+                if card.job_id in seen_jobs:
+                    continue
+                seen_jobs.add(card.job_id)
+                for name, stage in self.phases_for_job(card.job_id).items():
+                    if stage:
+                        for ancestor in self._phase_ancestors.get((card.job_id, name), ()):
+                            phase_nodes.setdefault(ancestor, set()).add(stage)
+        # Reflect active child phases on method/experiment cards too.
+        for key in reversed(list(self.cards)):
+            card = self.cards[key]
+            children = self._nodes.get(key, (None, None, None, []))[3]
+            phases = {self.cards[child].status.text() for child in children if child in self.cards}
+            if children and self.phases_for_job:
+                job = self._nodes[key][0]
+                stages = phase_nodes.get(key, ())
+                phases = {dict(training='Training', testing='Testing', diagnostics='Diagnostics', starting='Starting').get(stage, stage.capitalize())
+                          for stage in stages}
+                card.status.setText(str(job.get('status') or 'Starting').capitalize())
+            active = phases - {'Waiting', 'Starting', 'Completed', 'Failed'}
+            if active:
+                card.status.setText('Training' if 'Training' in active else
+                                    'Testing' if 'Testing' in active else next(iter(sorted(active))))

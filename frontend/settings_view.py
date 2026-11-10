@@ -2005,6 +2005,8 @@ class SettingsView(QWidget):
         c_layout.addLayout(restart_row)
 
         layout.addWidget(card)
+        from .site_launch import SiteSetup
+        layout.addWidget(SiteSetup(self))
         layout.addStretch()
 
         self._load_terminal_shell(sm.terminal_shell)
@@ -2146,12 +2148,18 @@ class SettingsView(QWidget):
         for key, title, default, minimum, maximum, suffix in (
             ('cpu_percent', 'Theta CPU budget (% of system)', 75, 1, 100, '%'),
             ('memory_percent', 'Theta RAM budget (% of system)', 75, 10, 95, '%'),
+            ('max_parallel', 'Maximum training workers', 0, 0, 100000, ''),
+            ('threads_per_job', 'CPU threads per worker', 2, 1, 1024, ''),
         ):
             row = QHBoxLayout()
             row.addWidget(label(title), 1)
             control = QSpinBox()
             control.setRange(minimum, maximum)
             control.setSuffix(suffix)
+            if key == 'max_parallel':
+                control.setSpecialValueText('Automatic')
+                control.setToolTip('Shared limit across local experiments, training seeds and trials. '
+                                   '1 runs one worker at a time; 0 uses available resource budgets.')
             try:
                 value = float(settings.get('training', key, default=default))
                 control.setValue(int(value))
@@ -2193,14 +2201,18 @@ class SettingsView(QWidget):
                     active, used_memory, used_cpu = usage['active'], usage['used_memory'], usage['used_cpu']
                 except Exception:
                     pass  # the first run has no profile database yet
-            room = max(0, min(total * budget.memory_percent / 100 - used_memory, available - total * .05))
+            room = max(0, total * budget.memory_percent / 100 - used_memory)
+            typical_cpu = max(typical_cpu, budget.threads(cores))
             slots = max(0, min(int((budget.cpu_slots(cores) - used_cpu) / typical_cpu), int(room // typical_memory)))
+            if budget.max_parallel:
+                slots = min(slots, max(0, budget.max_parallel - active))
             source = f'Learned estimate ({profiles} workload profiles)' if profiles else 'Initial estimate'
             self.resource_budget_summary.setText(
                 f'{source}: room for approximately {slots} more typical CPU tasks · '
                 f'{total * budget.memory_percent / 100 / GIB:.1f} GiB Theta RAM target. '
-                'Actual concurrency adjusts to measured workload sizes and other applications. '
-                'Unknown workloads start a few seconds apart while Theta learns their usage.')
+                f'{active} active workers · '
+                f'{"worker limit " + str(budget.max_parallel) if budget.max_parallel else "automatic worker limit"}. '
+                'Per-experiment and trial limits also apply. Resource budgets can reduce concurrency further.')
         for control in self.resource_controls.values():
             control.valueChanged.connect(refresh)
         from PyQt6.QtCore import QTimer
@@ -2215,10 +2227,10 @@ class SettingsView(QWidget):
             actions.addWidget(button)
         actions.addStretch()
         layout.addLayout(actions)
-        note = label('Targets are soft, with 5 percentage points of tolerance. Brief overshoots hold new starts; '
-                     'running tasks continue. If available system RAM stays below 5%, Theta stops the newest job '
-                     'and pauses the queue. Budgets apply to Theta; free system memory is checked separately. '
-                     'Accelerator tasks remain exclusive. These controls apply to local '
+        note = label('CPU and RAM targets apply to Theta workers, with 5 percentage points of tolerance. '
+                     'Overshoots hold new starts; running tasks continue. Other applications do not block '
+                     'Theta admission or cause Theta to stop research jobs. '
+                     'Worker limits include evaluation performed by training workers. These controls apply to local '
                      'work in this workspace; they are not OS quotas or GPU VRAM limits.', 'muted')
         note.setWordWrap(True)
         layout.addWidget(note)

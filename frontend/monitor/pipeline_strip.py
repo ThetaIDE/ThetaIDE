@@ -85,7 +85,8 @@ def pipeline_segments(agents: list[str], lives: dict[str, LiveRun], now: float |
         fraction = min(1.0, progress / live.budget) if live.budget and progress is not None else None
         # Expected length: elapsed time scaled up by how far through its budget the method is.
         expected = elapsed / fraction if elapsed and fraction and fraction > 0.02 else (elapsed or 1.0) * 2
-        segments.append(Segment(agent, "running", expected, fraction, elapsed, _marks(live, start, expected)))
+        state = {"testing": "testing", "starting": "starting", "diagnostics": "diagnostics"}.get(getattr(live, "stage", None), "running")
+        segments.append(Segment(agent, state, expected, fraction, elapsed, _marks(live, start, expected)))
     known = [s.weight for s in segments if s.state != "pending" and s.weight > 0]
     for s in segments:
         if s.state == "pending":  # nothing to go on: as long as the methods seen so far, on average
@@ -126,6 +127,8 @@ class PipelineStrip(QWidget):
 
     @staticmethod
     def segment_text(s: Segment) -> str:
+        if s.state in ("testing", "starting", "diagnostics"):
+            return f"{s.agent} · {s.state.capitalize()}"
         if s.state == "running":
             share = f" · {s.fraction:.0%}" if s.fraction is not None else f" · {format_duration(s.duration)}"
             return f"▶ {s.agent}{share}"

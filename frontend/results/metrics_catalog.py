@@ -42,6 +42,14 @@ def _add(name, label, fmt=".4g", higher_is_better=None, description=""):
 # Evaluation and training reward
 _add("eval/reward", "Episode reward", ".1f", True, "Mean episode reward over evaluation episodes")
 _add("eval/reward_std", "Episode reward (std)", ".2f", None, "Spread of evaluation episode rewards")
+_add("eval/greedy_reward", "Greedy evaluation reward", ".1f", True,
+     "Mean return with deterministic actions (discrete PPO: highest-probability action)")
+_add("eval/greedy_reward_std", "Greedy evaluation reward (std)", ".2f", None,
+     "Spread across greedy evaluation episodes, not uncertainty across training seeds")
+_add("eval/sampled_reward", "Sampled evaluation reward", ".1f", True,
+     "Mean return with stochastic actions from a fixed checkpoint, on matched evaluation seeds")
+_add("eval/sampled_reward_std", "Sampled evaluation reward (std)", ".2f", None,
+     "Spread across sampled evaluation episodes, not uncertainty across training seeds")
 _add("train/reward", "Training reward", ".1f", True, "Mean episode reward while collecting experience (SB3: most recent 100 episodes)")
 _add("train/episode_reward", "Training episode reward", ".1f", True, "Reward for each completed training episode")
 _add("train/episode_length", "Training episode length", ".1f", None, "Length of each completed training episode")

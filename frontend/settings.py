@@ -165,6 +165,9 @@ activate_venv = true
 # Local soft targets. Workload demand is estimated and learned automatically.
 cpu_percent = 75
 memory_percent = 75
+# Maximum active training workers across experiments, seeds and trials. 0 = automatic.
+max_parallel = 0
+threads_per_job = 2
 
 [shortcuts]
 # Application-wide keyboard shortcuts (customizable in Settings -> Hotkeys).

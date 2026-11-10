@@ -42,6 +42,8 @@ class LiveRun:
         self.config: dict[str, Any] = {}
         self.best: dict[str, tuple[float, float | None]] = {}  # metric -> (best value, step)
         self.last_update: float | None = None
+        self.stage: str | None = None
+        self._latest_progress: float | None = None
         self._progress: deque[tuple[float, float]] = deque()  # (time, progress) within the rate window
 
     # ── Feeding ──────────────────────────────────────────────────────────────
@@ -60,6 +62,11 @@ class LiveRun:
             elif kind == "system":
                 self.system.append((when, dict(rec.get("data") or {})))
             elif kind == "event":
+                if rec.get("kind") == "stage" and (rec.get("data") or {}).get("stage"):
+                    stage = rec["data"]["stage"]
+                    if stage != self.stage:
+                        self._progress.clear()
+                    self.stage = stage
                 self.events.append(rec)
                 added.append(rec)
             elif kind == "artifact":
@@ -82,7 +89,9 @@ class LiveRun:
         self.rows.append(row)
         progress = next((row[k] for k in PROGRESS_KEYS if k in row), None)
         if progress is not None:
-            self._progress.append((when, progress))
+            self._latest_progress = progress
+            if self.stage in (None, "training"):
+                self._progress.append((when, progress))
             while self._progress and when - self._progress[0][0] > RATE_WINDOW_SECONDS:
                 self._progress.popleft()
         derived = []
@@ -111,11 +120,11 @@ class LiveRun:
 
     def progress(self) -> float | None:
         """How far the run got: its latest transitions (or step) count."""
-        return self._progress[-1][1] if self._progress else None
+        return self._latest_progress
 
     def rate(self) -> float | None:
         """Transitions (or steps) per second over the last minute, once there are two points to compare."""
-        if len(self._progress) < 2:
+        if self.stage not in (None, "training") or len(self._progress) < 2:
             return None
         (t0, p0), (t1, p1) = self._progress[0], self._progress[-1]
         return (p1 - p0) / (t1 - t0) if t1 > t0 and p1 >= p0 else None

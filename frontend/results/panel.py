@@ -149,6 +149,9 @@ class ResultsPanel(QWidget):
         export_menu.addAction("Summary as CSV…", lambda: self._export("summary"))
         export_menu.addAction("Charts as PNG…", lambda: self._export("png"))
         self.export_button.setMenu(export_menu)
+        from ..site_sync import SiteSyncControl
+        self.site_sync = SiteSyncControl('results', self)
+        self.site_sync.synced.connect(lambda _: self.refresh())
         self.refresh_button = QPushButton("↻  Refresh")
         self.refresh_button.setToolTip("Re-read results/ through the backend")
         self.refresh_button.clicked.connect(self.refresh)
@@ -185,6 +188,10 @@ class ResultsPanel(QWidget):
         self._parking = QWidget(self)  # holds the widgets the current layout leaves out; never shown
         self._parking.hide()
         self.tabs.addTab(self.curves_page, "Curves")
+        self.diagnostics_page = QWidget()
+        QVBoxLayout(self.diagnostics_page).setContentsMargins(0, 0, 0, 0)
+        self.diagnostics_view = None
+        self.tabs.addTab(self.diagnostics_page, "Diagnostics")
         self.executions_view = ExecutionsView(backend, self.open_run)
         self.tabs.addTab(self.executions_view, "Executions")
         self.summary = SummaryView()
@@ -277,7 +284,7 @@ class ResultsPanel(QWidget):
         controls = QHBoxLayout(controls_widget)
         controls.setContentsMargins(0, 0, 0, 0)
         for widget in (self.plots_button, self.axis_select, self.smoothing_label, self.smoothing_slider,
-                       self.combine_select, self.primary_select, self.export_button, self.refresh_button):
+                       self.combine_select, self.primary_select, self.export_button, self.site_sync, self.refresh_button):
             controls.addWidget(widget)
         controls.addStretch()
         # Keep every control reachable when the user gives the explorer more room.
@@ -302,6 +309,8 @@ class ResultsPanel(QWidget):
 
     def refresh(self):
         """Re-list runs and drop cached data, so new and still-training runs are re-read."""
+        if self.diagnostics_view is not None:
+            self.diagnostics_view.reset()
         self.loader.clear()
         self.status.setText("Listing runs…")
         self.loader.list_runs()
@@ -459,6 +468,13 @@ class ResultsPanel(QWidget):
 
     def _tab_opened(self, index):
         name = self.tabs.tabText(index)
+        if name == "Diagnostics":
+            if self.diagnostics_view is None:
+                from .diagnostics import SavedDiagnostics
+                self.diagnostics_view = SavedDiagnostics(self.loader)
+                self.diagnostics_page.layout().addWidget(self.diagnostics_view)
+        if self.diagnostics_view is not None:
+            self.diagnostics_view.set_sources(self.sources, self.manifests(), active=name == "Diagnostics")
         if name == "Sweeps":
             if self.sweeps_view is None:
                 from .sweeps import SweepResultsView
@@ -476,6 +492,9 @@ class ResultsPanel(QWidget):
 
     def update_artifacts(self):
         manifests = self.manifests()
+        if self.diagnostics_view is not None:
+            self.diagnostics_view.set_sources(self.sources, manifests,
+                active=self.tabs.currentWidget() is self.diagnostics_page)
         if self.sweeps_view is not None:
             self.sweeps_view.set_manifests(manifests)
         for name, browser in self.browsers.items():

@@ -142,6 +142,8 @@ class StatusStrip(QWidget):
         now = time.time() if now is None else now
         latest = busiest(lives)
         stalled = live and latest is not None and latest.stalled(now)
+        if live and latest is not None and latest.stage in ("testing", "starting", "diagnostics"):
+            status = latest.stage
         self.badge.setText(("STALLED" if stalled else status or "—").upper())
         tone = "#fb4934" if stalled or status in ("failed", "error") else theme_color("accent")
         self.badge.setStyleSheet(f"color: {tone};")
@@ -149,7 +151,7 @@ class StatusStrip(QWidget):
             started = (latest.start.get("run") or {}).get("started")
         end = latest.finish.get("t") if latest is not None and latest.finish else None
         self.fields["elapsed"].setText(format_duration((end or now) - started) if started and (live or end) else "—")
-        rate = self._smoothed_rate(latest, live)
+        rate = self._smoothed_rate(latest, live and status not in ("testing", "starting", "diagnostics"))
         self.fields["speed"].setText(f"{rate:,.0f} steps/s" if rate else "—")
         eta = None
         if latest is not None and live and rate and latest.budget and latest.progress() is not None:

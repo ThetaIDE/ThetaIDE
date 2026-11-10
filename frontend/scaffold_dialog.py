@@ -65,11 +65,13 @@ class ScaffoldPluginDialog(QDialog):
         # Kind Selector
         layout.addWidget(label("COMPONENT ARCHETYPE", "eyebrow"))
         self.combo_kind = QComboBox()
+        self.combo_kind.addItem("Execution Site (src/usr/sites/)", "site")
         self.combo_kind.addItem("Model Architecture (src/usr/models/)", "model")
         self.combo_kind.addItem("RL Algorithm / Agent (src/usr/algorithms/)", "algorithm")
         self.combo_kind.addItem("Environment & Grounding (src/usr/environments/)", "env")
         self.combo_kind.addItem("DataModule & Sampler (src/usr/data/)", "datamodule")
         self.combo_kind.addItem("Evaluator & Verification Hook (src/usr/eval/)", "evaluator")
+        self.combo_kind.addItem("Experiment Monitor (src/usr/monitors/)", "monitor")
         self.combo_kind.addItem("Plotter & Visualization (plot/)", "plotter")
         self.combo_kind.currentIndexChanged.connect(self._on_kind_changed)
         layout.addWidget(self.combo_kind)
@@ -209,6 +211,9 @@ class ScaffoldPluginDialog(QDialog):
                 f"• src/usr/eval/{name}/__init__.py",
                 f"• src/usr/eval/{name}/.theta_component.json",
             ]
+        elif kind == "monitor":
+            lines = [f"• src/usr/monitors/{name}/monitor.py", f"• src/usr/monitors/{name}/catalog.py",
+                     f"• src/usr/monitors/{name}/.theta_component.json", f"• in/config/monitor/{name}.yaml"]
         elif kind in ("plotter", "plot"):
             lines = [
                 f"• src/usr/plotters/{name}/{name}_plotter.py",

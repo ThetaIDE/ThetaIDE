@@ -121,7 +121,9 @@ class ExecutionsView(QWidget):
             self.event.blockSignals(True)
             self.event.clear()
             for event in events:
-                self.event.addItem(f"Evaluation at step {event.get('training_step')} · {event.get('episode_count')} episodes", event)
+                mode = event.get("evaluation_mode")
+                caption = f"{mode.capitalize()} evaluation" if mode else "Evaluation"
+                self.event.addItem(f"{caption} at step {event.get('training_step')} · {event.get('episode_count')} episodes", event)
             self.event.blockSignals(False)
             self.details.setPlainText(json.dumps({"run": run, "evaluation_events": events}, indent=2))
         else:

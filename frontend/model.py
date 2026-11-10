@@ -217,6 +217,14 @@ def _value(value, kind, fallback):
         return fallback  # e.g. an unresolved ${...} interpolation in a saved config
 
 
+def _remote_status(entry):
+    value = entry['remote'].get('state', 'unknown')
+    if value in ('pending', 'prepared', 'submitting'): return 'queued'
+    if value in ('timeout', 'out_of_memory', 'node_fail', 'preempted', 'boot_fail', 'submission_failed'): return 'failed'
+    if value in ('completed', 'failed', 'cancelled', 'running'): return value
+    return 'incomplete'
+
+
 def disk_run(entry):
     """Run record for a results/logs folder that no app record links to, such as a command-line run.
 
@@ -241,7 +249,8 @@ def disk_run(entry):
     return {
         "id": disk_run_id(entry["group"], entry["experiment_id"]),
         "created": (agents[0].get("started") if agents else None) or "",
-        "config": asdict(config), "status": "completed" if entry.get("finished") else "incomplete",
+        "config": asdict(config), "status": _remote_status(entry) if entry.get('remote') else ("completed" if entry.get("finished") else "incomplete"),
+        **({'remote': entry['remote']} if entry.get('remote') else {}),
         "simulated": False, "metrics": [], "notes": "", "origin": "cli", "transient": True,
         "builder_compatible": len(methods) == 1,
         "backend": {"group": entry["group"], "experiment_id": entry["experiment_id"],
