@@ -218,7 +218,17 @@ def _value(value, kind, fallback):
 
 
 def _remote_status(entry):
-    value = entry['remote'].get('state', 'unknown')
+    remote = entry['remote']
+    value = remote.get('state', 'unknown')
+    # A captured worker state can outlive its allocation. Prefer scheduler evidence
+    # for unfinished work, and keep an unavailable status distinct from running.
+    if value not in ('completed', 'failed', 'cancelled', 'submission_failed'):
+        if remote.get('status_error'):
+            value = 'unknown'
+        elif 'scheduler_state' in remote:
+            value = remote['scheduler_state']
+    if value in ('configuring', 'requeued', 'requeue_hold'): value = 'pending'
+    if value in ('completing', 'suspended'): value = 'running'
     if value in ('pending', 'prepared', 'submitting'): return 'queued'
     if value in ('timeout', 'out_of_memory', 'node_fail', 'preempted', 'boot_fail', 'submission_failed'): return 'failed'
     if value in ('completed', 'failed', 'cancelled', 'running'): return value

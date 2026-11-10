@@ -104,11 +104,16 @@ def test_sync_metrics_then_results_is_idempotent(tmp_path, monkeypatch):
     local_root.mkdir()
     write_json(local_root / '.thetaide/workspace.json', {'id': value['project_id']})
     fake_pull(monkeypatch, remote_root, local_root)
+    messages = []
+    monkeypatch.setattr(transfer.transfer_output, 'emit', messages.append)
     first = transfer.sync(local_root, 'cluster', 'metrics')
     assert first['transferred'] > 0
+    assert any(message.startswith('Saved ') and 'metrics.csv' in message for message in messages)
+    messages.clear()
     assert not (local_root / ckpt.relative_to(remote_root)).exists()
     again = transfer.sync(local_root, 'cluster', 'metrics')
     assert again['transferred'] == 0
+    assert not any(message.startswith('Saved ') for message in messages)
     full = transfer.sync(local_root, 'cluster', 'results')
     assert full['transferred'] == 1
     assert (local_root / ckpt.relative_to(remote_root)).read_bytes() == b'weights'

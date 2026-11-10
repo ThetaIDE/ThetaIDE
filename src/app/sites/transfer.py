@@ -15,6 +15,7 @@ from pathlib import Path
 from .execution import TERMINAL, finalize, owned_files, receipt_path, refresh_status, refresh_many
 from .snapshot import archive, freeze, source_files
 from .slurm import rsync_shell
+from . import transfer_output
 from .storage import digest, read_json, safe_path, transfer_lock, workspace_id, write_json
 
 
@@ -48,25 +49,49 @@ def connection(root, site):
     return {**values, '_root': str(Path(root).resolve()), '_shortcuts': config.get('shortcuts', {})}
 
 
-def ssh(config, arguments, *, input=None):
+def ssh(config, arguments, *, input=None, log_stdout=True):
     command = 'cd ' + shlex.quote(config['remote_root']) + ' && ' + shlex.join(arguments)
     from .slurm import ssh_arguments
-    result = subprocess.run([*ssh_arguments(config.get('_root', Path.cwd()), config), '--', config['host'], command],
-                            input=input, capture_output=True, text=True, timeout=180)
+    arguments = [*ssh_arguments(config.get('_root', Path.cwd()), config), '--', config['host'], command]
+    transfer_output.command(arguments)
+    result = subprocess.run(arguments, input=input, capture_output=True, text=True, timeout=180)
+    if log_stdout: transfer_output.emit(result.stdout)
+    transfer_output.emit(result.stderr)
+    transfer_output.emit(f'Process exited with code {result.returncode}')
     if result.returncode: raise RuntimeError(result.stderr.strip() or 'Remote command failed')
     return result.stdout
 
 
 def remote(root, site, command, *arguments, input=None):
     config = connection(root, site)
-    return json.loads(ssh(config, [config['python'], '-m', 'src.app.sites', command, '--root', '.', *arguments], input=input))
+    return json.loads(ssh(config, [config['python'], '-m', 'src.app.sites', command, '--root', '.', *arguments], input=input, log_stdout=False))
+
+
+def require_local_rsync(config):
+    executable = config.get('rsync_executable', 'rsync')
+    try:
+        transfer_output.command([executable, '--version'])
+        result = subprocess.run([executable, '--version'], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f'Cannot run configured rsync executable {executable!r}: {exc}') from exc
+    output = (result.stdout or '') + (result.stderr or '')
+    transfer_output.emit(output)
+    match = re.search(r'\brsync\s+version\s+(\d+)\.', output)
+    if result.returncode or not match or int(match[1]) < 3:
+        resolved = shutil.which(executable) or executable
+        detected = output.strip().splitlines()[0] if output.strip() else 'version unavailable'
+        raise ValueError(
+            f'Theta requires rsync 3 or newer. Configured {executable!r} resolves to {resolved}: {detected}. '
+            'On macOS, install with brew install rsync, then set connection.rsync_executable '
+            'in the site component to the absolute installed path (usually /opt/homebrew/bin/rsync '
+            'on Apple Silicon or /usr/local/bin/rsync on Intel).'
+        )
+    return executable
 
 
 def check(root, site):
     config = connection(root, site)
-    result = subprocess.run([config.get('rsync_executable', 'rsync'), '--version'], capture_output=True, text=True, check=True)
-    if not re.search(r'version\s+[3-9]\.', result.stdout):
-        raise ValueError('Project transfers require rsync 3 or newer locally and on the cluster')
+    require_local_rsync(config)
     # This check works before the first project upload and does not require Theta remotely.
     check_script = "command -v sbatch && command -v squeue && {rsync} --version && test -w . && { command -v sacct || printf '%s\\n' 'sacct unavailable: accounting will be unknown'; }"
     check_script = check_script.replace('{rsync}', shlex.quote(config.get('remote_rsync', 'rsync')))
@@ -76,16 +101,21 @@ def check(root, site):
     return {'site': site, 'checks': output.strip(), 'python': python_version}
 
 
-def push(root, site, *, datasets=False):
+def push(root, site, *, datasets=False, live_output=False):
     root = Path(root).resolve()
     config = connection(root, site)
+    def announce(message):
+        transfer_output.emit(message)
+        if live_output: print(message, flush=True)
+    announce('Checking local rsync...')
+    require_local_rsync(config)
     with transfer_lock(root), tempfile.TemporaryDirectory(prefix='theta-push-') as temporary:
         stage = Path(temporary)
+        announce('Preparing a frozen project snapshot...')
         source = freeze(root, stage)
-        archive(stage, stage / '.thetaide/source.zip')
         # Transfer a frozen list, not a tree that the user may still be editing.
         write_json(stage / '.theta-managed.json', {'project_id': source['project_id'], 'expires_at': __import__('time').time() + 7200})
-        files = [*source['files'], '.thetaide/source.json', '.thetaide/source.zip', '.theta-managed.json']
+        files = [*source['files'], '.thetaide/source.json', '.theta-managed.json']
         if datasets and (root / 'in/datasets').is_dir():
             for path in (root / 'in/datasets').rglob('*'):
                 if path.is_symlink(): raise ValueError('Dataset symlinks need a cluster-side dataset mapping')
@@ -97,19 +127,23 @@ def push(root, site, *, datasets=False):
                     files.append(relative)
         listing = stage / 'files.list'
         listing.write_bytes(b''.join(name.encode() + b'\0' for name in files))
+        announce(f'Prepared {len(source["files"])} source files. Checking {config["host"]}:{config["remote_root"]}...')
         # Refuse an existing workspace belonging to a different local project.
         identity = shlex.quote(config['remote_root'] + '/.thetaide/workspace.json')
         probe = 'if [ -f ' + identity + ' ]; then cat ' + identity + '; else printf "{}"; fi'
-        existing = json.loads(ssh(config, ['bash', '-c', probe]))
+        existing = json.loads(ssh(config, ['bash', '-c', probe], log_stdout=False))
         if existing.get('id') and existing['id'] != source['project_id']:
             raise ValueError('Remote directory belongs to another project; choose a new directory')
         upload = config['remote_root'] + '/.thetaide/uploads/' + uuid.uuid4().hex
         ssh(config, ['mkdir', '-p', upload])
-        subprocess.run([config.get('rsync_executable', 'rsync'), '-r', '--protect-args', '--from0', '--files-from=' + str(listing),
-                        '--partial-dir=.theta-partial', '--link-dest=' + config['remote_root'], '--rsync-path=' + config.get('remote_rsync', 'rsync'), '-e', rsync_shell(root, config),
-                        str(stage) + '/', config['host'] + ':' + upload + '/'], check=True, timeout=3600)
+        announce('Uploading changed files with rsync (unchanged files are reused remotely)...')
+        progress_flags = ['--progress', '--human-readable'] if live_output else transfer_output.progress_flags()
+        run_transfer([config.get('rsync_executable', 'rsync'), '-r', *progress_flags, '--protect-args', '--from0', '--files-from=' + str(listing),
+                        '--checksum', '--partial-dir=.theta-partial', '--link-dest=' + config['remote_root'], '--rsync-path=' + config.get('remote_rsync', 'rsync'), '-e', rsync_shell(root, config),
+                        str(stage) + '/', config['host'] + ':' + upload + '/'], live_output=live_output)
+        announce('Verifying uploaded source and activating the project...')
         ssh(config, [config['python'], upload + '/run_pipeline.py', 'site', '_activate',
-                     '--root', config['remote_root'], '--source', upload])
+                     '--root', config['remote_root'], '--source', upload], log_stdout=False)
         state = read_json(root / '.thetaide/site_sync.json')
         state.setdefault(site, {}).update(last_push=now(), source_sha256=source['sha256'])
         write_json(root / '.thetaide/site_sync.json', state)
@@ -255,9 +289,20 @@ def sync(root, site, mode='metrics', *, execution_id=None, diagnostics=False, ca
             if diagnostics: options += ['--diagnostics']
             listing = remote(root, site, '_index', *options)
             if listing['project_id'] != workspace_id(root): raise ValueError('Remote project identity does not match')
+            synced_executions = listing['executions']
+            if execution_id:
+                # A scoped pull must retain discovery/status for other experiments.
+                synced_executions = [record for record in status.get('executions', [])
+                                     if record['execution_id'] != execution_id] + listing['executions']
+            transfer_output.emit(f'Found {len(listing["executions"])} executions and {len(listing["files"])} published files.')
+            for record in listing['executions']:
+                job_state = record.get('scheduler_state') or record.get('state', 'unknown')
+                transfer_output.emit(f'Job {record.get("job_id") or record["execution_id"]}: {job_state}')
+                if record.get('status_error'):
+                    transfer_output.emit('Scheduler status unavailable: ' + record['status_error'])
             if any(record.get('execution_policy') for record in listing['executions']):
                 result = sync_objects(root, site, config, listing, cancel_event=cancel_event, progress=progress)
-                status.update(last_sync=now(), mode=mode, executions=listing['executions'], error=None)
+                status.update(last_sync=now(), mode=mode, executions=synced_executions, error=None)
                 write_json(state_path, state)
                 return {'site': site, 'last_sync': status['last_sync'], **result, 'executions': listing['executions']}
             ledger_path = root / '.thetaide/site_transfers.json'
@@ -285,10 +330,10 @@ def sync(root, site, mode='metrics', *, execution_id=None, diagnostics=False, ca
             names = stage / 'files.list'
             names.write_bytes(b''.join(item['source'].encode() + b'\0' for item in pending))
             if pending:
-                subprocess.run([config.get('rsync_executable', 'rsync'), '-r', '--protect-args', '--from0', '--files-from=' + str(names),
+                run_transfer([config.get('rsync_executable', 'rsync'), '-r', *transfer_output.progress_flags(), '--protect-args', '--from0', '--files-from=' + str(names),
                                 '--partial-dir=.theta-partial', '--rsync-path=' + config.get('remote_rsync', 'rsync'), '-e', rsync_shell(root, config),
                                 config['host'] + ':' + config['remote_root'] + '/', str(stage) + '/'],
-                               check=True, timeout=3600)
+                               cancel_event=cancel_event)
             for item in pending:
                 source = safe_path(stage, item['source'])
                 if not source.is_file() or digest(source) != item['sha256']:
@@ -296,13 +341,15 @@ def sync(root, site, mode='metrics', *, execution_id=None, diagnostics=False, ca
                 target = safe_path(root, item['path'])
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(source, target)
+                transfer_output.emit(f'Saved {target} ({target.stat().st_size:,} bytes)')
                 ledger[site + ':' + item['path']] = {**item, 'local_stamp': [target.stat().st_size, target.stat().st_mtime_ns]}
                 write_json(ledger_path, ledger)
             shutil.rmtree(stage)
-            status.update(last_sync=now(), mode=mode, executions=listing['executions'], error=None)
+            status.update(last_sync=now(), mode=mode, executions=synced_executions, error=None)
             write_json(state_path, state)
             return {'site': site, 'last_sync': status['last_sync'], 'transferred': len(pending),
-                    'skipped': len(listing['files']) - len(pending), 'executions': listing['executions']}
+                    'skipped': len(listing['files']) - len(pending), 'bytes': sum(item['size'] for item in pending),
+                    'executions': listing['executions']}
         except Exception as exc:
             status['error'] = str(exc)
             write_json(state_path, state)
@@ -404,8 +451,10 @@ def activate(root, source):
         for relative in set(previous.get('files', {})) - set(manifest['files']):
             path = safe_path(root, relative)
             if path.is_file(): path.unlink()
-        for relative in manifest['files']:
+        for relative, expected in manifest['files'].items():
             target = safe_path(root, relative)
+            if target.is_file() and digest(target) == expected:
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             temporary = target.with_name(target.name + '.theta-upload')
             shutil.copyfile(safe_path(source, relative), temporary)
@@ -420,15 +469,15 @@ def activate(root, source):
                     temporary = target.with_name(target.name + '.theta-upload')
                     shutil.copyfile(safe_path(source, relative), temporary)
                     os.replace(temporary, target)
-        bundle = source / '.thetaide/source.zip'
-        if bundle.is_file():
-            target = root / '.thetaide/sources' / (manifest['sha256'] + '.zip')
-            target.parent.mkdir(parents=True, exist_ok=True)
-            write_json(target.parent / 'ownership.json', {'project_id': manifest['project_id']})
-            if not target.exists():
-                shutil.copyfile(bundle, target.with_suffix('.tmp'))
-                os.replace(target.with_suffix('.tmp'), target)
-            manifest['archive_sha256'] = digest(target)
+        # Build the pinned archive from the verified remote snapshot. Transferring
+        # a full ZIP on every push would defeat per-file rsync reuse.
+        target = root / '.thetaide/sources' / (manifest['sha256'] + '.zip')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_json(target.parent / 'ownership.json', {'project_id': manifest['project_id']})
+        if not target.exists():
+            archive(source, target.with_suffix('.tmp'))
+            os.replace(target.with_suffix('.tmp'), target)
+        manifest['archive_sha256'] = digest(target)
         write_json(root / '.thetaide/source.json', manifest)
         lease = read_json(source / '.theta-managed.json')
         if lease.get('project_id') == manifest['project_id']:
@@ -488,7 +537,7 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
             stage.mkdir(exist_ok=True)
             names = stage / 'files.list'
             names.write_bytes(chunk['source'].encode() + b'\0')
-            run_transfer([config.get('rsync_executable', 'rsync'), '-r', '--protect-args', '--from0',
+            run_transfer([config.get('rsync_executable', 'rsync'), '-r', *transfer_output.progress_flags(), '--protect-args', '--from0',
                             '--files-from=' + str(names), '--partial-dir=.theta-partial',
                             '--rsync-path=' + config.get('remote_rsync', 'rsync'), '-e', rsync_shell(root, config),
                             config['host'] + ':' + remote_root + '/', str(stage) + '/'], cancel_event=cancel_event)
@@ -517,6 +566,7 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
                                 length -= len(data)
                 if digest(temporary) != item['sha256']: raise ValueError('Reconstructed artifact checksum mismatch')
                 os.replace(temporary, target)
+                transfer_output.emit(f'Saved {target} ({target.stat().st_size:,} bytes)')
             finally:
                 temporary.unlink(missing_ok=True)
             ledger[site + ':' + item['path']] = {**item, 'local_stamp': [target.stat().st_size, target.stat().st_mtime_ns]}
@@ -569,9 +619,22 @@ def renew(root, generation):
     return {'renewed': generation}
 
 
-def run_transfer(arguments, *, cancel_event=None):
-    if cancel_event is None:
+def run_transfer(arguments, *, cancel_event=None, live_output=False):
+    if transfer_output.streaming():
+        return transfer_output.run_streamed(arguments, cancel_event)
+    if live_output:
+        # The caller is already attached to the floating terminal PTY. Inherit
+        # its streams so progress and the original rsync error remain visible.
         return subprocess.run(arguments, check=True, timeout=3600)
+    if cancel_event is None:
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(arguments, stdout=output, stderr=output, timeout=3600)
+            if result.returncode:
+                output.seek(0, os.SEEK_END)
+                output.seek(max(0, output.tell() - 65536))
+                detail = output.read().decode(errors='replace').strip()
+                raise RuntimeError(f'rsync failed (exit {result.returncode}): {detail or "no error output"}')
+            return result
     import signal
     import time
     with tempfile.TemporaryFile() as output:
@@ -584,8 +647,10 @@ def run_transfer(arguments, *, cancel_event=None):
                 try: process.wait(timeout=.2)
                 except subprocess.TimeoutExpired: pass
             if process.returncode:
+                output.seek(0, os.SEEK_END)
                 output.seek(max(0, output.tell() - 65536))
-                raise RuntimeError(output.read().decode(errors='replace') or 'rsync failed')
+                detail = output.read().decode(errors='replace').strip()
+                raise RuntimeError(f'rsync failed (exit {process.returncode}): {detail or "no error output"}')
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)

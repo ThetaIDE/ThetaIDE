@@ -174,7 +174,7 @@ class MonitorPanel(QWidget):
         # One status row: badge, the run's name and description, its numbers, and the other views.
         self.status_strip = StatusStrip()
         from ..site_sync import SiteSyncControl
-        self.site_sync = SiteSyncControl('metrics', self)
+        self.site_sync = SiteSyncControl('metrics', self, run_provider=self._current_run)
         self.site_sync.synced.connect(lambda _: host.request_disk_runs())
         self.status_strip.add_trailing(self.site_sync)
         # Long names give way first, ending in … (the full text is on the tooltip), so the row fits.

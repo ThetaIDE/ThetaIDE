@@ -235,8 +235,8 @@ def prepare_launch(
     cfg = composed.cfg
     from src.app.sites import scheduler
     if scheduler(cfg) == 'slurm':
-        raise LaunchError('This experiment targets a SLURM site. Use Sync Project from the sync menu, '
-                          'then submit run_pipeline.py from the cluster terminal. Sync Metrics/Results pulls its outputs back.')
+        raise LaunchError('This experiment targets a SLURM site. Use Run to upload project code and open the cluster terminal, '
+                          'then submit run_pipeline.py there. Sync Metrics/Results pulls its outputs back.')
     local = str((cfg.get('hydra') or {}).get('runtime', {}).get('choices', {}).get('site')
                 or (cfg.get('site') or {}).get('name', 'local')) == 'local'
     trainer = cfg.get('trainer') or {}

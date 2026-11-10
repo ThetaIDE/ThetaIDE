@@ -19,11 +19,29 @@ def rsync_shell(root, config):
 
 
 def submission_command(config, experiment, site):
-    run = [config['python'], 'run_pipeline.py', experiment, 'site=' + site]
-    return ('cd ' + shlex.quote(config['remote_root']) + ' && ' +
-            shlex.join([config['python'], '-m', 'pip', 'check']) + ' && ' +
-            shlex.join([config['python'], '-m', 'src.app.sites.slurm', '--verify']) + ' && ' +
-            shlex.join([*run, 'dry_run=true']) + ' && ' + shlex.join(run))
+    """The saved experiment owns its site/options; the shell is already at project root."""
+    python = Path(config['python'])
+    remote_root = Path(config['remote_root'])
+    if python.is_absolute() and python.is_relative_to(remote_root):
+        python = python.relative_to(remote_root)
+    return shlex.join([str(python), 'run_pipeline.py', experiment])
+
+
+def launch_in_terminal(root, site, experiment):
+    """Called inside the local terminal PTY. Upload, then replace this process with SSH."""
+    import os
+    from . import transfer
+    root = Path(root).resolve()
+    config = transfer.connection(root, site)
+    print(f'Theta: preparing {experiment} for {site}', flush=True)
+    transfer.push(root, site, live_output=True)
+    print('\nProject upload complete. Opening the cluster SSH terminal.', flush=True)
+    print('Once connected, paste the copied command and press Enter to validate and submit.', flush=True)
+    print('Run command (also copied by the desktop):\n' + submission_command(config, experiment, site), flush=True)
+    command = [*ssh_arguments(root, config, True), '--', config['host'],
+               'cd ' + shlex.quote(config['remote_root']) + ' && exec bash -l']
+    os.execvp(command[0], command)
+    return 0
 
 
 def bootstrap_command(root, site):

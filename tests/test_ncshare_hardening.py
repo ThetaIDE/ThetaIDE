@@ -259,12 +259,18 @@ def test_small_diagnostics_bundle_once_and_reconstruct_incrementally(tmp_path, m
             target = Path(args[-1]) / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(work / name, target)
+        return SimpleNamespace(returncode=0)
     monkeypatch.setattr(subprocess, 'run', pull)
     config = {'host': 'fake', 'remote_root': str(work)}
+    messages = []
+    monkeypatch.setattr(transfer.transfer_output, 'emit', messages.append)
     first = transfer.sync_objects(local, 'cluster', config, listing)
     assert first['bytes'] == 50 and len(calls) == 1
     assert (local / logs.relative_to(runtime) / 'monitors/m/snapshot_3.npz').read_bytes() == bytes([3]) * 10
+    assert any(message.startswith('Saved ') for message in messages)
+    messages.clear()
     second = transfer.sync_objects(local, 'cluster', config, listing)
+    assert not any(message.startswith('Saved ') for message in messages)
     assert second['transferred'] == 0 and second['bytes'] == 0 and len(calls) == 1
 
 
@@ -534,6 +540,7 @@ root.mkdir(parents=True)
             target = Path(args[-1]) / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(origin / name, target)
+        return SimpleNamespace(returncode=0)
     monkeypatch.setattr(subprocess, 'run', pull)
     transfer.sync(local, 'cluster', 'metrics')
     with pytest.raises(FileNotFoundError): transfer.clean(local, 'cluster', record['execution_id'])

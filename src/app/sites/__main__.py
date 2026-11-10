@@ -10,10 +10,10 @@ from pathlib import Path
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('list', 'configure', 'check', 'push', 'sync', 'status', 'clean', '_index', '_run', '_clean', 'finalize', '_activate', '_release', '_renew', '_status', 'maintenance', 'inventory'):
+    for name in ('list', 'configure', 'check', 'push', 'launch', 'sync', 'status', 'clean', '_index', '_run', '_clean', 'finalize', '_activate', '_release', '_renew', '_status', 'maintenance', 'inventory'):
         command = commands.add_parser(name)
         command.add_argument('--root', type=Path, default=Path.cwd())
-        if name in ('configure', 'check', 'push', 'sync', 'status', 'clean'): command.add_argument('site')
+        if name in ('configure', 'check', 'push', 'launch', 'sync', 'status', 'clean'): command.add_argument('site')
         if name == 'configure':
             command.add_argument('--host', required=True)
             command.add_argument('--remote-root', required=True)
@@ -21,6 +21,7 @@ def main(argv=None):
         if name in ('clean', '_clean'): command.add_argument('--preview', action='store_true')
         if name == 'maintenance': command.add_argument('--apply', action='store_true')
         if name == 'push': command.add_argument('--include-datasets', action='store_true')
+        if name == 'launch': command.add_argument('--experiment', required=True)
         if name in ('sync', '_index'):
             command.add_argument('--mode', choices=('metrics', 'results'), default='metrics')
             command.add_argument('--execution')
@@ -38,6 +39,9 @@ def main(argv=None):
         elif args.command == 'list': result = transfer.connections(args.root)
         elif args.command == 'configure': result = transfer.configure(args.root, args.site, args.host, args.remote_root, args.python)
         elif args.command == 'check': result = transfer.check(args.root, args.site)
+        elif args.command == 'launch':
+            from .slurm import launch_in_terminal
+            return launch_in_terminal(args.root, args.site, args.experiment)
         elif args.command == 'push': result = transfer.push(args.root, args.site, datasets=args.include_datasets)
         elif args.command == 'sync': result = transfer.sync(args.root, args.site, args.mode, execution_id=args.execution, diagnostics=args.diagnostics)
         elif args.command == 'status': result = transfer.remote(args.root, args.site, '_status')

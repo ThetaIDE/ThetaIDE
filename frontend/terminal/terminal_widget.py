@@ -386,6 +386,7 @@ class TerminalWidget(QWidget):
         self.pty.extra_env = dict(env or {})
         self.bridge = TerminalBridge(self)
         self._is_ready = False
+        self._closed = False
         self._pending_theme: Optional[dict] = None
         self._current_cols = 80
         self._current_rows = 24
@@ -420,6 +421,10 @@ class TerminalWidget(QWidget):
 
     def _on_terminal_ready(self):
         """xterm.js has loaded, mounted, and reported ready."""
+        # WebChannel can deliver readiness after the overlay was dismissed.
+        # A closed terminal must never launch a hidden upload or SSH session.
+        if self._closed:
+            return
         self._is_ready = True
         if not self.pty.is_alive():
             self.pty.start(cols=self._current_cols, rows=self._current_rows)
@@ -455,6 +460,8 @@ class TerminalWidget(QWidget):
 
     def restart_session(self):
         """Terminate current process and start a fresh shell session."""
+        if self._closed:
+            return
         self.pty.close()
         self.bridge.clear_requested.emit()
         self.pty.start(cols=self._current_cols, rows=self._current_rows)
@@ -660,9 +667,10 @@ class TerminalWidget(QWidget):
     def current_terminal_theme(self) -> dict:
         return getattr(self, "_current_terminal_theme", {})
 
-    def close(self):
+    def closeEvent(self, event):
+        self._closed = True
         self.pty.close()
-        super().close()
+        super().closeEvent(event)
 
 
 class TerminalPanel(QWidget):

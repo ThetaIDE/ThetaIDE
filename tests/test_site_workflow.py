@@ -17,7 +17,7 @@ def test_user_configuration_and_setup_are_offline(tmp_path, monkeypatch):
     assert len(paths) == 3
     assert any('src/usr/sites/cluster/ssh_config' in value for value in ssh_arguments(tmp_path, transfer.connection(tmp_path, 'cluster')))
     command = submission_command(transfer.connection(tmp_path, 'cluster'), 'g/test', 'cluster')
-    assert command.index('--verify') < command.index('dry_run=true') < command.rindex('run_pipeline.py')
+    assert command == 'venv/bin/python3 run_pipeline.py g/test'
 
 
 def test_launch_button_hands_off_to_user_terminal(monkeypatch):

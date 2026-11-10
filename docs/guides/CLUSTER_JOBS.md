@@ -37,6 +37,11 @@ venv/bin/python run_pipeline.py site push ncshare/common
 
 Both ends need rsync 3 or newer. Authenticate/MFA in a separate terminal first; transfers use SSH BatchMode. Edit SSH aliases in the site component's `ssh_config`. No operation edits home SSH configuration.
 
+On macOS, `/usr/bin/rsync` may be Apple's openrsync (rsync 2.6.9 compatibility), which does not support the protected-argument upload flags. Install modern rsync with `brew install rsync`, then set `connection.rsync_executable` in the site component to its absolute path: typically `/opt/homebrew/bin/rsync` on Apple Silicon or `/usr/local/bin/rsync` on Intel. Check the installed location with `brew --prefix rsync`; its executable is under `bin/rsync`. Pinning the absolute path avoids differences between terminal and desktop-app PATHs. Keep `remote_rsync` separate: it names the executable on the cluster.
+
+Run performs the local version check before staging or connecting for upload. Transfer failures include rsync's captured error output, rather than only a generic exit status. After setting the path, use `site check ncshare/common` to verify both ends before retrying Run.
+
+
 Install dependencies in the cluster's home environment after upload:
 
 ```bash
@@ -47,7 +52,7 @@ venv/bin/python -m pip check
 
 Install the selected research components' dependencies too. Settings → Terminal → Cluster sites generates a setup script from their native manifests; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop.
 
-Project push builds the source archive locally, verifies activation remotely, and retains one archive per source identity. Submission pins that archive; later uploads cannot change queued/running source. Scratch execution requires a new-format archive from `site push`.
+Project push compares source files by checksum and reuses unchanged files from the remote checkout. A parameter-only YAML edit transfers that YAML plus small sync manifests, rather than reuploading components or a complete ZIP. New and changed files are uploaded; removed source files are removed during verified activation. The cluster builds and retains one immutable source archive per source identity. Submission pins that archive; later uploads cannot change queued/running source. Scratch execution requires a new-format archive from `site push`.
 
 Datasets are excluded by default. Declare only required input copies in the site's policy, for example:
 
@@ -63,6 +68,19 @@ Sources are control-project-relative, links/traversal are rejected, and targets 
 New work uploads/publications get current mtimes, while source archive/input metadata retains original timestamps. Do not touch older results to defeat `/work`'s documented 75-day mtime purge. Scientific results need independent durable backups.
 
 ## Submission and concurrency
+
+In the desktop, **Run opens a terminal overlay inside the Theta window immediately**. Play dims and ignores repeated clicks until the terminal is ready. The overlay stays above the main UI and follows the window when it moves or resizes. Close it with **×** or **Escape**; clicking outside it keeps it open. It contains only the terminal pane and its close button, with no shell toolbar or sidebar. It shows snapshot preparation, live rsync progress, verification, and then the interactive SSH session in the same window. Upload errors remain visible there and prevent the SSH handoff. Clicking Run again while that window is open brings it forward.
+
+Closing the overlay with **Escape** or **×**, or closing the main window, terminates its local upload/SSH process and closes the terminal connection. A late terminal startup callback cannot reopen a dismissed session. Jobs already accepted by Slurm continue independently.
+
+The experiment is saved before upload. Once SSH is ready in the configured remote project root, paste the copied command and press Enter:
+
+```bash
+venv/bin/python3 run_pipeline.py GROUP/EXPERIMENT
+```
+
+The saved experiment supplies the site and parameters. The clipboard command has no `cd`, redundant `site=` override, or chained installation/preflight commands. Experiment validation still runs inside the pipeline. An interpreter configured outside the project keeps its absolute path. Run does not automatically submit a job; closing the terminal during upload ends the local handoff, while closing it after a confirmed Slurm job ID does not cancel that job.
+
 
 From the cluster control checkout:
 
@@ -100,6 +118,14 @@ The batch requests a TERM signal 120 seconds before timeout. Catchable stops for
 Payload sealing happens before scheduler termination. Final cleanup additionally requires confirmed scheduler termination. Scheduler state, training outcome, publication state, and local transfer errors are distinct. An unsealed payload remains inspectable/syncable but cannot receive a fabricated complete manifest. Expensive repair must run in an explicit CPU allocation; no automatic repair/requeue is provided.
 
 ## Sync and diagnostic budgets
+
+In Monitor, **Sync Metrics → Sync experiment** downloads all published outputs for the displayed remote experiment run, including metrics, logs, diagnostics, plots, and checkpoints. It uses that run’s site and execution ID, so other experiments are excluded. The action is disabled until a remote run with an execution ID is selected.
+
+**Run uploads project code to the cluster and opens the submission terminal. Sync Metrics, Sync Results, and the experiment toolbar sync icon download published data to your machine.** These sync controls offer only pull actions. Run does not download results, and pulling monitor/results data does not upload project code or launch experiments.
+
+The Console shows SSH/rsync commands, transfer output, and a `Saved <local path> (<bytes> bytes)` line after each verified result is placed locally. Completion reports files saved, unchanged files, downloaded bytes, and the local destination. An unchanged sync explicitly reports no new files. Internal manifests and captured experiment configurations are omitted from console output. Scheduler errors remain visible; unknown remote status does not count as confirmed active work for automatic Monitor visibility.
+
+In the Experiment panel, selecting an experiment with a non-local site shows a square **Sync** icon in the file tree toolbar (hover to see the site name). Click it to pull all published results, including monitor diagnostics, from that site. The run list and Results refresh after transfer; synced running or queued remote jobs also make the Monitor visible. Sync is manual and reflects the last published cluster data.
 
 Locally:
 

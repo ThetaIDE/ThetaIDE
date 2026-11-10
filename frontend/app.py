@@ -397,6 +397,10 @@ class Window(QMainWindow):
         self.config_tree.file_deleted.connect(self.on_config_file_deleted)
         self.config_tree.dir_deleted.connect(self.on_config_dir_deleted)
         splitter.addWidget(self.config_tree)
+        from .site_sync import ExperimentSiteSyncControl
+        self.experiment_site_sync = ExperimentSiteSyncControl(self.config_tree, button=self.config_tree.btn_sync)
+        self.config_tree.layout().insertWidget(1, self.experiment_site_sync)
+        self.experiment_site_sync.synced.connect(lambda _: self.request_disk_runs())
 
         # Square buttons located at the top of the filetree next to 'New' and 'Copy'
         self.btn_save = self.config_tree.btn_save
@@ -2041,7 +2045,11 @@ class Window(QMainWindow):
         if not isinstance(missing_components, list):
             missing_components = []
         remote_site = ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm"
-        ready = self.compose_valid and has_experiment and not missing_components
+        if hasattr(self, "experiment_site_sync"):
+            self.experiment_site_sync.set_config(
+                getattr(self, "composed_config", None) if has_experiment else None)
+        terminal_loading = bool(getattr(self, "_site_terminal_loading", False))
+        ready = self.compose_valid and has_experiment and not missing_components and not terminal_loading
         for button in launch_buttons(self):
             button.setEnabled(ready)
         if not has_experiment:
@@ -2059,6 +2067,9 @@ class Window(QMainWindow):
                 self.builder_status.setObjectName("configError")
                 self.builder_status.setText(f"✗ Missing component: {missing_str}")
                 self.builder_status.setStyle(self.builder_status.style())
+        elif terminal_loading:
+            tip = "Opening cluster terminal…"
+            btn_text = "Opening terminal…"
         elif remote_site:
             tip = "Upload project, copy the submission command, and open an SSH terminal. Paste and Enter to submit."
             btn_text = "Open cluster terminal"
@@ -2439,7 +2450,7 @@ class Window(QMainWindow):
         positions = {job["job_id"]: job["position"] for job in data.get("queued", [])}
         changed = False
         for run in [r for r in self.runs if r["status"] == "queued"]:
-            position = positions.get(run["backend"]["job_id"])
+            position = positions.get(run["backend"].get("job_id"))
             if position is not None and run.get("queue_position") != position:
                 run["queue_position"] = position
                 changed = True
@@ -2448,10 +2459,14 @@ class Window(QMainWindow):
             self.render_run()
 
     def _set_monitor_active(self, active):
-        # Layout restoration can change visibility without changing job state.
-        # Reconcile active work on every update; leave manual idle visibility alone.
-        if not active and self._queue_has_active_jobs is False:
-            return
+        active = active or any(
+            run.get("remote") and run.get("status") in ("running", "queued")
+            and not run["remote"].get("status_error")
+            and run["remote"].get("scheduler_state") in
+                ("running", "pending", "configuring", "completing", "suspended", "requeued", "requeue_hold")
+            for run in getattr(self, "runs", []))
+        # Reconcile visibility even when the queue was already idle: layout
+        # restoration and manually opened views can have made the tab visible.
         self._queue_has_active_jobs = active
         self.tabs.set_tab_visible("monitor", active)
         slider = self.pane_sliders.get("monitor")
@@ -2682,13 +2697,19 @@ class Window(QMainWindow):
                 run = fresh
             else:  # keep the same record (and any metrics already loaded) so selections stay valid
                 run.update({k: v for k, v in fresh.items() if k not in ("metrics", "notes")})
+                if run.get("remote"):
+                    run["metrics"] = []
+                    run.pop("metrics_requested", None)
             self.runs.append(run)
         self.runs.sort(key=lambda r: r.get("created") or "", reverse=True)
         if self.selected is not None and not any(run is self.selected for run in self.runs):
             self.selected = None  # its folder was deleted
         self.refresh_runs()
+        self._set_monitor_active(bool(self.active_runs) or self.jobs.is_busy())
         if self.selected is None and self.latest_run() is not None:
             self.select_run(self.latest_run())
+        elif self.selected is not None and self.selected.get("remote"):
+            self.select_run(self.selected)
 
     def load_disk_metrics(self, run):
         """Fetch the metrics of a run found in results/logs (the app has none recorded for it)."""

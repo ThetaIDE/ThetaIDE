@@ -365,7 +365,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 "row1_left": [self.btn_refresh, self.btn_collapse, self.btn_expand, self.btn_search],
                 "row1_right": [self.btn_launch, self.btn_export, self.btn_toggle_yaml],
                 "row2_left": [self.btn_new_group, self.btn_new_subfolder, self.btn_new_experiment, self.btn_duplicate],
-                "row2_right": [],
+                "row2_right": [self.btn_sync],
             }
         else:
             return {
@@ -464,6 +464,9 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 self.btn_launch.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
                 self.btn_start = self.btn_launch
                 self.start_button = self.btn_launch
+
+                self.btn_sync = self._tool_button("sync", "Sync site data", button_id="sync")
+                self.btn_sync.hide()
 
                 self.btn_export = self._tool_button("export", "Export recipe YAML…", button_id="export")
                 self.btn_export.setToolTip("Export recipe YAML…")

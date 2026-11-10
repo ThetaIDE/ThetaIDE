@@ -22,7 +22,7 @@ connection:
   remote_root: /hpc/home/cegbert1/ThetaIDE
   python: venv/bin/python3
   ssh_config: src/usr/sites/ncshare/ssh_config
-  rsync_executable: rsync
+  rsync_executable: /opt/homebrew/bin/rsync
   remote_rsync: rsync
 shortcuts:
   directory: src/usr/sites/ncshare/bin
