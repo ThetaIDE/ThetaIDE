@@ -72,3 +72,48 @@ def test_group_actions_reject_symlinks_and_invalid_names(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         catalog.delete_group("..")
     assert outside.exists()
+
+
+@pytest.mark.parametrize("root", ["logs", "plots", "checkpoints"])
+@pytest.mark.parametrize("run_id", ["run", "nested/run"])
+def test_rename_run_file(tmp_path, monkeypatch, root, run_id):
+    monkeypatch.setattr(catalog, "LOGS_DIR", tmp_path / "logs")
+    relative = f"{root}/group/{run_id}/subfolder/report.txt"
+    source = tmp_path / relative
+    source.parent.mkdir(parents=True)
+    source.write_text("report contents")
+    renamed = catalog.rename_run_file("group", run_id, relative, "new report.txt")
+    assert renamed == f"{root}/group/{run_id}/subfolder/new report.txt"
+    assert not source.exists()
+    assert catalog.read_run_file("group", run_id, renamed) == b"report contents"
+    assert renamed in {artifact["path"] for artifact in catalog.run_manifest("group", run_id)["artifacts"]}
+
+
+def test_rename_run_file_rejects_conflicts_and_unsafe_paths(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog, "LOGS_DIR", tmp_path / "logs")
+    folder = tmp_path / "logs/group/run"
+    folder.mkdir(parents=True)
+    source = folder / "report.txt"
+    source.write_text("keep")
+    (folder / "existing.txt").write_text("existing")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside")
+    (folder / "link.txt").symlink_to(outside)
+    (folder / "linked").symlink_to(tmp_path, target_is_directory=True)
+    for name in ("", ".", "..", "../outside.txt", "nested/name", "bad\\name", "bad\x00name"):
+        with pytest.raises(ValueError):
+            catalog.rename_run_file("group", "run", "logs/group/run/report.txt", name)
+    with pytest.raises(FileExistsError):
+        catalog.rename_run_file("group", "run", "logs/group/run/report.txt", "existing.txt")
+    for path in ("logs/group/run/link.txt", "logs/group/run/linked/outside.txt"):
+        with pytest.raises(ValueError):
+            catalog.rename_run_file("group", "run", path, "renamed.txt")
+    with pytest.raises(PermissionError):
+        catalog.rename_run_file("group", "run", "outside.txt", "renamed.txt")
+    with pytest.raises(ValueError):
+        catalog.rename_run_file("group", "run", "logs/group/run/../../../outside.txt", "renamed.txt")
+    with pytest.raises(FileNotFoundError):
+        catalog.rename_run_file("group", "run", "logs/group/run/missing.txt", "renamed.txt")
+    assert source.read_text() == "keep"
+    assert (folder / "existing.txt").read_text() == "existing"
+    assert outside.read_text() == "outside"

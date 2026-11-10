@@ -22,6 +22,7 @@ class ResultsLoader(QObject):
     table_loaded = pyqtSignal(object)  # Source whose MetricTable is now in self.tables
     file_loaded = pyqtSignal(str, str)  # run key, artifact path now in self.files
     file_failed = pyqtSignal(str, str, str)  # run key, artifact path, error
+    file_renamed = pyqtSignal(str, str, str)  # run key, old path, new path
     failed = pyqtSignal(str)
 
     def __init__(self, backend, parent=None):
@@ -115,6 +116,23 @@ class ResultsLoader(QObject):
         while len(self.files) > FILE_CACHE_SIZE:  # keep memory bounded: drop the oldest preview
             self.files.pop(next(iter(self.files)))
         self.file_loaded.emit(*key)
+
+    def rename_file(self, run_key: str, path: str, new_name: str, callback):
+        """Rename on the backend, then reload the manifest so every browser sees the change."""
+        group, experiment_id = run_key.split("/", 1)
+
+        def received(new_path, error):
+            if error:
+                callback(error)
+                return
+            self.files.pop((run_key, path), None)
+            self.files.pop((run_key, new_path), None)
+            self.manifests.pop(run_key, None)
+            self.file_renamed.emit(run_key, path, new_path)
+            self.load_manifest(group, experiment_id)
+            callback(None)
+
+        self.backend.rename_run_file(group, experiment_id, path, new_name, received)
 
     def clear(self):
         """Forget cached data, so the next requests re-read results/ (e.g. after Refresh)."""

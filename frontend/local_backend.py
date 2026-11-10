@@ -108,6 +108,9 @@ class LocalBackend(QObject):
         """One artifact's bytes, by the path its manifest lists (catalog.read_run_file)."""
         self._submit(catalog.read_run_file, group, experiment_id, path, callback=callback)
 
+    def rename_run_file(self, group: str, experiment_id: str, path: str, new_name: str, callback: Callback):
+        self._submit(catalog.rename_run_file, group, experiment_id, path, new_name, callback=callback)
+
     def wait(self, msecs: int = 30000) -> bool:
         """Block until queued calls finish (tests and shutdown)."""
         return self.pool.waitForDone(msecs)

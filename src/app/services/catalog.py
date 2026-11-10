@@ -792,6 +792,28 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
     }
 
 
+def rename_run_file(group: str, experiment_id: str, path: str, new_name: str) -> str:
+    """Rename an artifact within its current folder, returning its new results-relative path."""
+    check_path_segment(new_name)
+    check_result_path(path)
+    dirs = _mutable_run_dirs(group, experiment_id)
+    base = results_dir().resolve()
+    source = base / path
+    if not any(source.is_relative_to(directory.resolve()) for directory in dirs.values()):
+        raise PermissionError("Path is outside this run's results")
+    if any(part.is_symlink() for part in (source, *source.parents) if part.is_relative_to(base)):
+        raise ValueError("Cannot rename through symbolic links")
+    if not source.is_file():
+        raise FileNotFoundError(f"File not found: {path}")
+    target = source.with_name(new_name)
+    if target == source:
+        return path
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(f"A file or folder named {new_name!r} already exists")
+    source.rename(target)
+    return target.relative_to(base).as_posix()
+
+
 def read_run_file(group: str, experiment_id: str, path: str) -> bytes:
     """One artifact of a run, by the `path` its manifest lists (relative to results/).
 

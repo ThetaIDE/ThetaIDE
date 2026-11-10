@@ -18,6 +18,9 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -249,6 +252,8 @@ class ArtifactBrowser(QWidget):
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.setMinimumWidth(160)
         self.tree.currentItemChanged.connect(self._current_changed)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._context_menu)
         splitter.addWidget(self.tree)
 
         right = QWidget()
@@ -283,6 +288,7 @@ class ArtifactBrowser(QWidget):
         splitter.setSizes([480, 700])
         layout.addWidget(splitter)
         loader.file_loaded.connect(self._file_loaded)
+        loader.file_renamed.connect(self._file_renamed)
         self.set_manifests([])
 
     def set_manifests(self, manifests: list[Manifest]):
@@ -404,6 +410,34 @@ class ArtifactBrowser(QWidget):
             return
         self.stack.setCurrentWidget(viewer)
         self.detail.setText(f"{artifact.get('kind')} · {human_size(artifact.get('size'))} · {summary}")
+
+    def _context_menu(self, position):
+        item = self.tree.itemAt(position)
+        data = item.data(0, _ARTIFACT) if item is not None else None
+        if not data:
+            return
+        self.tree.setCurrentItem(item)
+        menu = QMenu(self.tree)
+        menu.addAction("Rename…", lambda: self._ask_rename(*data))
+        menu.addAction("Save a copy…", self._ask_save)
+        menu.exec(self.tree.viewport().mapToGlobal(position))
+
+    def _ask_rename(self, run_key, artifact):
+        path = artifact["path"]
+        old_name = PurePosixPath(path).name
+        new_name, accepted = QInputDialog.getText(self, "Rename file", "New name:", text=old_name)
+        if not accepted or new_name == old_name:
+            return
+
+        def finished(error):
+            if error:
+                QMessageBox.warning(self, "Rename failed", str(error))
+
+        self.loader.rename_file(run_key, path, new_name, finished)
+
+    def _file_renamed(self, run_key, old_path, new_path):
+        if self.current and (self.current[0], self.current[1]["path"]) == (run_key, old_path):
+            self.current = (run_key, dict(self.current[1], path=new_path))
 
     def _ask_save(self):
         if not self.current:

@@ -174,6 +174,80 @@ def make_panel(settings=None):
     return panel, backend
 
 
+def test_artifact_context_menu_renames_and_refreshes_all_browsers(monkeypatch):
+    from pathlib import PurePosixPath
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtWidgets import QInputDialog, QMenu
+
+    run_key = "cartpole/ppo_run"
+    old_path = f"plots/{run_key}/hyperparameters_report.md"
+    new_path = f"plots/{run_key}/renamed.md"
+    monkeypatch.setitem(FILES, run_key, dict(FILES[run_key]))
+    panel, backend = make_panel()
+    panel.explorer.select_run("cartpole", "ppo_run")
+    files, reports = panel.browser("Files"), panel.browser("Reports")
+    panel.update_artifacts()
+    assert files.select(run_key, old_path)
+    assert reports.select(run_key, old_path)
+    assert (run_key, old_path) in panel.loader.files
+    calls = []
+
+    def rename(group, experiment, path, name, callback):
+        calls.append((group, experiment, path, name))
+        destination = str(PurePosixPath(path).with_name(name))
+        FILES[run_key][destination] = FILES[run_key].pop(path)
+        callback(destination, None)
+
+    monkeypatch.setattr(backend, "rename_run_file", rename, raising=False)
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args, **kwargs: ("renamed.md", True))
+    item = files.tree.currentItem()
+    assert files.select(run_key, f"logs/{run_key}/config.yaml")
+    monkeypatch.setattr(files.tree, "itemAt", lambda position: item)
+
+    def choose_rename(menu, position):
+        assert [action.text() for action in menu.actions()] == ["Rename…", "Save a copy…"]
+        menu.actions()[0].trigger()
+
+    monkeypatch.setattr(QMenu, "exec", choose_rename)
+    files._context_menu(QPoint())
+    assert calls == [("cartpole", "ppo_run", old_path, "renamed.md")]
+    assert (run_key, old_path) not in panel.loader.files
+    for browser in (files, reports):
+        assert browser.current[1]["path"] == new_path
+        assert browser.tree.currentItem().text(0) == "renamed.md"
+        assert "Hyperparameters" in browser.viewers["text"].browser.toPlainText()
+        assert not browser.select(run_key, old_path)
+    panel.close()
+
+
+def test_artifact_rename_cancel_and_failure_preserve_current_file(monkeypatch):
+    from PyQt6.QtWidgets import QInputDialog, QMessageBox
+
+    panel, backend = make_panel()
+    panel.explorer.select_run("cartpole", "ppo_run")
+    browser = panel.browser("Files")
+    panel.update_artifacts()
+    path = "plots/cartpole/ppo_run/hyperparameters_report.md"
+    assert browser.select("cartpole/ppo_run", path)
+    calls, errors = [], []
+
+    def rename(*args):
+        calls.append(args[:-1])
+        args[-1](None, "A file with that name already exists")
+
+    monkeypatch.setattr(backend, "rename_run_file", rename, raising=False)
+    monkeypatch.setattr(QMessageBox, "warning", lambda parent, title, message: errors.append(message))
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args, **kwargs: ("existing.md", False))
+    browser._ask_rename(*browser.current)
+    assert not calls
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args, **kwargs: ("existing.md", True))
+    browser._ask_rename(*browser.current)
+    assert len(calls) == 1 and errors == ["A file with that name already exists"]
+    assert browser.current[1]["path"] == path
+    assert browser.select("cartpole/ppo_run", path)
+    panel.close()
+
+
 @pytest.mark.parametrize("tree_name", ["runs", "files"])
 def test_results_tree_splitters_resize_without_snapping_closed(tree_name):
     panel, _ = make_panel()
