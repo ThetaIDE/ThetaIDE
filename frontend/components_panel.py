@@ -91,6 +91,7 @@ class ComponentsPanel(QWidget):
         self.viewer.edit_code_requested.connect(self.open_active_component_in_editor)
         self.viewer.export_component_requested.connect(self.prompt_export_active_component)
         self.viewer.delete_component_requested.connect(self.prompt_delete_active_component)
+        self.components_tree.refresh_requested.connect(self._reload_active_config)
         if self.btn_save is not None:
             self.viewer.dirty_changed.connect(self.btn_save.setEnabled)
         self.content_splitter.addWidget(self.viewer)
@@ -133,6 +134,12 @@ class ComponentsPanel(QWidget):
         self.splitter.addWidget(right_panel)
         self.splitter.setSizes([320, 1000])
         root_layout.addWidget(self.splitter, 1)
+
+    def _reload_active_config(self):
+        """Apply an explicit tree refresh to the component's open editor."""
+        self.viewer.reload_data(force_tree_refresh=False)
+        self._update_component_action_buttons()
+        self._update_raw_yaml_view()
 
     def init_default_component(self):
         """Select a default component config if available."""
@@ -290,7 +297,7 @@ class ComponentsPanel(QWidget):
         # If it is a managed Hub component with metadata, uninstall via installer
         if is_hub and assets.get("meta") and installer:
             try:
-                if assets["kind"] in ("model", "method", "agent", "algorithm", "env", "data", "datamodule", "eval", "evaluator", "plot", "plotter"):
+                if assets["kind"] in ("model", "method", "agent", "algorithm", "env", "data", "datamodule", "eval", "evaluator", "plot", "plotter", "monitor"):
                     from .hub.models import HubComponent
                     lifecycle.uninstall(HubComponent.from_dict(assets["meta"]), installer)
                 else:

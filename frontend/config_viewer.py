@@ -1,6 +1,7 @@
 """Full-screen, simplified, boxed configuration viewer for Theta-IDE."""
 import copy
 import inspect
+import json
 import math
 import random
 import re
@@ -15,8 +16,9 @@ from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
-    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -39,16 +41,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .config_model import COMPONENT_ID_KEYS, ConfigTree, component_selection, default_method_model
+from .config_model import COMPONENT_ID_KEYS, ConfigTree, component_selection, default_method_model, is_group_defaults_path
 from .config_model import add_method as add_method_to
 from .config_model import remove_method as remove_method_from
 from .sidetabs import svg_icon
 from .theme import theme_color
 from .widgets import (
     ComboBox as BaseComboBox, DoubleSpinBox, SpinBox, label, SmoothScrollArea, ToggleSlider,
-    TagCloudWidget, LayerStackWidget,
+    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit,
 )
 from .metric_picker import MetricPicker, logged_metrics
+from .parameter_reorder import ColumnRows, FormRows, GridRows, ListRows, ParameterReorder, form_groups
 from src.app.services import LOGS_DIR, PROJECT_ROOT
 from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 
@@ -233,18 +236,21 @@ def _reveal_remove_on_row_hover(row_layout: QHBoxLayout, button: QToolButton) ->
     _RowHoverReveal(button, row_layout)
 
 
-def _parameter_row(widget, *, add=None, remove=None):
+def _parameter_row(widget, *, add=None, remove=None, expand=False):
     """Shared field/actions row. Hidden removal always reserves its space."""
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(6)
-    row.addWidget(widget)
+    if expand:
+        widget.setProperty("parameterExpands", True)
+    row.addWidget(widget, 1 if expand else 0)
     if add is not None:
         row.addWidget(add)
     if remove is not None:
         row.addWidget(remove)
         _reveal_remove_on_row_hover(row, remove)
-    row.addStretch()
+    if not expand:
+        row.addStretch()
     return row
 
 
@@ -255,10 +261,45 @@ def _parameter_title(title):
     return title_widget
 
 
-def _parameter_header(title, *, add=None, remove=None, heading=True):
+def _collapsible_parameter_label(title, children, *, expanded=True, on_toggled=None):
+    """Shared disclosure control, before the label and outside the child block."""
+    container = QWidget()
+    container.setProperty("parameterLabel", True)
+    container.setStyleSheet('QWidget[parameterLabel="true"] { background: transparent; }')
+    container.setFixedWidth(PARAM_LABEL_WIDTH)
+    row = QHBoxLayout(container)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
+    button = _make_subtle_tool_button("bin_expanded" if expanded else "bin_collapsed",
+        "Expand or collapse " + title, size=20, icon_size=10)
+    button.setCheckable(True)
+    button.setChecked(expanded)
+    button.setProperty("parameterDisclosure", True)
+    button.setAccessibleName("Expand or collapse " + title)
+
+    def toggle(checked):
+        button.setIcon(svg_icon("bin_expanded" if checked else "bin_collapsed", SUBTLE_ICON_COLORS))
+        children.setVisible(checked)
+        if on_toggled is not None:
+            on_toggled(checked)
+
+    button.toggled.connect(toggle)
+    if not expanded:
+        children.hide()
+    row.addWidget(button)
+    caption = label(title)
+    caption.setWordWrap(True)
+    row.addWidget(caption, 1)
+    return container
+
+
+def _parameter_header(title, *, add=None, remove=None, heading=True, leading=None):
     """Every parameter container puts its adder immediately after its title."""
     row = QHBoxLayout()
     row.setSpacing(8)
+    if leading is not None:
+        leading.setProperty("parameterHeaderLeading", True)
+        row.addWidget(leading)
     title_widget = _parameter_title(title) if heading else label(title, "muted")
     row.addWidget(title_widget)
     if add is not None:
@@ -306,46 +347,22 @@ def _two_column_parameter_layout(form):
         column.setSpacing(8)
         grid.addLayout(column, 0, index)
 
-    def row_count(block):
-        count = 0
-        for index in range(block.form_layout.rowCount()):
-            item = block.form_layout.itemAt(index, QFormLayout.ItemRole.SpanningRole)
-            child = item.widget() if item else None
-            count += row_count(child) if isinstance(child, IndentedHierarchyBlock) else 1
-        return max(count, 1)
-
-    heights = [0, 0]
-    current = 0
+    groups = form_groups(form)
     while form.rowCount():
-        items = form.takeRow(0)
-        if items.labelItem is None:
-            item = items.fieldItem
-            if item is None:
-                continue
-            widget = item.widget()
-            if isinstance(widget, IndentedHierarchyBlock):
-                columns[current].addWidget(widget)
-                heights[current] += row_count(widget)
+        form.takeRow(0)
+    for group in groups:
+        parts = []
+        for caption, field in group.parts:
+            if caption is None:
+                parts.append(field)
             else:
-                current = 0 if heights[0] <= heights[1] else 1
-                if widget:
-                    columns[current].addWidget(widget)
-                elif item.layout():
-                    columns[current].addLayout(item.layout())
-                heights[current] += 1
-        else:
-            current = 0 if heights[0] <= heights[1] else 1
-            row = ParameterForm()
-            label_widget = items.labelItem.widget()
-            field = items.fieldItem
-            if field.widget():
-                row.addRow(label_widget, field.widget())
-            elif field.layout():
-                row.addRow(label_widget, field.layout())
-            columns[current].addLayout(row)
-            heights[current] += 1
-    for column in columns:
-        column.addStretch()
+                row = ParameterForm()
+                row._parameter_column_row = True
+                row.addRow(caption, field)
+                parts.append(row)
+        group.parts = parts
+    grid._parameter_rows = ColumnRows(grid, columns, groups)
+    grid._parameter_rows.apply()
     return grid
 
 
@@ -639,6 +656,11 @@ def _recorded_metrics(data):
     return [str(m) for m in metrics] if isinstance(metrics, (list, tuple)) else None
 
 
+def _monitor_settings(data):
+    telemetry = data.get("telemetry") if isinstance(data, dict) else None
+    return telemetry.get("monitors") if isinstance(telemetry, dict) else None
+
+
 # Periodic checkpoints (src/app/core/checkpoints.py): an experiment sets one of these, not both.
 CHECKPOINT_KEYS = ("checkpoint_every_steps", "num_checkpoints")
 DEFAULT_CHECKPOINTS = 10
@@ -657,12 +679,15 @@ FIXED_BOX_KEYS = frozenset(
         "epochs",
         "eval_every_n_epochs",
         "methods",
+        "data_module",
+        "symbolic_state_loader",
         "env",
         "site",
         "trainer",
         "resources",
         "tensorboard",
         "no_plot",
+        "sweep",  # legacy activation flag; composed tuning determines sweep mode
         "save_dataset",
         "recover",
         # Dataset values are rendered in the inputs card.  Unsupported legacy
@@ -783,9 +808,11 @@ def _component_profiles(config_root: Path, directory: str, selector: str) -> dic
 
 class ConfigBox(QFrame):
     """Themed card container representing a section of configuration."""
-    def __init__(self, title=None, subtitle=None, parent=None):
+    def __init__(self, title=None, subtitle=None, parent=None, *, section=None):
         super().__init__(parent)
         self.setObjectName("card")
+        self.setProperty("configBox", True)
+        self.setProperty("configSection", section)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(16, 14, 16, 14)
         self.layout.setSpacing(10)
@@ -798,11 +825,21 @@ class ConfigBox(QFrame):
     def add_layout(self, sub_layout):
         self.layout.addLayout(sub_layout)
 
-    def set_header(self, title, *, add=None, remove=None):
-        header = _parameter_header(title, add=add, remove=remove)
-        self.title_label = header.itemAt(0).widget()
+    def set_header(self, title, *, add=None, remove=None, leading=None):
+        header = _parameter_header(title, add=add, remove=remove, leading=leading)
+        self.title_label = header.itemAt(1 if leading is not None else 0).widget()
         self.add_layout(header)
         return header
+
+    def add_parameter_body(self, *, enabled=True):
+        body = QWidget()
+        body.setProperty("configBoxBody", True)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        body.setEnabled(enabled)
+        self.add_widget(body)
+        return body
 
     def standardize_parameters(self):
         """Apply the same geometry and hover behavior to every ordinary card.
@@ -819,16 +856,23 @@ class ConfigBox(QFrame):
             if isinstance(field, (QComboBox, QAbstractSpinBox, QLineEdit)):
                 if isinstance(field.parentWidget(), (QComboBox, QAbstractSpinBox)):
                     continue
-                field.setFixedWidth(field_width)
+                if field.property("parameterExpands"):
+                    field.setMinimumWidth(0)
+                    field.setMaximumWidth(16777215)
+                    field.setSizePolicy(QSizePolicy.Policy.Expanding, field.sizePolicy().verticalPolicy())
+                else:
+                    field.setFixedWidth(field_width)
         for form in self.findChildren(QFormLayout):
             form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             form.setHorizontalSpacing(10)
             form.setVerticalSpacing(8)
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-                if item and isinstance(item.widget(), QLabel):
-                    item.widget().setFixedWidth(label_width)
-                    item.widget().setWordWrap(True)
+                caption = item.widget() if item else None
+                if isinstance(caption, QLabel) or caption is not None and caption.property("parameterLabel"):
+                    caption.setFixedWidth(label_width)
+                    if isinstance(caption, QLabel):
+                        caption.setWordWrap(True)
         for grid in self.findChildren(QGridLayout):
             grid.setHorizontalSpacing(10)
             for i in range(grid.count()):
@@ -1137,6 +1181,14 @@ class ConfigViewer(QWidget):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(400)
         self._autosave_timer.timeout.connect(self.flush_pending_save)
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.timeout.connect(self._render_boxes)
+        self._sweep_refresh_timer = QTimer(self)
+        self._sweep_refresh_timer.setSingleShot(True)
+        self._sweep_refresh_timer.timeout.connect(self._refresh_sweep_box)
+        self._parameter_orders = {}
+        self._parameter_reorders = []
         self._pending_new_method = False
         self._pending_new_method_spec = {}
         self.spin_timesteps = SpinBox()
@@ -1186,13 +1238,18 @@ class ConfigViewer(QWidget):
         hb_layout.setContentsMargins(12, 6, 12, 6)
         hb_layout.setSpacing(10)
 
+        self.title_layout = QHBoxLayout()
+        self.title_layout.setContentsMargins(0, 0, 0, 0)
+        self.title_layout.setSpacing(0)
+        hb_layout.addLayout(self.title_layout)
+
         self.group_badge = TitleLabel("")
         self.group_badge.setObjectName("heading")
         self.group_badge.setToolTip("Group (click to rename)")
         self.group_badge.clicked.connect(self._start_group_edit)
         self.group_badge.double_clicked.connect(self._start_group_edit)
         self.group_badge.hide()
-        hb_layout.addWidget(self.group_badge)
+        self.title_layout.addWidget(self.group_badge)
 
         self.group_editor = QLineEdit()
         self.group_editor.setObjectName("groupEditor")
@@ -1204,21 +1261,18 @@ class ConfigViewer(QWidget):
         self.group_editor.hide()
         self.group_editor.returnPressed.connect(self._commit_group_edit)
         self.group_editor.installEventFilter(self)
-        hb_layout.addWidget(self.group_editor)
+        self.title_layout.addWidget(self.group_editor)
 
-        self.breadcrumb_sep = QLabel("/")
-        self.breadcrumb_sep.setObjectName("breadcrumbSep")
-        self.breadcrumb_sep.setStyleSheet(
-            "font-size: 20px; font-weight: 500; color: #888888; padding: 0 4px;"
-        )
+        self.breadcrumb_sep = QLabel(" / ")
+        self.breadcrumb_sep.setObjectName("heading")
         self.breadcrumb_sep.hide()
-        hb_layout.addWidget(self.breadcrumb_sep)
+        self.title_layout.addWidget(self.breadcrumb_sep)
 
         self.file_title = TitleLabel("No config loaded")
         self.file_title.clicked.connect(self._start_title_edit)
         self.file_title.double_clicked.connect(self._start_title_edit)
 
-        hb_layout.addWidget(self.file_title)
+        self.title_layout.addWidget(self.file_title)
 
         self.title_editor = QLineEdit()
         self.title_editor.setObjectName("titleEditor")
@@ -1230,7 +1284,7 @@ class ConfigViewer(QWidget):
         self.title_editor.hide()
         self.title_editor.returnPressed.connect(self._commit_title_edit)
         self.title_editor.installEventFilter(self)
-        hb_layout.addWidget(self.title_editor)
+        self.title_layout.addWidget(self.title_editor)
 
         self.paradigm_badge = label("", "badge")
         self.paradigm_badge.hide()
@@ -1268,7 +1322,8 @@ class ConfigViewer(QWidget):
         hb_layout.addWidget(self.btn_delete_component)
 
         # Maintained for programmatic and test compatibility; hidden from visual header
-        self.chk_view_mode = QCheckBox("Show Resolved Defaults")
+        self.chk_view_mode = ToggleSlider()
+        self.chk_view_mode.setAccessibleName("Show Resolved Defaults")
         self.chk_view_mode.setObjectName("chkViewMode")
         self.chk_view_mode.setChecked(self.view_mode == "resolved")
         self.chk_view_mode.toggled.connect(self._on_view_mode_toggled)
@@ -1602,7 +1657,10 @@ class ConfigViewer(QWidget):
         if getattr(self, "auto_save", False) and self.is_dirty:
             self.save_to_disk()
 
+        self._render_timer.stop()
+        self._sweep_refresh_timer.stop()
         self._show_empty_shared_params = False
+        self._monitor_group_expanded = {}
         self.current_path = Path(file_path)
         self.current_rel_path = rel_path
         self.is_dirty = False
@@ -1631,6 +1689,34 @@ class ConfigViewer(QWidget):
         return HubInstaller(workspace, workspace / ".thetaide").is_installed_file(self.current_path)
 
     def _render_boxes(self):
+        """Rebuild structural changes safely, retaining the current viewport."""
+        if getattr(self, "_rendering_boxes", False):
+            self._render_timer.start(0)
+            return
+        scroll_position = self.scroll.verticalScrollBar().value()
+        # A settings/provider update can arrive while a label owns the mouse.
+        # Restore that live layout before deleting any of its widgets.
+        for controller in self._parameter_reorders:
+            if not sip.isdeleted(controller) and controller.dragged is not None:
+                controller.finish(False)
+        self._sweep_refresh_timer.stop()
+        self._rendering_boxes = True
+        self.setUpdatesEnabled(False)
+        try:
+            self._build_boxes()
+            for i in range(self.boxes_layout.count()):
+                child = self.boxes_layout.itemAt(i).widget()
+                if child is not None:
+                    child.show()
+            self.container.layout().activate()
+            self.container.adjustSize()
+            self.scroll.verticalScrollBar().setValue(scroll_position)
+        finally:
+            self._block_updates = False
+            self._rendering_boxes = False
+            self.setUpdatesEnabled(True)
+
+    def _build_boxes(self):
         """Clear and build the configuration boxes."""
         self._block_updates = True
         self.field_widgets.clear()
@@ -1653,7 +1739,8 @@ class ConfigViewer(QWidget):
 
         # Update header
         group = self._group_name()
-        is_base = (self.current_path.stem == "_base") if self.current_path else False
+        is_base = self._is_base_config()
+        self.title_layout.setSpacing(10 if is_base else 0)
 
         if is_base:
             self.group_badge.setText(str(group) if group else "group")
@@ -1719,6 +1806,7 @@ class ConfigViewer(QWidget):
                 box.standardize_parameters()
         if is_experiment:
             self._setup_experiment_box_order()
+        self._setup_parameter_reordering()
         self.boxes_layout.addStretch()
         read_only = self._hub_read_only()
         self.container.setEnabled(not read_only)
@@ -1728,6 +1816,77 @@ class ConfigViewer(QWidget):
             self.boxes_layout.insertWidget(0, notice)
             self.file_title.setToolTip("Hub component is read-only. Make a component copy to edit it.")
         self._block_updates = False
+
+    def _setup_parameter_reordering(self, only_box=None):
+        """Attach the same sibling-list behavior to ordinary parameter layouts."""
+        if only_box is None:
+            self._parameter_reorders = []
+        path = str(self.current_path.resolve()) if self.current_path else str(self.current_rel_path or "")
+        saved = self.settings_manager.get("config_viewer", "parameter_orders", default=[]) if self.settings_manager else []
+        orders = self._parameter_orders.setdefault(path, next(
+            (dict(entry.get("groups", {})) for entry in saved if entry.get("path") == path), {}))
+        for i in range(self.boxes_layout.count()):
+            box = self.boxes_layout.itemAt(i).widget()
+            if not isinstance(box, ConfigBox):
+                continue
+            if only_box is not None and box is not only_box:
+                continue
+            title = next((w.text() for w in box.findChildren(QLabel)
+                          if w.objectName() in ("heading", "cardTitle")), "Parameters")
+            layouts = []
+            for grid in box.findChildren(QGridLayout):
+                if hasattr(grid, "_parameter_rows"):
+                    layouts.append(grid._parameter_rows)
+                elif grid.property("parameterReorderGrid"):
+                    layouts.append(GridRows(grid))
+            layouts.extend(FormRows(form) for form in box.findChildren(QFormLayout)
+                           if not getattr(form, "_parameter_column_row", False))
+            layouts.extend(ListRows(layout) for layout in box.findChildren(QVBoxLayout)
+                           if layout.property("parameterReorderList"))
+            # Name child levels before applying a saved parent order.
+            for rows in layouts:
+                for group in rows.groups:
+                    if group.caption is None:
+                        continue
+                    caption = group.caption
+                    text = caption.text() if isinstance(caption, QLabel) else next(
+                        (w.text() for w in caption.findChildren(QLabel)), "")
+                    for child in group.widgets():
+                        if isinstance(child, IndentedHierarchyBlock):
+                            child._parameter_reorder_context = text
+            occurrences = {}
+            for rows in layouts:
+                if not any(group.caption is not None for group in rows.groups):
+                    continue
+                ancestors = []
+                parent = rows.layout.parentWidget()
+                while parent is not None and parent is not box:
+                    context = getattr(parent, "_parameter_reorder_context", None)
+                    if context is None:
+                        context = parent.property("parameterPath")
+                    if context is None:
+                        card_title = next((w.text() for w in parent.findChildren(
+                            QLabel, options=Qt.FindChildOption.FindDirectChildrenOnly)
+                            if w.objectName() == "cardTitle"), None)
+                        context = card_title
+                    if context is not None:
+                        ancestors.insert(0, context)
+                    parent = parent.parentWidget()
+                context = rows.layout.property("parameterContext") or rows.layout.objectName()
+                base = json.dumps([title, ancestors, context])
+                index = occurrences.get(base, 0)
+                occurrences[base] = index + 1
+                scope = json.dumps([base, index])
+                def save(order, s=scope, p=path, groups=orders):
+                    groups[s] = list(order)
+                    if self.settings_manager:
+                        stored = {entry["path"]: entry["groups"] for entry in self.settings_manager.get(
+                            "config_viewer", "parameter_orders", default=[])}
+                        stored[p] = groups
+                        self.settings_manager.persist_key("config_viewer", "parameter_orders",
+                            [{"path": file, "groups": value} for file, value in stored.items()])
+                controller = ParameterReorder(rows, box, self.scroll, orders.get(scope, []), save)
+                self._parameter_reorders.append(controller)
 
     def _on_view_mode_toggled(self, checked: bool):
         self.view_mode = "resolved" if checked else "overrides"
@@ -1778,7 +1937,7 @@ class ConfigViewer(QWidget):
 
     def _is_base_config(self) -> bool:
         """True if the currently open configuration is a group defaults (_base.yaml) file."""
-        return bool(self.current_path and self.current_path.stem == "_base")
+        return bool(self.current_path and is_group_defaults_path(self.current_rel_path or ""))
 
     def _get_explicit_env(self) -> str | None:
         """The environment explicitly overridden in defaults or raw_data."""
@@ -2007,7 +2166,9 @@ class ConfigViewer(QWidget):
                 item = layout.itemAt(i)
                 if item.widget() is title:
                     if isinstance(layout, QHBoxLayout):
-                        layout.insertWidget(i, controls)
+                        leading_index = next((n for n in range(i) if layout.itemAt(n).widget()
+                                              and layout.itemAt(n).widget().property("parameterHeaderLeading")), i)
+                        layout.insertWidget(leading_index, controls)
                     elif isinstance(layout, QVBoxLayout):
                         layout.removeWidget(title)
                         row = QHBoxLayout()
@@ -2081,15 +2242,9 @@ class ConfigViewer(QWidget):
             box_base = ConfigBox("1. Group Paradigm & Environment", "Default paradigm and environment applied to all experiments in this group")
             self._add_experiment_section_header(box_base, data, resolved)
             self._add_experiment_description(box_base, data)
-            form_base = QGridLayout()
-            form_base.setVerticalSpacing(10)
-            form_base.setHorizontalSpacing(16)
-            form_base.setColumnMinimumWidth(0, 145)
-            form_base.setColumnMinimumWidth(2, 145)
+            form_base = ParameterForm()
 
             paradigm_label = label("Paradigm")
-            paradigm_label.setFixedWidth(145)
-            form_base.addWidget(paradigm_label, 0, 0)
             self.combo_paradigm = ComboBox()
             self.combo_paradigm.addItem("— Select Paradigm —", None)
             if tree and tree.paradigms:
@@ -2099,11 +2254,9 @@ class ConfigViewer(QWidget):
                 self.combo_paradigm.setCurrentText(base_p)
             else:
                 self.combo_paradigm.setCurrentIndex(0)
-            form_base.addWidget(self.combo_paradigm, 0, 1)
+            form_base.addRow(paradigm_label, self.combo_paradigm)
 
             env_label = label("Environment")
-            env_label.setFixedWidth(145)
-            form_base.addWidget(env_label, 0, 2)
             self.combo_env = ComboBox()
             self.combo_env.addItem("— Select Environment —", None)
 
@@ -2145,7 +2298,8 @@ class ConfigViewer(QWidget):
                     self.combo_env.setCurrentIndex(unavailable_index if unavailable_index is not None else 0)
             else:
                 self.combo_env.setCurrentIndex(0)
-            form_base.addLayout(_parameter_row(self.combo_env, add=self._environment_parameter_adder(data, resolved)), 0, 3)
+            form_base.addRow(env_label, _parameter_row(self.combo_env, add=self._environment_parameter_adder(data, resolved)))
+            self._add_environment_parameters(form_base, data)
 
             def _on_base_p_changed(p_text):
                 val = None if p_text in ("", "— Select Paradigm —") else p_text
@@ -2163,10 +2317,11 @@ class ConfigViewer(QWidget):
             self.field_widgets["paradigm"] = self.combo_paradigm
             self.field_widgets["env"] = self.combo_env
 
-            box_base.add_layout(form_base)
+            box_base.add_layout(_two_column_parameter_layout(form_base))
+            self._add_experiment_site(box_base, data, resolved)
             if self._has_experiment_lower_params(data, resolved):
                 self._add_experiment_separator(box_base)
-            self._add_experiment_context_fields(box_base, data, resolved)
+            self._add_experiment_trainer_fields(box_base, data, resolved)
             top_box = box_base
         else:
             if tree and tree.paradigms:
@@ -2240,27 +2395,19 @@ class ConfigViewer(QWidget):
             )
             self._add_experiment_section_header(box_inputs, data, resolved)
             self._add_experiment_description(box_inputs, data)
-            inputs_grid = QGridLayout()
-            inputs_grid.setVerticalSpacing(10)
-            inputs_grid.setHorizontalSpacing(16)
-            inputs_grid.setColumnMinimumWidth(0, 145)
-            inputs_grid.setColumnMinimumWidth(2, 145)
+            inputs_form = ParameterForm()
             if hasattr(self, "combo_paradigm"):
                 paradigm_label = label("Paradigm")
-                paradigm_label.setFixedWidth(145)
-                inputs_grid.addWidget(paradigm_label, 0, 0)
-                inputs_grid.addWidget(self.combo_paradigm, 0, 1)
+                inputs_form.addRow(paradigm_label, self.combo_paradigm)
             if hasattr(self, "combo_env"):
                 env_label = label("Environment / Task")
-                env_label.setFixedWidth(145)
-                inputs_grid.addWidget(env_label, 0, 2)
-                inputs_grid.addLayout(_parameter_row(self.combo_env, add=self._environment_parameter_adder(data, resolved)), 0, 3)
-            inputs_grid.setColumnStretch(1, 1)
-            inputs_grid.setColumnStretch(3, 1)
-            box_inputs.add_layout(inputs_grid)
+                inputs_form.addRow(env_label, _parameter_row(self.combo_env, add=self._environment_parameter_adder(data, resolved)))
+            self._add_environment_parameters(inputs_form, data)
+            box_inputs.add_layout(_two_column_parameter_layout(inputs_form))
+            self._add_experiment_site(box_inputs, data, resolved)
             if self._has_experiment_lower_params(data, resolved):
                 self._add_experiment_separator(box_inputs)
-            self._add_experiment_context_fields(box_inputs, data, resolved)
+            self._add_experiment_trainer_fields(box_inputs, data, resolved)
 
             rules = tree.paradigms.get(paradigm) if tree else None
             if rules and rules.uses_static_dataset and ("dataset_path" in data or show_resolved):
@@ -2279,6 +2426,7 @@ class ConfigViewer(QWidget):
         box_budget = top_box or ConfigBox()
 
         form_budget = QGridLayout()
+        form_budget.setProperty("parameterReorderGrid", True)
         form_budget.setVerticalSpacing(10)
         form_budget.setHorizontalSpacing(16)
         form_budget.setColumnMinimumWidth(0, 145)
@@ -2447,7 +2595,7 @@ class ConfigViewer(QWidget):
             "run_in_parallel", "timestamp_experiment",
             "methods", "env", "site", "trainer", "resources", "dataset", "dataset_path",
             "tensorboard", "no_plot", "save_dataset", "recover",
-            "hydra", "plots", "tuning", "sweeper"
+            "hydra", "plots", "tuning", "sweeper", "sweep"
         }
         extra_experiment_items = []
         for extra_k, extra_v in list(data.items()):
@@ -2542,6 +2690,7 @@ class ConfigViewer(QWidget):
             OPTIONAL_RUNTIME_FLAGS.insert(0, ("tensorboard", "Log to TensorBoard"))
 
         runtime_form = ParameterForm()
+        runtime_form.setObjectName("runtimeParameters")
         chk_widgets = {}
 
         # Show checkboxes only for flags explicitly present in the experiment config (or when showing resolved defaults)
@@ -2634,6 +2783,7 @@ class ConfigViewer(QWidget):
             p_card = QFrame()
             p_card.setObjectName("card")
             p_layout = QVBoxLayout(p_card)
+            p_layout.setProperty("parameterReorderList", True)
             p_layout.setContentsMargins(14, 12, 14, 12)
             p_layout.setSpacing(8)
 
@@ -2727,6 +2877,7 @@ class ConfigViewer(QWidget):
                     if isinstance(val, dict):
                         group = IndentedHierarchyBlock(level=max(1, level + 1))
                         group_header = QHBoxLayout()
+                        group_header.setProperty("parameterPinned", True)
                         group_header.setSpacing(6)
                         group_name = {"agent": "Algorithm", "model": "Model"}.get(key, key) if not parent_path else key
                         group_header.addWidget(label(f"[{group_name}]", "muted"))
@@ -2998,6 +3149,7 @@ class ConfigViewer(QWidget):
                     txt_agent.textChanged.connect(
                         lambda v, mn=m_name: self._on_method_param_edited(mn, "agent", v)
                     )
+                    txt_agent.editingFinished.connect(self._render_boxes)
 
                 agent_keys_present = set()
                 if txt_agent is not None:
@@ -3153,6 +3305,7 @@ class ConfigViewer(QWidget):
                     txt_model.textChanged.connect(
                         lambda v, mn=m_name: self._on_method_param_edited(mn, "model", v)
                     )
+                    txt_model.editingFinished.connect(self._render_boxes)
 
                 txt_model.setObjectName(f"methodModel_{m_name}")
                 model_keys_present = set()
@@ -3313,7 +3466,7 @@ class ConfigViewer(QWidget):
                     row_g.addWidget(lbl_def)
                     train_rows.append(("Discount Factor (γ)", row_g))
 
-                consumed_keys = {"agent", "model", "base", "enabled", "lr", "batch_size", "gamma"}
+                consumed_keys = {"agent", "model", "base", "enabled", "lr", "batch_size", "gamma", "data_module", "symbolic_state_loader"}
                 consumed_keys.update(agent_keys_present)
                 consumed_keys.update(model_keys_present)
 
@@ -3531,6 +3684,7 @@ class ConfigViewer(QWidget):
 
         # --- ADD CONFIGURATION BLOCK DROPDOWN BUTTON ---
         self._render_metrics_box(data, resolved)
+        self._render_monitors_box(data, resolved)
 
         btn_add_block_row = QHBoxLayout()
         self.btn_add_block = _make_subtle_tool_button("plus", "Add overrides", size=26, icon_size=14)
@@ -3586,6 +3740,13 @@ class ConfigViewer(QWidget):
         act_metrics.setToolTip("Record only some metrics (and skip the work behind the others) to train faster")
         act_metrics.triggered.connect(lambda: self.add_block("metrics"))
         act_metrics.setEnabled(_recorded_metrics(data) is None)
+        act_monitors = add_menu.addAction("Monitors")
+        act_monitors.triggered.connect(lambda: self.add_block("monitors"))
+        telemetry = {}
+        for config in (resolved, data):
+            if isinstance(config.get("telemetry"), dict):
+                telemetry.update(config["telemetry"])
+        act_monitors.setEnabled(telemetry.get("monitors") is None)
         self.btn_add_block.setMenu(add_menu)
         btn_add_block_row.addWidget(self.btn_add_block)
 
@@ -3685,7 +3846,8 @@ class ConfigViewer(QWidget):
         box = ConfigBox()
         inherited_seed = int(resolved.get("seed", 1) or 1)
         defaults = {"training_runs": 1, "starting_seed": inherited_seed, "training_seeds": [inherited_seed],
-                    "evaluation_seed": None, "eval_episodes": int(resolved.get("eval_episodes", 0) or 0)}
+                    "evaluation_seed": None, "eval_episodes": int(resolved.get("eval_episodes", 0) or 0),
+                    "parallel_runs": 1}
         def add_option(key):
             if key == "training_seeds" and not explicit_seed_mode or key in ("training_runs", "starting_seed") and explicit_seed_mode:
                 switch_seed_mode()
@@ -3781,7 +3943,17 @@ class ConfigViewer(QWidget):
             form.addRow("Evaluation seed", _parameter_row(evaluation, remove=self._parameter_remove(("variability", "evaluation_seed"))))
         if "eval_episodes" in data:
             form.addRow("Episodes per evaluation", _parameter_row(episodes, remove=self._parameter_remove(("eval_episodes",))))
-        extra = {key: val for key, val in value.items() if key not in defaults and key != "parallel_runs"}
+        if "parallel_runs" in value:
+            parallel = SpinBox()
+            parallel.setRange(1, 100000)
+            parallel.setValue(int(value["parallel_runs"]))
+            parallel.setObjectName("variabilityParallelRuns")
+            parallel.setToolTip('Maximum simultaneous training runs for this experiment. '
+                                '1 runs them sequentially. The workspace worker limit also applies.')
+            parallel.valueChanged.connect(lambda v: self._on_nested_edited("variability", "parallel_runs", v))
+            form.addRow("Maximum parallel runs", _parameter_row(parallel,
+                        remove=self._parameter_remove(("variability", "parallel_runs"))))
+        extra = {key: val for key, val in value.items() if key not in defaults}
         self._render_generic_dict_contents(form, extra, ("variability",))
         box.setProperty("parameterColumns", 2)
         box.add_layout(_two_column_parameter_layout(form))
@@ -3804,6 +3976,9 @@ class ConfigViewer(QWidget):
         self._render_boxes()
 
     def _component_choices(self, kind: str) -> dict[str, dict]:
+        if kind == "symbolic_state_loader":
+            from src.app.core.data_loaders import state_loader_choices
+            return state_loader_choices(paths=self._loader_paths())
         tree = config_tree()
         root = tree.config_root if tree else PROJECT_ROOT / "in" / "config"
         directory, selector = {
@@ -3834,6 +4009,11 @@ class ConfigViewer(QWidget):
                 except (OSError, TypeError):
                     pass
                 profiles.setdefault(str(name), {})
+            if kind == "data_module":
+                from src.app.core.data_loaders import loader_metadata
+                profiles = {name: values for name, values in profiles.items()
+                            if values.get("role", loader_metadata({"name": values.get("name") or name},
+                                paths=self._loader_paths()).get("role", "training")) == "training"}
             paradigm = self.raw_data.get("paradigm") or self._inherited_paradigm()
             if paradigm and kind != "plots":
                 allowed = {}
@@ -3866,7 +4046,8 @@ class ConfigViewer(QWidget):
     def _component_default_params(self, kind: str, name: str) -> dict:
         profile = self._component_choices(kind).get(name, {})
         reserved = {
-            "data_module": {"name", "class", "type", "data_module", "compatible_paradigms", "paradigms"},
+            "data_module": {"name", "class", "type", "data_module", "role", "compatible_paradigms", "paradigms"},
+            "symbolic_state_loader": {"name", "class", "type", "data_module", "role", "compatible_paradigms", "paradigms"},
             "evaluator": {"name", "class", "type", "evaluator", "compatible_paradigms", "paradigms"},
         }.get(kind, {"name", "class", "type", "plotter", "compatible_paradigms", "paradigms"})
         return {key: copy.deepcopy(value) for key, value in profile.items() if key not in reserved}
@@ -3878,7 +4059,7 @@ class ConfigViewer(QWidget):
         tree = config_tree()
         env_name = self._get_explicit_env() or self._inherited_env()
         env = tree.environments.get(env_name) if tree and env_name else None
-        if env and env.raw.get(kind) is not None:
+        if kind != "data_module" and env and env.raw.get(kind) is not None:
             return env.raw[kind]
         paradigm = self.raw_data.get("paradigm") or self._inherited_paradigm()
         rules = tree.paradigms.get(paradigm) if tree and paradigm else None
@@ -3956,8 +4137,96 @@ class ConfigViewer(QWidget):
         self._mark_dirty()
         QTimer.singleShot(0, self._render_boxes)
 
+    def _loader_paths(self):
+        from src.app.workspace import WorkspacePaths
+        tree = config_tree()
+        return WorkspacePaths.from_config_root(tree.config_root) if tree else WorkspacePaths.for_process()
+
+    def _set_loader_binding(self, path, name):
+        if not name:
+            self._remove_generic_path(path)
+            return
+        slot = path[-1]
+        value = {"name": name, "params": self._component_default_params(slot, name)}
+        self._on_generic_path_edited(path, value)
+        QTimer.singleShot(0, self._render_boxes)
+
+    def _render_loader_binding(self, form, caption, path, context, method=None):
+        from src.app.core.data_loaders import input_requirements, loader_metadata, loader_selection
+        slot = path[-1]
+        selection, source = loader_selection(context, slot, method, paths=self._loader_paths())
+        current = self.raw_data
+        for key in path:
+            current = current.get(key) if isinstance(current, dict) else None
+        explicit_name = self._component_name(current)
+        choices = self._component_choices(slot)
+        needs = [r["contract"] for r in input_requirements(context, method, paths=self._loader_paths()) if r["slot"] == slot]
+        combo = ComboBox()
+        combo.setProperty("parameterPath", ".".join(path))
+        inherited, _ = loader_selection(context if method else self._get_resolved_defaults(), slot, paths=self._loader_paths())
+        inherited_name = inherited["name"] if inherited else "None"
+        combo.addItem(f"Inherit ({inherited_name})", "")
+        for name, profile in sorted(choices.items()):
+            metadata = loader_metadata({"name": profile.get("data_module") or profile.get("name") or name}, paths=self._loader_paths())
+            if needs and not all(contract in metadata.get("output_contracts", []) for contract in needs) and name != explicit_name:
+                continue
+            combo.addItem(name, name)
+        if explicit_name and combo.findData(explicit_name) < 0:
+            combo.addItem(explicit_name, explicit_name)
+        combo.setCurrentIndex(max(0, combo.findData(explicit_name)))
+        combo.currentIndexChanged.connect(lambda index, c=combo, p=path: self._set_loader_binding(p, c.itemData(index)))
+        row = QHBoxLayout()
+        row.addWidget(combo)
+        params = current.get("params", {}) if isinstance(current, dict) else {}
+        defaults = selection["params"] if selection else {}
+        if explicit_name:
+            row.addWidget(self._dict_parameter_adder(path + ("params",), params, defaults))
+        remove = self._parameter_remove(path) if current is not None and (not needs or inherited) else None
+        if remove:
+            row.addWidget(remove)
+            _reveal_remove_on_row_hover(row, remove)
+        effective_name = selection["name"] if selection else "Missing"
+        row.addWidget(label(f"{effective_name} · {source}", "muted"))
+        row.addStretch()
+        form.addRow(caption, row)
+        self.field_widgets[".".join(path)] = combo
+        if params:
+            block = IndentedHierarchyBlock()
+            block.setProperty("parameterPath", ".".join(path + ("params",)))
+            self._render_generic_dict_contents(block, params, path + ("params",))
+            form.addRow(block)
+
+    def _render_loader_bindings(self, box, context, methods):
+        from src.app.core.data_loaders import LOADER_SLOTS, data_loader_errors
+        form = ParameterForm()
+        self._render_loader_binding(form, "Symbolic state default", ("symbolic_state_loader",), context)
+        box.add_layout(form)
+        for name, method in methods.items():
+            box.add_layout(_parameter_header(name, heading=False))
+            block = IndentedHierarchyBlock()
+            for slot, caption in zip(LOADER_SLOTS, ("Training loader", "Symbolic state")):
+                self._render_loader_binding(block.form_layout, caption, ("methods", name, slot), context, method)
+            for message in data_loader_errors(context, method, paths=self._loader_paths()):
+                status = label(message, "muted")
+                status.setObjectName("dataLoaderStatus")
+                status.setWordWrap(True)
+                block.form_layout.addRow(status)
+            box.add_widget(block)
+
     def _render_component_overrides(self, data: dict, resolved: dict) -> None:
         """Expose component selection and per-component YAML parameters in recipes."""
+        from src.app.core.data_loaders import input_requirements
+        from src.app.pipeline.config import deep_merge, parse_methods_dict
+        context = deep_merge(resolved, self.raw_data)
+        methods = parse_methods_dict(context, paths=self._loader_paths())
+        legacy_env = context.get("env")
+        legacy_inputs = isinstance(legacy_env, dict) and any(
+            legacy_env.get(key) is not None for key in ("data_module", "symbolic_observation_builder"))
+        if "data_module" not in data and (legacy_inputs or context.get("symbolic_state_loader") is not None or any(
+            any(slot in method for slot in ("data_module", "symbolic_state_loader")) or
+            input_requirements(context, method, paths=self._loader_paths()) for method in methods.values()
+        )):
+            data = {**data, "data_module": None}
         for kind, title in (("data_module", "Data Loaders"), ("evaluator", "Evaluators")):
             if kind not in data:
                 continue
@@ -3969,9 +4238,10 @@ class ConfigViewer(QWidget):
             box = ConfigBox()
             heading = _parameter_header(title, add=self._dict_parameter_adder(
                 (kind,), explicit if isinstance(explicit, dict) else {}, {"name": inherited_name, "params": {}}))
-            trash = _make_subtle_tool_button("trash", f"Remove {title.lower()} override", size=24, icon_size=14)
-            trash.clicked.connect(lambda _, k=kind: self.remove_block(k))
-            heading.addWidget(trash)
+            if kind != "data_module" or kind in self.raw_data:
+                trash = _make_subtle_tool_button("trash", f"Remove {title.lower()} override", size=24, icon_size=14)
+                trash.clicked.connect(lambda _, k=kind: self.remove_block(k))
+                heading.addWidget(trash)
             box.add_layout(heading)
             row = QHBoxLayout()
             combo = ComboBox()
@@ -4005,7 +4275,7 @@ class ConfigViewer(QWidget):
                 row.addWidget(customize)
             row.addStretch()
             component_form = ParameterForm()
-            component_form.addRow("Component", row)
+            component_form.addRow("Training default" if kind == "data_module" else "Component", row)
             box.add_layout(component_form)
             self.field_widgets[kind] = combo
 
@@ -4030,6 +4300,8 @@ class ConfigViewer(QWidget):
                         extra_form = QFormLayout()
                         self._render_generic_dict_contents(extra_form, extra, (kind,))
                         box.add_layout(extra_form)
+            if kind == "data_module":
+                self._render_loader_bindings(box, context, methods)
             self.boxes_layout.addWidget(box)
 
         if data.get("plots", resolved.get("plots")) is None and "plot_overrides" not in data:
@@ -4174,16 +4446,76 @@ class ConfigViewer(QWidget):
     def _add_experiment_description(self, box: ConfigBox, data: dict) -> None:
         """Render experiment description before its paradigm and environment."""
         form = ParameterForm()
-        self.txt_description = QLineEdit(str(data.get("description") or ""))
+        self.txt_description = ExpandingTextEdit(str(data.get("description") or ""))
         self.txt_description.textChanged.connect(
-            lambda v: self._on_field_edited("description", v.strip()) if v.strip()
+            lambda: self._on_field_edited("description", self.txt_description.toPlainText().strip())
+            if self.txt_description.toPlainText().strip()
             else (self.raw_data.pop("description", None), self._mark_dirty())
         )
         btn_del_desc = _make_subtle_tool_button("close", "Clear description", size=20, icon_size=12)
         btn_del_desc.clicked.connect(lambda: self.txt_description.setText(""))
-        form.addRow("Description", _parameter_row(self.txt_description, remove=btn_del_desc))
+        form.addRow("Description", _parameter_row(self.txt_description, remove=btn_del_desc, expand=True))
         self.field_widgets["description"] = self.txt_description
         box.add_layout(form)
+
+    @staticmethod
+    def _site_selection(data):
+        for entry in data.get("defaults") or []:
+            if isinstance(entry, dict):
+                for key in ("override /site", "/site", "site"):
+                    if key in entry:
+                        return entry[key]
+        value = data.get("site")
+        return value if isinstance(value, str) else None
+
+    def _set_experiment_site(self, value):
+        # Store a Hydra group selection, preserving unrelated defaults and overrides.
+        defaults = [entry for entry in self.raw_data.get("defaults", [])
+                    if not (isinstance(entry, dict) and any(key in entry for key in ("override /site", "/site", "site")))]
+        if isinstance(self.raw_data.get("site"), str):
+            self.raw_data.pop("site", None)
+        if value is not None:
+            defaults.append({"override /site": value})
+        if defaults: self.raw_data["defaults"] = defaults
+        else: self.raw_data.pop("defaults", None)
+        self._mark_dirty()
+        self._render_boxes()
+
+    def _add_experiment_site(self, box, data, resolved):
+        tree = config_tree()
+        inherited = self._site_selection(resolved) or "local"
+        selected = self._site_selection(data)
+        form = ParameterForm()
+        self.combo_site = ComboBox()
+        self.combo_site.setObjectName("experimentSiteSelector")
+        self.combo_site.addItem(f"{inherited} (default)", self.INHERIT)
+        choices = list(dict.fromkeys(["local", *(tree.sites if tree else ()), *([selected] if selected else [])]))
+        for name in choices: self.combo_site.addItem(name, name)
+        self.combo_site.setCurrentIndex(self.combo_site.findData(selected) if selected else 0)
+        self.combo_site.currentIndexChanged.connect(
+            lambda _: self._set_experiment_site(None if self.combo_site.currentData() == self.INHERIT else self.combo_site.currentData()))
+        self.field_widgets["site"] = self.combo_site
+        defaults = {"partition": None, "account": None, "qos": None, "cores": 4, "memory": "8G",
+                    "time": "01:00:00", "gpus": 0, "nodes": 1}
+        resources = data.get("resources") or {}
+        add = _make_param_adder_button("Add resource override", [key for key in defaults if key not in resources],
+            lambda key: self._add_site_resource(key, defaults[key]), parent_widget=self, allow_custom=False)
+        # Site always has a value; only an explicit selector override is removable.
+        remove = None
+        if selected:
+            remove = _make_subtle_tool_button("close", "Use inherited site", size=20, icon_size=12)
+            remove.clicked.connect(lambda: self._set_experiment_site(None))
+        form.addRow("Site", _parameter_row(self.combo_site, add=add, remove=remove))
+        if resources:
+            block = IndentedHierarchyBlock(level=1)
+            self._render_generic_dict_contents(block, resources, ("resources",), defaults=defaults)
+            form.addRow(block)
+        box.add_layout(form)
+
+    def _add_site_resource(self, key, value):
+        self.raw_data.setdefault("resources", {})[key] = value
+        self._mark_dirty()
+        self._render_boxes()
 
     def _add_experiment_separator(self, box: ConfigBox) -> None:
         divider = QFrame()
@@ -4195,11 +4527,8 @@ class ConfigViewer(QWidget):
         """Return whether the lower parameter area has anything visible."""
         if self._is_base_config():
             return True  # group defaults always expose runtime defaults below the divider
-        env_data = data.get("env") if isinstance(data.get("env"), dict) else {}
         trainer_data = data.get("trainer") if isinstance(data.get("trainer"), dict) else {}
-        if any(key in env_data for key in ("num_envs", "num_steps")) or any(
-            key in trainer_data for key in ("accelerator", "max_epochs")
-        ):
+        if any(key in trainer_data for key in ("accelerator", "max_epochs")):
             return True
         tree = config_tree()
         paradigm = data.get("paradigm") or self._inherited_paradigm()
@@ -4221,7 +4550,7 @@ class ConfigViewer(QWidget):
         standard_keys = lower_keys | {
             "defaults", "paradigm", "experiment_id", "description", "methods", "env",
             "site", "trainer", "resources", "dataset", "dataset_path", "hydra", "plots", "tensorboard",
-            "tuning", "sweeper",
+            "tuning", "sweeper", "sweep",
         }
         return any(key not in standard_keys and isinstance(value, (int, float, str, bool)) for key, value in data.items())
 
@@ -4231,15 +4560,19 @@ class ConfigViewer(QWidget):
         return self._dict_parameter_adder(("env",), values, {**defaults, "num_envs": defaults.get("num_envs", 4),
                                                                       "num_steps": defaults.get("num_steps", 128)})
 
-    def _add_experiment_context_fields(self, box: ConfigBox, data: dict, resolved: dict) -> None:
-        """Environment and trainer overrides share the recursive form contract."""
+    def _add_environment_parameters(self, form: QFormLayout, data: dict) -> None:
+        """Keep environment children in a spanning row directly below their selector."""
         env = data.get("env")
         if isinstance(env, dict):
             params = {key: value for key, value in env.items() if key not in ("name", "id", "type")}
             if params:
                 block = IndentedHierarchyBlock()
+                block.setProperty("parameterPath", "env")
                 self._render_generic_dict_contents(block, params, ("env",))
-                box.add_widget(block)
+                form.addRow(block)
+
+    def _add_experiment_trainer_fields(self, box: ConfigBox, data: dict, resolved: dict) -> None:
+        """Render trainer overrides in the experiment's lower parameter area."""
         trainer = data.get("trainer")
         if not isinstance(trainer, dict) and self._is_base_config():
             trainer = resolved.get("trainer", {})
@@ -4424,11 +4757,28 @@ class ConfigViewer(QWidget):
         return widget
 
     def _ruleset_domain_choices(self):
-        """Use the same effective environment as parameter actions and training."""
+        """Browse the complete runtime catalog, independent of the simulator."""
         tree = config_tree()
         if tree is None:
             return []
-        return tree.ruleset_names(self._parameter_context_config().get("env"))
+        return tree.ruleset_names()
+
+    def _ruleset_widget(self, value, write):
+        combo = HierarchicalComboBox()
+        combo.setMaximumWidth(TEXT_FIELD_WIDTH)
+        combo.addItem("", None)
+        for choice in self._ruleset_domain_choices():
+            combo.addItem(choice, choice)
+        index = combo.findData(value)
+        if index < 0 and value is not None:
+            # Preserve legacy bare names and unavailable resources until edited.
+            combo.insertItem(1, str(value), value)
+            index = 1
+        combo.setCurrentIndex(max(0, index))
+        combo.currentIndexChanged.connect(lambda i: write(combo.itemData(i)))
+        combo.currentTextChanged.connect(combo.setToolTip)
+        combo.setToolTip(combo.currentText())
+        return combo
 
     def _parameter_context_config(self):
         config = copy.deepcopy(self._get_resolved_defaults())
@@ -4512,7 +4862,7 @@ class ConfigViewer(QWidget):
             tree = config_tree()
             choices = tree.model_names if tree else []
         elif schema.get("x-theta-domain") == "ruleset":
-            choices = self._ruleset_domain_choices()
+            return self._ruleset_widget(value, write)
         if isinstance(choices, list) and choices:
             combo = ComboBox()
             combo.setMaximumWidth(TEXT_FIELD_WIDTH)
@@ -4574,6 +4924,26 @@ class ConfigViewer(QWidget):
 
     def _component_parameter_schema(self, path: tuple[str, ...]) -> dict[str, Any]:
         """Look up the active component's declared schema node for a YAML path."""
+        from src.app.core.data_loaders import LOADER_SLOTS, loader_metadata, loader_selection
+        prefix = 3 if path[:1] == ("methods",) and len(path) > 2 else 1
+        if len(path) > prefix and path[prefix - 1] in LOADER_SLOTS and path[prefix] == "params":
+            from src.app.pipeline.config import deep_merge, parse_methods_dict
+            context = deep_merge(self._get_resolved_defaults(), self.raw_data)
+            method = parse_methods_dict(context, paths=self._loader_paths()).get(path[1]) if prefix == 3 else None
+            selected, _ = loader_selection(context, path[prefix - 1], method, paths=self._loader_paths())
+            schema = loader_metadata(selected, paths=self._loader_paths()).get("parameter_schema", {})
+            for key in path[prefix + 1:]:
+                schema = schema.get("properties", {}).get(key, {})
+            return schema
+        if path[:1] == ("monitors",):
+            from src.app.monitoring.config import schema_for
+            from src.app.pipeline.config import deep_merge
+            from src.app.core.provider_catalog import get_catalog
+            from src.app.workspace import WorkspacePaths
+            tree = config_tree()
+            paths = WorkspacePaths.from_config_root(tree.config_root) if tree else WorkspacePaths.for_process()
+            effective = deep_merge(self._get_resolved_defaults(), self.raw_data)
+            return schema_for(path, effective, get_catalog(paths))
         if path[:2] == ("objective", "params"):
             from src.app.objectives.api import load_objective
             spec = self._effective_objective_spec(self.raw_data, self._get_resolved_defaults()) or {}
@@ -4614,15 +4984,16 @@ class ConfigViewer(QWidget):
         """
         leftovers = {
             k: v for k, v in self.raw_data.items()
-            if k not in FIXED_BOX_KEYS and k not in ("data_module", "evaluator", "plots", "plot_overrides")
+            if k not in FIXED_BOX_KEYS and k not in ("data_module", "symbolic_state_loader", "evaluator", "plots", "plot_overrides")
         }
         if isinstance(self.raw_data.get("tuning"), dict):
             # The sweep has its own card; don't render it again as a generic section.
             leftovers.pop("tuning", None)
         leftovers.pop("variability", None)
         leftovers.pop("objective", None)
+        leftovers.pop("monitors", None)  # settings live under their stream controls
         if isinstance(leftovers.get("telemetry"), dict):  # telemetry.metrics has its own box (Recorded Metrics)
-            rest = {k: v for k, v in leftovers["telemetry"].items() if k != "metrics"}
+            rest = {k: v for k, v in leftovers["telemetry"].items() if k not in ("metrics", "monitors")}
             if rest:
                 leftovers["telemetry"] = rest
             else:
@@ -4784,6 +5155,8 @@ class ConfigViewer(QWidget):
 
     def _render_generic_dict_contents(self, parent_layout, d: dict, path: tuple[str, ...], level: int = 1, defaults: dict | None = None):
         """One recursive renderer for component, experiment and plugin parameters."""
+        form = parent_layout.form_layout if isinstance(parent_layout, IndentedHierarchyBlock) else parent_layout
+        form.setProperty("parameterContext", json.dumps(path))
         for key, value in d.items():
             value_path = path + (key,)
             remove = self._parameter_remove(value_path)
@@ -4848,7 +5221,19 @@ class ConfigViewer(QWidget):
             tree = config_tree()
             choices = tree.model_names if tree else []
         elif isinstance(schema, dict) and schema.get("x-theta-domain") == "ruleset":
-            choices = self._ruleset_domain_choices()
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Parameter Value")
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(QLabel(f"Value for '{key}':"))
+            combo = self._ruleset_widget(schema.get("default"), lambda value: None)
+            layout.addWidget(combo)
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+            selected = combo.currentData() if dialog.exec() == QDialog.DialogCode.Accepted else schema.get("default")
+            dialog.deleteLater()
+            return selected
         if isinstance(choices, list) and choices:
             labels = [str(value) for value in choices]
             selected, ok = QInputDialog.getItem(self, "Parameter Value", f"Value for '{key}':", labels, 0, False)
@@ -4865,7 +5250,7 @@ class ConfigViewer(QWidget):
         for p in path[:-1]:
             if p not in cur or not isinstance(cur[p], dict):
                 previous = cur.get(p)
-                cur[p] = {"name": previous} if isinstance(previous, str) and p in ("env", "data_module", "evaluator") else {}
+                cur[p] = {"name": previous} if isinstance(previous, str) and p in ("env", "data_module", "symbolic_state_loader", "evaluator") else {}
             cur = cur[p]
         cur[path[-1]] = _parse_yaml_value(value) if isinstance(value, str) else value
         self._mark_dirty()
@@ -4946,8 +5331,10 @@ class ConfigViewer(QWidget):
     def _get_group_default_method(self) -> tuple[str | None, dict | None]:
         """Return (method_name, method_spec) for the default method declared in group's _base.yaml."""
         base_data = None
-        if self.current_path:
-            local_base = self.current_path.parent / "_base.yaml"
+        if self.current_path and self._group_name():
+            parts = Path(self.current_rel_path).parts
+            group_dir = self.current_path.parents[len(parts) - 3]
+            local_base = group_dir / "_base.yaml"
             if local_base.is_file():
                 try:
                     base_data = yaml.safe_load(local_base.read_text(encoding="utf-8")) or {}
@@ -5150,6 +5537,7 @@ class ConfigViewer(QWidget):
         method = methods.setdefault(method_name, {})
         method["enabled"] = bool(enabled)
         self._mark_dirty()
+        QTimer.singleShot(0, self._render_boxes)
 
     def _on_method_param_edited(self, method_name, param_key, value):
         if self._block_updates:
@@ -5593,6 +5981,7 @@ class ConfigViewer(QWidget):
                 child_candidates = list(dict.fromkeys([*child_defaults.keys(), *param_schema.get("properties", {}).keys()]))
                 child_candidates = [candidate for candidate in child_candidates if candidate not in child_values]
                 header = QHBoxLayout()
+                header.setProperty("parameterPinned", True)
                 header.addWidget(label(f"[{key}]", "muted"))
                 if child_candidates:
                     header.addWidget(_make_param_adder_button(
@@ -5675,7 +6064,10 @@ class ConfigViewer(QWidget):
         elif block_name == "checkpoint":
             self.raw_data.pop("checkpoint", None)
         elif block_name == "tuning":
-            self.raw_data.pop("tuning", None)
+            if self._get_resolved_defaults().get("tuning") is not None:
+                self.raw_data["tuning"] = None
+            else:
+                self.raw_data.pop("tuning", None)
         elif block_name == "variability":
             self.raw_data.pop("variability", None)
         elif block_name == "objective":
@@ -5702,11 +6094,24 @@ class ConfigViewer(QWidget):
                 telemetry.pop("metrics", None)
                 if not telemetry:
                     self.raw_data.pop("telemetry", None)
+        elif block_name == "monitors":
+            # The unified box owns standalone instances as well as stream choices.
+            if self._get_resolved_defaults().get("monitors"):
+                self.raw_data["monitors"] = None
+            else:
+                self.raw_data.pop("monitors", None)
+            telemetry = self.raw_data.setdefault("telemetry", {})
+            if _monitor_settings(self._get_resolved_defaults()) is not None:
+                telemetry["monitors"] = None  # mask inherited selections: absent box streams everything
+            else:
+                telemetry.pop("monitors", None)
+            if not telemetry:
+                self.raw_data.pop("telemetry", None)
         self._mark_dirty()
         self._render_boxes()
 
     def _add_sweep_toggle(self, row, method, target, value):
-        if not isinstance(self.raw_data.get("tuning"), dict):
+        if not isinstance(self._parameter_context_config().get("tuning"), dict):
             return
         dimensions = self.raw_data.get("methods", {}).get(method, {}).get("tune", {})
         dimension = dimensions.get(target) if isinstance(dimensions, dict) else None
@@ -5889,7 +6294,7 @@ class ConfigViewer(QWidget):
             if isinstance(dimension, dict):
                 if (method, target) in self._rendered_sweeps:
                     continue
-                if not isinstance(self.raw_data.get("tuning"), dict):
+                if not isinstance(self._parameter_context_config().get("tuning"), dict):
                     form.addRow("Sweep", label(f"{target}: {dimension}", "muted"))
                     continue
                 row = QHBoxLayout()
@@ -5931,7 +6336,45 @@ class ConfigViewer(QWidget):
             return
         self.raw_data.setdefault("tuning", {})["component"] = name
         self._mark_dirty()
-        self._render_boxes()
+        self._refresh_sweep_box()
+
+    def _refresh_sweep_box(self):
+        """Update dependent sweep controls without replacing unrelated editors."""
+        self._sweep_refresh_timer.stop()
+        if self._block_updates:
+            return
+        old = next((box for box in self.container.findChildren(ConfigBox)
+                    if box.property("configSection") == "sweep"), None)
+        if old is None:
+            self._render_boxes()
+            return
+        for controller in self._parameter_reorders:
+            if controller.host is old and controller.dragged is not None:
+                controller.finish(False)
+        position = self.scroll.verticalScrollBar().value()
+        index = self.boxes_layout.indexOf(old)
+        self._block_updates = True
+        self.setUpdatesEnabled(False)
+        try:
+            self._render_sweep_box(self.raw_data)
+            new = self.boxes_layout.itemAt(self.boxes_layout.count() - 1).widget()
+            self.boxes_layout.removeWidget(new)
+            self.boxes_layout.removeWidget(old)
+            self.boxes_layout.insertWidget(index, new)
+            new.show()
+            self._parameter_reorders = [c for c in self._parameter_reorders if c.host is not old]
+            old.hide()
+            old.setParent(None)
+            old.deleteLater()
+            self._cap_form_fields()
+            new.standardize_parameters()
+            self._setup_parameter_reordering(new)
+            self.container.layout().activate()
+            self.container.adjustSize()
+            self.scroll.verticalScrollBar().setValue(position)
+        finally:
+            self._block_updates = False
+            self.setUpdatesEnabled(True)
 
     def _on_tuner_option_edited(self, component, key, value):
         if self._block_updates:
@@ -5945,16 +6388,25 @@ class ConfigViewer(QWidget):
             return
         component_options[key] = value
         self._mark_dirty()
+        # Dependencies are declared by providers and may be bools/numbers/text,
+        # as well as selectors. Coalesce typing and spin-box changes.
+        from src.app.pipeline.tuners import get_tuner
+        try:
+            fields = get_tuner(name=component).settings()
+        except Exception:
+            fields = []
+        if any(key in field.get("when", {}) for field in fields):
+            self._sweep_refresh_timer.start(0)
 
     def _on_tuner_choice_edited(self, component, key, value):
         if self._block_updates:
             return
         self._on_tuner_option_edited(component, key, value)
-        self._render_boxes()
+        self._refresh_sweep_box()
 
     def _add_tuner_option(self, component, key, value):
         self._on_tuner_option_edited(component, key, value)
-        self._render_boxes()
+        self._refresh_sweep_box()
 
     def _remove_tuner_option(self, component, key):
         tuning = self.raw_data.get("tuning", {})
@@ -5962,7 +6414,7 @@ class ConfigViewer(QWidget):
         if component == "optuna":
             tuning.pop(key, None)  # also remove the legacy flat override
         self._mark_dirty()
-        self._render_boxes()
+        self._refresh_sweep_box()
 
     @staticmethod
     def _tuner_scalar_input(text):
@@ -5973,26 +6425,21 @@ class ConfigViewer(QWidget):
 
     def _render_sweep_box(self, data):
         resolved = self._get_resolved_defaults()
-        tuning = data.get("tuning") if isinstance(data.get("tuning"), dict) else resolved.get("tuning")
+        tuning = self._parameter_context_config().get("tuning")
         has_tuning = isinstance(tuning, dict)
         if not has_tuning and not isinstance(self._effective_objective_spec(data, resolved), dict):
             return
         tuning = tuning if has_tuning else {}
         box = ConfigBox("Hyperparameter Sweep", "Optimize each method independently")
+        box.setProperty("configSection", "sweep")
         box.setProperty("parameterColumns", 2)
         add = _make_param_adder_button("Add optional sweep parameter", [], lambda _: None, allow_custom=False)
         add.setObjectName("sweepAddOption")
         optional_menu = add.menu()
         header = _parameter_header("Hyperparameter Sweep", add=add)
-        if tuning.get("enabled") is False:
-            # Preserve old disabled configs without leaving an invisible run blocker.
-            enable = QPushButton("Enable sweep")
-            enable.setToolTip("This saved configuration has tuning disabled.")
-            enable.clicked.connect(lambda: (self._on_nested_edited("tuning", "enabled", True), self._render_boxes()))
-            header.addWidget(enable)
         remove = _make_subtle_tool_button("trash", "Remove hyperparameter sweep", size=24, icon_size=14)
         remove.clicked.connect(lambda: self.remove_block("tuning" if has_tuning else "objective"))
-        if (has_tuning and "tuning" in data) or (not has_tuning and "objective" in data):
+        if has_tuning or "objective" in data:
             header.addWidget(remove)
         box.add_layout(header)
         form = ParameterForm()
@@ -6126,6 +6573,230 @@ class ConfigViewer(QWidget):
                 button.setEnabled(not menu.isEmpty())
         self.boxes_layout.addWidget(box)
 
+    def _add_standalone_monitor(self, component):
+        """Adding a provider is explicit; discovery never installs it into a recipe."""
+        from src.app.pipeline.config import deep_merge
+        effective = deep_merge(self._get_resolved_defaults(), self.raw_data)
+        existing = effective.get("monitors") or {}
+        base = re.sub(r"[^A-Za-z0-9_-]", "_", component)
+        if not base or not base[0].isalpha():
+            base = "monitor_" + base
+        identity, suffix = base, 2
+        settings = _monitor_settings(effective) or {}
+        from src.app.telemetry.monitors import MonitorSelection
+        removed = MonitorSelection(settings.get("removed", []))
+        reusable = next((name for name, spec in existing.items() if isinstance(spec, dict)
+            and spec.get("component") == component and (
+                spec.get("enabled") is False or not removed.keeps(f"interp/{name}/"))), None)
+        if reusable:
+            identity = reusable
+        while identity in existing and identity != reusable and existing[identity] != {"enabled": False}:
+            identity = f"{base}_{suffix}"
+            suffix += 1
+        self.raw_data.setdefault("monitors", {})[identity] = {
+            "component": component, "target": "", **(existing.get(identity) or {}), "enabled": True,
+        }
+        if settings:
+            updated = copy.deepcopy(settings)
+            for key in ("disabled", "removed"):
+                if key in updated:
+                    updated[key] = list(MonitorSelection(updated[key]).with_toggled([f"interp/{identity}/"], True).disabled)
+            self.raw_data.setdefault("telemetry", {})["monitors"] = updated
+        self._mark_dirty()
+        QTimer.singleShot(0, self._render_boxes)
+
+    def _remove_standalone_monitor(self, identity):
+        """Delete owned instances; suppress inherited/model defaults explicitly."""
+        from src.app.pipeline.config import deep_merge
+        from src.app.telemetry.monitors import MonitorSelection
+        inherited = self._get_resolved_defaults()
+        effective = deep_merge(inherited, self.raw_data)
+        own = self.raw_data.setdefault("monitors", {})
+        if identity not in own or identity in (inherited.get("monitors") or {}):
+            own[identity] = {"enabled": False}
+        else:
+            own.pop(identity)
+        if not own:
+            self.raw_data.pop("monitors", None)
+        settings = _monitor_settings(effective)
+        if settings is not None:
+            updated = copy.deepcopy(settings)
+            for key in ("disabled", "removed"):
+                if key in updated:
+                    updated[key] = list(MonitorSelection(updated[key]).with_toggled([f"interp/{identity}/"], True).disabled)
+            self.raw_data.setdefault("telemetry", {})["monitors"] = updated
+        self._mark_dirty()
+        QTimer.singleShot(0, self._render_boxes)
+
+    def _render_monitors_box(self, data, resolved):
+        """Optional stream selection, with group controls and a preserved bypass."""
+        from src.app.pipeline.config import deep_merge
+        from src.app.telemetry.monitors import MonitorSelection, available_monitors, monitors_from_config
+        from src.app.telemetry.selection import selection_from_config
+        from src.app.core.provider_catalog import get_catalog
+        from src.app.workspace import WorkspacePaths
+
+        effective = deep_merge(resolved, data)
+        settings = _monitor_settings(effective)
+        if settings is None:
+            if effective.get("monitors") is None:
+                return
+            settings = {"enabled": True, "disabled": []}
+        effective.setdefault("group", self._group_name())
+        box = ConfigBox(section="monitors")
+        box.setProperty("parameterColumns", 2)
+        remove = _make_subtle_tool_button("trash", "Remove monitors and stream all metrics", size=24, icon_size=14)
+        remove.clicked.connect(lambda: self.remove_block("monitors"))
+        add = None
+        try:
+            tree = config_tree()
+            paths = WorkspacePaths.from_config_root(tree.config_root) if tree else WorkspacePaths.for_process()
+            catalog = get_catalog(paths)
+            components = sorted({cap.id for package in catalog.packages for cap in package.capabilities if cap.kind == "monitor"})
+            add = _make_param_adder_button("Add monitor", components,
+                self._add_standalone_monitor, allow_custom=False, parent_widget=self)
+            monitors_from_config(effective)  # validate even when the box is bypassed
+            selection = MonitorSelection(settings.get("disabled", []))
+            recorded = selection_from_config(effective)
+            discovery_errors = []
+            specs = available_monitors(effective, catalog=catalog, include_shared=False, errors=discovery_errors)
+        except (ValueError, TypeError, KeyError, OSError) as exc:
+            box.set_header("Monitors", add=add, remove=remove)
+            message = label(str(exc), "configError")
+            message.setWordWrap(True)
+            box.add_widget(message)
+            self.boxes_layout.addWidget(box)
+            return
+
+        def current_settings():
+            return deep_merge(settings, _monitor_settings(self.raw_data) or {})
+
+        def write(key, value):
+            if self._block_updates:
+                return
+            updated = copy.deepcopy(current_settings())
+            updated[key] = value
+            self.raw_data.setdefault("telemetry", {})["monitors"] = updated
+            self._mark_dirty()
+            QTimer.singleShot(0, self._render_boxes)
+
+        names = [spec.name for spec in specs]
+
+        def change(targets, checked):
+            updated = MonitorSelection(current_settings().get("disabled", [])).with_toggled(targets, checked, known=names)
+            write("disabled", list(updated.disabled))
+
+        def recordable(spec):
+            return recorded.keeps_section(spec.name) if spec.name.endswith("/") else recorded.keeps(spec.name)
+
+        enabled = ToggleSlider(checked=settings.get("enabled", True))
+        enabled.setAccessibleName("Use monitor selections")
+        enabled.setObjectName("monitorsEnabled")
+        enabled.toggled.connect(lambda checked: write("enabled", checked))
+        self.field_widgets["telemetry.monitors.enabled"] = enabled
+        removed = MonitorSelection(settings.get("removed", []))
+        configured = effective.get("monitors") or {}
+        groups = {}
+        for spec in specs:
+            group = "" if spec.source.startswith("Monitor · ") else spec.group
+            groups.setdefault((spec.source, group), []).append(spec)
+        for identity in configured:
+            if configured[identity] != {"enabled": False}:
+                groups.setdefault(("Monitor · " + identity, ""), [])
+        for (source, title), members in groups.items():
+            removed_names = [spec.name for spec in members if not removed.keeps(spec.name)]
+            namespace = f"interp/{source.removeprefix('Monitor · ')}/" if source.startswith("Monitor · ") else None
+            if removed_names or namespace and not removed.keeps(namespace):
+                action = add.menu().addAction("Restore " + (title or source))
+                def restore(items=members, prefix=namespace):
+                    updated = MonitorSelection(current_settings().get("removed", [])).with_toggled(
+                        [prefix] if prefix else [spec.name for spec in items], True, known=names)
+                    write("removed", list(updated.disabled))
+                action.triggered.connect(lambda _, callback=restore: callback())
+        add.setEnabled(enabled.isChecked() and not add.menu().isEmpty())
+        box.set_header("Monitors", leading=enabled, add=add, remove=remove)
+        body = box.add_parameter_body(enabled=enabled.isChecked())
+        if discovery_errors:
+            message = label("\n".join(discovery_errors), "configError")
+            message.setWordWrap(True)
+            body.layout().addWidget(message)
+        form = ParameterForm()
+        for (source, title), members in groups.items():
+            identity = source.removeprefix("Monitor · ") if source.startswith("Monitor · ") else None
+            instance = configured.get(identity) if identity else None
+            prefix = f"interp/{identity}/" if identity else None
+            members = [spec for spec in members if removed.keeps(spec.name)]
+            if not members and (instance is None or not removed.keeps(prefix)):
+                continue
+            group_toggle = ToggleSlider(checked=any(selection.keeps(spec.name) and recordable(spec) for spec in members)
+                                        if members else selection.keeps(prefix))
+            group_toggle.setProperty("monitorGroup", title or source)
+            group_toggle.setProperty("monitorGroupSource", source)
+            group_toggle.setAccessibleName("Stream " + (title or source))
+            group_toggle.setEnabled(not members or any(recordable(spec) for spec in members))
+            group_toggle.setToolTip(source)
+            group_toggle.toggled.connect(lambda checked, items=members, namespace=prefix:
+                change([spec.name for spec in items] or [namespace], checked))
+            children = IndentedHierarchyBlock()
+            group_key = (source, title)
+            expanded = getattr(self, "_monitor_group_expanded", {})
+            self._monitor_group_expanded = expanded
+            caption = _collapsible_parameter_label(title or source, children,
+                expanded=expanded.get(group_key, True),
+                on_toggled=lambda checked, key=group_key: expanded.__setitem__(key, checked))
+            delete = _make_subtle_tool_button("close", "Remove monitor set " + (title or source), size=20, icon_size=12)
+            if identity:
+                delete.clicked.connect(lambda _, name=identity: self._remove_standalone_monitor(name))
+            else:
+                delete.clicked.connect(lambda _, items=members: write("removed", list(dict.fromkeys([
+                    *current_settings().get("removed", []), *(spec.name for spec in items)]))))
+            form.addRow(caption, _parameter_row(group_toggle, remove=delete))
+            form.addRow(children)
+            if isinstance(instance, dict):
+                children.addRow(_parameter_header("Settings", heading=False,
+                    add=self._dict_parameter_adder(("monitors", identity), instance)))
+                settings_block = IndentedHierarchyBlock(level=2)
+                self._render_generic_dict_contents(settings_block, instance, ("monitors", identity), level=3)
+                children.addRow(settings_block)
+                if members:
+                    children.addRow(label("Streamed outputs", "muted"))
+            prefixes = {}
+            for spec in members:
+                parents = [name for name in prefixes if spec.name.startswith(name)]
+                target_form, level = (prefixes[max(parents, key=len)] if parents else (children.form_layout, 1))
+                toggle = ToggleSlider(checked=selection.keeps(spec.name) and recordable(spec))
+                toggle.setAccessibleName(spec.name)
+                parent_disabled = any(pattern != spec.name and (
+                    pattern == "*" or (pattern.endswith("/") and spec.name.startswith(pattern)))
+                    for pattern in selection.disabled)
+                toggle.setEnabled(not parent_disabled and recordable(spec))
+                toggle.setToolTip(spec.name + ("\n" + spec.description if spec.description else "")
+                                  + ("\nExcluded by Recorded Metrics." if not recordable(spec) else ""))
+                toggle.toggled.connect(lambda checked, name=spec.name: change([name], checked))
+                delete = None
+                if spec.name in settings.get("disabled", []):
+                    delete = _make_subtle_tool_button("close", "Remove exclusion for " + spec.name, size=20, icon_size=12)
+                    delete.clicked.connect(lambda _, name=spec.name: change([name], True))
+                target_form.addRow(spec.label, _parameter_row(toggle, remove=delete))
+                if spec.name.endswith("/") and any(other.name != spec.name and other.name.startswith(spec.name) for other in members):
+                    nested = IndentedHierarchyBlock(level=level + 1)
+                    target_form.addRow(nested)
+                    prefixes[spec.name] = (nested.form_layout, level + 1)
+                self.field_widgets["telemetry.monitors." + spec.name] = toggle
+        for name in selection.disabled:
+            if name not in names:
+                delete = _make_subtle_tool_button("close", "Remove exclusion for " + name, size=20, icon_size=12)
+                delete.clicked.connect(lambda _, key=name: change([key], True))
+                form.addRow("Saved exclusion", _parameter_row(label(name + " (unavailable)", "muted"), remove=delete))
+        for name in removed.disabled:
+            if name not in names and not any(name == f"interp/{identity}/" for identity in configured):
+                delete = _make_subtle_tool_button("close", "Restore " + name, size=20, icon_size=12)
+                delete.clicked.connect(lambda _, key=name: write("removed", list(
+                    MonitorSelection(current_settings().get("removed", [])).with_toggled([key], True, known=names).disabled)))
+                form.addRow("Removed monitor", _parameter_row(label(name + " (unavailable)", "muted"), remove=delete))
+        body.layout().addLayout(_two_column_parameter_layout(form))
+        self.boxes_layout.addWidget(box)
+
     def _render_metrics_box(self, data, resolved):
         """Keep the specialized metric picker, using shared parameter actions."""
         own = _recorded_metrics(data)
@@ -6215,6 +6886,10 @@ class ConfigViewer(QWidget):
             # Start from what the run records anyway: every section ticked, so nothing changes until unticked.
             telemetry = self.raw_data.setdefault("telemetry", {})
             telemetry["metrics"] = [f"{section}/" for section in METRIC_SECTIONS]
+        elif block_name == "monitor_components":
+            self.raw_data["monitors"] = {}
+        elif block_name == "monitors":
+            self.raw_data.setdefault("telemetry", {})["monitors"] = {"enabled": True, "disabled": []}
         self._mark_dirty()
         self._render_boxes()
 
@@ -6654,7 +7329,7 @@ class ConfigViewer(QWidget):
         Only _base.yaml: the pin belongs on the file that binds the paradigm,
         and experiments inherit it.
         """
-        if not self.current_path or self.current_path.name != "_base.yaml":
+        if not self._is_base_config():
             return
         paradigm = self.raw_data.get("paradigm")
         tree = config_tree()
@@ -6723,7 +7398,8 @@ class ConfigViewer(QWidget):
 
         # Hydra config-group selections (defaults in in/config/config.yaml)
         for group in ("paradigm", "env", "site"):
-            value = self._get_explicit_env() if group == "env" else data.get(group)
+            value = (self._get_explicit_env() if group == "env" else
+                     self._site_selection(data) if group == "site" else data.get(group))
             if isinstance(value, str) and value and value != self.INHERIT:
                 overrides.append(f"{group}={value}")
 

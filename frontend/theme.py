@@ -134,8 +134,9 @@ QLabel#cardTitle { font-size: 16px; font-weight: 600; }
 QLabel#eyebrow { color: #83a598; font-size: 10px; font-weight: 700; }
 QLabel#badge { background: #3c3836; color: #fabd2f; border-radius: 4px; padding: 5px 9px; }
 QLabel#value { color: #b8bb26; font-size: 25px; font-weight: 600; }
-QFrame#card { background: #32302f; border: 1px solid #504945; border-radius: 5px; }
-QFrame#card QLabel { background: transparent; }
+QFrame#card, QFrame[configBox="true"] { background: #32302f; border: 1px solid #504945; border-radius: 5px; }
+QFrame#card QLabel, QFrame[configBox="true"] QLabel { background: transparent; }
+QWidget[configBoxBody="true"] { background: transparent; }
 QPushButton, QToolButton { background: #3c3836; border: 1px solid #504945; border-radius: 4px; padding: 7px 12px; }
 QPushButton:hover, QToolButton:hover { background: #504945; border-color: #a89984; }
 QPushButton:checked { background: #504945; color: #fabd2f; border-color: #fabd2f; font-weight: 600; }
@@ -163,6 +164,8 @@ QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url("@ARROW_DOWN@"); w
 QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off, QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:off { image: url("@ARROW_UP_OFF@"); }
 QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off, QDoubleSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:off { image: url("@ARROW_DOWN_OFF@"); }
 QPlainTextEdit, QTextEdit { background: #1d2021; border: 0; padding: 10px; selection-background-color: #504945; font-family: Menlo, Monaco, 'Cascadia Code', 'Consolas', monospace; font-size: 12px; }
+QTextEdit[parameterText="true"] { background: #1d2021; border: 1px solid #504945; border-radius: 3px; padding: 6px; min-height: 18px; selection-background-color: #665c54; font-family: ".AppleSystemUIFont", "Segoe UI", system-ui, sans-serif; }
+QTextEdit[parameterText="true"]:focus { border-color: #d79921; }
 QTreeWidget, QTableWidget { background: #282828; alternate-background-color: #32302f; border: 0; outline: 0; }
 QTreeWidget::item { padding: 6px 2px; }
 QTreeWidget::item:selected, QTableWidget::item:selected { background: #504945; color: #fabd2f; }

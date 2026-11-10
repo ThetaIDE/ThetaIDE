@@ -30,6 +30,17 @@ _GROUPS = ("paradigms", "env", "agent", "model", "site")
 COMPONENT_ID_KEYS = ("name", "algorithm", "type", "algo", "architecture", "base")
 
 
+def is_group_defaults_path(rel_path: str | Path) -> bool:
+    """Only a base directly inside an experiment group defines group defaults."""
+    path = Path(rel_path)
+    return (
+        len(path.parts) == 3
+        and path.parts[0] in ("experiment", "experiments")
+        and path.stem == "_base"
+        and path.suffix in (".yaml", ".yml")
+    )
+
+
 def component_selection(value: Any) -> tuple[str | None, dict[str, Any]]:
     """Read scalar, named, and component-keyed method selections consistently."""
     if isinstance(value, str):
@@ -458,7 +469,8 @@ class ConfigTree:
             if e.stem not in self.environments:
                 self.environments[e.stem] = env_obj
 
-        self.sites = tuple(s.stem for s in _yaml_files(self.config_root / "site"))
+        from src.app.sites import profiles
+        self.sites = tuple(profiles(WorkspacePaths.from_config_root(self.config_root)))
         self.component_parameter_schemas: dict[str, dict[str, Any]] = {}
 
         self._discover_plugin_manifests()

@@ -154,6 +154,23 @@ class ConfigTabManager(QTabWidget):
             if viewer.current_path or viewer.raw_data:
                 viewer._render_boxes()
 
+    def reload_open_files(self) -> None:
+        """Reload clean tabs on explicit refresh, retaining unsaved form edits."""
+        from .config_viewer import invalidate_config_tree
+        invalidate_config_tree()
+        viewers = [self.widget(i) for i in range(self.count())] + [self._fallback_viewer]
+        for viewer in viewers:
+            if not isinstance(viewer, ConfigViewer) or not (viewer.current_path or viewer.raw_data):
+                continue
+            viewer.reload_data(force_tree_refresh=False)
+            if not viewer.is_dirty and viewer.current_path and viewer.current_path.is_file():
+                try:
+                    self._disk_contents[str(viewer.current_path)] = viewer.current_path.read_bytes()
+                except OSError:
+                    pass
+        self._sync_file_watches()
+        self.config_changed.emit()
+
     def _sync_file_watches(self):
         viewers = [self.widget(i) for i in range(self.count())]
         files = {str(v.current_path) for v in viewers if isinstance(v, ConfigViewer) and v.current_path}

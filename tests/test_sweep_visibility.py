@@ -90,7 +90,7 @@ def test_card_order_survives_hidden_cards_and_restart(tmp_path):
         restarted.close()
 
 
-def test_legacy_disabled_sweep_and_resume_requirements_remain_actionable(tmp_path):
+def test_legacy_enabled_flag_does_not_offer_a_separate_activation_control(tmp_path):
     from PyQt6.QtWidgets import QPushButton
 
     path = tmp_path / "experiment.yaml"
@@ -99,9 +99,6 @@ def test_legacy_disabled_sweep_and_resume_requirements_remain_actionable(tmp_pat
     viewer.load_file(path, "experiment/group/experiment.yaml")
     try:
         assert viewer.findChild(QLineEdit, "sweep_study_name") is not None
-        enable = next(button for button in viewer.findChildren(QPushButton) if button.text() == "Enable sweep")
-        enable.click()
-        assert viewer.raw_data["tuning"]["enabled"] is True
         assert not any(button.text() == "Enable sweep" for button in viewer.findChildren(QPushButton))
     finally:
         viewer.close()

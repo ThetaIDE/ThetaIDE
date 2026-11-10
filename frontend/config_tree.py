@@ -34,6 +34,7 @@ from .config_model import (
     deletion_blocked_reason,
     experiment_yaml,
     group_base_yaml,
+    is_group_defaults_path,
     rename_experiment_text,
     unique_method_name,
 )
@@ -336,6 +337,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     duplicate_requested = pyqtSignal(str)     # (rel_path)
     new_in_group_requested = pyqtSignal()
     save_requested = pyqtSignal()
+    refresh_requested = pyqtSignal()
 
     def __init__(self, root_dir=None, parent=None, mode="all", settings_manager=None):
         super().__init__(parent)
@@ -380,7 +382,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         self.btn_refresh = self._tool_button("reload", button_id="reload")
         self.btn_refresh.setToolTip("Reload configuration files from disk")
-        self.btn_refresh.clicked.connect(self.populate)
+        self.btn_refresh.clicked.connect(self.refresh)
 
         self.btn_collapse = self._tool_button("collapse_all", button_id="collapse_all")
         self.btn_collapse.setToolTip("Collapse all folders in the tree")
@@ -706,6 +708,9 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                         grp_dir.mkdir(parents=True, exist_ok=True)
                     except OSError:
                         pass
+                if grp == 'site':
+                    self._add_site_components(system_node, expanded_paths)
+                    continue
                 if grp_dir.is_dir():
                     self._add_dir_node(
                         system_node,
@@ -825,7 +830,10 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         node = QTreeWidgetItem(parent_widget, [display_name])
 
         if is_group is None:
-            is_group = bool(self.mode in ("experiments", "experiment") and (dir_path.parent == self.root_dir or dir_path.parent.name in ("experiment", "experiments")))
+            config_parts = Path(self._config_relative_path(dir_path)).parts
+            is_group = bool(self.mode in ("experiments", "experiment")
+                            and len(config_parts) == 2
+                            and config_parts[0] in ("experiment", "experiments"))
 
         # Semantic icon based on directory category / purpose
         icon_name = CATEGORY_ICONS.get(name) or CATEGORY_ICONS.get(rel_path)
@@ -849,12 +857,12 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         })
         node.setToolTip(0, rel_path)
 
-        # Subdirectories and files: pin group defaults (_base.yaml) to top above subdirs and other files
+        # Only the group's own defaults are pinned above its folders and files.
         subdirs = sorted([p for p in dir_path.iterdir() if p.is_dir() and not p.name.startswith(".")])
         files = sorted([p for p in dir_path.iterdir() if p.is_file() and p.suffix in (".yaml", ".yml")])
 
-        base_files = [p for p in files if p.stem == "_base"]
-        other_files = [p for p in files if p.stem != "_base"]
+        base_files = [p for p in files if is_group_defaults_path(self._config_relative_path(p))]
+        other_files = [p for p in files if p not in base_files]
 
         for f in base_files:
             self._add_file_node(node, f)
@@ -877,14 +885,46 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         return node
 
+    def _add_site_components(self, parent, expanded=()):
+        from src.app.sites.catalog import all_profiles, normalize
+        from src.app.workspace import WorkspacePaths
+        paths = WorkspacePaths(self.root_dir.parent.parent)
+        available = all_profiles(paths)
+        heading = QTreeWidgetItem(parent, ['Sites'])
+        heading.setData(0, Qt.ItemDataRole.UserRole, {'type': 'dir', 'path': str(self.root_dir / 'site'), 'rel_path': 'site', 'is_group': True})
+        heading.setExpanded('site' in expanded)
+        groups = {}
+        for selector, path in available.items():
+            if normalize(selector, available) != selector: continue
+            component = selector.split('/')[0]
+            if component not in groups:
+                node = QTreeWidgetItem(heading, [component])
+                node.setData(0, Qt.ItemDataRole.UserRole, {'type': 'dir', 'path': str(paths.root / 'src/usr/sites' / component), 'rel_path': 'site/' + component, 'is_group': True})
+                node.setExpanded('site/' + component in expanded)
+                groups[component] = node
+            self._add_file_node(groups[component], path, custom_display_name='Defaults' if Path(selector).name == '_defaults' else Path(selector).name)
+
+    def _config_relative_path(self, path: Path) -> str:
+        try:
+            rel_path = path.relative_to(self.root_dir).as_posix()
+        except ValueError:
+            from src.app.sites.catalog import all_profiles
+            from src.app.workspace import WorkspacePaths
+            for selector, candidate in all_profiles(WorkspacePaths(self.root_dir.parent.parent)).items():
+                if candidate == path: return 'site/' + selector + '.yaml'
+            raise
+        if self.root_dir.name in ("experiment", "experiments"):
+            return f"{self.root_dir.name}/{rel_path}"
+        return rel_path
+
     def _add_file_node(self, parent_node, file_path: Path, custom_display_name: str | None = None, is_global_config: bool = False):
         if self.mode == "components":
             if file_path.resolve() in getattr(self, "_hidden_component_paths", set()):
                 return
         name = file_path.name
-        rel_path = file_path.relative_to(self.root_dir).as_posix()
+        rel_path = self._config_relative_path(file_path)
         is_exp = rel_path.startswith("experiment/") and not name.startswith("_")
-        is_base = file_path.stem == "_base"
+        is_base = is_group_defaults_path(self._config_relative_path(file_path))
 
         display_name = custom_display_name or name
         if not custom_display_name:
@@ -2164,5 +2204,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 self.populate()
 
     def refresh(self):
-        """Alias for populate() to ensure compatibility."""
+        """Refresh disk-backed choices and notify the open editors as well."""
+        from .config_viewer import invalidate_config_tree
+        invalidate_config_tree()
         self.populate()
+        self.refresh_requested.emit()

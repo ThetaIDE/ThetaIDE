@@ -5,9 +5,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import yaml
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QLabel
 
 app = QApplication.instance() or QApplication(sys.argv[:1])
@@ -41,6 +45,50 @@ class TestFolderCRUD(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(rel, "experiment/cartpole/ablations")
         self.assertTrue((self.group / "ablations").is_dir())
+        self.assertFalse((self.group / "ablations" / "_base.yaml").exists())
+
+    def test_nested_bases_are_templates_not_group_defaults(self):
+        nested = self.group / "experiment" / "ablations"
+        nested.mkdir(parents=True)
+        (nested / "_base.yaml").write_text("seed: 99\n", encoding="utf-8")
+
+        for root in (self.root, self.exp_root):
+            with self.subTest(root=root):
+                widget = ConfigTreeWidget(root_dir=root, mode="experiments")
+                group = widget.tree.topLevelItem(0)
+                self.assertEqual(group.child(0).text(0), "group defaults")
+                folder = group.child(1)
+                nested_folder = folder.child(0)
+                self.assertFalse(folder.data(0, Qt.ItemDataRole.UserRole)["is_group"])
+                self.assertFalse(nested_folder.data(0, Qt.ItemDataRole.UserRole)["is_group"])
+                template = nested_folder.child(0)
+                self.assertEqual(template.text(0), "_base")
+                self.assertFalse(template.data(0, Qt.ItemDataRole.UserRole)["is_base"])
+                widget.close()
+
+    def test_nested_experiments_use_top_level_group_default_method(self):
+        from frontend.config_viewer import ConfigViewer
+
+        self.base.write_text("paradigm: online_rl\nmethods:\n  group_method:\n    model: dnn\n", encoding="utf-8")
+        nested = self.group / "ablations" / "deep"
+        nested.mkdir(parents=True)
+        local_base = nested / "_base.yaml"
+        local_base.write_text("methods:\n  folder_method:\n    model: cnn\n", encoding="utf-8")
+        exp = nested / "trial.yaml"
+        exp.write_text("experiment_id: trial\n", encoding="utf-8")
+
+        viewer = ConfigViewer()
+        with patch("frontend.config_viewer.config_tree", return_value=ConfigTree(self.root)):
+            viewer.load_file(exp, "experiment/cartpole/ablations/deep/trial.yaml")
+            self.assertEqual(viewer._get_group_default_method(), ("group_method", {"model": "dnn"}))
+            name = viewer.add_method(name="trial_method")
+            self.assertEqual(name, "trial_method")
+            viewer.save_to_disk()
+            self.assertEqual(yaml.safe_load(exp.read_text())["methods"][name], {"model": "dnn"})
+            viewer.load_file(local_base, "experiment/cartpole/ablations/deep/_base.yaml")
+            self.assertFalse(viewer._is_base_config())
+            self.assertEqual(viewer.file_title.text(), "_base")
+        viewer.close()
 
     def test_create_subfolder_rejects_empty_or_invalid(self):
         rel, err = self.widget.create_dir("experiment/cartpole", "")
@@ -249,7 +297,14 @@ class TestFolderCRUD(unittest.TestCase):
             encoding="utf-8"
         )
         viewer = ConfigViewer()
-        viewer.load_file(base_file, "experiment/cartpole/_base.yaml")
+        env_dir = self.root / "env"
+        env_dir.mkdir()
+        (env_dir / "cartpole.yaml").write_text(
+            "compatible_paradigms: [online_rl]\nenv_id: CartPole-v1\n", encoding="utf-8"
+        )
+        tree = ConfigTree(self.root)
+        with patch("frontend.config_viewer.config_tree", return_value=tree):
+            viewer.load_file(base_file, "experiment/cartpole/_base.yaml")
 
         self.assertEqual(viewer.file_title.text(), "Group Defaults")
         self.assertEqual(viewer.group_badge.text(), "cartpole")
@@ -264,7 +319,8 @@ class TestFolderCRUD(unittest.TestCase):
         self.assertEqual(viewer.combo_env.currentText(), "cartpole")
 
         # Saving does not strip paradigm or defaults
-        viewer.save_to_disk()
+        with patch("frontend.config_viewer.config_tree", return_value=tree):
+            viewer.save_to_disk()
         saved = (self.root / "experiment" / "cartpole" / "_base.yaml").read_text(encoding="utf-8")
         self.assertIn("paradigm: online_rl", saved)
         self.assertIn("override /env: cartpole", saved)

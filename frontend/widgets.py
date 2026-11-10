@@ -1,10 +1,11 @@
+import math
 import re
 from PyQt6.QtCore import Qt, QRectF, QSize, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QSyntaxHighlighter, QTextCharFormat
+from PyQt6.QtGui import QColor, QPainter, QPen, QSyntaxHighlighter, QTextCharFormat, QTextOption
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QAbstractButton,
     QComboBox, QDoubleSpinBox, QSpinBox, QTableWidgetItem, QScrollArea,
-    QToolButton, QMenu, QInputDialog, QAbstractSpinBox,
+    QToolButton, QMenu, QInputDialog, QAbstractSpinBox, QTextEdit, QSizePolicy,
 )
 from .theme import theme_color
 from .charts.chart import Chart, format_tick, nice_step  # noqa: F401  (moved; re-exported)
@@ -40,6 +41,80 @@ class DoubleSpinBox(_WheelNeedsFocus, QDoubleSpinBox):
 
 class ComboBox(_WheelNeedsFocus, QComboBox):
     pass
+
+
+class ExpandingTextEdit(QTextEdit):
+    """Plain text form editor that grows with wrapped lines instead of scrolling."""
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self._adjusting_height = False
+        self.setProperty("parameterText", True)
+        self.setAcceptRichText(False)
+        self.setTabChangesFocus(True)
+        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.document().setDocumentMargin(2)
+        self.document().documentLayout().documentSizeChanged.connect(self._adjust_height)
+        self.setPlainText(text)
+        self._adjust_height()
+
+    def _adjust_height(self, *_):
+        if self._adjusting_height:
+            return
+        self._adjusting_height = True
+        try:
+            content = self.document().documentLayout().documentSize().height()
+            chrome = self.height() - self.viewport().height()
+            height = math.ceil(max(content, self.fontMetrics().lineSpacing()) + chrome)
+            if self.height() != height:
+                self.setFixedHeight(height)
+        finally:
+            self._adjusting_height = False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._adjust_height()
+
+
+class HierarchicalComboBox(ComboBox):
+    """Keep full path values while browsing slash-separated items in submenus."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.popup_menu = QMenu(self)
+
+    def _populate_menu(self):
+        self.popup_menu.clear()
+        folders = {(): self.popup_menu}
+        for index in range(self.count()):
+            parts = self.itemText(index).split("/")
+            parent = ()
+            for part in parts[:-1]:
+                path = (*parent, part)
+                if path not in folders:
+                    folders[path] = folders[parent].addMenu(part)
+                parent = path
+            action = folders[parent].addAction(parts[-1] or "(none)")
+            action.setData(self.itemData(index))
+            action.setCheckable(True)
+            action.setChecked(index == self.currentIndex())
+            action.triggered.connect(lambda _checked=False, i=index: self.setCurrentIndex(i))
+
+    def showPopup(self):
+        self._populate_menu()
+        try:
+            self.popup_menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+        finally:
+            # Reset QComboBox's popup state after closing the custom menu.
+            super().hidePopup()
+
+    def hidePopup(self):
+        self.popup_menu.close()
+        super().hidePopup()
 
 
 class SmoothScrollArea(QScrollArea):

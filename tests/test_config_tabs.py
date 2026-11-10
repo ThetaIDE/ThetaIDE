@@ -61,6 +61,36 @@ class TestConfigTabManager(unittest.TestCase):
         self.assertEqual(v.raw_data["seed"], 99)
         self.assertTrue(v.is_dirty)
 
+    def test_refresh_button_reloads_all_open_forms_and_removes_deleted_sweep(self):
+        from frontend.config_tree import ConfigTreeWidget
+        from frontend.config_viewer import ConfigBox
+        self.f1.write_text("methods: {BlendRL: {agent: ppo, model: dnn}}\ntuning: {enabled: false}\n")
+        v1 = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)
+        v2 = self.mgr.open_file(self.f2, "experiment/demo/exp2.yaml", pinned=True)
+        self.mgr._poll_timer.stop()  # Exercise the button without relying on watchers.
+        tree = ConfigTreeWidget(root_dir=self.root, mode="experiments")
+        self.addCleanup(tree.close)
+        tree.refresh_requested.connect(self.mgr.reload_open_files)
+        self.f1.write_text("methods: {BlendRL: {agent: ppo, model: blendrl}}\n")
+        self.f2.write_text("seed: 123\n")
+        tree.btn_refresh.click()
+        self.assertEqual(v1.raw_data["methods"]["BlendRL"]["model"], "blendrl")
+        self.assertNotIn("tuning", v1.raw_data)
+        self.assertFalse(any(box.property("configSection") == "sweep" for box in v1.findChildren(ConfigBox)))
+        self.assertEqual(v2.raw_data["seed"], 123)
+        self.assertEqual(self.mgr._disk_contents[str(self.f1)], self.f1.read_bytes())
+
+    def test_manual_refresh_preserves_unsaved_form_and_disk_changes(self):
+        self.mgr.auto_save = False
+        v = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)
+        v.raw_data["seed"] = 99
+        v.is_dirty = True
+        self.f1.write_text("seed: 123\n")
+        self.mgr.reload_open_files()
+        self.assertEqual(v.raw_data["seed"], 99)
+        self.assertTrue(v.is_dirty)
+        self.assertEqual(self.f1.read_text(), "seed: 123\n")
+
     def test_clean_preview_tab_is_reused_on_next_single_click(self):
         v1 = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=False)
         self.assertEqual(self.mgr.count(), 1)
