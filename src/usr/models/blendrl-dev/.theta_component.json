@@ -25,7 +25,8 @@
       "neumann"
     ],
     "pip": [
-      "captum"
+      "captum",
+      "lark"
     ]
   },
   "config_path": "in/config/model/blendrl-dev.yaml",
