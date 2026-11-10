@@ -1,0 +1,369 @@
+{
+  "id": "blendrl-dev",
+  "name": "BlendRL Neural-Symbolic Policy (dev)",
+  "kind": "model",
+  "version": "0.1.0",
+  "description": "Modular actor-critic architecture combining neural networks and symbolic reasoners with adaptive blending.",
+  "author": {
+    "name": "NeSyRL Contributors",
+    "github": "CameronEgb"
+  },
+  "repository": "https://github.com/CameronEgb/Offline-BlendRL",
+  "license": "MIT",
+  "tags": [
+    "blendrl",
+    "hybrid",
+    "neural-symbolic",
+    "nsfr",
+    "logic",
+    "rl"
+  ],
+  "dependencies": {
+    "components": [
+      "dnn",
+      "nsfr",
+      "neumann"
+    ],
+    "pip": [
+      "captum"
+    ]
+  },
+  "config_path": "in/config/model/blendrl-dev.yaml",
+  "config_paths": [
+    "in/config/model/blendrl-dev.yaml",
+    "in/config/plot/blendrl-dev/blend_routing.yaml",
+    "in/config/data/blendrl-dev/symbolic_state.yaml",
+    "in/config/data/blendrl-dev/cartpole_state.yaml"
+  ],
+  "compatibility": {
+    "theta": ">=2.0.0"
+  },
+  "parameter_schema": {
+    "type": "object",
+    "properties": {
+      "actor_mode": {
+        "type": "string",
+        "enum": [
+          "hybrid",
+          "logic",
+          "neural"
+        ]
+      },
+      "blender": {
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "neural",
+              "symbolic"
+            ],
+            "x-theta-hide-label": true
+          },
+          "model": {
+            "type": "object",
+            "x-theta-domain": "model",
+            "description": "Model used to produce blender weights."
+          }
+        }
+      },
+      "blend_function": {
+        "type": "string",
+        "enum": [
+          "softmax",
+          "gumbel_softmax"
+        ],
+        "description": "Blending function. SB3 currently requires softmax."
+      },
+      "blend_q_values": {
+        "type": "boolean"
+      },
+      "blend_ent_coef": {
+        "type": "number",
+        "description": "Blend entropy coefficient. SB3 currently requires zero or null."
+      },
+      "logic_lr": {
+        "type": "number",
+        "description": "Logic optimizer learning rate; null inherits the agent learning rate."
+      },
+      "blender_lr": {
+        "type": "number",
+        "description": "Blender optimizer learning rate; null inherits the agent learning rate."
+      },
+      "neural": {
+        "type": "string",
+        "x-theta-domain": "model",
+        "description": "Neural policy and critic module."
+      },
+      "symbolic": {
+        "type": "string",
+        "x-theta-domain": "model",
+        "description": "Symbolic reasoning module."
+      },
+      "monitoring_interval": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "SB3 environment steps between routing summaries; 0 disables."
+      },
+      "monitoring_max_samples": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Maximum recent observations to save for routing plots; 0 disables."
+      },
+      "logic_confidence_floor": {
+        "type": [
+          "number",
+          "null"
+        ],
+        "minimum": 0,
+        "exclusiveMaximum": 1,
+        "description": "Truth scores at or below this floor abstain; stronger evidence blends with the default action distribution. Null preserves legacy normalization for historical checkpoints."
+      }
+    },
+    "x-theta-config-schemas": {
+      "in/config/plot/blendrl-dev/blend_routing.yaml": {
+        "type": "object",
+        "properties": {
+          "output_subdir": {
+            "type": "string"
+          },
+          "figsize": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "dpi": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "smoothing_window": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "x_axis": {
+            "type": "string"
+          },
+          "authority_threshold": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 1
+          },
+          "tsne": {
+            "type": "boolean"
+          }
+        }
+      },
+      "in/config/data/blendrl-dev/symbolic_state.yaml": {
+        "type": "object",
+        "properties": {
+          "object_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": 1
+          },
+          "feature_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": null
+          },
+          "builder": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "additionalProperties": false
+      },
+      "in/config/data/blendrl-dev/cartpole_state.yaml": {
+        "type": "object",
+        "properties": {
+          "object_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": 1
+          },
+          "feature_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": null
+          },
+          "builder": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "blendrl-dev",
+      "kind": "model",
+      "entry_point": "agents/blender_agent.py:BlenderActorCritic",
+      "aliases": [],
+      "monitoring": {
+        "provides": [],
+        "catalog": "monitor_catalog.py:describe"
+      },
+      "monitor_defaults": {
+        "blend_reliance": {
+          "component": "blendrl-dev/reliance",
+          "enabled": false
+        }
+      },
+      "monitoring_access": [
+        "blendrl.expert_interventions.v1"
+      ],
+      "input_requirements": [
+        {
+          "slot": "symbolic_state_loader",
+          "contract": "symbolic_state/v1",
+          "when": {
+            "actor_mode": [
+              "hybrid",
+              "logic"
+            ]
+          }
+        },
+        {
+          "slot": "symbolic_state_loader",
+          "contract": "symbolic_state/v1",
+          "when": {
+            "blender.mode": [
+              "symbolic",
+              "logic"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "blendrl-dev/blend_routing",
+      "kind": "plotter",
+      "entry_point": "plot/blendrl/routing.py:BlendRoutingPlotter",
+      "aliases": []
+    },
+    {
+      "id": "blendrl-dev/reliance",
+      "kind": "monitor",
+      "entry_point": "reliance_monitor.py:BlendReliance",
+      "requires": [
+        "probe_forward.v1",
+        "post_update.v1",
+        "module_interventions.v1",
+        "blendrl.expert_interventions.v1",
+        "policy_probabilities.v1"
+      ],
+      "monitoring": {
+        "catalog": "reliance_catalog.py:describe"
+      },
+      "parameter_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reference_action": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "blendrl-dev_symbolic_state",
+      "kind": "datamodule",
+      "role": "symbolic_state",
+      "entry_point": "symbolic_state.py:SymbolicStateLoader",
+      "output_contracts": [
+        "symbolic_state/v1"
+      ],
+      "paradigms": [
+        "online_rl",
+        "offline_rl"
+      ],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "object_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": 1
+          },
+          "feature_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "default": null
+          },
+          "builder": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "monitoring.py",
+      "__init__.py",
+      "agents/blender_agent.py",
+      "agents/__init__.py",
+      "plot/blendrl/__init__.py",
+      "plot/blendrl/routing.py",
+      "monitor_catalog.py",
+      "reliance_monitor.py",
+      "reliance_catalog.py",
+      "symbolic_state.py"
+    ],
+    "resources": [],
+    "configs": {
+      "in/config/model/blendrl-dev.yaml": "configs/model/blendrl-dev.yaml",
+      "in/config/plot/blendrl-dev/blend_routing.yaml": "configs/plot/blendrl-dev/blend_routing.yaml",
+      "in/config/data/blendrl-dev/symbolic_state.yaml": "configs/data/blendrl-dev/symbolic_state.yaml",
+      "in/config/data/blendrl-dev/cartpole_state.yaml": "configs/data/blendrl-dev/cartpole_state.yaml"
+    }
+  },
+  "origin": "user",
+  "parent": {
+    "id": "blendrl",
+    "version": "1.2.1",
+    "origin": "hub"
+  }
+}

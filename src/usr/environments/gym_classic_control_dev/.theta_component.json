@@ -1,0 +1,201 @@
+{
+  "id": "gym_classic_control_dev",
+  "name": "Gymnasium Classic Control (dev)",
+  "kind": "env",
+  "version": "0.1.0",
+  "description": "Standard Gymnasium classic control environments: CartPole, MountainCar, Pendulum, and Acrobot.",
+  "author": {
+    "name": "Theta-IDE Team"
+  },
+  "config_path": "in/config/env/gym_classic_control_dev/acrobot.yaml",
+  "config_paths": [
+    "in/config/env/gym_classic_control_dev/acrobot.yaml",
+    "in/config/env/gym_classic_control_dev/cartpole.yaml",
+    "in/config/env/gym_classic_control_dev/mountaincar.yaml",
+    "in/config/env/gym_classic_control_dev/pendulum.yaml"
+  ],
+  "compatibility": {
+    "theta": ">=2.0.0"
+  },
+  "parameter_schema": {
+    "type": "object",
+    "properties": {},
+    "x-theta-config-schemas": {
+      "in/config/env/gym_classic_control_dev/mountaincar.yaml": {
+        "type": "object",
+        "properties": {
+          "monitor_metric": {
+            "type": "string"
+          },
+          "preprocess_on_load": {
+            "type": "boolean"
+          },
+          "env_id": {
+            "type": "string"
+          },
+          "num_envs": {
+            "type": "integer"
+          },
+          "num_steps": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "gae_lambda": {
+            "type": "number"
+          },
+          "default_plots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "in/config/env/gym_classic_control_dev/pendulum.yaml": {
+        "type": "object",
+        "properties": {
+          "monitor_metric": {
+            "type": "string"
+          },
+          "preprocess_on_load": {
+            "type": "boolean"
+          },
+          "env_id": {
+            "type": "string"
+          },
+          "num_envs": {
+            "type": "integer"
+          },
+          "num_steps": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "gae_lambda": {
+            "type": "number"
+          },
+          "default_plots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "in/config/env/gym_classic_control_dev/acrobot.yaml": {
+        "type": "object",
+        "properties": {
+          "monitor_metric": {
+            "type": "string"
+          },
+          "preprocess_on_load": {
+            "type": "boolean"
+          },
+          "env_id": {
+            "type": "string"
+          },
+          "num_envs": {
+            "type": "integer"
+          },
+          "num_steps": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "gae_lambda": {
+            "type": "number"
+          },
+          "default_plots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "in/config/env/gym_classic_control_dev/cartpole.yaml": {
+        "type": "object",
+        "properties": {
+          "monitor_metric": {
+            "type": "string"
+          },
+          "preprocess_on_load": {
+            "type": "boolean"
+          },
+          "env_id": {
+            "type": "string"
+          },
+          "num_envs": {
+            "type": "integer"
+          },
+          "num_steps": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "gae_lambda": {
+            "type": "number"
+          },
+          "default_plots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "components": [],
+    "pip": []
+  },
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "gym_classic_control_dev/gym_classic_control",
+      "kind": "env",
+      "entry_point": "env_vectorized.py:VectorizedEnv",
+      "aliases": [
+        "gym_classic_control_dev/acrobot",
+        "gym_classic_control_dev/mountaincar",
+        "gym_classic_control_dev/pendulum"
+      ],
+      "resource_root": "."
+    },
+    {
+      "id": "gym_classic_control_dev/cartpole",
+      "kind": "env",
+      "entry_point": "env_vectorized.py:VectorizedEnv",
+      "resource_root": "resources/cartpole",
+      "aliases": []
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "env_vectorized.py"
+    ],
+    "resources": [
+      "resources",
+      "requirements.txt"
+    ],
+    "configs": {
+      "in/config/env/gym_classic_control_dev/acrobot.yaml": "configs/env/gym_classic_control_dev/acrobot.yaml",
+      "in/config/env/gym_classic_control_dev/cartpole.yaml": "configs/env/gym_classic_control_dev/cartpole.yaml",
+      "in/config/env/gym_classic_control_dev/mountaincar.yaml": "configs/env/gym_classic_control_dev/mountaincar.yaml",
+      "in/config/env/gym_classic_control_dev/pendulum.yaml": "configs/env/gym_classic_control_dev/pendulum.yaml"
+    }
+  },
+  "origin": "user",
+  "parent": {
+    "id": "gym_classic_control",
+    "version": "1.0.4",
+    "origin": "hub"
+  }
+}

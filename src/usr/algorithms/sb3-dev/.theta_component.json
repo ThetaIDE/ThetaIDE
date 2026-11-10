@@ -1,0 +1,369 @@
+{
+  "id": "sb3-dev",
+  "name": "Stable-Baselines3 Suite (dev)",
+  "version": "0.1.0",
+  "kind": "method",
+  "description": "Standard reinforcement learning algorithms (PPO, DQN, A2C, SAC) powered by Stable-Baselines3.",
+  "author": "DLR-RM & SB3 Contributors",
+  "tags": [
+    "rl",
+    "baselines",
+    "ppo",
+    "dqn",
+    "sb3"
+  ],
+  "dependencies": {
+    "pip": [
+      "stable-baselines3",
+      "gymnasium",
+      "shimmy"
+    ],
+    "components": []
+  },
+  "parameter_schema": {
+    "type": "object",
+    "properties": {},
+    "x-theta-config-schemas": {
+      "in/config/agent/sb3-dev/a2c.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "MlpPolicy",
+              "CnnPolicy",
+              "MultiInputPolicy"
+            ]
+          },
+          "learning_rate": {
+            "type": "string"
+          },
+          "n_steps": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "ent_coef": {
+            "type": "number"
+          },
+          "vf_coef": {
+            "type": "number"
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "learning_rate_schedule": {
+            "type": "string",
+            "enum": [
+              "constant",
+              "linear"
+            ],
+            "default": "constant",
+            "description": "Constant rate or linear decay across the training budget."
+          },
+          "learning_rate_final": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "Final rate when using a linear learning-rate schedule."
+          }
+        }
+      },
+      "in/config/agent/sb3-dev/dqn.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "MlpPolicy",
+              "CnnPolicy",
+              "MultiInputPolicy"
+            ]
+          },
+          "learning_rate": {
+            "type": "string"
+          },
+          "buffer_size": {
+            "type": "integer"
+          },
+          "learning_starts": {
+            "type": "integer"
+          },
+          "batch_size": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "train_freq": {
+            "type": "integer"
+          },
+          "target_update_interval": {
+            "type": "integer"
+          },
+          "exploration_fraction": {
+            "type": "number"
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "learning_rate_schedule": {
+            "type": "string",
+            "enum": [
+              "constant",
+              "linear"
+            ],
+            "default": "constant",
+            "description": "Constant rate or linear decay across the training budget."
+          },
+          "learning_rate_final": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "Final rate when using a linear learning-rate schedule."
+          }
+        }
+      },
+      "in/config/agent/sb3-dev/ppo.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "MlpPolicy",
+              "CnnPolicy",
+              "MultiInputPolicy"
+            ]
+          },
+          "learning_rate": {
+            "type": "string"
+          },
+          "batch_size": {
+            "type": "integer"
+          },
+          "n_steps": {
+            "type": "integer"
+          },
+          "n_epochs": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "gae_lambda": {
+            "type": "number"
+          },
+          "clip_range": {
+            "type": "number"
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "learning_rate_schedule": {
+            "type": "string",
+            "enum": [
+              "constant",
+              "linear"
+            ],
+            "default": "constant",
+            "description": "Constant rate or linear decay across the training budget."
+          },
+          "learning_rate_final": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "Final rate when using a linear learning-rate schedule."
+          }
+        }
+      },
+      "in/config/agent/sb3-dev/sac.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": [
+              "MlpPolicy",
+              "CnnPolicy",
+              "MultiInputPolicy"
+            ]
+          },
+          "learning_rate": {
+            "type": "string"
+          },
+          "buffer_size": {
+            "type": "integer"
+          },
+          "learning_starts": {
+            "type": "integer"
+          },
+          "batch_size": {
+            "type": "integer"
+          },
+          "gamma": {
+            "type": "number"
+          },
+          "tau": {
+            "type": "number"
+          },
+          "ent_coef": {
+            "type": "string"
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "learning_rate_schedule": {
+            "type": "string",
+            "enum": [
+              "constant",
+              "linear"
+            ],
+            "default": "constant",
+            "description": "Constant rate or linear decay across the training budget."
+          },
+          "learning_rate_final": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "Final rate when using a linear learning-rate schedule."
+          }
+        }
+      }
+    }
+  },
+  "config_paths": [
+    "in/config/agent/sb3-dev/a2c.yaml",
+    "in/config/agent/sb3-dev/dqn.yaml",
+    "in/config/agent/sb3-dev/ppo.yaml",
+    "in/config/agent/sb3-dev/sac.yaml"
+  ],
+  "paradigms": [
+    "online_rl"
+  ],
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "sb3-dev/a2c",
+      "kind": "algorithm",
+      "entry_point": "sb3_runner.py:main",
+      "aliases": [],
+      "paradigms": [
+        "online_rl"
+      ],
+      "episode_outcomes": true,
+      "monitoring": {
+        "supports": [
+          "scalars.v1",
+          "system.v1",
+          "model_observations.v1",
+          "probe_forward.v1",
+          "post_update.v1",
+          "module_interventions.v1",
+          "policy_probabilities.v1"
+        ],
+        "provides": [],
+        "catalog": "monitor_catalog.py:describe"
+      }
+    },
+    {
+      "id": "sb3-dev/dqn",
+      "kind": "algorithm",
+      "entry_point": "sb3_runner.py:main",
+      "aliases": [],
+      "paradigms": [
+        "online_rl"
+      ],
+      "episode_outcomes": true,
+      "monitoring": {
+        "supports": [
+          "scalars.v1",
+          "system.v1",
+          "model_observations.v1",
+          "probe_forward.v1",
+          "post_update.v1",
+          "module_interventions.v1",
+          "action_values.v1"
+        ],
+        "provides": [],
+        "catalog": "monitor_catalog.py:describe"
+      }
+    },
+    {
+      "id": "sb3-dev/ppo",
+      "kind": "algorithm",
+      "entry_point": "sb3_runner.py:main",
+      "aliases": [],
+      "paradigms": [
+        "online_rl"
+      ],
+      "episode_outcomes": true,
+      "monitoring": {
+        "supports": [
+          "scalars.v1",
+          "system.v1",
+          "model_observations.v1",
+          "probe_forward.v1",
+          "post_update.v1",
+          "module_interventions.v1",
+          "policy_probabilities.v1"
+        ],
+        "provides": [],
+        "catalog": "monitor_catalog.py:describe"
+      }
+    },
+    {
+      "id": "sb3-dev/sac",
+      "kind": "algorithm",
+      "entry_point": "sb3_runner.py:main",
+      "aliases": [],
+      "paradigms": [
+        "online_rl"
+      ],
+      "episode_outcomes": true,
+      "monitoring": {
+        "supports": [
+          "scalars.v1",
+          "system.v1"
+        ],
+        "provides": [],
+        "catalog": "monitor_catalog.py:describe"
+      }
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "sb3_runner.py",
+      "theta_sb3_policy.py",
+      "monitor_catalog.py"
+    ],
+    "resources": [
+      "requirements.txt"
+    ],
+    "configs": {
+      "in/config/agent/sb3-dev/a2c.yaml": "configs/agent/sb3-dev/a2c.yaml",
+      "in/config/agent/sb3-dev/dqn.yaml": "configs/agent/sb3-dev/dqn.yaml",
+      "in/config/agent/sb3-dev/ppo.yaml": "configs/agent/sb3-dev/ppo.yaml",
+      "in/config/agent/sb3-dev/sac.yaml": "configs/agent/sb3-dev/sac.yaml"
+    }
+  },
+  "config_path": "in/config/agent/sb3-dev/a2c.yaml",
+  "origin": "user",
+  "parent": {
+    "id": "sb3-suite",
+    "version": "1.1.1",
+    "origin": "hub"
+  }
+}
