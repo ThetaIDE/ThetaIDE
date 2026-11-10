@@ -1,0 +1,29 @@
+{
+  "api_version": 1,
+  "source": "sustained_solve.py",
+  "function": "evaluate",
+  "requires": {"episode_outcomes": true, "metric_parameter": "metric"},
+  "defaults": {
+    "metric": "eval/sampled_reward", "budget": 0, "reward_scale": 500,
+    "target_reward": 495, "stability_fraction": 0.25, "min_evaluations": 3,
+    "max_eval_gap": 0, "late_tail_fraction": 0.5, "tail_fraction": 0.5,
+    "tail_weight": 0.5, "drawdown_weight": 0.2
+  },
+  "schema": {
+    "type": "object", "additionalProperties": false,
+    "required": ["metric", "budget", "reward_scale", "target_reward", "stability_fraction", "min_evaluations", "max_eval_gap", "late_tail_fraction", "tail_fraction", "tail_weight", "drawdown_weight"],
+    "properties": {
+      "metric": {"type": "string", "enum": ["eval/sampled_reward", "eval/reward"], "description": "Sampled policy return is the default; greedy return is for historical replay only."},
+      "budget": {"type": "number", "minimum": 0},
+      "reward_scale": {"type": "number", "exclusiveMinimum": 0},
+      "target_reward": {"type": "number", "exclusiveMinimum": 0},
+      "stability_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+      "min_evaluations": {"type": "integer", "minimum": 2},
+      "max_eval_gap": {"type": "number", "minimum": 0, "description": "Largest allowed transition gap; zero disables this check."},
+      "late_tail_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+      "tail_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+      "tail_weight": {"type": "number", "minimum": 0, "maximum": 1},
+      "drawdown_weight": {"type": "number", "minimum": 0, "maximum": 1}
+    }
+  }
+}

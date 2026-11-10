@@ -1,0 +1,6 @@
+{
+  "id": "sustained_solve", "name": "Sustained solving", "kind": "objective",
+  "version": "0.1.0", "storage_version": 2, "api_version": 1,
+  "capabilities": [{"id": "sustained_solve", "kind": "objective", "entry_point": "sustained_solve.json"}],
+  "payload": {"implementations": ["sustained_solve.py"], "resources": ["sustained_solve.json"], "configs": {}}
+}
