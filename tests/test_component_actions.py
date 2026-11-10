@@ -11,6 +11,10 @@ from frontend.component_actions import (
 from frontend.config_viewer import ConfigViewer, SUBTLE_ICON_COLORS
 from frontend.components_panel import ComponentsPanel
 from frontend.sidetabs import svg_icon
+from src.app.components.installer import HubInstaller
+from src.app.services.plugin_scaffolder import PluginScaffolder, ScaffoldOptions
+
+from hub_test_support import native_component
 
 
 @pytest.fixture(scope="session")
@@ -30,84 +34,38 @@ def test_svg_icons_exist_and_render(qapp):
     assert not trash.isNull()
 
 
-def test_find_component_assets_multi_config_suite(tmp_path):
-    """Test resolving a multi-config component suite like Atari."""
-    # Setup mock workspace
+def test_find_component_assets_multi_config_package(tmp_path):
     ws = tmp_path / "workspace"
-    ws.mkdir()
-    (ws / "in" / "config" / "env" / "atari").mkdir(parents=True)
-    (ws / "in" / "envs" / "atari").mkdir(parents=True)
-    (ws / "src").mkdir()
-
-    # Create dummy configs
-    c1 = ws / "in" / "config" / "env" / "atari" / "pong.yaml"
-    c2 = ws / "in" / "config" / "env" / "atari" / "breakout.yaml"
-    c1.write_text("env:\n  name: pong\n")
-    c2.write_text("env:\n  name: breakout\n")
-
-    # Create dummy env code
-    env_py = ws / "in" / "envs" / "atari" / "env_vectorized.py"
-    env_py.write_text("# atari code")
-
-    # Create manifest with installed_from to simulate a Hub-installed package
-    meta_file = ws / "in" / "envs" / "atari" / ".theta_component.json"
-    import json
-    meta_file.write_text(json.dumps({
-        "id": "atari-env",
-        "name": "Atari 2600 Environment Suite",
-        "kind": "env",
-        "version": "1.0.0",
-        "installed_from": "https://raw.githubusercontent.com/theta-hub/packages/atari.zip",
-        "target_path": "in/envs/atari",
-        "config_paths": [
-            "in/config/env/atari/pong.yaml",
-            "in/config/env/atari/breakout.yaml",
-        ]
-    }))
-
-    assets = find_component_assets(c1, "env/atari/pong.yaml", workspace_dir=ws)
+    component = native_component(tmp_path, "atari-env", kind="env", configs={
+        "in/config/env/atari/pong.yaml": "name: pong\n",
+        "in/config/env/atari/breakout.yaml": "name: breakout\n",
+    })
+    installer = HubInstaller(ws, tmp_path / "state")
+    installer.install(component, install_dependencies=False)
+    source = installer.resolve_target_dir(component)
+    first = installer.paths.config / "env/atari/pong.yaml"
+    second = installer.paths.config / "env/atari/breakout.yaml"
+    assets = find_component_assets(first, "env/atari/pong.yaml", workspace_dir=ws)
     assert assets["is_component"] is True
     assert assets["is_hub_installed"] is True
     assert assets["action_type"] == "uninstall"
-    assert assets["comp_name"] == "Atari 2600 Environment Suite"
-    assert assets["primary_code_file"] == env_py
-    assert ws / "in" / "envs" / "atari" in assets["files_to_delete"]
-    assert c1 in assets["files_to_delete"]
-    assert c2 in assets["files_to_delete"]
+    assert assets["comp_name"] == component.name
+    assert assets["primary_code_file"] == source / "provider.py"
+    assert set(assets["files_to_delete"]) == {source, first, second}
 
 
 def test_find_component_assets_local_scaffolded_component(tmp_path):
-    """Test resolving a locally scaffolded component (not installed from Hub)."""
-    ws = tmp_path / "workspace_local"
-    ws.mkdir()
-    (ws / "in" / "config" / "model").mkdir(parents=True)
-    (ws / "src" / "usr" / "models" / "myfirstmlp").mkdir(parents=True)
-
-    cfg = ws / "in" / "config" / "model" / "myfirstmlp.yaml"
-    cfg.write_text("type: myfirstmlp\n")
-
-    code_py = ws / "src" / "usr" / "models" / "myfirstmlp" / "myfirstmlp_model.py"
-    code_py.write_text("# myfirstmlp code")
-
-    # Local manifest without installed_from
-    meta_file = ws / "src" / "usr" / "models" / "myfirstmlp" / ".theta_component.json"
-    import json
-    meta_file.write_text(json.dumps({
-        "id": "myfirstmlp",
-        "name": "MyfirstmlpModel",
-        "kind": "model",
-        "version": "0.1.0",
-        "target_path": "src/usr/models/myfirstmlp",
-        "config_path": "in/config/model/myfirstmlp.yaml",
-    }))
-
-    assets = find_component_assets(cfg, "model/myfirstmlp.yaml", workspace_dir=ws)
+    ws = tmp_path / "workspace"
+    result = PluginScaffolder(ws).scaffold(ScaffoldOptions(name="myfirstmlp", kind="model"))
+    assert result.success, result.error
+    config = ws / "in/config/model/myfirstmlp.yaml"
+    code = ws / "src/usr/models/myfirstmlp/myfirstmlp_model.py"
+    assets = find_component_assets(config, "model/myfirstmlp.yaml", workspace_dir=ws)
     assert assets["is_component"] is True
     assert assets["is_hub_installed"] is False
     assert assets["action_type"] == "delete_component"
-    assert assets["primary_code_file"] == code_py
-    assert ws / "src" / "usr" / "models" / "myfirstmlp" in assets["files_to_delete"]
-    assert cfg in assets["files_to_delete"]
+    assert assets["primary_code_file"] == code
+    assert set(assets["files_to_delete"]) == {code.parent, config}
 
 
 def test_find_component_assets_loose_config(tmp_path):
@@ -194,33 +152,17 @@ def test_config_viewer_component_buttons(qapp, tmp_path):
 
 def test_components_panel_integration(qapp, tmp_path, monkeypatch):
     """Test ComponentsPanel wiring for editor opening, auto-save on navigation, and component export/deletion."""
-    # Setup mock workspace
     ws = tmp_path / "ws"
-    ws.mkdir()
-    cfg_dir = ws / "in" / "config" / "model"
-    cfg_dir.mkdir(parents=True)
-    code_dir = ws / "src" / "usr" / "models" / "sample_mlp"
-    code_dir.mkdir(parents=True)
-
-    cfg = cfg_dir / "sample_mlp.yaml"
-    cfg.write_text("type: sample_mlp\nhidden_sizes: [64, 64]\n")
-
-    cfg2 = cfg_dir / "another_model.yaml"
-    cfg2.write_text("type: another_model\n")
-
+    monkeypatch.setenv("THETA_WORKSPACE", str(ws))
+    monkeypatch.setenv("THETA_DATA_DIR", str(ws / ".thetaide"))
+    result = PluginScaffolder(ws).scaffold(ScaffoldOptions(name="sample_mlp", kind="model"))
+    assert result.success, result.error
+    cfg = ws / "in/config/model/sample_mlp.yaml"
+    cfg.write_text("architecture: sample_mlp\nhidden_sizes: [64, 64]\n")
+    cfg2 = cfg.with_name("another_model.yaml")
+    cfg2.write_text("architecture: another_model\n")
+    code_dir = ws / "src/usr/models/sample_mlp"
     code_file = code_dir / "sample_mlp_model.py"
-    code_file.write_text("# sample model")
-
-    meta_file = code_dir / ".theta_component.json"
-    import json
-    meta_file.write_text(json.dumps({
-        "id": "sample_mlp",
-        "name": "SampleMLP",
-        "kind": "model",
-        "version": "0.1.0",
-        "target_path": "src/usr/models/sample_mlp",
-        "config_path": "in/config/model/sample_mlp.yaml"
-    }))
 
     panel = ComponentsPanel()
     # Point tree to test root
@@ -306,13 +248,13 @@ def test_standard_model_actor_critic_wrapper():
     assert torch.allclose(probs.sum(dim=-1), torch.ones(5))
 
 
-def test_hub_view_modes_include_standalone_plugin_packages(qapp):
+def test_hub_view_modes_include_standalone_plugin_packages(qapp, tmp_path):
     """Verify Component Hub can manage standalone packages and Plugin Hub stays plugin-only."""
     from frontend.hub.client import HubClient
     from frontend.hub.dialog import HubView
     from frontend.hub.models import HubComponent
 
-    client = HubClient(workspace_dir=Path.cwd(), data_dir=Path.home() / ".thetaide")
+    client = HubClient(workspace_dir=tmp_path, data_dir=tmp_path / ".thetaide")
     # Mock components across all kinds
     client.components = [
         HubComponent(id="obsidian-notes", name="Obsidian", kind="plugin", version="0.1.0"),
@@ -337,7 +279,7 @@ def test_hub_view_modes_include_standalone_plugin_packages(qapp):
     assert "experiment" in pills_comp
     assert "suite" in pills_comp
     assert "plugin" in pills_comp
-    assert pills_comp == ["plugin", "experiment", "suite", "method", "model", "env", "data", "eval", "plot", "all"]
+    assert pills_comp == ["plugin", "experiment", "suite", "method", "model", "env", "data", "eval", "monitor", "plot", "all"]
 
     # 2. Community Plugins Hub (mode="plugins")
     view_plug = HubView(client=client, mode="plugins")

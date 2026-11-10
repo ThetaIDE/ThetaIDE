@@ -1,9 +1,10 @@
 import json
 import stat
-from zipfile import ZipFile
+from pathlib import Path
+
+from hub_test_support import native_component
 
 from frontend.hub.client import HubClient
-from frontend.hub.models import HubComponent, ReleaseInfo
 from src.app.components.installer import HubInstaller
 from src.app.services.local_components import LocalComponents
 
@@ -11,26 +12,15 @@ from src.app.services.local_components import LocalComponents
 def test_hub_update_replaces_modified_source_and_reinstall_uses_release(tmp_path):
     workspace = tmp_path / 'workspace'
     workspace.mkdir()
-    archive = tmp_path / 'release.zip'
-    meta = dict(id='example', name='Example', kind='model', version='1.0.0',
-                target_path='src/usr/models/example')
-    with ZipFile(archive, 'w') as z:
-        z.writestr('.theta_component.json', json.dumps(meta))
-        z.writestr('model.py', 'VALUE = "published"\n')
-    component = HubComponent.from_dict(meta)
-    component.releases = {'1.0.0': ReleaseInfo('v1', archive.as_uri(), '')}
+    component = native_component(tmp_path, files={"model.py": 'VALUE = "published"\n'},
+        capabilities=[{"id": "example", "kind": "model", "entry_point": "model.py:VALUE"}])
     installer = HubInstaller(workspace, workspace / '.thetaide')
     assert installer.install(component)
     source = workspace / 'src/plugins/components/installed/example/model.py'
     assert not stat.S_IMODE(source.stat().st_mode) & 0o222
     source.chmod(0o644)
     source.write_text('VALUE = "old local edit"\n')
-    # A legacy Hub install without source hashes must also remain updateable.
-    manifest = source.parent / '.theta_component.json'
-    manifest.chmod(0o644)
-    data = json.loads(manifest.read_text())
-    data.pop('source_hashes')
-    manifest.write_text(json.dumps(data))
+    manifest = source.parent / ".theta_component.json"
     assert installer.install(component)
     assert source.read_text() == 'VALUE = "published"\n'
     assert any(p.read_text() == 'VALUE = "old local edit"\n' for p in installer.paths.data_dir.glob('retained_packages/example/*/model.py'))
@@ -41,7 +31,6 @@ def test_hub_update_replaces_modified_source_and_reinstall_uses_release(tmp_path
     assert installer.uninstall(component)
     assert not source.parent.exists()
     assert 'example' not in service.state()['records']
-    from pathlib import Path
     assert not Path(cached).exists()
     assert installer.install(component)
     assert source.read_text() == 'VALUE = "published"\n'

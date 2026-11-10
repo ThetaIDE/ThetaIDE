@@ -298,7 +298,13 @@ class HubInstaller:
             configs = [*data.get("config_paths", []), *data.get("user_config_paths", [])]
             if data.get("config_path"): configs.append(data["config_path"])
             files = [*configs, *data.get("installed_files", [])]
-            if target_path == comp_dir or target_path.is_relative_to(comp_dir) or any(target_path == (self.workspace_dir / p).resolve() for p in files):
+            owns_config_folder = (
+                target_path.is_dir()
+                and target_path.is_relative_to(self.paths.config)
+                and any(self.paths.config_file(profile).is_relative_to(target_path) for profile in configs)
+            )
+            if (target_path == comp_dir or target_path.is_relative_to(comp_dir) or owns_config_folder
+                    or any(target_path == (self.workspace_dir / p).resolve() for p in files)):
                 data.update(target_dir=comp_dir, origin=package.origin, writable=package.writable)
                 candidates.append(data)
         if len(candidates) > 1:

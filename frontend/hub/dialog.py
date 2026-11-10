@@ -96,7 +96,7 @@ def _disabled_button_css():
 class HubComponentCard(QFrame):
     """Card widget representing an individual component in the Hub."""
 
-    def __init__(self, component: HubComponent, client: HubClient, parent=None):
+    def __init__(self, component: HubComponent, client: HubClient | None, parent=None):
         super().__init__(parent)
         self.component = component
         self.client = client
@@ -281,7 +281,7 @@ class HubComponentCard(QFrame):
             visited = {self.component.id}
 
             def collect(parent, member_ids):
-                for child in self.client.components:
+                for child in (self.client.components if self.client is not None else ()):
                     if child.id in visited or not (child.suite == parent.id or child.id in member_ids):
                         continue
                     visited.add(child.id)
@@ -344,12 +344,12 @@ class HubComponentCard(QFrame):
         self._apply_theme()
 
     def update_action_state(self):
-        current = self.client.get_component(self.component.id)
+        """Refresh the action state, also supporting standalone preview cards."""
+        current = self.client.get_component(self.component.id) if self.client is not None else None
         if current is not None:
             self.component = current
         self._refresh_development_state()
         self.version_label.setText(f"v{self.component.version}")
-        """Set the action button's text for the local installation state, and color it."""
         if self.component.is_installed and self.component.has_update:
             self.btn_action.setText(f"Update to v{self.component.version}")
             self.btn_action.setObjectName("actionUpdate")
@@ -381,7 +381,7 @@ class HubComponentCard(QFrame):
             self.btn_action.setEnabled(not busy)
             self.btn_uninstall_update.setEnabled(not busy)
         for child_id, (child, button) in list(self.child_rows.items()):
-            child = self.client.get_component(child_id) or child
+            child = (self.client.get_component(child_id) or child) if self.client is not None else child
             self.child_rows[child_id] = (child, button)
             button.setText("Uninstall" if child.is_installed else "Install")
             button.setEnabled(not busy)
@@ -637,6 +637,7 @@ class HubView(QWidget):
                 ("env", "Environments"),
                 ("data", "Data Loaders"),
                 ("eval", "Evaluators"),
+                ("monitor", "Monitors"),
                 ("plot", "Plotters"),
                 ("all", self.all_label),
             ]
@@ -656,6 +657,7 @@ class HubView(QWidget):
                 ("env", "Environments"),
                 ("data", "Data Loaders"),
                 ("eval", "Evaluators"),
+                ("monitor", "Monitors"),
                 ("plot", "Plotters"),
                 ("all", "All"),
             ]

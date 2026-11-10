@@ -54,6 +54,15 @@ class TestHubCardFollowsTheme(unittest.TestCase):
         card = self.card("Gruvbox Light")
         self.assertIn(BUILTINS["Gruvbox Light"]["colors"]["primary"], card.btn_action.styleSheet())
 
+    def test_standalone_package_cards_do_not_require_a_client(self):
+        for kind in ("suite", "experiment"):
+            component = HubComponent(id="preview", name="Preview", kind=kind, version="1.0.0")
+            card = HubComponentCard(component, None)
+            self.addCleanup(card.deleteLater)
+            card.update_action_state()
+            self.assertEqual(card.btn_action.text(), "Install")
+            self.assertEqual(card.child_rows, {})
+
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
 class TestHubRestylesOnThemeSwitch(unittest.TestCase):

@@ -204,9 +204,10 @@ class ComponentExporter:
                     zf.writestr(target_manifest, manifest_json)
 
             # Write README.md at root
-            zf.writestr("README.md", readme_text)
+            if "README.md" not in files_to_pack:
+                zf.writestr("README.md", readme_text)
 
-        files_list = sorted(list(files_to_pack.keys()) + [".theta_component.json", "README.md"])
+        files_list = sorted(set(files_to_pack) | {".theta_component.json", "README.md"})
         return ComponentExportResult(
             success=True,
             export_path=out_zip,
@@ -246,8 +247,9 @@ class ComponentExporter:
         files_copied.append(".theta_component.json")
 
         readme_file = out_dir / "README.md"
-        readme_file.write_text(readme_text, encoding="utf-8")
-        files_copied.append("README.md")
+        if "README.md" not in files_to_pack:
+            readme_file.write_text(readme_text, encoding="utf-8")
+            files_copied.append("README.md")
 
         if options.generate_git_scaffold:
             gitignore_file = out_dir / ".gitignore"
