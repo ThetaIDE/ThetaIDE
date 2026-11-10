@@ -12,10 +12,10 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path, jobs)
     optuna = pytest.importorskip('optuna')
     project = Path(__file__).resolve().parents[1]
     settings = tmp_path / 'settings.toml'
-    # Resource estimates allow two workers. The legacy count of one is ignored.
+    # Resource estimates allow two workers with the shared cap automatic.
     # Hold both large-model reservations through completion, including the
     # portion this synthetic worker never allocates.
-    settings.write_text('[training]\ncpu_percent=100\nmemory_percent=20\nmax_parallel=1\n')
+    settings.write_text('[training]\ncpu_percent=100\nmemory_percent=20\nmax_parallel=0\nthreads_per_job=1\n')
     script = tmp_path / 'objective.py'
     script.write_text(
         'import hydra, time, os, json\nfrom pathlib import Path\n'
@@ -26,7 +26,7 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path, jobs)
         '    assert os.environ["THETA_TEST_ENV"] == "passed"\n'
         '    assert os.environ["OMP_NUM_THREADS"] == "1"\n'
         '    start=time.time()\n'
-        '    time.sleep(7)\n'
+        '    time.sleep(9 if cfg.theta_tuning.trial_number == 1 else 7)\n'
         '    Path(f"trial_{cfg.theta_tuning.trial_number}.json").write_text(json.dumps('
         '{"pid":os.getpid(),"start":start,"end":time.time(),"version":cfg.theta_tuning.log_version}))\n'
         '    return float(cfg.x)\n'

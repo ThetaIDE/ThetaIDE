@@ -27,6 +27,7 @@ class ResourceBudget:
     memory_percent: int = 75
     threads_per_job: int = 2
     memory_gb_per_job: float = .75  # internal cold-start fallback, never a user reservation
+    max_parallel: int = 0  # zero lets resource budgets determine concurrency
 
     @classmethod
     def from_settings(cls, values):
@@ -39,7 +40,8 @@ class ResourceBudget:
         return cls(int(number('cpu_percent', 75, 1, 100)),
                    int(number('memory_percent', 75, 10, 95)),
                    int(number('threads_per_job', 2, 1, 1024)),
-                   .75)
+                   .75,
+                   int(number('max_parallel', 0, 0, 100000)))
 
     def cpu_slots(self, cores):
         return max(1, math.floor(cores * self.cpu_percent / 100))
@@ -56,12 +58,11 @@ class ResourceBudget:
             return 'Waiting for CPU capacity within your training budget.'
         reservation = next_memory if next_memory is not None else self.memory_gb_per_job * GIB
         limit = total * min(95, self.memory_percent + 5) / 100
-        # Theta's budget is its share of system capacity. Other applications
-        # affect physical headroom, rather than being charged to Theta.
+        # Admission accounts for Theta's own commitments. Host pressure is
+        # telemetry, not a second hidden budget controlled by other apps.
         reserved = reservations if reservations is not None else [reservation] * len(active_memory)
-        commitments = sum(max(0, claim - rss) for claim, rss in zip(reserved, active_memory))
         demand = sum(max(claim, rss) for claim, rss in zip(reserved, active_memory))
-        if demand + reservation > limit or commitments + reservation > available - total * .05:
+        if demand + reservation > limit:
             return 'Waiting for RAM: estimated demand exceeds your system usage target.'
         return ''
 
@@ -94,6 +95,13 @@ def managed_environment(threads):
     return {**{key: str(threads) for key in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
              'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS')},
             'THETA_MANAGED_THREADS': str(threads), 'THETA_MANAGED_SERIAL': '1'}
+
+
+def configure_worker_threads():
+    """Apply current workspace settings in each new worker, before ML imports."""
+    if os.environ.get('THETA_RESOURCE_POOL'):
+        budget = ResourceBudget.from_settings(load_training_settings(os.environ.get('THETAIDE_SETTINGS_FILE')))
+        os.environ.update(managed_environment(budget.threads(host_capacity()[0])))
 
 
 def workload_estimate(config):
@@ -200,7 +208,7 @@ class ResourceCapacityRetry(RuntimeError):
 class ResourcePool:
     """Shared local task estimates and leases, across experiments and trials.
 
-    Tasks register internally; users only choose system-wide soft targets.
+    Workers share workspace CPU/RAM budgets and a configurable worker cap.
     """
     def __init__(self, path, settings_path=None):
         self.path = Path(path)
@@ -216,7 +224,7 @@ class ResourcePool:
             db.execute('CREATE TABLE IF NOT EXISTS waiters (id TEXT PRIMARY KEY, position TEXT, pid INTEGER, birth REAL)')
             db.execute('CREATE INDEX IF NOT EXISTS waiters_position ON waiters(position)')
             columns = {row[1] for row in db.execute('PRAGMA table_info(tasks)')}
-            for column in ('peak', 'floor', 'admitted_memory', 'retry'):
+            for column in ('peak', 'floor', 'admitted_memory', 'retry', 'reserved_cpu'):
                 if column not in columns:
                     db.execute(f'ALTER TABLE tasks ADD COLUMN {column} REAL DEFAULT 0')
 
@@ -258,7 +266,7 @@ class ResourcePool:
                 elapsed = now - task['last_sample']
                 measured = bool(task['last_sample'] and elapsed >= .5)
                 cpu = max(0, seconds - task['last_cpu']) / elapsed if measured else task['cpu']
-                estimate_cpu = max(.25, task['cpu'] * .8 + cpu * .2) if measured else task['cpu']
+                estimate_cpu = max(task['reserved_cpu'], .25, task['cpu'] * .8 + cpu * .2) if measured else task['cpu']
                 peak = max(task['peak'], rss)
                 warmed = now - task['created'] >= 5
                 # Hold the original reservation for the whole run. Quiet
@@ -330,8 +338,6 @@ class ResourcePool:
         budget = ResourceBudget.from_settings(settings)
         cores, total, available = capacity or host_capacity()
         memory, cpu, samples = self.estimate(spec)
-        if psutil.cpu_percent(None) > 95:
-            return None, 'Waiting for CPU usage to settle near your target.'
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             first = self._first_waiter(db)
@@ -341,21 +347,24 @@ class ResourcePool:
             if paused and paused[0]:
                 return None, 'Training starts are paused.'
             active = self._sample(db)
-            if not samples and any(time.time() - t['created'] < 5 for t in active):
-                return None, 'Learning workload usage before starting another task.'
+            # Coordinators do not consume worker slots. All leaf workers share
+            # this atomic cap, including methods, trials and training seeds.
+            if spec.get('cpu', 1) > 0 and budget.max_parallel and len(active) >= budget.max_parallel:
+                return None, f'Waiting for worker limit ({len(active)}/{budget.max_parallel} active).'
+            cpu_reservation = min(max(cpu, budget.threads(cores)), budget.cpu_slots(cores))
             reason = budget.admission_reason(
                 cores=cores, total=total, available=available,
                 active_memory=[t['rss'] for t in active],
                 reservations=[t['memory'] for t in active], active_threads=[t['cpu'] for t in active],
-                next_memory=memory, next_cpu=min(cpu, budget.cpu_slots(cores)),
+                next_memory=memory, next_cpu=cpu_reservation if spec.get('cpu', 1) > 0 else 0,
                 accelerator=accelerator, active_accelerators=any(t['accelerator'] for t in active))
             if reason or not reserve:
                 return None, reason
             token = uuid.uuid4().hex
             pid = os.getpid()
-            db.execute('INSERT INTO tasks(id,key,pid,birth,memory,cpu,accelerator,created,floor,admitted_memory) VALUES(?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO tasks(id,key,pid,birth,memory,cpu,accelerator,created,floor,admitted_memory,reserved_cpu) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                        (token, spec['key'], pid, psutil.Process(pid).create_time(), memory,
-                        min(cpu, budget.cpu_slots(cores)), accelerator, time.time(), spec.get('minimum_memory', .1 * GIB), memory))
+                        cpu_reservation, accelerator, time.time(), spec.get('minimum_memory', .1 * GIB), memory, cpu_reservation))
             if ticket:
                 db.execute('DELETE FROM waiters WHERE id=?', (ticket,))
             return token, ''
@@ -399,7 +408,7 @@ class ResourcePool:
                        (int(paused),))
 
     @contextmanager
-    def slot(self, spec, *, accelerator=False, check_cancel=None, ticket=None):
+    def slot(self, spec, *, accelerator=False, check_cancel=None, ticket=None, on_wait=None):
         last_reason = None
         token = None
         ticket = ticket or self.enqueue()[0]
@@ -414,6 +423,8 @@ class ResourcePool:
                 if reason != last_reason:
                     print(f'[System usage] {reason or "Starting training."}', flush=True)
                     last_reason = reason
+                    if reason and on_wait:
+                        on_wait(reason)
                 if token is None:
                     time.sleep(.5)
             yield token

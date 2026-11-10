@@ -1,0 +1,11 @@
+# @package site
+defaults:
+- /site/ncshare/_defaults
+- _self_
+scheduler: slurm
+resources:
+  partition: common
+  cores: 4
+  memory: 8G
+  gpus: 0
+  no_gres: true

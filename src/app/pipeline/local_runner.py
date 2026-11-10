@@ -17,7 +17,7 @@ from src.app.pipeline.experiment_snapshot import save_experiment_snapshot, save_
 from src.app.pipeline.tuners import get_tuner, tuner_name
 from src.app.pipeline.validation import paradigm_uses_static_dataset
 from src.app.pipeline.plot_config import should_run_plotting
-from src.app.pipeline.tuning_config import require_runnable_tuning, tuning_disabled
+from src.app.pipeline.tuning_config import require_runnable_tuning, tuning_enabled
 
 # ---------------------------------------------------------------------------
 # Shared setup
@@ -38,7 +38,7 @@ def _setup_output_dirs(cfg) -> None:
             fast_purge_dir(run_dir)
             run_dir.mkdir(parents=True, exist_ok=True)
         return
-    if cfg.get("recover", False) or cfg.get("tuning") is not None or cfg.get("sweep", False):
+    if cfg.get("recover", False) or tuning_enabled(cfg):
         return
 
     ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
@@ -50,8 +50,7 @@ def _setup_output_dirs(cfg) -> None:
     exp_log_dir.mkdir(parents=True, exist_ok=True)
 
     if should_run_plotting(cfg):
-        clean_exp = Path(cfg.experiment_id).stem
-        exp_plot_dir = Path("results/plots") / cfg.group / clean_exp
+        exp_plot_dir = Path("results/plots") / cfg.group / cfg.experiment_id
         fast_purge_dir(exp_plot_dir)
         exp_plot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -66,12 +65,14 @@ def run_methods(cfg, context) -> None:
     methods = context["methods"]
     require_runnable_tuning(cfg, methods)
     parallel = bool(cfg.get("run_in_parallel", False) and len(methods) > 1)
+    workers = len(methods) if parallel else min(1, len(methods))
     resource_pool = None
     tickets = {}
     if os.environ.get('THETA_RESOURCE_POOL'):
-        from src.app.services.resource_budget import ResourcePool
+        from src.app.services.resource_budget import ResourcePool, orchestration_workers
         resource_pool = ResourcePool(os.environ['THETA_RESOURCE_POOL'], os.environ.get('THETAIDE_SETTINGS_FILE'))
-        tickets = dict(zip(methods, resource_pool.enqueue(len(methods) if parallel else min(1, len(methods)),
+        workers = min(workers, orchestration_workers(len(methods)))
+        tickets = dict(zip(methods, resource_pool.enqueue(workers,
                           parent=os.environ.get('THETA_RESOURCE_QUEUE_PARENT'))))
 
     def execute(name, settings):
@@ -89,10 +90,6 @@ def run_methods(cfg, context) -> None:
             for name, settings in methods.items():
                 execute(name, settings)
             return
-        workers = len(methods)
-        if resource_pool:
-            from src.app.services.resource_budget import orchestration_workers
-            workers = orchestration_workers(len(methods))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="theta-method") as pool:
             futures = [pool.submit(execute, name, settings) for name, settings in methods.items()]
             for future in as_completed(futures):
@@ -109,7 +106,6 @@ def _run_methods_sequential(cfg, context) -> None:
     require_runnable_tuning(cfg, methods)
     sanitized_extra_args = context["sanitized_extra_args"]
     storage_url = context["storage_url"]
-    global_is_sweep = context.get("is_sweep", False)
     paradigm = cfg.get("paradigm", "offline_rl")
 
     for method_name, method_cfg in methods.items():
@@ -122,8 +118,7 @@ def _run_methods_sequential(cfg, context) -> None:
                 method_cfg = dict(method_cfg)
 
         agent_name = normalize_agent_name(method_name)
-        method_tune = method_cfg.get("tune") or method_cfg.get("search_space") or {}
-        method_is_sweep = not tuning_disabled(cfg) and (bool(global_is_sweep) or bool(method_tune))
+        method_is_sweep = tuning_enabled(cfg)
 
         study_name = None
         tuner = None

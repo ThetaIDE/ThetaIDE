@@ -37,6 +37,8 @@ use_cache: false
 # Default Slurm / Hardware Resources Schema
 resources:
   partition: null
+  account: null
+  qos: null
   cores: null
   memory: null
   time: null

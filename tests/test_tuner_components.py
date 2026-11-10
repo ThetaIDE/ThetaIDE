@@ -126,7 +126,7 @@ def test_ordinary_run_never_resolves_a_tuner(monkeypatch):
     monkeypatch.setattr(local_runner, "run_experiment", lambda overrides, **kwargs: commands.append(overrides))
     local_runner._run_methods_sequential(cfg, {
         "methods": {"method": {"agent": "ppo", "model": "dnn"}},
-        "sanitized_extra_args": [], "storage_url": None, "is_sweep": False,
+        "sanitized_extra_args": [], "storage_url": None, "is_sweep": True,
     })
     assert len(commands) == 1 and "--multirun" not in commands[0]
 
@@ -144,7 +144,7 @@ def test_ordinary_run_works_when_optuna_imports_are_unavailable(tmp_path):
         "from omegaconf import OmegaConf\n"
         "from src.app.pipeline import local_runner\n"
         "cfg=OmegaConf.create({'group':'g','experiment_id':'e','paradigm':'online_rl',"
-        "'tuning':{'enabled':False}})\n"
+        "'tuning':None})\n"
         "calls=[]\n"
         "local_runner.run_experiment=lambda overrides, **kw: calls.append(overrides)\n"
         "local_runner._run_methods_sequential(cfg, {'methods':{'m':{'agent':'ppo','model':'dnn'}},"

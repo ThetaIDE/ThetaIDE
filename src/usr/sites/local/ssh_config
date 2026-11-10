@@ -1,0 +1,2 @@
+# Site-owned OpenSSH aliases and overrides. Private keys stay outside the project.
+Include ~/.ssh/config

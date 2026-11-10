@@ -1,7 +1,7 @@
 """What exists on disk: environments, experiments, finished and running runs, their metrics, plots and artifacts.
 
 Paths come from the caller (the Results panel), so every group, experiment and agent name is checked to be a
-plain folder name, and run files are only read from inside that run's own results folders.
+safe relative path, and run files are only read from inside that run's own results folders.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from src.app.pipeline.result_paths import check_result_path, iter_run_dirs
 
 from . import LOGS_DIR, PLOTS_DIR, PROJECT_ROOT
 from .metrics import latest_version_file, read_metrics_table
@@ -292,12 +294,14 @@ def _read_json(path: Path) -> dict:
 def _result_replicates(run_dir: Path):
     """Execution records identify seed versions separately from a trial's objective version."""
     found = {}
-    root = LOGS_DIR.parent / "executions" / run_dir.parent.name / run_dir.name
+    relative = run_dir.relative_to(LOGS_DIR)
+    experiment_id = Path(*relative.parts[1:]).as_posix()
+    root = LOGS_DIR.parent / "executions" / relative
     for path in sorted(root.glob("*/manifest.json")):
         manifest = _read_json(path)
         parent = manifest.get("parent") or {}
         for run in manifest.get("runs", []):
-            if run.get("experiment_id") != run_dir.name or not run.get("version"):
+            if run.get("experiment_id") != experiment_id or not run.get("version"):
                 continue
             agent = run.get("agent") or run.get("method")
             if not agent:
@@ -317,7 +321,7 @@ def _result_snapshot(run_dir: Path, replicates=None):
     versions, terminal_trials, trial_states = {}, set(), {}
     if replicates is None:
         replicates = _result_replicates(run_dir)
-    checkpoint_root = LOGS_DIR.parent / "checkpoints" / run_dir.parent.name / run_dir.name
+    checkpoint_root = LOGS_DIR.parent / "checkpoints" / run_dir.relative_to(LOGS_DIR)
     active_methods = set()
     for path in [*checkpoint_root.glob("*/tuning_summary.json"),
                  *checkpoint_root.glob("*/sweeps/*/tuning_summary.json")]:
@@ -368,14 +372,12 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
     can expose its finished trials while withholding its active ones.
     """
     runs = []
-    if not LOGS_DIR.exists():
-        return runs
     # Older repeated executions gave every replicate its own experiment ID.
     # They remain available in the Executions browser, but should not flood the
     # ordinary experiment list as if every seed were a separate experiment.
     replicate_experiments = set()
     execution_root = LOGS_DIR.parent / "executions"
-    for manifest_path in execution_root.glob("*/*/*/manifest.json"):
+    for manifest_path in execution_root.rglob("manifest.json"):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             result_id = manifest.get("result_experiment_id")
@@ -390,10 +392,9 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
             continue
     _load_persisted_summaries()
     seen: dict[str, set[Path]] = {name: set() for name in _PERSISTED_CACHES}
-    for run_dir in LOGS_DIR.glob("*/*"):
-        if not run_dir.is_dir():
-            continue
-        if (run_dir.parent.name, run_dir.name) in replicate_experiments:
+    for run_dir in iter_run_dirs(LOGS_DIR):
+        group, experiment_id = run_dir.relative_to(LOGS_DIR).as_posix().split("/", 1)
+        if (group, experiment_id) in replicate_experiments:
             continue
         metadata = _cached_by_stamp(_RUN_METADATA_CACHE, run_dir / "runtime.json", _read_run_metadata)
         agent_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir())
@@ -416,8 +417,8 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
             agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
         runs.append(
             {
-                "group": run_dir.parent.name,
-                "experiment_id": run_dir.name,
+                "group": group,
+                "experiment_id": experiment_id,
                 "metadata": metadata,
                 "config": run_config_summary(run_dir),
                 "agents": agents,
@@ -428,6 +429,20 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
             }
         )
     _save_persisted_summaries(seen)
+    from src.app.sites.storage import read_json
+    sync_state = read_json(LOGS_DIR.parent.parent / '.thetaide/site_sync.json')
+    matched = set()
+    for site, sync in sync_state.items():
+        for remote in sync.get('executions', []):
+            identity = remote.get('result_experiment_id', '')
+            for entry in runs:
+                if entry['group'] == remote.get('group') and (entry['experiment_id'] == identity or entry['experiment_id'].startswith(identity + '_')):
+                    entry['remote'] = {**remote, 'site': site, 'last_sync': sync.get('last_sync')}
+                    matched.add(remote['execution_id'])
+            if not completed_only and remote['execution_id'] not in matched:
+                runs.append({'group': remote['group'], 'experiment_id': identity, 'config': {}, 'metadata': {},
+                             'agents': [], 'finished': False,
+                             'remote': {**remote, 'site': site, 'last_sync': sync.get('last_sync')}})
     return runs
 
 
@@ -452,7 +467,8 @@ def run_metrics(
     so a client following a run that is still training reads only new rows; `total_rows` says where to
     resume. Raises FileNotFoundError if there are no such metrics, ValueError for a bad name.
     """
-    for part in (group, experiment_id, agent):
+    check_result_path(experiment_id)
+    for part in (group, agent):
         check_path_segment(part)
     agent_dir = LOGS_DIR / group / experiment_id / agent
     versions = sorted(
@@ -610,7 +626,7 @@ def _artifact_kind(root: str, path: Path) -> str:
 def _run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
     """The existing results/<root>/<group>/<experiment_id> folders of one run, by root."""
     check_path_segment(group)
-    check_path_segment(experiment_id)
+    check_result_path(experiment_id)
     base = results_dir()
     dirs = {root: base / root / group / experiment_id for root in RESULT_ROOTS}
     return {root: path for root, path in dirs.items() if path.is_dir()}
@@ -622,7 +638,9 @@ def _mutable_run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
     dirs = _run_dirs(group, experiment_id)
     base = results_dir().resolve()
     for path in dirs.values():
-        if any(part.is_symlink() for part in (path, path.parent, path.parent.parent)) or not path.resolve().is_relative_to(base):
+        ancestors = (path, *path.parents)
+        linked = any(part.is_symlink() for part in ancestors if part != base and part.is_relative_to(base))
+        if linked or not path.resolve().is_relative_to(base):
             raise ValueError(f"Unsafe run folder: {path}")
     if not dirs:
         raise FileNotFoundError(f"Run not found: {group}/{experiment_id}")

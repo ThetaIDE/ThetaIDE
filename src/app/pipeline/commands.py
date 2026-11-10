@@ -42,7 +42,7 @@ def build_method_overrides(
         extra_args:   Additional Hydra overrides forwarded from the CLI.
         cfg:          Full Hydra config (used for experiment_name, paradigm).
         study_name:   Optuna study name (optional, for sweep runs).
-        is_sweep:     Whether this specific method should run as an Optuna sweep.
+        is_sweep:     Compatibility argument; composed cfg.tuning determines sweep mode.
 
     Returns:
         list[str]: Hydra override arguments ready to pass to train.py.
@@ -55,11 +55,10 @@ def build_method_overrides(
         else:
             method_cfg = dict(method_cfg)
 
-    from src.app.pipeline.tuning_config import require_runnable_tuning
+    from src.app.pipeline.tuning_config import require_runnable_tuning, tuning_enabled
 
     require_runnable_tuning(cfg, {method_name: method_cfg})
-    if method_cfg.get("tune") or method_cfg.get("search_space"):
-        is_sweep = True
+    is_sweep = tuning_enabled(cfg)
 
     paradigm = cfg.get("paradigm", "offline_rl") if cfg is not None else "offline_rl"
     # Asked once: a paradigm with no allowed agents drives its methods by model.
@@ -133,6 +132,25 @@ def build_method_overrides(
     _flatten_overrides("model", merged_model_params)
     _flatten_overrides("agent", merged_agent_params)
 
+    # Inputs belong to the run, never agent.* or model.*. Clear inherited maps
+    # before installing a different provider so Hydra cannot retain its params.
+    from src.app.core.data_loaders import LOADER_SLOTS, loader_selection
+    for slot in LOADER_SLOTS:
+        if slot in method_cfg or (cfg is not None and cfg.get(slot) is not None):
+            selection, _ = loader_selection(cfg or {}, slot, method_cfg, paths=paths)
+            overrides.append(f"++{slot}=null")
+            if selection is not None:
+                overrides.append(f"++{slot}={_format_hydra_val(selection)}")
+
+    # Monitor instances are run-level settings, even when configured per method.
+    # Hydra already composed the shared instances; apply this method's overrides
+    # at the same root used by validation and MonitorManager, before CLI overrides.
+    if "monitors" in method_cfg:
+        if method_cfg["monitors"] is None:
+            overrides.append("++monitors=null")
+        else:
+            _flatten_overrides("monitors", method_cfg["monitors"])
+
     if not uses_agents:
         overrides.append(f"++model.name={agent_name}")
         overrides.append(f"++model.architecture={runtime_arch}")
@@ -181,6 +199,9 @@ def build_method_overrides(
         "python",
         "venv_python",
         "venv",
+        "data_module",
+        "symbolic_state_loader",
+        "monitors",
     }
     _MODEL_KEYS = {
         "architecture",
@@ -237,7 +258,7 @@ def build_method_overrides(
                     overrides.append(f"++{k}={_format_hydra_val(v)}")
 
     # The selected tuning component compiles its own job overrides.
-    if is_sweep or study_name:
+    if is_sweep:
         from src.app.pipeline.tuners import get_tuner
 
         overrides = get_tuner(cfg).compile(
@@ -246,14 +267,16 @@ def build_method_overrides(
         )
 
     if extra_args:
-        if not is_sweep and not study_name:
+        if not is_sweep:
             # Filter out multirun flags if this method is running as a single normal model
-            clean_extra = [a for a in extra_args if a not in ("--multirun", "-m")]
+            clean_extra = [a for a in extra_args if a not in ("--multirun", "-m")
+                           and not a.lstrip("+").startswith(("hydra/sweeper=", "hydra.sweeper."))]
             overrides.extend(clean_extra)
         else:
             overrides.extend(extra_args)
 
-    return overrides
+    from src.app.core.data_loaders import loader_override_args
+    return loader_override_args(overrides)
 
 
 def get_sweep_direction(cfg, paradigm: str) -> str:

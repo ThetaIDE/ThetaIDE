@@ -97,6 +97,8 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
     script += f"#SBATCH --job-name={job_name}\n"
     if partition:
         script += f"#SBATCH --partition={partition}\n"
+    for key in ("account", "qos"):
+        if res.get(key): script += f"#SBATCH --{key}={res[key]}\n"
     script += get_gres_header(res, site_cfg)
     if time:
         script += f"#SBATCH --time={time}\n"
@@ -119,6 +121,10 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
         script += f"#SBATCH --mail-user={mail_user}\n"
     if dependency:
         script += f"#SBATCH --dependency={dependency_type}:{dependency}\n"
+    # Directives are one physical line each; reject newline/command injection.
+    for value in [job_name, str(log_dir), *res.values(), *(getattr(site_cfg, "extra_sbatch_flags", []) or [])]:
+        if value is not None and any(c in str(value) for c in "\r\n\x00"):
+            raise ValueError("SLURM directive values must be single-line")
     return script
 
 

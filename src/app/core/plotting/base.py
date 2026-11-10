@@ -218,7 +218,7 @@ class BasePlotter:
         for base_dir in [Path("results/logs"), Path("results/checkpoints")]:
             if base_dir.exists():
                 if group_hint:
-                    target_direct = base_dir / group_hint / clean_exp / "config.yaml"
+                    target_direct = base_dir / group_hint / exp_id.removeprefix(f"{group_hint}/") / "config.yaml"
                     if target_direct.exists():
                         saved_cfg = self._load_yaml(target_direct)
                         break
@@ -262,6 +262,7 @@ class BasePlotter:
                 candidates.append(Path(f"in/config/experiment/{group_hint}/{clean_base}.yaml"))
             candidates.extend(list(Path("in/config/experiment").glob(f"**/{clean_base}.yaml")))
 
+        candidates.append(Path("in/config/experiment") / f"{exp_id}.yaml")
         if group_hint:
             candidates.append(Path(f"in/config/experiment/{group_hint}/{clean_exp}.yaml"))
         candidates.extend(
@@ -368,7 +369,8 @@ class BasePlotter:
             custom_dir = str(exp_cfg["output_dir"]).format(group=group, exp_id=exp_id, clean_exp=clean_exp)
             output_dir = Path(custom_dir)
         else:
-            output_dir = Path("results/plots") / group / clean_exp
+            result_id = exp_id.removeprefix(f"{group}/")
+            output_dir = Path("results/plots") / group / result_id
         output_dir.mkdir(parents=True, exist_ok=True)
         return merged, group, output_dir
 
@@ -414,8 +416,8 @@ class BasePlotter:
         Filters by active methods from experiment config if defined.
         Returns dict: { method_name: { version_str: df } }
         """
-        clean_exp = Path(exp_id).stem
-        exp_dir = Path("results/logs") / group / clean_exp
+        result_id = exp_id.removeprefix(f"{group}/")
+        exp_dir = Path("results/logs") / group / result_id
         if not exp_dir.exists():
             print(f"Warning: Log directory {exp_dir} not found.")
             return {}

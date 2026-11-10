@@ -76,7 +76,11 @@ def run(script, args=(), run_name="__main__"):
 
 def main():
     if len(sys.argv) < 2: raise SystemExit("Usage: python -m src.app.pipeline.provider_worker SCRIPT [ARGS...]")
-    run(sys.argv[1], sys.argv[2:])
+    from src.app.services.worker_priority import research_activity
+    from src.app.services.resource_budget import configure_worker_threads
+    configure_worker_threads()
+    with research_activity():
+        run(sys.argv[1], sys.argv[2:])
 
 
 if __name__ == "__main__": main()

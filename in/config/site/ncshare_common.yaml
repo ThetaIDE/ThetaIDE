@@ -1,12 +1,5 @@
-# Site profile: NCSU HPC (ncshare) cluster - CPU Compute Nodes (common partition)
+# @package site
+# Compatibility selector; edit the owning site component.
 defaults:
-  - ncshare
+  - /site/ncshare/common
   - _self_
-
-# Resources for CPU compute nodes (partition: common)
-resources:
-  partition: common
-  cores: 4
-  memory: "8G"
-  gpus: 0
-  no_gres: true

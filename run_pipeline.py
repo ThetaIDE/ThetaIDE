@@ -21,6 +21,11 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "component":
     from src.app.components.__main__ import main as component_main
     raise SystemExit(component_main(sys.argv[2:]))
 
+# Site tooling stays headless and does not import training engines.
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "site":
+    from src.app.sites.__main__ import main as site_main
+    raise SystemExit(site_main(sys.argv[2:]))
+
 from omegaconf import OmegaConf
 
 from src.app.pipeline.compose import CONFIG_DIR, compose_experiment, validate_composed
@@ -35,6 +40,7 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("Usage: python run_pipeline.py <group>/<experiment_id> [Hydra Overrides]")
         print("Component development: python run_pipeline.py component --help")
+        print("Cluster workflow: python run_pipeline.py site --help")
         print("Standard Orchestration Overrides (use Hydra syntax, e.g. key=value):")
         print(
             "  site=local            Interactive CLI execution (default, for local machine or cluster interactive node)"
@@ -48,7 +54,7 @@ def main():
         print("  no_online=true        Skip online training phase")
         print("  no_offline=true       Skip offline training phase")
         print("  dry_run=true          Validate config and exit")
-        print("  sweep=true            Run Optuna hyperparameter sweep")
+        print("  ++tuning.component=optuna  Configure an Optuna hyperparameter sweep")
         print("  dash=true             Launch Optuna dashboard during run")
         print("  dash_only=true        Launch Optuna dashboard and exit")
         print("  remake=true           Force recalculation of summaries")
@@ -58,6 +64,9 @@ def main():
 
     raw_experiment = sys.argv[1]
     extra_args = sys.argv[2:]
+    if os.environ.get("THETA_IN_ALLOCATION") == "1":
+        # One worker at a time shares the allocation's one training device.
+        extra_args += ["++run_in_parallel=false"]
 
     # Direct CLI experiment component export
     if raw_experiment == "export":
@@ -90,7 +99,7 @@ def main():
     if raw_experiment in ("scaffold", "new-plugin"):
         if len(extra_args) < 2:
             print("Usage: python run_pipeline.py scaffold <kind> <name> [--author '...'] [--desc '...']")
-            print("Available kinds: model, agent, env, datamodule, evaluator")
+            print("Available kinds: model, agent, env, datamodule, evaluator, monitor, site")
             sys.exit(1)
         kind = extra_args[0].lower()
         name = extra_args[1]
@@ -156,6 +165,8 @@ def main():
         print(f"\n{e}\n")
         sys.exit(1)
 
+    if os.environ.get("THETA_IN_ALLOCATION") == "1" and cfg.get("variability") is not None:
+        cfg.variability.parallel_runs = 1
     if cfg.get("dry_run", False):
         print(f"\n[Validation Success] Experiment config '{experiment_arg}' is valid and ready to run.")
         sys.exit(0)
@@ -186,7 +197,7 @@ def main():
         # Paradigm loading is best-effort during transition; log but don't abort
         print(f"[Notice] Could not load paradigm definition: {e}")
 
-    # Execution mode is determined solely by the site profile: site=local -> interactive CLI, any other site -> Slurm cluster
+    # Keep the selected site while running the common pipeline inside a batch allocation.
     site_name = None
     if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "runtime") and hasattr(cfg.hydra.runtime, "choices"):
         site_name = cfg.hydra.runtime.choices.get("site")
@@ -201,13 +212,19 @@ def main():
         with omegaconf.open_dict(cfg.site):
             cfg.site.name = site_name
 
-    is_interactive = site_name == "local"
+    from src.app.sites import scheduler
+    in_allocation = os.environ.get("THETA_IN_ALLOCATION") == "1"
+    is_interactive = scheduler(cfg) == "local" or in_allocation
+    if scheduler(cfg) == "slurm" and not in_allocation:
+        from src.app.sites.execution import submit
+        submit(_process_paths.root, composed.experiment, composed.extra_args, cfg)
+        return
     print(f"Execution Mode: {'Interactive (Local CLI)' if is_interactive else f'Slurm Cluster ({site_name})'}")
 
     methods_dict = parse_methods_dict(cfg)
     from src.app.pipeline.tuners import get_tuner, tuner_name
 
-    uses_tuning = is_sweep or any(m.get("tune") or m.get("search_space") for m in methods_dict.values())
+    uses_tuning = is_sweep
     tuner = get_tuner(cfg) if uses_tuning or cfg.get("dash") or cfg.get("dash_only") else None
     storage_url = tuner.storage(cfg) if tuner else None
     if is_interactive and storage_url and (cfg.get("dash") or cfg.get("dash_only")):
@@ -244,11 +261,9 @@ def main():
             )
 
     print("Declared Methods:")
-    from src.app.pipeline.tuning_config import tuning_disabled
-
     for name, mcfg in methods_dict.items():
         agent_str = f"agent={mcfg.get('agent')}, " if mcfg.get("agent") else ""
-        tune_str = f" [{tuner_name(cfg)} sweep]" if (is_sweep or ((mcfg.get("tune") or mcfg.get("search_space")) and not tuning_disabled(cfg))) else ""
+        tune_str = f" [{tuner_name(cfg)} sweep]" if is_sweep else ""
         print(f"  {name}: {agent_str}model={mcfg.get('model')}{tune_str}")
 
     # Build context for tasks

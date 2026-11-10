@@ -19,8 +19,8 @@ def logs(tmp_path, monkeypatch):
     return root
 
 
-def version(logs, name, *, finished=False, agent="agent", reward=1):
-    directory = logs / "group" / "run" / agent / name
+def version(logs, name, *, finished=False, agent="agent", reward=1, run="run"):
+    directory = logs / "group" / run / agent / name
     directory.mkdir(parents=True)
     (directory / "metrics.csv").write_text(f"transitions,eval/reward\n10,{reward}\n")
     write_json(directory / "runtime.json", {"end_time_iso": "2026-11-03T10:00:00Z"} if finished else {})
@@ -57,12 +57,13 @@ def test_running_only_run_is_not_published_and_contract_completion_is_supported(
     assert catalog.list_runs(completed_only=True)[0]["finished"]
 
 
-def test_sweep_trials_publish_only_after_their_terminal_state(logs):
+@pytest.mark.parametrize("run", ["run", "path/dir/run"])
+def test_sweep_trials_publish_only_after_their_terminal_state(logs, run):
     from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
 
-    version(logs, "version_sweep_study_trial_0", finished=True)
-    version(logs, "version_sweep_study_trial_1", finished=True)
-    checkpoint_root = logs.parent / "checkpoints" / "group" / "run" / "agent"
+    version(logs, "version_sweep_study_trial_0", finished=True, run=run)
+    version(logs, "version_sweep_study_trial_1", finished=True, run=run)
+    checkpoint_root = logs.parent / "checkpoints" / "group" / run / "agent"
     summary = {"study": "study", "log_method": "agent", "stop_reason": "running", "trials": [
         {"id": 0, "state": "complete", "log_version": "version_sweep_study_trial_0"},
         {"id": 1, "state": "running", "log_version": "version_sweep_study_trial_1"},
@@ -72,13 +73,13 @@ def test_sweep_trials_publish_only_after_their_terminal_state(logs):
         directory = trial_checkpoint_dir(checkpoint_root, "study", number)
         directory.mkdir(parents=True)
         (directory / "best_model.ckpt").write_bytes(b"weights")
-    manifest = catalog.run_manifest("group", "run", completed_only=True)
+    manifest = catalog.run_manifest("group", run, completed_only=True)
     assert manifest["agents"] == {"agent": ["version_sweep_study_trial_0"]}
     assert any("trial_0/best_model.ckpt" in item["path"] for item in manifest["artifacts"])
     assert not any("trial_1" in item["path"] for item in manifest["artifacts"])
     summary["trials"][1]["state"] = "pruned"
     write_json(checkpoint_root / "tuning_summary.json", summary)
-    assert len(catalog.run_manifest("group", "run", completed_only=True)["agents"]["agent"]) == 2
+    assert len(catalog.run_manifest("group", run, completed_only=True)["agents"]["agent"]) == 2
 
 
 def test_finished_sweep_summary_survives_other_unfinished_studies(logs):

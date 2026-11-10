@@ -200,6 +200,9 @@ def _compose_report(experiment, overrides, config_dir):
     except Exception as e:
         errors.append({"stage": "methods", "message": str(e).strip()})
     config = effective_config(composed.cfg)
+    from src.app.sites import scheduler, site_name
+    config.setdefault('site', {}).setdefault('scheduler', scheduler(composed.cfg))
+    config['site']['name'] = site_name(composed.cfg)
     return {
         "valid": not errors,
         "experiment": composed.experiment,
@@ -230,6 +233,10 @@ def prepare_launch(
         raise LaunchError(str(e).strip()) from e
 
     cfg = composed.cfg
+    from src.app.sites import scheduler
+    if scheduler(cfg) == 'slurm':
+        raise LaunchError('This experiment targets a SLURM site. Use Sync Project from the sync menu, '
+                          'then submit run_pipeline.py from the cluster terminal. Sync Metrics/Results pulls its outputs back.')
     local = str((cfg.get('hydra') or {}).get('runtime', {}).get('choices', {}).get('site')
                 or (cfg.get('site') or {}).get('name', 'local')) == 'local'
     trainer = cfg.get('trainer') or {}

@@ -23,17 +23,20 @@ def test_metric_filter_checks_explicit_sweep_even_without_hydra_sweeper():
     assert not selection_errors(cfg, "eval/reward", is_sweep=False)
 
 
-def test_disabled_tuning_is_distinct_from_legacy_enabled_configuration():
-    assert tuning_disabled({"tuning": {"enabled": False}})
-    assert not tuning_enabled({"tuning": {"enabled": False}})
+def test_tuning_presence_is_authoritative_over_legacy_flags():
+    assert not tuning_disabled({"tuning": {"enabled": False}})
+    assert tuning_enabled({"tuning": {"enabled": False}, "sweep": False})
     assert tuning_enabled({"tuning": {"metric": "val/loss"}})
+    assert tuning_enabled({"tuning": {}})
+    assert tuning_disabled({"sweep": True})
+    assert tuning_disabled({"tuning": None, "sweep": True})
 
 
-def test_local_runner_compiles_tuning_only_for_requested_methods(monkeypatch):
+def test_local_runner_uses_tuning_component_instead_of_context_flags(monkeypatch):
     from omegaconf import OmegaConf
     from src.app.pipeline import local_runner
 
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl"})
+    cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl", "tuning": {}})
     methods = {
         "ordinary": {"agent": "ppo", "model": "dnn"},
         "tuned": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}},
@@ -45,13 +48,13 @@ def test_local_runner_compiles_tuning_only_for_requested_methods(monkeypatch):
     monkeypatch.setattr(OptunaTuner, "finalize", lambda *args, **kwargs: None)
     context = {"methods": methods, "sanitized_extra_args": [], "storage_url": "sqlite:///test.db", "is_sweep": False}
     local_runner._run_methods_sequential(cfg, context)
-    assert "--multirun" not in plans[0]
+    assert "--multirun" in plans[0]
     assert "--multirun" in plans[1]
 
-    cfg.tuning = {"enabled": False}
+    cfg.tuning = None
     plans.clear()
     from src.app.pipeline.exceptions import ConfigurationError
-    with pytest.raises(ConfigurationError, match="tuned.*Enable tuning"):
+    with pytest.raises(ConfigurationError, match="tuned.*Add tuning"):
         local_runner._run_methods_sequential(cfg, {**context, "is_sweep": True})
     assert not plans
 
@@ -60,7 +63,7 @@ def test_method_preview_includes_the_search_space():
     from omegaconf import OmegaConf
     from src.app.pipeline.compose import ComposedExperiment, method_plans
 
-    cfg = OmegaConf.create({"paradigm": "online_rl", "methods": {
+    cfg = OmegaConf.create({"paradigm": "online_rl", "tuning": {}, "methods": {
         "method": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}},
     }})
     composed = ComposedExperiment("example", cfg, [], [], False)
@@ -73,6 +76,9 @@ def test_command_compiler_never_drops_a_method_search_space():
     from src.app.pipeline.commands import build_method_overrides
 
     method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
-    overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl"})
+    overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl", "tuning": {}})
     assert "--multirun" in overrides
     assert "agent.lr=interval(0.1, 0.2)" in overrides
+    from src.app.pipeline.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError, match="without a tuning component"):
+        build_method_overrides("method", method, cfg={"paradigm": "online_rl"})

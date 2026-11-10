@@ -7,7 +7,7 @@ from src.app.pipeline.execution_data import ExecutionData
 
 def list_executions(completed_only=False):
     root = Path("results/executions")
-    paths = sorted(root.glob("*/*/*/manifest.json"), reverse=True)
+    paths = sorted(root.rglob("manifest.json"), reverse=True)
     if completed_only:
         completed = []
         for path in paths:

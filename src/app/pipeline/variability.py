@@ -164,13 +164,14 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
             with lock:
                 run.update(status="running", worker_pid=pid,
                            execution_started=datetime.now(timezone.utc).isoformat())
+                run.pop("waiting_reason", None)
                 save()
             print(f"[Training] {run['method']} · seed {run['training_seed']} started (PID {pid}).", flush=True)
 
-        def worker_waiting():
+        def worker_waiting(reason=""):
             with lock:
                 run.update(status="pending", worker_pid=None, execution_started=None)
-                run["capacity_restarts"] = run.get("capacity_restarts", 0) + 1
+                run["waiting_reason"] = reason
                 save()
 
         overrides = [arg for arg in context.get("sanitized_extra_args", [])
@@ -241,13 +242,17 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
         link.parent.mkdir(parents=True, exist_ok=True)
         link.write_text(json.dumps({"manifest": os.path.relpath(path, link.parent)}) + "\n", encoding="utf-8")
     print(f"Execution manifest: {path}")
-    workers = plan['parallel_runs']
+    workers = 1 if os.environ.get('THETA_IN_ALLOCATION') == '1' else plan['parallel_runs']
     if os.environ.get('THETA_RESOURCE_POOL'):
         from src.app.services.resource_budget import orchestration_workers
-        workers = orchestration_workers(len(runs))
+        workers = min(workers, orchestration_workers(len(runs)))
         tickets = dict(zip((run['run_id'] for run in runs), resource_pool.enqueue(
-            len(runs), parent=os.environ.get('THETA_RESOURCE_QUEUE_PARENT'))))
+            min(workers, len(runs)), parent=os.environ.get('THETA_RESOURCE_QUEUE_PARENT'))))
     def execute_queued(run):
+        # Only ready seeds reserve FIFO positions; undispatched seeds must not
+        # block other experiments while waiting for this executor's slots.
+        if resource_pool and run['run_id'] not in tickets:
+            tickets[run['run_id']] = resource_pool.enqueue()[0]
         try:
             return execute(run)
         finally:

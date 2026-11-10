@@ -16,7 +16,8 @@ COMPONENT_DIRECTORIES = {
     "env": "src/usr/environments", "environment": "src/usr/environments",
     "plotter": "src/usr/plotters", "plot": "src/usr/plotters",
     "objective": "src/usr/objectives", "rules": "src/usr/rules",
-    "tuner": "src/usr/tuners", "plugin": "src/usr/app_plugins",
+    "site": "src/usr/sites",
+    "monitor": "src/usr/monitors", "tuner": "src/usr/tuners", "plugin": "src/usr/app_plugins",
     "experiment": "src/usr/experiments", "suite": "src/usr/packages", "package": "src/usr/packages",
 }
 

@@ -6,21 +6,22 @@ import pytest
 from src.app.services import catalog
 
 
-def test_archive_and_delete_run(tmp_path, monkeypatch):
+@pytest.mark.parametrize("run_id", ["run", "path/dir/run"])
+def test_archive_and_delete_run(tmp_path, monkeypatch, run_id):
     monkeypatch.setattr(catalog, "LOGS_DIR", tmp_path / "logs")
     for root in ("logs", "plots", "checkpoints"):
-        folder = tmp_path / root / "group" / "run"
+        folder = tmp_path / root / "group" / run_id
         folder.mkdir(parents=True)
         (folder / "data.txt").write_text(root)
     other = tmp_path / "logs" / "group" / "other"
     other.mkdir()
     archive = tmp_path / "run.zip"
-    catalog.archive_run("group", "run", str(archive))
+    catalog.archive_run("group", run_id, str(archive))
     with zipfile.ZipFile(archive) as zipped:
-        assert set(zipped.namelist()) == {f"{root}/group/run/data.txt" for root in ("logs", "plots", "checkpoints")}
-        assert zipped.read("plots/group/run/data.txt") == b"plots"
-    catalog.delete_run("group", "run")
-    assert all(not (tmp_path / root / "group" / "run").exists() for root in ("logs", "plots", "checkpoints"))
+        assert set(zipped.namelist()) == {f"{root}/group/{run_id}/data.txt" for root in ("logs", "plots", "checkpoints")}
+        assert zipped.read(f"plots/group/{run_id}/data.txt") == b"plots"
+    catalog.delete_run("group", run_id)
+    assert all(not (tmp_path / root / "group" / run_id).exists() for root in ("logs", "plots", "checkpoints"))
     assert other.exists() and archive.exists()
 
 

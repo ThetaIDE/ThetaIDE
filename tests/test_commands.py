@@ -332,7 +332,7 @@ class TestBuildMethodOverrides:
             "model.width": {"type": "int", "low": 2, "high": 6, "step": 2},
             "agent.enabled": {"type": "choice", "values": [True, False]},
         }}
-        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl"}, is_sweep=True)
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {}}, is_sweep=True)
         assert "agent.lr=tag(log, interval(0.0001, 0.01))" in overrides
         assert "model.width=range(2, 6, 2)" in overrides
         assert "agent.enabled=choice(true,false)" in overrides
@@ -341,13 +341,13 @@ class TestBuildMethodOverrides:
         method = {"agent": "ppo", "model": "dnn", "tune": {
             "agent.lr": {"type": "float", "low": 0.1, "high": 0.5, "step": 0.2},
         }}
-        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl"})
+        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl", "tuning": {}})
         assert "agent.lr=range(0.1, 0.5, 0.2)" in overrides
 
     def test_setting_sweeper_option_still_selects_the_optuna_sweeper(self):
         method = {"agent": "cql", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
         overrides = build_method_overrides(
-            "cql", method, cfg={"paradigm": "offline_rl"}, is_sweep=True,
+            "cql", method, cfg={"paradigm": "offline_rl", "tuning": {}}, is_sweep=True,
             extra_args=["hydra.sweeper.n_trials=5"],
         )
         assert "hydra/sweeper=optuna_offline" in overrides
@@ -355,12 +355,12 @@ class TestBuildMethodOverrides:
     def test_sweep_does_not_override_sample_with_base_value(self):
         method = {"agent": "cql", "model": "dnn", "lr": 0.001,
                   "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}}
-        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl"}, is_sweep=True)
-        assert "agent.lr=interval(0.0001, 0.01)" in overrides
-        assert not any(arg.startswith("++agent.lr=") for arg in overrides)
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {}}, is_sweep=True)
+        assert any(arg.lstrip("+") == "agent.lr=interval(0.0001, 0.01)" for arg in overrides)
+        assert sum(arg.lstrip("+").startswith("agent.lr=") for arg in overrides) == 1
 
-    def test_mixed_experiment_single_and_sweep(self):
-        """Experiment with one untuned and one tuned method dispatches single vs sweep cleanly."""
+    def test_composed_component_determines_single_run_or_sweep(self):
+        """A caller flag cannot enable or disable a composed tuning component."""
         cfg_dict = {
             "experiment_name": "cartpole/mixed",
             "paradigm": "online_rl",
@@ -385,7 +385,7 @@ class TestBuildMethodOverrides:
             method_name="ppo_normal",
             method_cfg=methods["ppo_normal"],
             cfg=cfg_dict,
-            is_sweep=False,
+            is_sweep=True,
         )
         assert "--multirun" not in m1_overrides
         assert not any("hydra/sweeper" in o for o in m1_overrides)
@@ -394,9 +394,9 @@ class TestBuildMethodOverrides:
         m2_overrides = build_method_overrides(
             method_name="ppo_tuned",
             method_cfg=methods["ppo_tuned"],
-            cfg=cfg_dict,
+            cfg={**cfg_dict, "tuning": {}},
             study_name="cartpole_ppo_tuned_v1",
-            is_sweep=True,
+            is_sweep=False,
         )
         assert "--multirun" in m2_overrides
         assert "hydra/sweeper=optuna_online" in m2_overrides

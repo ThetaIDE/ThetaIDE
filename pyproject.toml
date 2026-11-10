@@ -10,6 +10,8 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
+    # Process telemetry and worker resource management are also used headlessly.
+    "psutil>=5.9",
     # Core ML
     "torch>=2.0,<3",
     "lightning>=2.0,<3",
@@ -55,7 +57,6 @@ gui = [
     "PyQt6>=6.7,<7",
     "PyQt6-WebEngine>=6.7,<7",
     "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
-    "psutil>=5.9",
     "pywinpty>=2.0; sys_platform == 'win32'",
     "arxiv>=2.1",        # arXiv Papers panel
     "truststore>=0.9",   # HTTPS through the OS certificate store (networks that inspect TLS)

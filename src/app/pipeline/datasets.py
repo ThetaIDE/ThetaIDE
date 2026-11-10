@@ -193,7 +193,8 @@ def run_experiment(
         def check_cancel():
             if requested(cancel_targets, env.get('THETA_CANCEL_DIR')):
                 raise TrainingCancelled()
-        with pool.slot(spec, accelerator=uses_accelerator(task_config), check_cancel=check_cancel, ticket=resource_ticket) as token:
+        with pool.slot(spec, accelerator=uses_accelerator(task_config), check_cancel=check_cancel,
+                       ticket=resource_ticket, **({'on_wait': on_wait} if on_wait else {})) as token:
             def started(pid):
                 pool.attach(token, pid)
                 if on_start:

@@ -6,6 +6,7 @@ resolves exactly like the same experiment launched from the command line.
 
 from __future__ import annotations
 
+import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.app.pipeline.config import resolve_experiment_config_name
+from src.app.pipeline.result_paths import result_identity
 from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
 from src.app.pipeline.validation import validate_experiment_config
 from src.app.workspace import WorkspacePaths
@@ -69,6 +71,9 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
     # Subprocesses need everything PLUS the internal experiment tracking
     launch_args = [*extra_args, f"++experiment_name={experiment}"]
 
+    from src.app.core.data_loaders import loader_override_args
+    overrides = loader_override_args(overrides)
+
     with _HYDRA_LOCK:
         GlobalHydra.instance().clear()
         primary = Path(config_dir or workspace.config)
@@ -81,23 +86,13 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
         initialize_config_dir(version_base=None, config_dir=str(primary))
         cfg = compose(config_name="config", overrides=overrides, return_hydra_config=True)
 
-    exp_stem = Path(experiment).stem
-    if not cfg.get("experiment_id") or cfg.experiment_id == "default_exp":
-        cfg.experiment_id = exp_stem
+    cfg.group, cfg.experiment_id = result_identity(experiment, cfg.get("group"), cfg.get("experiment_id"))
 
-    exp_group = Path(experiment).parent.name if "/" in experiment else "ungrouped"
-    if not cfg.get("group") or cfg.group == "ungrouped":
-        cfg.group = exp_group
+    # Forward the resolved identity, including subdirectories, to every engine.
+    launch_args = [arg for arg in launch_args if not arg.lstrip("+").startswith(("experiment_id=", "group="))]
+    launch_args.extend(f"++{key}={json.dumps(str(cfg[key]))}" for key in ("experiment_id", "group"))
 
-    # Ensure it's in extra args so it passes to children
-    if not any("experiment_id=" in arg for arg in launch_args):
-        launch_args.append(f"++experiment_id={cfg.experiment_id}")
-    if not any("group=" in arg for arg in launch_args):
-        launch_args.append(f"++group={cfg.group}")
-
-    is_sweep = not tuning_disabled(cfg) and (
-        tuning_enabled(cfg) or bool(cfg.get("sweep", False)) or "--multirun" in launch_args or "-m" in launch_args
-    )
+    is_sweep = tuning_enabled(cfg)
     launch_args = [a for a in launch_args if a not in ("--multirun", "-m")]
     if tuning_disabled(cfg):
         launch_args = [
@@ -112,12 +107,10 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
     """Run pre-flight paradigm validation. Returns notices; raises ConfigurationError."""
     notices = validate_experiment_config(composed.cfg, composed.experiment, is_sweep=composed.is_sweep, config_dir=composed.config_dir)
     _validate_method_composition(composed)
-    if composed.cfg.get("objective") is not None:
-        choices = composed.cfg.get("hydra", {}).get("runtime", {}).get("choices", {})
-        site = choices.get("site") or (composed.cfg.get("site") or {}).get("name") or "local"
-        if site != "local":
-            from src.app.pipeline.exceptions import ConfigurationError
-            raise ConfigurationError("Objective sampling currently requires the local launcher; Slurm is not yet supported")
+    from src.app.sites import scheduler
+    if scheduler(composed.cfg) == "slurm":
+        from src.app.sites.execution import validate_allocation
+        validate_allocation(composed.cfg)
     if composed.cfg.get("variability") is not None:
         from src.app.pipeline.config import parse_methods_dict
         from src.app.pipeline.variability import make_plan
@@ -125,7 +118,7 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
         choices = composed.cfg.get("hydra", {}).get("runtime", {}).get("choices", {})
         site = choices.get("site") or (composed.cfg.get("site") or {}).get("name") or "local"
         make_plan(composed.cfg, {"methods": parse_methods_dict(composed.cfg),
-                                 "is_sweep": composed.is_sweep, "is_interactive": site == "local"})
+                                 "is_sweep": composed.is_sweep, "is_interactive": True})
     return notices
 
 
@@ -193,9 +186,7 @@ def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
 
     plans = {}
     for name, settings in parse_methods_dict(composed.cfg).items():
-        method_sweeps = not tuning_disabled(composed.cfg) and (
-            composed.is_sweep or bool(settings.get("tune") or settings.get("search_space"))
-        )
+        method_sweeps = tuning_enabled(composed.cfg)
         plans[name] = {
             "settings": settings,
             "train_overrides": build_method_overrides(

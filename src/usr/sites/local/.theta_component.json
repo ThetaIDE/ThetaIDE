@@ -1,0 +1,31 @@
+{
+  "id": "local-site",
+  "name": "local",
+  "kind": "site",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "local",
+      "kind": "site",
+      "entry_point": "site.py:SITE"
+    }
+  ],
+  "config_paths": [
+    "in/config/site/local/_defaults.yaml",
+    "in/config/site/local/default.yaml"
+  ],
+  "payload": {
+    "implementations": [
+      "site.py"
+    ],
+    "resources": [
+      "ssh_config"
+    ],
+    "configs": {
+      "in/config/site/local/_defaults.yaml": "configs/site/local/_defaults.yaml",
+      "in/config/site/local/default.yaml": "configs/site/local/default.yaml"
+    }
+  }
+}

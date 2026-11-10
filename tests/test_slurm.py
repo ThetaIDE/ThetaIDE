@@ -63,7 +63,7 @@ def test_slurm_ncshare_split_sites():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "in/config"), version_base=None)
+    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
 
     # 1. ncshare_common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
     cfg_common = compose(config_name="config", overrides=["site=ncshare_common"])
@@ -75,7 +75,7 @@ def test_slurm_ncshare_split_sites():
     assert cfg_common.site.consolidate is False
 
     GlobalHydra.instance().clear()
-    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "in/config"), version_base=None)
+    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
 
     # 2. ncshare_gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
     cfg_gpu = compose(config_name="config", overrides=["site=ncshare_gpu"])
@@ -95,7 +95,7 @@ def test_slurm_script_is_depersonalized():
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
-    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "in/config"), version_base=None)
+    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
     cfg = compose(config_name="config", overrides=["site=ncshare"])
     script = generate_sbatch_script(
         job_name="depersonalized_test",
@@ -109,3 +109,15 @@ def test_slurm_script_is_depersonalized():
     assert "--mail-user" not in script
 
     GlobalHydra.instance().clear()
+
+
+def test_slurm_allocation_account_and_qos():
+    cfg = OmegaConf.create({'site': {'resources': {'account': 'lab', 'qos': 'normal'}},
+                            'resources': {'account': 'project'}})
+    header = generate_sbatch_header('job', 'logs', cfg)
+    assert '#SBATCH --account=project\n' in header
+    assert '#SBATCH --qos=normal\n' in header
+    cfg.resources.account = 'project\n#SBATCH --nodes=100'
+    import pytest
+    with pytest.raises(ValueError, match='single-line'):
+        generate_sbatch_header('job', 'logs', cfg)

@@ -13,6 +13,12 @@ from omegaconf import OmegaConf, open_dict
 
 
 def main():
+    from src.app.services.worker_priority import research_activity
+    with research_activity():
+        return _main()
+
+
+def _main():
     script, config_path, result_path = sys.argv[1:]
     setup_globals()
     config = OmegaConf.load(config_path)
@@ -30,7 +36,10 @@ def main():
                if key.startswith(('THETA_RESOURCE_', 'THETA_MANAGED_')) or key == 'THETAIDE_SETTINGS_FILE'}
     os.environ.update({str(key): str(value) for key, value in config.hydra.job.env_set.items()})
     os.environ.update(managed)
-    if os.environ.get('THETA_MANAGED_THREADS'):
+    if os.environ.get('THETA_RESOURCE_POOL'):
+        from src.app.services.resource_budget import configure_worker_threads
+        configure_worker_threads()
+    elif os.environ.get('THETA_MANAGED_THREADS'):
         from src.app.services.resource_budget import managed_environment
         os.environ.update(managed_environment(int(os.environ['THETA_MANAGED_THREADS'])))
     configure_log(config.hydra.job_logging, config.hydra.verbose)

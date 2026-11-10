@@ -1,0 +1,4 @@
+# @package site
+defaults:
+- /site/arc/_defaults
+- _self_

@@ -55,7 +55,8 @@ def run_experiment_plots(
         custom_dir = str(exp_cfg["output_dir"]).format(group=group, exp_id=exp_id, clean_exp=clean_exp)
         output_dir = Path(custom_dir)
     else:
-        output_dir = Path("results/plots") / group / clean_exp
+        result_id = exp_id.removeprefix(f"{group}/")
+        output_dir = Path("results/plots") / group / result_id
 
     if wipe and output_dir.exists():
         print(f"Wiping existing plot directory: {output_dir}")

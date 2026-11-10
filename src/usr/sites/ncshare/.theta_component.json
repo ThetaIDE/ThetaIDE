@@ -1,0 +1,35 @@
+{
+  "id": "ncshare-site",
+  "name": "ncshare",
+  "kind": "site",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "ncshare",
+      "kind": "site",
+      "entry_point": "site.py:SITE"
+    }
+  ],
+  "config_paths": [
+    "in/config/site/ncshare/common.yaml",
+    "in/config/site/ncshare/_defaults.yaml",
+    "in/config/site/ncshare/gpu.yaml",
+    "in/config/site/ncshare/default.yaml"
+  ],
+  "payload": {
+    "implementations": [
+      "site.py"
+    ],
+    "resources": [
+      "ssh_config"
+    ],
+    "configs": {
+      "in/config/site/ncshare/common.yaml": "configs/site/ncshare/common.yaml",
+      "in/config/site/ncshare/_defaults.yaml": "configs/site/ncshare/_defaults.yaml",
+      "in/config/site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml",
+      "in/config/site/ncshare/default.yaml": "configs/site/ncshare/default.yaml"
+    }
+  }
+}

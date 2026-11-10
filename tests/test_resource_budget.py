@@ -69,7 +69,8 @@ def fake_start(manager, job):
     manager._processes[job['job_id']] = QProcess(manager)
 
 
-def test_legacy_count_does_not_block_jobs_that_fit(runner, monkeypatch):
+def test_coordinators_do_not_consume_training_worker_slots(runner, monkeypatch):
+    runner.settings_path.write_text('[training]\nmax_parallel=1\n')
     monkeypatch.setattr(runner, '_start', lambda job: fake_start(runner, job))
     first = runner.launch('a', _plan=plan('a'))
     second = runner.launch('b', _plan=plan('b'))
@@ -80,11 +81,12 @@ def test_legacy_count_does_not_block_jobs_that_fit(runner, monkeypatch):
 
 def test_queue_waits_for_ram_then_retries_without_completion(runner, monkeypatch):
     monkeypatch.setattr(runner, '_start', lambda job: fake_start(runner, job))
-    monkeypatch.setattr('frontend.runner_manager.host_capacity', lambda: (8, 32 * GIB, 1.65 * GIB))
+    runner.settings_path.write_text('[training]\nmemory_percent=25\n')
+    monkeypatch.setattr(runner.resource_pool, '_sample', lambda db: [{'rss': 9.55 * GIB, 'memory': 9.55 * GIB, 'cpu': 1, 'accelerator': False}])
     runner.launch('a', queue=True, _plan=plan('a'))
     runner.start_queue()
     assert runner.running_count() == 0 and 'RAM' in runner.queue_state()['waiting_reason']
-    monkeypatch.setattr('frontend.runner_manager.host_capacity', lambda: (8, 32 * GIB, 24 * GIB))
+    monkeypatch.setattr(runner.resource_pool, '_sample', lambda db: [])
     runner.resource_tick()
     assert runner.running_count() == 1 and not runner.queue_order
 
@@ -105,10 +107,10 @@ def test_multiple_accelerator_workers_are_admitted_when_estimates_fit(runner, mo
 def test_persisted_budget_changes_are_loaded_by_detached_runner(runner, monkeypatch):
     runner.settings_path.write_text('[training]\nmax_parallel = 3\ncpu_percent = 50\nthreads_per_job = 4\n')
     runner.resource_tick()
-    assert runner.max_parallel == 1 and runner.resource_budget.threads(8) == 4  # legacy field is not loaded
+    assert runner.max_parallel == 3 and runner.resource_budget.threads(8) == 4
 
 
-def test_sustained_memory_pressure_stops_newest_and_pauses(runner, monkeypatch):
+def test_host_memory_pressure_does_not_stop_research_or_pause_queue(runner, monkeypatch):
     monkeypatch.setattr(runner, '_start', lambda job: fake_start(runner, job))
     first = runner.launch('a', _plan=plan('a'))
     runner.launch('b', queue=True, _plan=plan('b'))
@@ -119,11 +121,12 @@ def test_sustained_memory_pressure_stops_newest_and_pauses(runner, monkeypatch):
     for _ in range(3):
         runner._last_resource_tick = 0
         runner.resource_tick()
-    assert stopped == [first['job_id']] and not runner.queue_running
-    assert len(runner.queue_order) == 1
+    assert stopped == [] and runner.queue_running
+    assert runner.running_count() == 2
 
 
-def test_real_child_receives_managed_thread_environment(runner):
+def test_real_child_receives_managed_thread_environment(runner, monkeypatch):
+    monkeypatch.setattr('src.app.workspace.PROJECT_ROOT', runner.project_root)
     (runner.project_root / 'run_pipeline.py').write_text(
         'import os\nprint(os.environ["OMP_NUM_THREADS"], os.environ["THETA_MANAGED_SERIAL"], flush=True)\n')
     job = runner.launch('a', _plan=plan('a'))
@@ -149,12 +152,13 @@ def test_settings_controls_persist_and_update_runner(runner):
     card = view._build_resource_budget_card()
     view.resource_controls['cpu_percent'].setValue(50)
     assert 'memory_gb_per_job' not in view.resource_controls
-    assert 'threads_per_job' not in view.resource_controls
+    view.resource_controls['threads_per_job'].setValue(3)
     view.resource_controls['memory_percent'].setValue(60)
-    assert 'max_parallel' not in view.resource_controls
+    view.resource_controls['max_parallel'].setValue(2)
     runner.resource_tick()
     assert runner.resource_budget.cpu_percent == 50
     assert runner.resource_budget.memory_percent == 60
+    assert runner.resource_budget.threads_per_job == 3 and runner.max_parallel == 2
     assert 'Theta RAM target' in view.resource_budget_summary.text()
     card.close()
 
@@ -251,14 +255,14 @@ def test_old_manual_memory_setting_is_ignored():
     assert a == b
 
 
-def test_other_apps_do_not_consume_theta_budget_but_free_ram_still_matters():
+def test_other_apps_do_not_consume_theta_budget_or_gate_admission():
     budget = ResourceBudget(memory_percent=50)
     values = capacity()
     values.update(available=8 * GIB, next_memory=GIB)
     # Other apps use 75% of RAM; Theta can still use physically available room.
     assert budget.admission_reason(**values) == ''
     values['available'] = GIB
-    assert 'RAM' in budget.admission_reason(**values)
+    assert budget.admission_reason(**values) == ''
 
 
 def test_shared_pool_admission_is_atomic_across_callers(tmp_path, monkeypatch):
@@ -282,7 +286,7 @@ def test_shared_pool_admission_is_atomic_across_callers(tmp_path, monkeypatch):
     pool.release(tokens[0])
 
 
-def test_small_tasks_can_exceed_legacy_count_limit(tmp_path, monkeypatch):
+def test_small_tasks_respect_workspace_worker_limit(tmp_path, monkeypatch):
     import psutil
     from src.app.services.resource_budget import ResourcePool
     monkeypatch.setattr(psutil, 'cpu_percent', lambda *a: 0)
@@ -294,10 +298,13 @@ def test_small_tasks_can_exceed_legacy_count_limit(tmp_path, monkeypatch):
     with pool.connect() as db:
         db.execute('INSERT INTO profiles VALUES(?,?,?,?)', (spec['key'], .1*GIB, .25, 10))
     tokens = []
-    for _ in range(5):
+    for i in range(5):
         token, reason = pool.acquire(spec, capacity=(8,32*GIB,31*GIB))
-        assert token and not reason
-        tokens.append(token)
+        if i == 0:
+            assert token and not reason
+            tokens.append(token)
+        else:
+            assert token is None and 'worker limit' in reason
     for token in tokens:
         pool.release(token)
 

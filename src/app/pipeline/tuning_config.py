@@ -2,13 +2,14 @@
 
 
 def tuning_disabled(cfg) -> bool:
-    tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
-    return hasattr(tuning, "get") and tuning.get("enabled") is False
+    return not tuning_enabled(cfg)
 
 
 def tuning_enabled(cfg) -> bool:
     tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
-    return tuning is not None and not tuning_disabled(cfg)
+    # The composed component configuration is authoritative, including inherited
+    # settings and explicit nulls. Legacy sweep/enabled flags have no effect.
+    return tuning is not None
 
 
 def require_runnable_tuning(cfg, methods) -> None:
@@ -21,6 +22,6 @@ def require_runnable_tuning(cfg, methods) -> None:
         from src.app.pipeline.exceptions import ConfigurationError
 
         raise ConfigurationError(
-            "Tuning is disabled, but these methods declare search spaces: " + ", ".join(affected)
-            + ". Enable tuning or remove their search spaces before running."
+            "These methods declare search spaces without a tuning component: " + ", ".join(affected)
+            + ". Add tuning configuration or remove their search spaces before running."
         )

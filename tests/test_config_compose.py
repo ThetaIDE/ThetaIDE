@@ -58,14 +58,31 @@ def test_builder_command_is_a_valid_pipeline_invocation():
     validate_composed(gui_compose(config))
 
 
-def test_disabled_tuning_does_not_compile_as_a_sweep():
+def test_absent_tuning_does_not_compile_as_a_sweep_despite_legacy_flags():
     composed = compose_experiment(
         BASE_EXPERIMENT,
-        ["++tuning.enabled=false", "sweep=true", "--multirun", "hydra/sweeper=optuna_online"],
+        ["++tuning=null", "sweep=true", "--multirun", "hydra/sweeper=optuna_online"],
     )
     assert not composed.is_sweep
     assert "--multirun" not in composed.launch_args
     assert not any(arg.startswith("hydra/sweeper=") for arg in composed.launch_args)
+
+
+def test_composed_tuning_inherits_group_defaults_and_null_masks_them(fixture_workspace):
+    group = fixture_workspace / "in/config/experiment/implicit_tuning"
+    group.mkdir()
+    (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: optuna, enabled: false}\n")
+    (group / "inherited.yaml").write_text(
+        "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\nsweep: false\n")
+    composed = compose_experiment("implicit_tuning/inherited")
+    assert composed.is_sweep
+    assert composed.cfg.tuning.component == "optuna"
+    assert not composed.cfg.sweep
+    (group / "ordinary.yaml").write_text(
+        "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\ntuning: null\nsweep: true\n")
+    composed = compose_experiment("implicit_tuning/ordinary")
+    assert not composed.is_sweep
+    assert composed.cfg.tuning is None
 
 
 def test_default_builder_matches_hand_written_reference():
@@ -107,6 +124,7 @@ def test_sweep_preflight_checks_actual_trial_hydra_paths(monkeypatch):
     from src.app.pipeline.exceptions import ConfigurationError
 
     composed = compose_experiment(REFERENCE, [
+        "++tuning.component=optuna",
         "++methods.ppo.tune.model.missing.type=choice",
         "++methods.ppo.tune.model.missing.values=[1,2]",
     ])
