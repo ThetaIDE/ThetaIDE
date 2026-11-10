@@ -1459,3 +1459,48 @@ def test_site_resources_use_shared_nested_controls(viewer):
     assert widget.raw_data['resources']['cores'] == 12
     widget._set_experiment_site('local')
     assert widget.raw_data['resources'] == {'cores': 12, 'memory': '16G'}
+
+
+def test_ncshare_cpu_component_large_limits_render_and_round_trip(viewer):
+    from pathlib import Path
+    from frontend.widgets import IntegerField
+    project = Path(__file__).resolve().parents[1]
+    data = yaml.safe_load((project / 'src/usr/sites/ncshare/configs/site/ncshare/common.yaml').read_text())
+    widget = load(viewer, data, 'site/ncshare/common.yaml')
+    assert not widget.is_dirty
+    limits = data['execution']
+    for name in ('max_pending_bytes', 'max_published_bytes', 'max_input_bytes', 'max_runtime_bytes'):
+        field = next(field for field in widget.findChildren(IntegerField)
+                     if field.property('parameterPath') == 'execution.' + name)
+        assert field.value() == limits[name]
+        assert field.text() == str(limits[name])
+    # Values that fit Qt but exceeded the old 100-million UI limit stay intact too.
+    field = next(field for field in widget.findChildren(QAbstractSpinBox)
+                 if field.property('parameterPath') == 'execution.diagnostic_bytes')
+    assert field.value() == 134217728
+    limit = next(field for field in widget.findChildren(IntegerField)
+                 if field.property('parameterPath') == 'execution.max_published_bytes')
+    exact = 2**60 + 1  # cannot round-trip through a double
+    limit.setText(str(exact)); limit.editingFinished.emit()
+    assert widget.raw_data['execution']['max_published_bytes'] == exact
+    assert type(widget.raw_data['execution']['max_published_bytes']) is int
+    assert widget.save_to_disk()
+    assert yaml.safe_load(widget.current_path.read_text())['execution']['max_published_bytes'] == exact
+    widget.load_file(widget.current_path, 'site/ncshare/common.yaml')
+    assert not widget.is_dirty
+
+
+def test_schema_integer_controls_preserve_large_values_and_validate_bounds(viewer):
+    from frontend.widgets import IntegerField
+    widget, tree, _ = viewer
+    tree.component_parameter_schemas['model/test.yaml'] = {'type': 'object', 'properties': {
+        'budget': {'type': 'integer', 'minimum': 0, 'maximum': 2**64},
+        'signed': {'type': 'integer', 'minimum': -(2**64), 'maximum': 2**64}}}
+    widget = load(viewer, {'budget': 2**60 + 1, 'signed': -(2**60 + 1)}, 'model/test.yaml')
+    assert not widget.is_dirty
+    field = next(field for field in widget.findChildren(IntegerField) if field.property('parameterPath') == 'budget')
+    for invalid in ('1.5', '-1', str(2**64 + 1), ''):
+        field.setText(invalid); field.editingFinished.emit()
+        assert widget.raw_data['budget'] == 2**60 + 1 and not widget.is_dirty
+    field.setText('17179869184'); field.editingFinished.emit()
+    assert widget.raw_data['budget'] == 17179869184 and widget.is_dirty

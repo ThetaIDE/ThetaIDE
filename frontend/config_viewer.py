@@ -48,7 +48,7 @@ from .sidetabs import svg_icon
 from .theme import theme_color
 from .widgets import (
     ComboBox as BaseComboBox, DoubleSpinBox, SpinBox, label, SmoothScrollArea, ToggleSlider,
-    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit,
+    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit, integer_field,
 )
 from .metric_picker import MetricPicker, logged_metrics
 from .parameter_reorder import ColumnRows, FormRows, GridRows, ListRows, ParameterReorder, form_groups
@@ -613,7 +613,7 @@ def number_field(value):
         magnitude = math.floor(math.log10(abs(value))) if value else -1
         spin.setSingleStep(10.0 ** (magnitude - 1))
     else:
-        spin = SpinBox()
+        return integer_field(value, minimum=0 if value >= 0 else min(value, -1000000))
     spin.setRange(0 if value >= 0 else -1000000, 100000000)
     spin.setValue(value)
     return spin
@@ -4888,10 +4888,9 @@ class ConfigViewer(QWidget):
             widget.toggled.connect(write)
             return widget
         if schema_type == "integer":
-            widget = SpinBox()
+            widget = integer_field(int(value if value is not None else schema.get("default", 0)),
+                                   minimum=schema.get("minimum"), maximum=schema.get("maximum"))
             widget.setMaximumWidth(NUMBER_FIELD_WIDTH)
-            widget.setRange(int(schema.get("minimum", -2147483648)), int(schema.get("maximum", 2147483647)))
-            widget.setValue(int(value if value is not None else schema.get("default", 0)))
             widget.valueChanged.connect(write)
             return widget
         if schema_type == "number" or isinstance(value, float):

@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen, QSyntaxHighlighter, QTextCharFor
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QAbstractButton,
     QComboBox, QDoubleSpinBox, QSpinBox, QTableWidgetItem, QScrollArea,
-    QToolButton, QMenu, QInputDialog, QAbstractSpinBox, QTextEdit, QSizePolicy,
+    QToolButton, QMenu, QInputDialog, QAbstractSpinBox, QTextEdit, QSizePolicy, QLineEdit,
 )
 from .theme import theme_color
 from .charts.chart import Chart, format_tick, nice_step  # noqa: F401  (moved; re-exported)
@@ -33,6 +33,56 @@ class _WheelNeedsFocus:
 
 class SpinBox(_WheelNeedsFocus, QSpinBox):
     pass
+
+
+class IntegerField(QLineEdit):
+    """Exact Python integer editor when a value/range exceeds Qt's 32-bit spin box."""
+
+    valueChanged = pyqtSignal(object)
+
+    def __init__(self, value=0, minimum=None, maximum=None, parent=None):
+        super().__init__(parent)
+        self._minimum, self._maximum = minimum, maximum
+        self._value = int(value)
+        self.setText(str(self._value))
+        self.setToolTip("Enter a whole number; large integers are preserved exactly.")
+        self.editingFinished.connect(self._commit)
+
+    def value(self):
+        return self._value
+
+    def setValue(self, value):
+        value = int(value)
+        changed = value != self._value
+        self._value = value
+        self.setText(str(value))
+        if changed:
+            self.valueChanged.emit(value)
+
+    def _commit(self):
+        text = self.text().strip()
+        try:
+            if not re.fullmatch(r"[+-]?[0-9]+", text): raise ValueError('Expected integer')
+            value = int(text)
+            if self._minimum is not None and value < self._minimum: raise ValueError('Below minimum')
+            if self._maximum is not None and value > self._maximum: raise ValueError('Above maximum')
+        except ValueError:
+            self.setText(str(self._value))
+            return
+        self.setValue(value)
+
+
+def integer_field(value, *, minimum=None, maximum=None):
+    """Use ordinary spin controls when safe, otherwise an exact integer field."""
+    low, high = -(2**31), 2**31 - 1
+    if (not low <= value <= high or (minimum is not None and not low <= minimum <= high)
+            or (maximum is not None and not low <= maximum <= high)
+            or (minimum is not None and value < minimum) or (maximum is not None and value > maximum)):
+        return IntegerField(value, minimum, maximum)
+    widget = SpinBox()
+    widget.setRange(low if minimum is None else minimum, high if maximum is None else maximum)
+    widget.setValue(value)
+    return widget
 
 
 class DoubleSpinBox(_WheelNeedsFocus, QDoubleSpinBox):
