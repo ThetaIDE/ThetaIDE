@@ -55,6 +55,15 @@ class EnvironmentEvaluatorCallback(L.Callback):
             self.evaluate_and_log(trainer, pl_module, transitions=target_transitions)
 
     def evaluate_and_log(self, trainer, pl_module, transitions):
+        from contextlib import ExitStack
+        from src.app.telemetry.lightning import ThetaLogger
+        with ExitStack() as stages:
+            for logger in trainer.loggers:
+                if isinstance(logger, ThetaLogger):
+                    stages.enter_context(logger.run.phase("testing", "Testing policy", transitions=int(transitions)))
+            self._evaluate_and_log(trainer, pl_module, transitions)
+
+    def _evaluate_and_log(self, trainer, pl_module, transitions):
         eval_start = time.time()
         avg_reward, std_reward = self.evaluate(trainer, pl_module)
         eval_end = time.time()

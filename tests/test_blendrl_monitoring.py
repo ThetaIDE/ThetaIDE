@@ -2,7 +2,11 @@ import math
 import pytest
 import torch
 
-from src.usr.models.blendrl import monitoring
+from src.app.core.provider_catalog import get_catalog
+from src.app.core.provider_loader import load_module
+
+_package = get_catalog().package("blendrl-dev")
+monitoring = load_module(_package, "monitoring.py")
 
 
 def test_multi_expert_weights_and_agreement():
@@ -25,7 +29,7 @@ def test_single_module_and_invalid_inputs():
         monitoring.routing_metrics(torch.tensor([[1., 0.]]), ['logic', 'neural'], threshold=.5)
 
 
-from plot.blendrl.routing import BlendRoutingPlotter
+BlendRoutingPlotter = load_module(_package, "plot/blendrl/routing.py").BlendRoutingPlotter
 import numpy as np
 
 def test_sample_plots_with_optional_metadata(tmp_path):

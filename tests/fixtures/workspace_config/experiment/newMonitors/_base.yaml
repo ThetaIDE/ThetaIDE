@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - override /env: null
+
+paradigm: null
+
+seed: 1
+save_dataset: false
+recover: false

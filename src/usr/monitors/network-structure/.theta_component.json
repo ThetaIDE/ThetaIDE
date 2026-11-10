@@ -1,0 +1,76 @@
+{
+  "id": "network-structure",
+  "name": "Network Structure",
+  "kind": "monitor",
+  "version": "0.1.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "description": "Bounded feedforward topology, weights and fixed-probe activations.",
+  "author": {
+    "name": "Theta Research"
+  },
+  "compatibility": {
+    "theta": ">=2.0.0"
+  },
+  "dependencies": {
+    "pip": [
+      "numpy",
+      "torch"
+    ],
+    "components": []
+  },
+  "parameter_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "max_layers": {
+        "type": "integer",
+        "default": 16,
+        "minimum": 1,
+        "maximum": 32
+      },
+      "max_units": {
+        "type": "integer",
+        "default": 64,
+        "minimum": 1,
+        "maximum": 256
+      },
+      "max_edges": {
+        "type": "integer",
+        "default": 4096,
+        "minimum": 1,
+        "maximum": 65536
+      }
+    }
+  },
+  "capabilities": [
+    {
+      "id": "network-structure",
+      "kind": "monitor",
+      "entry_point": "monitor.py:NetworkStructure",
+      "requires": [
+        "probe_forward.v1",
+        "post_update.v1"
+      ],
+      "monitoring": {
+        "catalog": "catalog.py:describe"
+      }
+    }
+  ],
+  "config_path": "in/config/monitor/network-structure.yaml",
+  "config_paths": [
+    "in/config/monitor/network-structure.yaml"
+  ],
+  "payload": {
+    "implementations": [
+      "monitor.py",
+      "catalog.py"
+    ],
+    "resources": [
+      "README.md"
+    ],
+    "configs": {
+      "in/config/monitor/network-structure.yaml": "configs/monitor/network-structure.yaml"
+    }
+  }
+}

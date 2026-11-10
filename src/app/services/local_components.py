@@ -321,7 +321,7 @@ class LocalComponents:
         meta = json.loads((package / '.theta_component.json').read_text())
         validate_native_package(meta,package)
         kind = normalize_kind(meta['kind'])
-        target = self.paths.user(kind if kind in ('model','algorithm','env','datamodule','evaluator','plotter','objective','tuner','plugin','rules') else 'package') / component.id
+        target = self.paths.user(kind if kind in ('model','algorithm','env','datamodule','evaluator','plotter','objective','monitor','tuner','plugin','rules') else 'package') / component.id
         if target.exists(): raise ValueError(f'Authoring destination already exists: {target}')
         profiles = meta['payload']['configs']
         with workspace_lock(self.paths):

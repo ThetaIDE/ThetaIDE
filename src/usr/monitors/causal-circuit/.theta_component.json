@@ -1,0 +1,200 @@
+{
+  "id": "causal-circuit",
+  "name": "Causal Circuit",
+  "kind": "monitor",
+  "version": "0.1.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "description": "Measures neuron ablations and donor patching with held-out candidate-circuit evaluation.",
+  "author": {
+    "name": "Theta Research"
+  },
+  "compatibility": {
+    "theta": ">=2.0.0"
+  },
+  "dependencies": {
+    "pip": [
+      "numpy",
+      "torch"
+    ],
+    "components": []
+  },
+  "parameter_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "layers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "uniqueItems": true
+      },
+      "max_units": {
+        "type": "integer",
+        "default": 16,
+        "minimum": 2,
+        "maximum": 64
+      },
+      "top_k": {
+        "type": "integer",
+        "default": 4,
+        "minimum": 1,
+        "maximum": 16
+      },
+      "random_controls": {
+        "type": "integer",
+        "default": 4,
+        "minimum": 1,
+        "maximum": 16
+      },
+      "action": {
+        "type": "integer",
+        "default": 0,
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "reference_action": {
+        "type": "integer",
+        "default": 1,
+        "minimum": 0,
+        "maximum": 10000
+      },
+      "baseline": {
+        "type": "string",
+        "enum": [
+          "mean",
+          "zero"
+        ],
+        "default": "mean"
+      },
+      "granularity": {
+        "type": "string",
+        "enum": [
+          "unit",
+          "layer"
+        ],
+        "default": "unit"
+      },
+      "max_edges": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 32,
+        "default": 8
+      }
+    },
+    "x-theta-config-schemas": {
+      "in/config/monitor/causal-circuit.yaml": {
+        "type": "object",
+        "required": [
+          "component"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "const": "causal-circuit"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "layers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "max_units": {
+                "type": "integer",
+                "default": 16,
+                "minimum": 2,
+                "maximum": 64
+              },
+              "top_k": {
+                "type": "integer",
+                "default": 4,
+                "minimum": 1,
+                "maximum": 16
+              },
+              "random_controls": {
+                "type": "integer",
+                "default": 4,
+                "minimum": 1,
+                "maximum": 16
+              },
+              "action": {
+                "type": "integer",
+                "default": 0,
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "reference_action": {
+                "type": "integer",
+                "default": 1,
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "baseline": {
+                "type": "string",
+                "enum": [
+                  "mean",
+                  "zero"
+                ],
+                "default": "mean"
+              },
+              "granularity": {
+                "type": "string",
+                "enum": [
+                  "unit",
+                  "layer"
+                ],
+                "default": "unit"
+              },
+              "max_edges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 32,
+                "default": 8
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "capabilities": [
+    {
+      "id": "causal-circuit",
+      "kind": "monitor",
+      "entry_point": "monitor.py:CausalCircuit",
+      "requires": [
+        "probe_forward.v1",
+        "post_update.v1",
+        "module_interventions.v1"
+      ],
+      "monitoring": {
+        "catalog": "catalog.py:describe"
+      }
+    }
+  ],
+  "config_path": "in/config/monitor/causal-circuit.yaml",
+  "config_paths": [
+    "in/config/monitor/causal-circuit.yaml"
+  ],
+  "payload": {
+    "implementations": [
+      "monitor.py",
+      "catalog.py"
+    ],
+    "resources": [
+      "README.md"
+    ],
+    "configs": {
+      "in/config/monitor/causal-circuit.yaml": "configs/monitor/causal-circuit.yaml"
+    }
+  }
+}

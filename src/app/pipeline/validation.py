@@ -286,9 +286,25 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
         monitor = tuning.get("metric") or monitor
     for problem in selection_errors(cfg, monitor, is_sweep=is_sweep):
         raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}': {problem}")
+    from src.app.telemetry.monitors import monitor_errors
+    for problem in monitor_errors(cfg):
+        raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}': {problem}")
+
+    from src.app.monitoring.config import validate_monitors
+    try:
+        validate_monitors(cfg)
+    except (ValueError, TypeError) as exc:
+        raise ConfigurationError(f"Invalid monitoring configuration: {exc}") from exc
 
     # --- Paradigm-Method/Agent Validation ---
     _validate_methods_for_paradigm(cfg, paradigm_name, paradigm_def)
+
+    from src.app.core.data_loaders import data_loader_errors
+    paths = WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process()
+    for method_name, method in (parse_methods_dict(cfg, paths=paths) or {"training": None}).items():
+        errors = data_loader_errors(cfg, method, paths=paths)
+        if errors:
+            raise ConfigurationError(f"Method '{method_name}': " + " ".join(errors))
 
     # --- Missing Components Validation ---
     missing_comps = find_missing_components(cfg)

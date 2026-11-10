@@ -11,6 +11,7 @@ it through telemetry.lightning.ThetaLogger, imported separately so other engines
 """
 
 from .records import SCHEMA_VERSION, decode, encode, metrics_row, record
+from .monitors import MonitorSelection, MonitorSpec, available_monitors, monitors_from_config
 from .run import Run, init, settings_from_config, version_dir_for
 from .sinks import DEFAULT_SINKS, SINKS, STREAM_FILE, CsvSink, MemorySink, Sink, StreamSink, register_sink
 
@@ -21,13 +22,17 @@ __all__ = [
     "STREAM_FILE",
     "CsvSink",
     "MemorySink",
+    "MonitorSelection",
+    "MonitorSpec",
     "Run",
     "Sink",
     "StreamSink",
     "decode",
+    "available_monitors",
     "encode",
     "init",
     "metrics_row",
+    "monitors_from_config",
     "record",
     "register_sink",
     "settings_from_config",

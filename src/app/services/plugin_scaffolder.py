@@ -66,7 +66,7 @@ class PluginScaffolder:
                 error="Component name cannot be empty.",
             )
 
-        valid_kinds = {"model", "agent", "algorithm", "env", "datamodule", "evaluator", "plotter", "plot"}
+        valid_kinds = {"site", "model", "agent", "algorithm", "env", "datamodule", "evaluator", "plotter", "plot", "monitor"}
         if options.kind not in valid_kinds:
             return ScaffoldResult(
                 success=False,
@@ -76,6 +76,10 @@ class PluginScaffolder:
             )
 
         try:
+            if options.kind == "site":
+                return self._scaffold_site(clean_name, options)
+            if options.kind == "monitor":
+                return self._scaffold_monitor(clean_name, options)
             if options.kind == "model":
                 return self._scaffold_model(clean_name, options)
             elif options.kind in ("agent", "algorithm"):
@@ -749,3 +753,36 @@ output_dir: null
 
 
         return ScaffoldResult(success=True, component_id=name, target_dir=target_dir, created_files=created)
+
+
+    def _scaffold_monitor(self, name, opts):
+        target = opts.output_dir or self.paths.user("monitor") / name
+        target.mkdir(parents=True, exist_ok=True)
+        source = target / "monitor.py"
+        source.write_text('from src.app.monitoring.api import Result\n\nclass Monitor:\n    def collect(self, context):\n        return Result({"samples": float(len(context.probes.observations))})\n')
+        (target / "__init__.py").write_text("")
+        profile = self.workspace_root / "in/config/monitor" / (name + ".yaml")
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text("component: " + name + "\nparams: {}\n")
+        meta = {"id": name, "name": opts.name, "kind": "monitor", "version": opts.version,
+                "description": opts.description or "Custom experiment diagnostic monitor", "author": opts.author,
+                "config_path": "in/config/monitor/" + name + ".yaml"}
+        self._native_metadata(meta, target, source, "Monitor", profile)
+        cap = meta["capabilities"][0]
+        cap["requires"] = ["probe_forward.v1", "post_update.v1"]
+        catalog = target / "catalog.py"
+        catalog.write_text('def describe(config, context):\n    return [{"name": "interp/" + config["instance"] + "/samples", "requires": ["probe_forward.v1", "post_update.v1"]}]\n')
+        meta["payload"]["implementations"].append("catalog.py")
+        cap["monitoring"] = {"catalog": "catalog.py:describe"}
+        manifest = target / ".theta_component.json"
+        manifest.write_text(json.dumps(meta, indent=2) + "\n")
+        return ScaffoldResult(True, name, target, [source, catalog, manifest, profile])
+
+
+    def _scaffold_site(self, name, opts):
+        from src.app.sites.catalog import create
+        target = opts.output_dir or self.workspace_root / 'src/usr/sites' / name
+        if target.exists(): raise ValueError(f'Site component already exists: {target}')
+        if opts.output_dir: raise ValueError('Site components must live in src/usr/sites')
+        component = create(self.workspace_root, name)
+        return ScaffoldResult(True, name, component, [p for p in component.rglob('*') if p.is_file()])

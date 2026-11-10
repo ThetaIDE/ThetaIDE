@@ -48,3 +48,19 @@ def test_focused_method_is_last_without_hiding_siblings():
 
     lives = {"a": object(), "b": object()}
     assert list(MonitorPanel.shown_lives(Panel(), lives)) == ["b", "a"]
+
+
+def test_run_owns_hardware_policy_even_without_resource_samples(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    manager = SimpleNamespace(jobs={"job": {"status": "running"}},
+        _feeds={("job", "m"): SimpleNamespace(read=lambda: ([{"type": "start", "config": {
+            "telemetry": {"monitors": {"disabled": ["system/"]}}}}], False))},
+        _run_sources=lambda job: [("m", tmp_path, "m", "", "running")],
+        _streamed_hardware=set(), job_records=Mock(), job_metrics=Mock(), job_hardware=Mock())
+    JobManager._scan_metrics(manager, "job")
+    assert "job" in manager._streamed_hardware
+    # Returns before accessing any of the external probe's state.
+    JobManager._sample_hardware(manager, "job")
+    manager.job_hardware.emit.assert_not_called()

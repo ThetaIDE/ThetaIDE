@@ -67,6 +67,25 @@ def validate_native_package(meta, source):
         raise ValueError("config_paths must agree with payload.configs")
     selectors = set()
     for cap in meta["capabilities"]:
+        if cap.get("kind") == "monitor":
+            required = cap.get("requires")
+            if not isinstance(required, list) or not required or not all(isinstance(v, str) and v.strip() for v in required):
+                raise ValueError("Monitor capabilities require a nonempty requires hook list")
+        if "monitoring_access" in cap and (not isinstance(cap["monitoring_access"], list) or
+                not all(isinstance(v, str) and v.strip() for v in cap["monitoring_access"])):
+            raise ValueError("monitoring_access must be a list of model capabilities")
+        if "monitor_defaults" in cap:
+            from src.app.monitoring.config import instances
+            instances({}, defaults=cap["monitor_defaults"])
+        if "monitoring" in cap:
+            from src.app.telemetry.monitors import validate_monitoring_metadata
+            validate_monitoring_metadata(cap["monitoring"])
+            if catalog := cap["monitoring"].get("catalog"):
+                catalog_file = resource(catalog.split(":", 1)[0])
+                if not any(catalog_file == root or catalog_file.is_relative_to(root) for root in declared):
+                    raise ValueError("Monitor catalog is outside declared payload")
+                from src.app.telemetry.monitors import validate_monitor_catalog_source
+                validate_monitor_catalog_source(catalog_file)
         entry, sep, attr = cap["entry_point"].partition(":")
         file = resource(entry)
         if not file.is_file() or file.suffix not in (".py", ".json"):
@@ -75,7 +94,7 @@ def validate_native_package(meta, source):
         if not any(file == root or file.is_relative_to(root) for root in declared):
             raise ValueError(f"Entry point is outside declared payload: {entry}")
         from src.app.core.provider_catalog import kind_name
-        if kind_name(cap['kind']) not in {'model','algorithm','env','datamodule','evaluator','plotter','tuner','objective','component','plugin','run_logger'}:
+        if kind_name(cap['kind']) not in {'site','monitor','model','algorithm','env','datamodule','evaluator','plotter','tuner','objective','component','plugin','run_logger'}:
             raise ValueError(f"Unknown capability kind: {cap['kind']}")
         if file.suffix == '.json' and cap['kind'] != 'objective':
             raise ValueError('Only objective capabilities use JSON entry points')

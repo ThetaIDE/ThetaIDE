@@ -25,7 +25,7 @@ def fork_package(paths, reference, new_id, name=None):
     if any(catalog.candidates(c.kind,new_id) for p in catalog.packages for c in p.capabilities):
         raise ValueError(f"Runtime identity already exists: {new_id}")
     kind = kind_name(owner.manifest.get('kind', owner.capabilities[0].kind if owner.capabilities else 'package'))
-    target = paths.user(kind if kind in ('model','algorithm','datamodule','evaluator','env','plotter','objective','rules','tuner','plugin') else 'package') / new_id
+    target = paths.user(kind if kind in ('model','algorithm','datamodule','evaluator','env','plotter','objective','rules','monitor','tuner','plugin') else 'package') / new_id
     if target.exists(): raise ValueError(f"User destination already exists: {target}")
     primary = [c for c in owner.capabilities if c.kind == kind]
     identities = {c.id: (new_id if len(primary)==1 and c is primary[0] else f"{new_id}/{c.id}") for c in owner.capabilities}
@@ -165,7 +165,7 @@ def fork_package(paths, reference, new_id, name=None):
                 config_paths=list(profiles), config_path=next(iter(profiles), None),
                 payload={**metadata.get('payload',{}),'configs':profiles})
             # Profile names are explicit capability selectors in the authored manifest.
-            groups={'model':'model','algorithm':'agent','env':'env','datamodule':'data','evaluator':'eval','plotter':'plot'}
+            groups={'model':'model','algorithm':'agent','env':'env','datamodule':'data','evaluator':'eval','plotter':'plot','monitor':'monitor'}
             for original,cap in zip(owner.capabilities,metadata['capabilities']):
                 group=groups.get(original.kind)
                 for dest,relative in profiles.items():

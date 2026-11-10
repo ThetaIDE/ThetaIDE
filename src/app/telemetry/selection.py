@@ -40,7 +40,8 @@ class MetricSelection:
         if self.everything:
             return True
         prefix = section.rstrip("/") + "/"
-        return any(p.startswith(prefix) or p == prefix for p in self.patterns)
+        return any(p.startswith(prefix) or (p.endswith("/") and prefix.startswith(p))
+                   for p in self.patterns)
 
     def filter(self, metrics: dict[str, Any]) -> dict[str, Any]:
         if self.everything:

@@ -37,6 +37,8 @@ SinkFactory = Callable[[Path], Sink]
 class StreamSink:
     """Appends every record to <version_dir>/events.jsonl, flushed line by line so readers see it at once."""
 
+    live = True  # receives telemetry.monitors filtering; archival sinks do not
+
     def __init__(self, version_dir: Path):
         self.path = Path(version_dir) / STREAM_FILE
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,6 +65,8 @@ class StreamSink:
 
 class CsvSink:
     """Writes metrics records to <version_dir>/metrics.csv exactly as ContractLogger always has."""
+
+    records_system = False
 
     def __init__(self, version_dir: Path):
         from src.app.core.contract_logger import ContractLogger

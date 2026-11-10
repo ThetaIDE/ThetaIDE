@@ -100,3 +100,12 @@ def test_the_gui_can_import_the_selection_without_lightning():
     code = "import sys, src.app.telemetry.selection, src.app.pipeline.validation; print('lightning' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
     assert out.strip() == "False"
+
+
+def test_parent_recording_selection_enables_nested_lazy_collector(tmp_path):
+    from src.app.telemetry.run import Run
+    calls = []
+    with Run(tmp_path, [], config={"telemetry": {"metrics": ["interp/"]}}, system_interval=0) as run:
+        assert run.monitor("interp/activations/", lambda: (calls.append(1) or {"interp/activations/norm": 2}))
+        assert calls == [1]
+        assert run.summary["interp/activations/norm"] == 2

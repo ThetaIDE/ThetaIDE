@@ -1,0 +1,164 @@
+# @package _global_
+defaults:
+- newMonitors/_base
+- override /env: gym_classic_control/mountaincar
+paradigm: online_rl
+env:
+  action_meanings: [left, noop, right]
+methods:
+  PPO:
+    agent: sb3-dev/dqn
+    model: basics/dnn
+  BlendRL:
+    agent:
+      batch_size: 64
+      n_epochs: 4
+      n_steps: 512
+      name: sb3-dev/ppo
+    model:
+      actor_mode: hybrid
+      blend_function: softmax
+      blender:
+        mode: neural
+        model:
+          activation: tanh
+          dueling: false
+          hidden_sizes:
+          - 32
+          - 32
+          name: basics/dnn
+      name: blendrl-dev
+      neural:
+        activation: tanh
+        dueling: false
+        hidden_sizes:
+        - 64
+        - 64
+        name: basics/dnn
+        shared_features: false
+      symbolic:
+        rules: mountaincar/monitoring_default
+        type: nsfr
+    monitors:
+      blend_reliance:
+        component: blendrl-dev/reliance
+        enabled: true
+        interval_updates: 1000
+        max_snapshots: 32
+        params:
+          action: 0
+          reference_action: 2
+        probes:
+          count: 128
+          seed: 0
+          steps: 512
+        target: ''
+      gate_activations:
+        component: activation-evolution
+        enabled: true
+        interval_updates: 1000
+        max_snapshots: 32
+        params:
+          max_features: 64
+          max_layers: 16
+        probes:
+          count: 128
+          seed: 0
+          steps: 512
+        target: blender.network
+      gate_network:
+        component: network-structure
+        enabled: true
+        interval_updates: 1000
+        max_snapshots: 32
+        params:
+          max_edges: 2048
+          max_layers: 16
+          max_units: 32
+        probes:
+          count: 128
+          seed: 0
+          steps: 512
+        target: blender.network
+      neural_activations:
+        component: activation-evolution
+        enabled: true
+        interval_updates: 1000
+        max_snapshots: 32
+        params:
+          max_features: 64
+          max_layers: 16
+        probes:
+          count: 128
+          seed: 0
+          steps: 512
+        target: policy_modules.1.network
+      neural_network:
+        component: network-structure
+        enabled: true
+        interval_updates: 1000
+        max_snapshots: 32
+        params:
+          max_edges: 2048
+          max_layers: 16
+          max_units: 32
+        probes:
+          count: 128
+          seed: 0
+          steps: 512
+        target: policy_modules.1.network
+      activations:
+        enabled: false
+      circuit:
+        enabled: false
+      network:
+        enabled: false
+    symbolic_state_loader:
+      name: blendrl-dev/symbolic_state
+      params:
+        feature_count: 2
+        object_count: 2
+telemetry:
+  monitors:
+    enabled: true
+    disabled: []
+total_timesteps: 50000
+
+# Standalone diagnostic components; output visibility remains in telemetry.monitors.
+monitors:
+  activations:
+    component: activation-evolution
+    target: network
+    enabled: true
+    interval_updates: 100
+    max_snapshots: 16
+    probes:
+      count: 128
+      steps: 512
+      seed: 1729
+    params:
+      max_features: 128
+  circuit:
+    component: causal-circuit
+    target: network
+    enabled: true
+    interval_updates: 1000
+    max_snapshots: 8
+    probes:
+      count: 128
+      steps: 512
+      seed: 1729
+    params:
+      max_units: 16
+      top_k: 4
+      random_controls: 4
+      action: 0
+      reference_action: 2
+      baseline: mean
+  network:
+    component: network-structure
+    target: network
+    interval_updates: 100
+    max_snapshots: 16
+    probes: {count: 128, steps: 512, seed: 1729}
+    params: {max_layers: 16, max_units: 64, max_edges: 4096}

@@ -167,6 +167,8 @@ class AgentFeed:
         self.version_dir: Path | None = None
         self.kind: str | None = None  # "stream" or "csv"
         self._tail = None
+        self._monitor_stamp = None
+        self._monitor_selection = None
 
     def newest_version(self) -> Path | None:
         if self.version is not None:
@@ -196,6 +198,20 @@ class AgentFeed:
         else:
             rows, rewritten = self._tail.read()
             records = [_csv_record(row) for row in rows]
+            # CSV is an archival source. Apply live exclusions when it is used
+            # as a fallback so hidden metrics cannot reappear in the monitor.
+            snapshot = self.agent_dir.parent / "config.yaml"
+            stamp = (snapshot.stat().st_mtime_ns, snapshot.stat().st_size) if snapshot.is_file() else None
+            if self._monitor_selection is None or stamp != self._monitor_stamp:
+                import yaml
+                from src.app.telemetry.monitors import monitors_from_config
+                try:
+                    config = yaml.safe_load(snapshot.read_text(encoding="utf-8")) if stamp else {}
+                    self._monitor_selection = monitors_from_config(config)
+                except (OSError, ValueError, yaml.YAMLError):
+                    self._monitor_selection = monitors_from_config({})
+                self._monitor_stamp = stamp
+            records = [filtered for rec in records if (filtered := self._monitor_selection.filter_record(rec)) is not None]
         return records, reset or rewritten
 
 

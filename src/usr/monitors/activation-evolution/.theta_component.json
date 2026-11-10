@@ -1,0 +1,119 @@
+{
+  "id": "activation-evolution",
+  "name": "Activation Evolution",
+  "kind": "monitor",
+  "version": "0.1.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "description": "Tracks activation distributions, effective rank and representation similarity on fixed probes.",
+  "author": {
+    "name": "Theta Research"
+  },
+  "compatibility": {
+    "theta": ">=2.0.0"
+  },
+  "dependencies": {
+    "pip": [
+      "numpy",
+      "torch"
+    ],
+    "components": []
+  },
+  "parameter_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "layers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "uniqueItems": true
+      },
+      "max_features": {
+        "type": "integer",
+        "default": 128,
+        "minimum": 1,
+        "maximum": 512
+      },
+      "max_layers": {
+        "type": "integer",
+        "default": 16,
+        "minimum": 1,
+        "maximum": 32
+      }
+    },
+    "x-theta-config-schemas": {
+      "in/config/monitor/activation-evolution.yaml": {
+        "type": "object",
+        "required": [
+          "component"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "const": "activation-evolution"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "layers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "max_features": {
+                "type": "integer",
+                "default": 128,
+                "minimum": 1,
+                "maximum": 512
+              },
+              "max_layers": {
+                "type": "integer",
+                "default": 16,
+                "minimum": 1,
+                "maximum": 32
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "capabilities": [
+    {
+      "id": "activation-evolution",
+      "kind": "monitor",
+      "entry_point": "monitor.py:ActivationEvolution",
+      "requires": [
+        "probe_forward.v1",
+        "post_update.v1"
+      ],
+      "monitoring": {
+        "catalog": "catalog.py:describe"
+      }
+    }
+  ],
+  "config_path": "in/config/monitor/activation-evolution.yaml",
+  "config_paths": [
+    "in/config/monitor/activation-evolution.yaml"
+  ],
+  "payload": {
+    "implementations": [
+      "monitor.py",
+      "catalog.py"
+    ],
+    "resources": [
+      "README.md"
+    ],
+    "configs": {
+      "in/config/monitor/activation-evolution.yaml": "configs/monitor/activation-evolution.yaml"
+    }
+  }
+}
