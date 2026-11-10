@@ -4,7 +4,7 @@ Status: deferred architecture proposal. The scoped implementation is documented 
 
 Current agreed delivery scope: keep the existing checkout layout, centralize its paths, and share component
 development/configuration operations between GUI and terminal. Separate research workspaces, package stores,
-and application source renaming are deferred. See [Component development](COMPONENT_DEVELOPMENT.md) for the
+and application source renaming are deferred. See [Component development](../guides/COMPONENT_DEVELOPMENT.md) for the
 implemented workflow; the larger directory trees below remain future design options.
 
 ## Recommendation
@@ -284,7 +284,7 @@ Acceptance: wheel install includes desktop resources, built-in plugins, framewor
 
 ### Phase 6 — Document and retire compatibility deliberately
 
-Update README, installation/contribution guides, component SDK/authoring docs, terminal workflows, built-in help, and Hub release tooling. Publish compatible Hub package revisions only through `THETA_HUB_RELEASE_WORKFLOW.md` when publication is separately authorized. List supported legacy imports, archives, config selectors, and launchers with explicit retirement criteria.
+Update README, installation/contribution guides, component SDK/authoring docs, terminal workflows, built-in help, and Hub release tooling. Publish compatible Hub package revisions only through `docs/development/THETA_HUB_RELEASE_WORKFLOW.md` when publication is separately authorized. List supported legacy imports, archives, config selectors, and launchers with explicit retirement criteria.
 
 Acceptance: both a terminal researcher and a component author can follow the docs from a clean environment. Only remove a bridge after supported packages and migration tests no longer require it. Do not make users republish every component just to adopt the initial path/context abstraction.
 

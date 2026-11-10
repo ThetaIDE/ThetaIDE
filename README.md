@@ -21,10 +21,10 @@ Algorithms, models and environments are components. A fresh clone ships the fram
 install the ones you need from the **Theta Hub**, a registry that includes Stable-Baselines3 and d3rlpy suites,
 MLP, CNN, ResNet, LSTM and Transformer models, Gymnasium and Atari environments, and neuro-symbolic models
 such as BlendRL, NSFR and NEUMANN. You can also write your own: see the
-[Component Plugin Authoring Guide](docs/COMPONENT_PLUGIN_GUIDE.md).
+[Component Plugin Authoring Guide](docs/development/COMPONENT_PLUGIN_GUIDE.md).
 
 Training objectives can also be edited as Python components, with optional GUI parameters and
-scores across repeated training seeds. See [Editable objectives](CUSTOM_OBJECTIVES.md).
+scores across repeated training seeds. See [Editable objectives](docs/guides/CUSTOM_OBJECTIVES.md).
 
 ---
 
@@ -40,7 +40,7 @@ source venv/bin/activate          # Windows: .\venv\Scripts\Activate.ps1
 pip install -e ".[dev,gui]"
 ```
 
-[INSTALL.md](INSTALL.md) covers Windows, optional extras such as Atari, and how to verify the install.
+[INSTALL.md](docs/guides/INSTALL.md) covers Windows, optional extras such as Atari, and how to verify the install.
 
 ## Run your first experiment
 
@@ -107,7 +107,7 @@ python run_pipeline.py component inspect my_blendrl
 
 The copy is editable in the existing research directories. Use its returned profile paths with
 `component config show`, `config set`, and `config validate`. Hub originals remain protected.
-See [Component development](COMPONENT_DEVELOPMENT.md) for configuration, validation, export, and
+See [Component development](docs/guides/COMPONENT_DEVELOPMENT.md) for configuration, validation, export, and
 coding-agent workflows. GUI and terminal operations share headless services.
 
 ### Component overrides in experiments
@@ -161,21 +161,22 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 ├── plot/                      # Compatibility imports/CLI for framework plotting
 ├── .thetaide/                 # IDE state, ownership records, retained packages and cache
 ├── tests/                     # pytest suite
-├── docs/                      # Guides and the README media
+├── docs/                      # Documentation index, guides, reference, plans and media
 └── results/                   # Run output (not tracked): logs/, plots/, checkpoints/, tensorboard/
 ```
 
 ## Documentation
 
+- [Documentation index](docs/README.md): all guides, contracts, development notes, plans and reports.
 - **In the IDE:** press **F1** or Help→Documentation.
-- [INSTALL.md](INSTALL.md): setup, extras and verifying the install.
+- [INSTALL.md](docs/guides/INSTALL.md): setup, extras and verifying the install.
 - [CONTRIBUTING.md](CONTRIBUTING.md): development workflow, tests and code style.
-- [Component Plugin Authoring Guide](docs/COMPONENT_PLUGIN_GUIDE.md): writing algorithms, models,
+- [Component Plugin Authoring Guide](docs/development/COMPONENT_PLUGIN_GUIDE.md): writing algorithms, models,
   environments and IDE plugins.
-- [Native provider storage](docs/PLUGIN_STORAGE.md): ownership, version 2 archives, workers and rollback.
-- [Component development](COMPONENT_DEVELOPMENT.md): GUI/terminal copying, editing, validation and storage.
-- [Pipeline interface](docs/API.md): shared services and desktop execution.
-- [Archived workflow notes](docs/WORKFLOW_GUIDE.md): historical BlendRL commands; use the CLI section above for current commands.
+- [Native provider storage](docs/reference/PLUGIN_STORAGE.md): ownership, version 2 archives, workers and rollback.
+- [Component development](docs/guides/COMPONENT_DEVELOPMENT.md): GUI/terminal copying, editing, validation and storage.
+- [Pipeline interface](docs/reference/API.md): shared services and desktop execution.
+- [Archived workflow notes](docs/archive/WORKFLOW_GUIDE.md): historical BlendRL commands; use the CLI section above for current commands.
 
 ## License
 
@@ -183,7 +184,7 @@ MIT. See [LICENSE.md](LICENSE.md).
 
 ThetaIDE depends on PyQt6, which is GPL-3.0-only, so a *distributed* build
 carries obligations the MIT licence alone does not cover. Every dependency and
-its licence is listed in [THIRD_PARTY_LIBRARIES.md](THIRD_PARTY_LIBRARIES.md).
+its licence is listed in [THIRD_PARTY_LIBRARIES.md](docs/reference/THIRD_PARTY_LIBRARIES.md).
 
 ## Contributing
 

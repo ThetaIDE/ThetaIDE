@@ -65,13 +65,22 @@ is a compatibility import for `src/plugins/app/bundled/tensorboard/`.
 | `config_service.config_schema()` | Health/catalog information for an available valid recipe, or a clean-setup composition check; it does not synthesize the editor's parameter forms | former `GET /api/config/schema` |
 | `config_service.compose_report(experiment, overrides)` | `{valid, argv, config, config_yaml, methods, methods_yaml, notices, errors}`, composed exactly as `run_pipeline.py` would | `POST /api/config/compose` |
 | `config_service.prepare_launch(experiment, overrides, overwrite, active_jobs)` | The job description (group, experiment ID, agents, effective timesteps); raises `LaunchError` (`.conflict` for existing results or a clashing job) | launch validation |
-| `catalog.list_runs()` | Every `results/logs/<group>/<id>` folder with config summary and per-agent timing/reward | `GET /api/runs` |
+| `catalog.list_runs()` | Every `results/logs/<group>/<id>` run folder, including nested IDs, with config summary and per-agent timing/reward | `GET /api/runs` |
 | `catalog.run_metrics(group, experiment_id, agent)` | All rows of the newest `metrics.csv`; raises `FileNotFoundError` | `GET /api/runs/.../metrics` |
 | `catalog.list_plots(group, experiment_id)` | Plot file names under `results/plots/` | `GET /api/runs/.../plots` |
 | `catalog.list_environments()`, `list_experiments()`, `list_methods()` | Config catalog | `GET /api/environments`, `/experiments`, `/methods` |
 | `metrics.MetricsTail(path).read()` | `(new rows, reset)`: only rows appended since the last read; `reset` when Lightning rewrote the file | incremental telemetry |
 | `processes.kill_process_tree(pid)` | Stops the pipeline and every training/plotting subprocess it started | cancel |
 | `job_store.JobStore(path)` | SQLite persistence for jobs and queue order | unchanged |
+
+Run identities preserve the recipe hierarchy: `experiment/group/path/dir/run.yaml`
+resolves to group `group` and experiment ID `path/dir/run`. Logs, checkpoints,
+plots, and execution records retain those subdirectories below their respective
+`results/<kind>/group/` roots. A custom leaf `experiment_id` or timestamp changes
+the final directory name while preserving the recipe's parent subdirectories;
+an ID containing `/` is treated as an explicit path relative to the group.
+This resolution is shared by GUI and CLI launches and forwarded to every runner,
+including SB3. Existing result folders are discovered in place and are not moved.
 
 ### 3.2 Async calls from the GUI (`frontend/local_backend.py`)
 
@@ -138,7 +147,7 @@ switch or migrate standalone research workspaces. Component implementations live
 | `LocalComponents` | Collection snapshots, context and visibility; system Trash is supplied by the desktop |
 
 Run `python run_pipeline.py component --help` or `python -m src.app.components --help` for the terminal
-adapter. See [Component development](../COMPONENT_DEVELOPMENT.md) for concrete commands, copy limitations,
+adapter. See [Component development](../guides/COMPONENT_DEVELOPMENT.md) for concrete commands, copy limitations,
 storage paths and lifecycle semantics. Hub originals are read-only; edit an independent local copy.
 
 ## Provider ownership and execution

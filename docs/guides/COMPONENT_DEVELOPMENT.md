@@ -1,6 +1,6 @@
 # Component development from the GUI or terminal
 
-Theta keeps authored research code in `src/usr/`, managed packages in `src/plugins/components/installed/<package-id>`, bundled providers in `src/plugins/components/bundled`, and active configurations in `in/config/`. See [the native storage contract](docs/PLUGIN_STORAGE.md) for ownership, explicit manifests and package-relative exports.
+Theta keeps authored research code in `src/usr/`, managed packages in `src/plugins/components/installed/<package-id>`, bundled providers in `src/plugins/components/bundled`, and active configurations in `in/config/`. See [the native storage contract](../reference/PLUGIN_STORAGE.md) for ownership, explicit manifests and package-relative exports.
 
 Author component changes in the `../theta-plugins` source repository. Installed Hub payloads in this workspace are read-only runtime copies, not the component authoring source. Build and install a package to validate a component update; use an isolated workspace first.
 
@@ -70,7 +70,7 @@ python /path/to/Theta-IDE/run_pipeline.py component --root /path/to/existing-che
 python run_pipeline.py component export my_blendrl --out my_blendrl.zip
 ```
 
-Existing GUI uninstall/update and visibility operations continue using the shared installer and local collection. Copying, editing, and exporting do not publish anything. Production publication remains a separate operation following `THETA_HUB_RELEASE_WORKFLOW.md`.
+Existing GUI uninstall/update and visibility operations continue using the shared installer and local collection. Copying, editing, and exporting do not publish anything. Production publication remains a separate operation following `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`.
 
 Uninstalling a Hub component removes its installed source and any obsolete saved Hub-source snapshot. Installing it again downloads the published Hub archive. Hub package source is read-only and updates replace it; edited YAML profiles are preserved separately. Make an independent component copy to develop editable source.
 

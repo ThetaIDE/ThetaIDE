@@ -103,7 +103,7 @@ ARTICLES: List[DocArticle] = [
         keywords=["install", "setup", "launch", "start", "run", "venv", "pipeline", "windows", "powershell", "gui"],
         html_content=r"""
 <h2>Installing & Launching</h2>
-<p>Theta-IDE runs from the same virtual environment as the training pipeline. Run every command from the <b>repository root</b>. See <code>INSTALL.md</code> for the supported setup and optional interface dependencies.</p>
+<p>Theta-IDE runs from the same virtual environment as the training pipeline. Run every command from the <b>repository root</b>. See <code>docs/guides/INSTALL.md</code> for the supported setup and optional interface dependencies.</p>
 
 <h3>1. One-Time Setup</h3>
 <p><b>macOS / Linux:</b></p>
@@ -1138,7 +1138,7 @@ my_component = "my_pkg.components:MyRunnerOrCallback"</code></pre>
 <p><code>theta.datamodules</code> and <code>theta.components</code> are registered during paradigm component discovery. <code>theta.environments</code> is resolved by the environment factory, and <code>theta.tuners</code> by tuning-component selection. <code>theta.models</code> and <code>theta.agents</code> require explicit <code>load_all_plugins()</code> or <i>File &rarr; Reload Component Code</i> (<code>Ctrl+Alt+R</code>); fresh training processes do not call that loader automatically. Evaluator and GUI-plugin entry-point names are recognized by the helper but have no automatic activation adapter. GUI plugins use <code>plugin.json</code>. Entry points alone do not create workspace YAML profiles; Hub packaging remains the complete install/configuration route.</p>
 
 <h4>Manual Release Archive & Hub Registry (<code>dist/index.json</code>)</h4>
-<p>The default Theta Hub feed is <code>https://raw.githubusercontent.com/ThetaIDE/ThetaHub/main/dist/index.json</code>; the client also supports fallback feeds and caches responses in <code>.thetaide/cache/hub/</code>. Check <code>DEFAULT_REGISTRY_URL</code> in <code>frontend/hub/client.py</code> and follow <code>THETA_HUB_RELEASE_WORKFLOW.md</code> for production releases. For a standalone release archive, package the directory and compute its SHA-256:</p>
+<p>The default Theta Hub feed is <code>https://raw.githubusercontent.com/ThetaIDE/ThetaHub/main/dist/index.json</code>; the client also supports fallback feeds and caches responses in <code>.thetaide/cache/hub/</code>. Check <code>DEFAULT_REGISTRY_URL</code> in <code>frontend/hub/client.py</code> and follow <code>docs/development/THETA_HUB_RELEASE_WORKFLOW.md</code> for production releases. For a standalone release archive, package the directory and compute its SHA-256:</p>
 <pre><code>zip -r my_cql-1.0.0.zip my_method/
 shasum -a 256 my_cql-1.0.0.zip</code></pre>
 <p>Publishing requires a versioned archive, matching registry metadata and feeds, and client verification. Exporting a ZIP does not publish it. The GUI currently has no local-archive drag-and-drop/import action.</p>

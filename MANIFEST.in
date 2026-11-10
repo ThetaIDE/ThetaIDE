@@ -1,6 +1,6 @@
-include AGENTS.md COMPONENT_DEVELOPMENT.md CUSTOM_OBJECTIVES.md
+include AGENTS.md
 include src/plugins/inventory.json
-include docs/PLUGIN_STORAGE.md docs/PLUGIN_NATIVE_INTEGRATION.md docs/API.md
+recursive-include docs *.md
 recursive-include src/plugins/components/bundled *.py *.json *.yaml *.yml *.svg *.png *.md
 recursive-include src/plugins/app/bundled *.py *.json *.html *.css *.js *.svg *.png *.md *.txt *.mjs *.yaml
 recursive-include src/app/config_defaults *.yaml

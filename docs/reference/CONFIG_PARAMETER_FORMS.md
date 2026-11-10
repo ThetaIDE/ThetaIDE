@@ -1,0 +1,31 @@
+# Configuration parameter forms
+
+These interaction rules apply to experiment, group-default, component, plugin, and optional configuration boxes. Preserve box-specific layouts and specialized editors: Methods keeps its method cards, Figures and Tables keeps its two-column figure cards, and Recorded Metrics keeps its section/metric toggle picker. Standardize their shared controls, not their entire presentation.
+
+- Use the shared `ToggleSlider` for boolean controls, including metric selectors; never introduce checkboxes.
+- Keep card styling on `ConfigBox`; identify sections with `configSection`, preserving the shared `configBox` theme property.
+- Put the top-level parameter **+ immediately beside the box title**, before any stretch or trailing actions. It adds only top-level parameters.
+- Put a **+ beside a parameter with children**. It adds children to that parameter, not unrelated top-level fields. Scalar selectors such as Sampler and Component can also own child parameters.
+- Give every optional configured parameter an **× that appears on row hover**. Reserve the action's space while hidden so fields do not shift. Required fields never get removal controls. Use component JSON Schema `required` declarations where available; specialized editors declare their required controls explicitly.
+- Render children in `IndentedHierarchyBlock`, with the same indentation increment at every depth. Insert groups as spanning form rows, never inside the parent's value column. Keep the parent header/selector outside its child block.
+- In experiments and group defaults, let the Description editor fill its row. Use the shared `ExpandingTextEdit` to wrap text and grow or shrink with its contents and available width, preserving typed line breaks. Below it, use the shared two-column layout for Paradigm and Environment, keeping Environment and its indented overrides (such as `num_envs`) together in the second column above the separator for trainer and run settings.
+- Always show Site in experiment and group-default boxes above the runtime separator. An absent selector inherits Local or the group site without creating an override. Resource overrides use its child controls and the shared nested form.
+- Align labels and editors consistently within each layout density. Ordinary forms share label/editor widths; two-column figure cards use the shared compact widths. Boolean toggles and rich editors retain their intrinsic shape. Use `_parameter_row(..., expand=True)` for fields such as Description that should fill the available row width.
+- Parameter labels support dragging after the platform's normal drag threshold, with no persistent handle or cursor affordance. Show a themed preview at the row's current width and scale, fading to the right; tall groups also fade downward. Reflow existing editors live, keeping child blocks with their parent. Reorder only within the originating sibling list in the same box and nesting level. Editors, toggles, disclosure buttons, and action buttons retain their own gestures. Escape or releasing outside that list cancels the move.
+- Save parameter display order per file and sibling list in `config_viewer.parameter_orders`, retaining positions for temporarily absent optional fields. Display ordering must not change YAML values, create inherited overrides, or mark the configuration dirty.
+- Structural updates must refresh dependent controls immediately, retain the viewport, and guard against reentrant rendering. Use a local box refresh when dependencies affect only that box; ordinary scalar edits and dragging must preserve existing editors.
+- Keep inherited defaults distinct from explicit overrides. Adding an override preserves its selector's component identity. Removing an optional override must not silently change another parameter.
+- Sweep mode follows the presence of `tuning` in the composed experiment, including group defaults imported through Hydra. Do not render a separate `sweep` or `tuning.enabled` control. Legacy flags do not affect activation. An explicit `tuning: null` masks inherited tuning; removing the sweep component creates that mask when needed. Box visibility and objective-only scoring do not determine sweep mode.
+- Ruleset controls show the complete runtime resource catalog in nested directory/environment menus, independent of the experiment's environment or `symbolic_name`. New selections store qualified `environment/ruleset` values; compatibility is the experiment author's responsibility. Preserve existing bare names until edited, resolving those with the effective environment as training does. The open action opens the selected ruleset folder, including selections from another environment; an unscoped bare name opens the rules catalog instead of offering every matching basename. Use the shared `HierarchicalComboBox` for these menus, including parameter-add dialogs.
+
+Shared implementation lives in `frontend/config_viewer.py`:
+
+- `ConfigBox.set_header` / `_parameter_header` own title and action placement.
+- `ParameterForm` and `ConfigBox.standardize_parameters` own spacing and column/editor geometry.
+- `_parameter_row` and `_reveal_remove_on_row_hover` own actions and stable hover behavior.
+- `_render_generic_dict_contents` owns recursive rendering, schema-required fields, and child adders for experiment and component dictionaries.
+- Specialized editors use those same primitives and provide only their own values, dependencies, and callbacks.
+
+`frontend/parameter_reorder.py` owns logical sibling groups, live form/grid/list reordering, drag previews, cancellation, and edge scrolling. `_two_column_parameter_layout` retains its logical groups after distributing them across columns. `_setup_parameter_reordering` attaches the shared behavior and persists display order. The sweep editor uses `_refresh_sweep_box` for provider settings and their declared `when` dependencies, including non-selector dependencies.
+
+When adding or changing a box, update the cross-box tests in `tests/test_parameter_forms.py`. Test placement, nested geometry, required/optional removal, hover stability, and actual add/edit/delete behavior. Do not create a separate implementation or style for a new box.

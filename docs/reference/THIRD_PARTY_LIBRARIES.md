@@ -9,7 +9,7 @@ installed distributions rather than editing this table by hand.
 
 ## Licences that constrain how ThetaIDE may be distributed
 
-ThetaIDE itself is MIT (see [LICENSE.md](./LICENSE.md)), but three
+ThetaIDE itself is MIT (see [LICENSE.md](../../LICENSE.md)), but three
 dependencies are copyleft, and two of them are not optional:
 
 | Package | Licence | Why it matters |

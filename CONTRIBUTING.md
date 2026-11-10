@@ -5,7 +5,7 @@ pass, and where to start for the most common kinds of contribution.
 
 ## Set up
 
-Follow [INSTALL.md](INSTALL.md), cloning your fork instead of the main repository, then install the git hooks:
+Follow [INSTALL.md](docs/guides/INSTALL.md), cloning your fork instead of the main repository, then install the git hooks:
 
 ```bash
 git clone https://github.com/<your-username>/Theta-IDE.git
@@ -92,7 +92,7 @@ gitignored. Component authors develop native packages separately and install bui
 ### A new algorithm, model or environment
 
 Components are packaged and installed through the Theta Hub. The
-[Component Plugin Authoring Guide](docs/COMPONENT_PLUGIN_GUIDE.md) covers the protocols each kind implements
+[Component Plugin Authoring Guide](docs/development/COMPONENT_PLUGIN_GUIDE.md) covers the protocols each kind implements
 (section 2.2 for algorithms) and how to export one as a Hub package. In the IDE, **File → Scaffold New Component
 Plugin…** (Ctrl+Shift+P) generates a starting point.
 
@@ -134,4 +134,4 @@ Use [Conventional Commits](https://www.conventionalcommits.org/), with a scope w
 - Type checker: [mypy](https://mypy-lang.org/), configured in `pyproject.toml`.
 - Python 3.10+ syntax. Code must also run on 3.10, so avoid features newer than that.
 
-Provider implementations belong in `src/plugins/{components,app}/bundled`; managed local payloads belong in the matching `installed` roots, and authored code stays in `src/usr`. Follow [the storage contract](docs/PLUGIN_STORAGE.md) for package manifests, exports, headless discovery and lifecycle operations. See [provider integration checks](docs/PLUGIN_NATIVE_INTEGRATION.md) for targeted verification.
+Provider implementations belong in `src/plugins/{components,app}/bundled`; managed local payloads belong in the matching `installed` roots, and authored code stays in `src/usr`. Follow [the storage contract](docs/reference/PLUGIN_STORAGE.md) for package manifests, exports, headless discovery and lifecycle operations. See [provider integration checks](docs/development/PLUGIN_NATIVE_INTEGRATION.md) for targeted verification.

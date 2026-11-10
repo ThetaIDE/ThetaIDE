@@ -119,8 +119,10 @@ temp/
 # The interpreter the visual model builder targets: infrastructure for a
 # built-in feature, not a research model, so it ships rather than installs.
 !/src/usr/models/sequential_spec/
+!/src/usr/models/blendrl-dev/
 
-/docs
+# Generated site shortcuts contain local interpreter and workspace paths.
+/src/usr/sites/*/bin/
 
 # Managed extensions are per-workspace payloads; bundled source and assets ship.
 /src/plugins/components/installed/
@@ -128,9 +130,5 @@ temp/
 !/src/plugins/app/bundled/**/assets/
 # User implementations can be versioned independently; preserve existing per-kind ignore policy.
 
-# Public provider documentation.
-!/docs/
-/docs/*
-!/docs/API.md
-!/docs/PLUGIN_STORAGE.md
-!/docs/PLUGIN_NATIVE_INTEGRATION.md
+# Documentation is versioned; allow its media directory despite the general assets/ rule.
+!/docs/assets/

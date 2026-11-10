@@ -109,6 +109,8 @@ Install/update/uninstall stage complete native packages and materialize only
 explicit config destinations. Protected application, bundled and authored roots
 are never installer destinations. Dependencies have independent ownership.
 Suites compose dependency packages instead of embedding duplicate providers.
+Uninstalling a suite leaves its dependency packages installed. Remove dependents
+before uninstalling a package they require.
 `standard-figures` supplies profiles and depends on the bundled `standard_figures`
 implementation; it does not register a second convergence/loss/report provider.
 

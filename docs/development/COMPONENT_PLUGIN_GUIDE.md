@@ -147,7 +147,7 @@ a menu. Missing files and handler failures show an error without guessing anothe
 target. Keep handlers free of training imports. The IDE has no ruleset, environment,
 model-name, or filename logic for these actions. Opening does not create an override.
 
-Optional model/agent/environment protocols are defined in [`src/app/core/protocols.py`](../src/app/core/protocols.py).
+Optional model/agent/environment protocols are defined in [`src/app/core/protocols.py`](../../src/app/core/protocols.py).
 
 ### Local development in the IDE
 
@@ -161,7 +161,7 @@ in `.thetaide/components/context/<id>.md` and refreshed on Edit or by the termin
 not edited in the retained package snapshot.
 
 The same copy/configuration operations work without Qt. See
-[Component development](../COMPONENT_DEVELOPMENT.md) for the command reference and
+[Component development](../guides/COMPONENT_DEVELOPMENT.md) for the command reference and
 storage map. For example:
 
 ```bash
@@ -341,13 +341,13 @@ class SafetyVerificationEvaluator:
 The configured evaluator adapter records the mapping returned by `on_eval_end()` (or by a supported
 whole-run `evaluate()` implementation). `evaluate_step()` can accumulate state; its return value is not
 automatically logged by the validation-batch adapter. Use the runtime adapter in
-[`src/app/core/lightning_builder.py`](../src/app/core/lightning_builder.py) as the contract.
+[`src/app/core/lightning_builder.py`](../../src/app/core/lightning_builder.py) as the contract.
 
 ---
 
 ## 3. Universal Python Packaging via `pyproject.toml` Entry Points
 
-Components can be packaged as Python libraries, but entry-point loading depends on the capability and consumer. The discovery helpers live in [`src/app/core/plugin_discovery.py`](../src/app/core/plugin_discovery.py).
+Components can be packaged as Python libraries, but entry-point loading depends on the capability and consumer. The discovery helpers live in [`src/app/core/plugin_discovery.py`](../../src/app/core/plugin_discovery.py).
 
 Declare standard entry-point groups in your `pyproject.toml`:
 
@@ -427,7 +427,7 @@ python run_pipeline.py cartpole/quick_test export=true
 
 ### 4.3 What Gets Packaged
 
-The [`ExperimentExporter`](../src/app/services/experiment_exporter.py) collects recognized recipe,
+The [`ExperimentExporter`](../../src/app/services/experiment_exporter.py) collects recognized recipe,
 profile, source and asset references. Declare additional resources and verify archive contents;
 arbitrary dynamically computed Python dependencies cannot be inferred reliably. A typical archive is:
 ```
@@ -446,13 +446,13 @@ cartpole_quick_test_v1.0.0.zip
 
 ### 4.4 1-Click Roundtrip Installation via Theta Hub
 
-Publish a release following [the production workflow](../THETA_HUB_RELEASE_WORKFLOW.md),
+Publish a release following [the production workflow](THETA_HUB_RELEASE_WORKFLOW.md),
 then install it from the Hub in the receiving checkout. The GUI currently does not
 provide an **Install Local Package** action or archive drag-and-drop import.
 
 For local integration scripts, use the headless
-[`HubInstaller`](../src/app/components/installer.py) with a
-[`HubComponent` and `ReleaseInfo`](../src/app/components/models.py) whose release URL
+[`HubInstaller`](../../src/app/components/installer.py) with a
+[`HubComponent` and `ReleaseInfo`](../../src/app/components/models.py) whose release URL
 is the archive's `file://` URI and whose SHA-256 matches the archive. The installer
 deploys recorded source/config/assets into the existing checkout layout. Dependency
 installation and suite-child lookup must be supplied/configured by the caller.
@@ -518,7 +518,7 @@ class BlenderActorCritic(nn.Module):
 ## 6. Authoring Checklist
 
 1. **Choose your component archetype**: Model, Agent, Environment, DataModule, Evaluator, or Experiment.
-2. **Implement the matching runtime protocol** in [`src/app/core/protocols.py`](../src/app/core/protocols.py).
+2. **Implement the matching runtime protocol** in [`src/app/core/protocols.py`](../../src/app/core/protocols.py).
 3. **Register your component**:
    - Models: `@register_model("<name>")`
    - Agents: `@register_agent("<name>")`
@@ -527,7 +527,7 @@ class BlenderActorCritic(nn.Module):
    - **Component archive**: Include `.theta_component.json` and export with `python run_pipeline.py component export <id> --out package.zip`.
    - **Experiment archive**: Use `python run_pipeline.py export <group>/<experiment>`.
    - **Python package**: Declare entry points for supported consumers; observe section 3's loading limitations.
-   - **Hub publication**: Follow [the production release workflow](../THETA_HUB_RELEASE_WORKFLOW.md). Export alone does not publish.
+   - **Hub publication**: Follow [the production release workflow](THETA_HUB_RELEASE_WORKFLOW.md). Export alone does not publish.
 5. **Verify**: Run the component's own tests and a fresh-process experiment. The framework's
    `tests/test_component_plugins.py` and `tests/test_component_development.py` exercise integration/development
    behavior; they are not universal conformance tests for an arbitrary component.

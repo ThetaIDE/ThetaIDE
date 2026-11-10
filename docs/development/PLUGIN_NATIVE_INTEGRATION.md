@@ -4,7 +4,7 @@ Provider verification covers the full source-package workflow: validate declarat
 build archives, install into a disposable workspace, execute selected providers,
 and exercise editable copies, export, update and uninstall. Maintained source
 packages live in the sibling `theta-plugins` repository. The public package and
-ownership contract is documented in [PLUGIN_STORAGE.md](PLUGIN_STORAGE.md).
+ownership contract is documented in [PLUGIN_STORAGE.md](../reference/PLUGIN_STORAGE.md).
 
 ## Repeatable checks
 

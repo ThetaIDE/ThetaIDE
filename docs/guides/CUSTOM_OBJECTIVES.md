@@ -149,4 +149,4 @@ finishes. Scoring code never starts workers, reserves resources, or publishes
 training status. Existing experiments without an objective retain their scalar-metric
 behavior.
 
-Bundled objectives now live in `src/plugins/components/bundled/{final_metric,learning_curve}`; the API stays in `src/app/objectives`. Package objectives are discoverable through the shared catalog and standalone authored descriptors remain under `src/usr/objectives`. Colliding IDs require an explicit user override; see [provider storage](docs/PLUGIN_STORAGE.md). New-format metadata listings do not execute objective code.
+Bundled objectives now live in `src/plugins/components/bundled/{final_metric,learning_curve}`; the API stays in `src/app/objectives`. Package objectives are discoverable through the shared catalog and standalone authored descriptors remain under `src/usr/objectives`. Colliding IDs require an explicit user override; see [provider storage](../reference/PLUGIN_STORAGE.md). New-format metadata listings do not execute objective code.
