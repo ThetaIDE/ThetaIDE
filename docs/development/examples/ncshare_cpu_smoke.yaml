@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+  - override /site: ncshare/common
+  - override /env: gym_classic_control/cartpole
+  - _self_
+paradigm: online_rl
+group: ncshare_validation
+experiment_id: cpu_smoke
+seed: 42
+total_timesteps: 64
+eval_episodes: 1
+no_plot: true
+monitors: {}
+methods:
+  cpu:
+    agent:
+      name: sb3/ppo
+      n_steps: 16
+      batch_size: 8
+      n_epochs: 1
+    model:
+      name: basics/dnn
+      hidden_sizes: [16, 16]

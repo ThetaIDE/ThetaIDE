@@ -126,6 +126,8 @@ class Run:
 
     def artifact(self, path: str | Path, kind: str = "file", **data: Any) -> None:
         """A file the run wrote (checkpoint, figure, report, ...)."""
+        from src.app.sites.publication import committed
+        committed(path, position=data or None)
         output_root = os.environ.get("THETA_OUTPUT_ROOT")
         if output_root:
             try:
@@ -267,7 +269,7 @@ def settings_from_config(cfg: Any) -> tuple[list[str], float]:
     section = section if hasattr(section, "get") else {}
     sinks = section.get("sinks")
     interval = section.get("system_interval")
-    interval = float(interval) if interval is not None else DEFAULT_INTERVAL
+    interval = float(interval) if interval is not None else float(os.environ.get("THETA_SYSTEM_INTERVAL", DEFAULT_INTERVAL))
     if not selection_from_config(cfg).keeps_section("system"):
         interval = 0.0
     return [str(s) for s in sinks] if sinks is not None else list(DEFAULT_SINKS), interval

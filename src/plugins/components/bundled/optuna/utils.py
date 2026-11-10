@@ -163,6 +163,11 @@ def get_optuna_storage(storage_url: str):
         db_raw = storage_url.replace("sqlite:///", "").split("?")[0]
         if db_raw and os.path.dirname(db_raw):
             os.makedirs(os.path.dirname(os.path.abspath(db_raw)), exist_ok=True)
+        if os.environ.get('THETA_SQLITE_ROOT'):
+            from pathlib import Path
+            allowed = Path(os.environ['THETA_SQLITE_ROOT']).resolve()
+            if Path(db_raw).resolve().parent != allowed:
+                raise ValueError('Allocation SQLite must use its exclusively owned scratch database')
         # If DB file exists but is 0 bytes (empty file created by touch/connect),
         # remove it so Optuna creates the full table schema cleanly without AssertionError
         if os.path.exists(db_raw) and os.path.getsize(db_raw) == 0:

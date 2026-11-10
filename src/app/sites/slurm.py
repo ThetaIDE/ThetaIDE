@@ -39,8 +39,17 @@ def bootstrap_command(root, site):
     requirements = set()
     for manifest in WorkspacePaths(root).manifests():
         requirements.update(json.loads(manifest.read_text()).get('dependencies', {}).get('pip', []))
+    profile = load(root, site)
+    runtime_python = profile.get('python_executable')
+    if runtime_python in (None, 'auto'):
+        runtime_python = str(Path(config['remote_root']) / profile.get('venv_dir', 'venv') / 'bin/python3')
+    elif not Path(runtime_python).is_absolute():
+        runtime_python = str(Path(config['remote_root']) / runtime_python)
+    environment_dir = str(Path(runtime_python).parent.parent)
+    if Path(runtime_python).parent.name != 'bin':
+        raise ValueError('Generate setup for a venv bin/python interpreter, or provision the custom interpreter manually')
     setup = ('mkdir -p ' + shlex.quote(config['remote_root']) + ' && cd ' + shlex.quote(config['remote_root']) +
-             ' && python3 -m venv venv')
+             ' && python3 -m venv ' + shlex.quote(environment_dir))
     install = ('cd ' + shlex.quote(config['remote_root']) + ' && ' +
                shlex.join([config['python'], '-m', 'pip', 'install', '-e', '.[optuna]', *sorted(requirements)]))
     # Only emit text: the user chooses when to execute SSH, upload and package installation.

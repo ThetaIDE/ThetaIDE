@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import time
 import uuid
 from pathlib import Path
@@ -100,6 +101,12 @@ class MonitorManager:
                        entry.get("outputs"), entry["lineage"])
 
     def _failure(self, entry, exc):
+        from .budget import BudgetExceeded
+        if isinstance(exc, BudgetExceeded) and os.environ.get('THETA_DIAGNOSTIC_STRICT') == '1': raise exc
+        if isinstance(exc, BudgetExceeded):
+            entry['disabled'] = True
+            self.run.event('monitor_skipped', str(exc), instance=entry['identity'])
+            return
         entry["disabled"] = True
         self.run.event("monitor_error", f"Monitor {entry['identity']}: {type(exc).__name__}: {exc}",
                        level="error", instance=entry["identity"])
@@ -148,26 +155,34 @@ class MonitorManager:
                                for k, v in result.metrics.items()):
                         raise ValueError("Monitor metrics must be named finite scalars")
                     path = write_snapshot(entry["directory"], context, result, model_hash=model_hash,
-                                          provider=entry["provider"], elapsed=time.perf_counter() - started)
+                                          provider=entry["provider"], elapsed=time.perf_counter() - started, final=final)
                 entry["count"] += 1
                 entry["last"] = int(updates)
                 from .api import save_monitor_state
-                state_path = self.run.version_dir / "monitors" / "state.npz"
-                save_monitor_state(state_path, self.state_dict())
+                state_path = entry["directory"] / "state.npz"
+                try:
+                    save_monitor_state(state_path, self.state_dict(entries=[entry]))
+                    self.run.artifact(state_path, kind="monitor_state")
+                except Exception as exc:
+                    from .budget import BudgetExceeded
+                    if not isinstance(exc, BudgetExceeded) or os.environ.get('THETA_DIAGNOSTIC_STRICT') == '1': raise
+                    self.run.event('monitor_state_unavailable', str(exc), instance=entry['identity'])
                 self.run.log({prefix + key: float(value) for key, value in result.metrics.items()},
                              step=int(transitions), transitions=int(transitions))
-                from .report import write_report
-                report = write_report(entry["directory"])
-                self.run.artifact(report, kind="monitor_report", instance=entry["identity"])
-                self.run.artifact(state_path, kind="monitor_state")
                 self.run.artifact(path, kind="monitor_snapshot", instance=entry["identity"],
                                   transitions=int(transitions), optimizer_updates=int(updates),
                                   visuals=[{k: v for k, v in visual.items() if k != "data"}
                                            for visual in result.visuals.values()])
             except Exception as exc:
-                self._failure(entry, exc)
+                from .budget import BudgetExceeded
+                if isinstance(exc, BudgetExceeded) and os.environ.get("THETA_DIAGNOSTIC_STRICT") != "1":
+                    self.run.event('monitor_skipped', str(exc), instance=entry['identity'],
+                                   transitions=int(transitions), optimizer_updates=int(updates), final=final)
+                    entry['last'] = int(updates)
+                else:
+                    self._failure(entry, exc)
 
-    def state_dict(self):
+    def state_dict(self, entries=None):
         """Restore only alongside the matching model, configuration and probe bank."""
         return {entry["identity"]: {"count": entry["count"], "last": entry["last"],
                 "probe_set": entry["probes"].identity, "spec": entry["spec"], "lineage": entry["lineage"],
@@ -175,7 +190,7 @@ class MonitorManager:
                 "framework": framework_digest(),
                 "provider": entry["provider"],
                 "monitor": copy.deepcopy(entry["monitor"].state_dict()) if hasattr(entry["monitor"], "state_dict") else {}}
-                for entry in self.entries if not entry["disabled"]}
+                for entry in (self.entries if entries is None else entries) if not entry["disabled"]}
 
     def load_state_dict(self, state):
         active = {entry["identity"]: entry for entry in self.entries if not entry["disabled"]}
@@ -196,6 +211,12 @@ class MonitorManager:
         if self.closed:
             return
         self.closed = True
+        if os.environ.get('THETA_DEFER_MONITOR_REPORTS') != '1':
+            from .report import write_report
+            for entry in self.entries:
+                if entry.get('count'):
+                    report = write_report(entry['directory'])
+                    self.run.artifact(report, kind='monitor_report', instance=entry['identity'])
         for entry in self.entries:
             monitor = entry["monitor"]
             if monitor is not None and callable(getattr(monitor, "close", None)):

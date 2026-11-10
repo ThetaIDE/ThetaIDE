@@ -48,3 +48,44 @@ def freeze(root, destination):
     result = {'project_id': project, 'sha256': value, 'files': hashes}
     write_json(destination / '.thetaide/source.json', result)
     return result
+
+
+def archive(root, destination):
+    """Build locally during project push; archives contain regular source files only."""
+    import zipfile
+    with __import__('tempfile').TemporaryDirectory(prefix='theta-source-') as directory:
+        source = freeze(root, directory)
+        with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_DEFLATED) as bundle:
+            for name in [*source['files'], '.thetaide/source.json']:
+                bundle.write(Path(directory) / name, name)
+    return source
+
+
+def extract(archive_path, destination, *, max_bytes=256 * 1024**2):
+    """Validate the entire archive before writing. Never extract links or traversal."""
+    import stat
+    import zipfile
+    with zipfile.ZipFile(archive_path) as bundle:
+        seen, total = set(), 0
+        for item in bundle.infolist():
+            safe_path(destination, item.filename)
+            mode = item.external_attr >> 16
+            if item.is_dir() or stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG)):
+                raise ValueError('Source archives accept regular files only')
+            if item.filename in seen: raise ValueError('Duplicate archive member')
+            seen.add(item.filename)
+            total += item.file_size
+            if total > max_bytes: raise ValueError('Source archive exceeds size limit')
+        for item in bundle.infolist():
+            target = safe_path(destination, item.filename)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with bundle.open(item) as source, target.open('xb') as output:
+                shutil.copyfileobj(source, output, 1024 * 1024)
+    from .storage import read_json
+    source = read_json(Path(destination) / '.thetaide/source.json')
+    if set(seen) != set(source['files']) | {'.thetaide/source.json'}:
+        raise ValueError('Source archive manifest mismatch')
+    for name, expected in source['files'].items():
+        if digest(safe_path(destination, name)) != expected:
+            raise ValueError('Source archive checksum mismatch')
+    return source

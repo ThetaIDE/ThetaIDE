@@ -5,6 +5,7 @@ All cluster-specific values (email, partition, cores) are read from site config.
 """
 
 import re
+import shlex
 import subprocess
 
 from omegaconf import OmegaConf
@@ -41,41 +42,12 @@ def get_gres_header(res, site_cfg):
     return f"#SBATCH --gres=gpu:{gpus}\n"
 
 
-def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_type="afterok", is_consolidated=False):
+def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_type="afterok", is_consolidated=False, resources=None):
     """Generate standardized SBATCH script header using pure Hydra composition."""
     site_cfg = getattr(cfg, "site", None)
 
-    # Merge site resources with experiment resources (experiment overrides site)
-    site_res_raw = getattr(site_cfg, "resources", {}) if site_cfg else {}
-    exp_res_raw = getattr(cfg, "resources", {}) if hasattr(cfg, "resources") else {}
-    site_dict = (
-        OmegaConf.to_container(site_res_raw, resolve=True)
-        if OmegaConf.is_config(site_res_raw)
-        else (dict(site_res_raw) if isinstance(site_res_raw, dict) else {})
-    )
-    exp_dict = (
-        OmegaConf.to_container(exp_res_raw, resolve=True)
-        if OmegaConf.is_config(exp_res_raw)
-        else (dict(exp_res_raw) if isinstance(exp_res_raw, dict) else {})
-    )
-    site_dict = {k: v for k, v in site_dict.items() if v is not None}
-    exp_dict = {k: v for k, v in exp_dict.items() if v is not None}
-    res = {**site_dict, **exp_dict}
-    if cfg.get("partition", None) is not None:
-        res["partition"] = cfg.get("partition")
-
-    partition = res.get("partition")
-    is_cpu_partition = str(partition).lower() in ("common", "serial", "cpu", "standard", "debug_cpu")
-    if is_cpu_partition and site_cfg and hasattr(site_cfg, "compute_resources") and site_cfg.compute_resources:
-        compute_dict = (
-            OmegaConf.to_container(site_cfg.compute_resources, resolve=True)
-            if OmegaConf.is_config(site_cfg.compute_resources)
-            else (dict(site_cfg.compute_resources) if isinstance(site_cfg.compute_resources, dict) else {})
-        )
-        compute_dict = {k: v for k, v in compute_dict.items() if v is not None}
-        res = {**site_dict, **compute_dict, **exp_dict}
-        if cfg.get("partition", None) is not None:
-            res["partition"] = cfg.get("partition")
+    from src.app.sites.resources import normalize
+    res = resources if resources is not None else normalize(cfg, consolidated=is_consolidated)
 
     partition = res.get("partition")
     cfg_consolidate = cfg.get("consolidate", None)
@@ -94,7 +66,7 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
     mail_type = getattr(site_cfg, "mail_type", "END,FAIL")
 
     script = "#!/bin/bash\n"
-    script += f"#SBATCH --job-name={job_name}\n"
+    script += f"#SBATCH --job-name={shlex.quote(str(job_name))}\n"
     if partition:
         script += f"#SBATCH --partition={partition}\n"
     for key in ("account", "qos"):
@@ -109,20 +81,20 @@ def generate_sbatch_header(job_name, log_dir, cfg, dependency=None, dependency_t
         script += f"#SBATCH --cpus-per-task={cores}\n"
     if memory:
         script += f"#SBATCH --mem={memory}\n"
-    script += f"#SBATCH --output={log_dir}/%x_%j.out\n"
-    script += f"#SBATCH --error={log_dir}/%x_%j.err\n"
+    script += f"#SBATCH --output={shlex.quote(str(log_dir) + '/%x_%j.out')}\n"
+    script += f"#SBATCH --error={shlex.quote(str(log_dir) + '/%x_%j.err')}\n"
 
     # Extra site-specific sbatch flags
     for flag in getattr(site_cfg, "extra_sbatch_flags", []) or []:
         script += f"#SBATCH {flag}\n"
 
     if mail_user:
-        script += f"#SBATCH --mail-type={mail_type}\n"
-        script += f"#SBATCH --mail-user={mail_user}\n"
+        script += f"#SBATCH --mail-type={shlex.quote(str(mail_type))}\n"
+        script += f"#SBATCH --mail-user={shlex.quote(str(mail_user))}\n"
     if dependency:
-        script += f"#SBATCH --dependency={dependency_type}:{dependency}\n"
+        script += f"#SBATCH --dependency={shlex.quote(str(dependency_type) + ':' + str(dependency))}\n"
     # Directives are one physical line each; reject newline/command injection.
-    for value in [job_name, str(log_dir), *res.values(), *(getattr(site_cfg, "extra_sbatch_flags", []) or [])]:
+    for value in [job_name, str(log_dir), mail_user, mail_type, dependency, dependency_type, *res.values(), *(getattr(site_cfg, "extra_sbatch_flags", []) or [])]:
         if value is not None and any(c in str(value) for c in "\r\n\x00"):
             raise ValueError("SLURM directive values must be single-line")
     return script
@@ -160,9 +132,11 @@ def submit_sbatch(script_content):
     Returns None if submission fails or sbatch is not available.
     """
     try:
+        from src.app.sites.resources import submission_environment
+        environment = submission_environment()
         # Use --parsable for reliable job ID output (just the number)
         result = subprocess.run(
-            ["sbatch", "--parsable"], input=script_content, capture_output=True, text=True, check=True
+            ["sbatch", "--parsable"], input=script_content, env=environment, capture_output=True, text=True, check=True
         )
         job_id = result.stdout.strip().split(";")[0]  # --parsable may include cluster name after ;
         if job_id.isdigit():

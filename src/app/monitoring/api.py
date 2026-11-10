@@ -149,8 +149,17 @@ class ProbeSet:
         return digest.hexdigest()
 
     def save(self, path):
-        np.savez_compressed(path, observations=self.observations, sample_ids=self.sample_ids,
-                            metadata=np.asarray(json.dumps({"schema": "theta.probes/v1", **self.metadata})))
+        from .budget import estimate, admit, bounded_json
+        estimate({'observations': self.observations, 'sample_ids': self.sample_ids})
+        path = Path(path)
+        temporary = path.with_name('.' + path.stem + '.tmp.npz')
+        try:
+            np.savez_compressed(temporary, observations=self.observations, sample_ids=self.sample_ids,
+                                metadata=np.asarray(bounded_json({"schema": "theta.probes/v1", **self.metadata})))
+            admit([(temporary, path)])
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     @classmethod
     def load(cls, path):
@@ -227,7 +236,7 @@ class Context:
         return torch.as_tensor(self.probes.observations, dtype=torch.float32, device=device)
 
 
-def write_snapshot(directory, context, result, *, model_hash, provider, elapsed):
+def write_snapshot(directory, context, result, *, model_hash, provider, elapsed, final=False):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     stem = f"snapshot_{context.snapshot_index:05d}"
@@ -235,9 +244,9 @@ def write_snapshot(directory, context, result, *, model_hash, provider, elapsed)
     values = {k: np.asarray(v) for k, v in result.arrays.items()}
     if any(value.dtype.hasobject for value in values.values()):
         raise ValueError("Monitor artifacts cannot contain object arrays")
+    from .budget import estimate, admit, bounded_json
+    estimate(values)
     temporary_arrays = directory / f".{stem}.tmp.npz"
-    np.savez_compressed(temporary_arrays, **values)
-    temporary_arrays.replace(arrays_path)
     metadata = {"schema": "theta.monitor-snapshot/v1", "instance": context.identity,
                 "monitor_api": "theta.monitors/v1", "framework_sha256": framework_digest(),
                 "provider": provider, "config": context.spec, "target": context.spec["target"],
@@ -249,8 +258,17 @@ def write_snapshot(directory, context, result, *, model_hash, provider, elapsed)
                 "lineage": context.lineage, "visuals": result.visuals}
     path = directory / f"{stem}.json"
     temporary = directory / f".{stem}.tmp.json"
-    temporary.write_text(json.dumps(metadata, indent=2, allow_nan=False) + "\n")
-    temporary.replace(path)
+    try:
+        metadata_text = bounded_json(metadata, indent=2)
+        np.savez_compressed(temporary_arrays, **values)
+        temporary.write_text(metadata_text + "\n")
+        admit([(temporary_arrays, arrays_path), (temporary, path)],
+              position={'transitions': context.transitions, 'updates': context.updates, 'instance': context.identity}, final=final)
+        temporary_arrays.replace(arrays_path)
+        temporary.replace(path)
+    finally:
+        temporary_arrays.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
     return path
 
 
@@ -285,8 +303,14 @@ def save_monitor_state(path, state):
     tree = encode(state)
     path = Path(path)
     temporary = path.with_suffix(".tmp.npz")
-    np.savez_compressed(temporary, metadata=np.asarray(json.dumps({"schema": "theta.monitor-state/v1", "state": tree}, allow_nan=False)), **arrays)
-    temporary.replace(path)
+    from .budget import estimate, admit, bounded_json
+    estimate(arrays)
+    try:
+        np.savez_compressed(temporary, metadata=np.asarray(bounded_json({"schema": "theta.monitor-state/v1", "state": tree})), **arrays)
+        admit([(temporary, path)])
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def load_monitor_state(path):

@@ -12,6 +12,8 @@ a factory by import path in the run's sink list ("my_package.sinks:WandbSink").
 from __future__ import annotations
 
 import importlib
+import os
+import time
 from pathlib import Path
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -43,12 +45,19 @@ class StreamSink:
         self.path = Path(version_dir) / STREAM_FILE
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(self.path, "a", encoding="utf-8", newline="\n")
+        self._interval = float(os.environ.get('THETA_STREAM_FLUSH_SECONDS', '0'))
+        self._last_flush = time.monotonic()
+        self._buffered = 0
 
     def _append(self, rec):
         if self._file is None:
             return
-        self._file.write(encode(rec) + "\n")
-        self._file.flush()
+        line = encode(rec) + "\n"
+        self._file.write(line)
+        self._buffered += len(line.encode())
+        if rec.get('type') in ('start', 'finish', 'event', 'artifact') or self._buffered >= 65536 or time.monotonic() - self._last_flush >= self._interval:
+            self._file.flush()
+            self._last_flush, self._buffered = time.monotonic(), 0
 
     def start(self, rec):
         self._append(rec)

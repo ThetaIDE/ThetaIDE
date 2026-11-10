@@ -16,7 +16,7 @@ def test_sync_is_explicit_and_reports_completion(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(WorkspacePaths, 'for_process', classmethod(lambda cls: cls(tmp_path)))
     transfer.configure(tmp_path, 'cluster', 'alias', '/cluster/project')
-    monkeypatch.setattr(transfer, 'sync', lambda root, site, mode: calls.append((site, mode)) or {'last_sync': '2026-11-09T12:00:00Z'})
+    monkeypatch.setattr(transfer, 'sync', lambda root, site, mode, **kwargs: calls.append((site, mode)) or {'last_sync': '2026-11-09T12:00:00Z'})
     widget = SiteSyncControl('metrics')
     widget.populate()
     assert calls == []

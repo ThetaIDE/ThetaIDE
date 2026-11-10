@@ -132,6 +132,8 @@ class ThetaOptunaSweeper(Sweeper):
         failed_count = 0
         start = time.monotonic()
         while remaining > 0 and (not self.timeout_seconds or time.monotonic() - start < self.timeout_seconds):
+            from src.app.sites.publication import admission
+            admission()
             managed = bool(os.environ.get('THETA_RESOURCE_POOL'))
             batch = 1 if os.environ.get('THETA_MANAGED_SERIAL') == '1' else impl.n_jobs
             trials = [] if managed else [study.ask() for _ in range(min(remaining, batch))]
@@ -203,10 +205,14 @@ class ThetaOptunaSweeper(Sweeper):
                     finish_trial_runs(impl.config.get("group"), impl.config.get("experiment_id"),
                                       trial.user_attrs.get("theta_log_version"),
                                       "cancelled" if state == optuna.trial.TrialState.PRUNED else "failed")
+                from src.app.sites.publication import request_database_export
+                request_database_export({'study': study.study_name, 'trial': trial.number, 'state': state.name})
                 consumed.add(index)
                 _export_summary(impl.config, study)
 
             def can_start():
+                from src.app.sites.publication import admission
+                admission()
                 return (not self.timeout_seconds or time.monotonic() - start < self.timeout_seconds) and failed_count <= self.max_failed_trials
 
             def next_job():

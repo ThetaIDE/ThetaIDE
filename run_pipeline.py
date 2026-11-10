@@ -49,7 +49,7 @@ def main():
         print("  site=ncshare_gpu      Slurm cluster on NCShare GPU partition (consolidated)")
         print("  site=ncshare_common   Slurm cluster on NCShare CPU common partition (one job per method)")
         print("  site=arc              Slurm cluster execution on ARC")
-        print("  plot_only=true        Run plotting phase only (no training, no Slurm submission)")
+        print("  plot_only=true        Plot prior local results (Slurm plot_only is unavailable)")
         print("  no_plot=true          Skip automatic plotting")
         print("  no_online=true        Skip online training phase")
         print("  no_offline=true       Skip offline training phase")
@@ -172,6 +172,9 @@ def main():
         sys.exit(0)
 
     if cfg.get("plot_only", False):
+        from src.app.sites import scheduler
+        if scheduler(cfg) == "slurm":
+            raise ConfigurationError("Slurm plot_only is unavailable; plot synced prior results locally with wipe=false")
         from src.app.pipeline.plot_config import should_run_plotting
         if not should_run_plotting(cfg):
             print("No figures or tables configured; skipping plotting.")

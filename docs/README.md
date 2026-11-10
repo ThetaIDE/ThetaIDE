@@ -29,11 +29,14 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Release components to Theta Hub](development/THETA_HUB_RELEASE_WORKFLOW.md)
 - [Local component development status](development/LOCAL_COMPONENT_DEVELOPMENT_STATUS.md)
 - [Local variability implementation status](development/VARIABILITY_IMPLEMENTATION_STATUS.md)
+- [NCShare CPU Slurm implementation handoff](development/SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md)
+- [NCShare CPU implementation status and live validation commands](development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md)
 
 ## Plans
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
+- [Slurm hardening and NCShare CPU rollout](plans/SLURM_NCSHARE_HARDENING_PLAN.md) — storage/publication policy, parallelism and continuation boundaries, implementation sequence, and CPU acceptance gate.
 - [Project organization and workspace separation proposal](plans/PROJECT_ORGANIZATION_PLAN.md) — deferred architecture proposal.
 - [Hyperparameter sweep design](plans/HYPERPARAMETER_SWEEPS_DESIGN.md) — design draft.
 - [Training and evaluation variability design](plans/TRAINING_EVALUATION_VARIABILITY_DESIGN.md) — proposed design; see the [implementation status](development/VARIABILITY_IMPLEMENTATION_STATUS.md) for current behavior.
@@ -41,6 +44,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Slurm integration and NCShare operational review](reports/SLURM_NCSHARE_REVIEW_20261110.md)
 - [CartPole final sweep and objective review](reports/CARTPOLE_FINAL_SWEEP_20261109.md)
 - [Sweep dashboard comparison](reports/OPTUNA_DASHBOARD_GAPS.md)
 - [Results browser requirements report (PDF)](reports/results_browser_must_haves_report.pdf)

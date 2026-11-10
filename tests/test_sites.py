@@ -222,6 +222,7 @@ def test_site_component_scaffold_is_installable(tmp_path):
 
 
 def test_allocation_worker_runs_frozen_pipeline_and_records_outputs(tmp_path, monkeypatch):
+    monkeypatch.setenv('SLURM_JOB_ID', '321')
     root = project(tmp_path)
     script = root / 'run_pipeline.py'
     script.write_text('''import json, os, pathlib, sys
@@ -260,18 +261,17 @@ def test_scheduler_finishing_is_distinct_from_submission_exit(tmp_path, monkeypa
     assert updated['exit_code'] == '0:15'
 
 
-def test_active_sqlite_uses_consistent_backup(tmp_path, monkeypatch):
+def test_legacy_live_sqlite_sync_is_rejected(tmp_path, monkeypatch):
     import sqlite3
     value, logs, _ = record(tmp_path, 'running')
     with sqlite3.connect(logs / 'study.sqlite') as db:
         db.execute('create table trials (score integer)')
         db.execute('insert into trials values (7)')
     monkeypatch.setattr(transfer, 'refresh_status', lambda root, value: value)
-    listing = transfer.index(tmp_path, 'results')
-    item = next(item for item in listing['files'] if item['path'].endswith('study.sqlite'))
-    with sqlite3.connect(tmp_path / item['source']) as db:
-        assert db.execute('select score from trials').fetchone() == (7,)
-    transfer.release(tmp_path, listing['generation'])
+    monkeypatch.setattr(sqlite3, 'connect', lambda *a, **k: pytest.fail('login helper opened live SQLite'))
+    with pytest.raises(ValueError, match='owning compute node'):
+        transfer.index(tmp_path, 'results')
+    assert not list((tmp_path / 'results/slurm/.sync').iterdir())
 
 
 def test_default_batch_interpreter_preserves_virtualenv_path(tmp_path, monkeypatch):

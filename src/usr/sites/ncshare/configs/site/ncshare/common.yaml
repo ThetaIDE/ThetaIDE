@@ -9,3 +9,33 @@ resources:
   memory: 8G
   gpus: 0
   no_gres: true
+  nodes: 1
+  time: '00:15:00'
+execution:
+  schema_version: 1
+  runtime: scratch
+  work_root: /work/{user}/thetaide/{project_id}
+  scratch_root: /scratch
+  metrics_seconds: 60
+  database_seconds: 300
+  database_min_seconds: 30
+  stage_out_seconds: 120
+  chunk_bytes: 8388608
+  tick_bytes: 33554432
+  max_pending_bytes: 2147483648
+  max_queue_files: 128
+  max_published_bytes: 17179869184
+  max_source_bytes: 2147483648
+  max_input_bytes: 2147483648
+  max_input_files: 4096
+  max_runtime_bytes: 8589934592
+  max_runtime_files: 100000
+  scratch_reserve_bytes: 268435456
+  max_lag_seconds: 600
+  diagnostic_strict: false
+  diagnostic_bytes: 134217728
+  diagnostic_files: 1024
+  snapshot_bytes: 8388608
+  stream_flush_seconds: 5
+  system_interval: 10
+  inputs: []

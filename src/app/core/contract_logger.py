@@ -57,6 +57,8 @@ class ContractLogger:
 
         self.metrics_csv_path = self.version_dir / "metrics.csv"
         self.flush_interval = max(1, flush_interval)
+        self.flush_seconds = float(os.environ.get('THETA_STREAM_FLUSH_SECONDS', '0'))
+        self._last_flush = time.monotonic()
 
         self._fieldnames: List[str] = []
         self._rows: List[Dict[str, Any]] = []
@@ -194,7 +196,7 @@ class ContractLogger:
 
         self._writer.writerow(row)
         self._unwritten_count += 1
-        if self._unwritten_count >= self.flush_interval:
+        if (not self.flush_seconds and self._unwritten_count >= self.flush_interval) or time.monotonic() - self._last_flush >= self.flush_seconds or self._unwritten_count >= 256:
             self.flush()
 
     def log_eval(
@@ -219,6 +221,7 @@ class ContractLogger:
         """Flush internal buffers to disk."""
         if self._file:
             self._file.flush()
+            self._last_flush = time.monotonic()
             self._unwritten_count = 0
 
     def close(self) -> None:

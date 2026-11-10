@@ -35,7 +35,9 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path, jobs)
     env = {**os.environ, 'PYTHONPATH': str(project), 'THETA_RESOURCE_POOL': str(tmp_path / 'resources.db'),
            'THETAIDE_SETTINGS_FILE': str(settings), 'THETA_MANAGED_SERIAL': '1', 'THETA_MANAGED_THREADS': '1',
            'OMP_NUM_THREADS': '1'}
-    result = subprocess.run([sys.executable, str(script), '--multirun', 'hydra/sweeper=optuna_offline',
+    from src.app.workspace import WorkspacePaths
+    search = '[' + ','.join('file://' + str(path) for path in WorkspacePaths(project).config_roots() if path != project / 'in/config') + ']'
+    result = subprocess.run([sys.executable, str(script), '--multirun', 'hydra.searchpath=' + search, 'hydra/sweeper=optuna_offline',
         f'hydra.sweeper.storage={storage}', 'hydra.sweeper.study_name=parallel', 'hydra.sweeper.n_trials=3',
         f'hydra.sweeper.n_jobs={jobs}', f'hydra.sweep.dir={tmp_path}/hydra', '++trainer.accelerator=cpu',
         '++model.hidden_sizes=[8000,8000]',

@@ -23,6 +23,10 @@ def get_python_executable(site_cfg=None) -> str:
       2. venv/bin/python3  (default venv)
       3. sys.executable    (fallback)
     """
+    if os.environ.get('THETA_PYTHON_EXECUTABLE'):
+        return os.environ['THETA_PYTHON_EXECUTABLE']
+    if site_cfg and site_cfg.get('python_executable') not in (None, 'auto'):
+        return str(site_cfg['python_executable'])
     venv_dir = "venv"
     if site_cfg and hasattr(site_cfg, "venv_dir"):
         venv_dir = str(getattr(site_cfg, "venv_dir", "venv"))
