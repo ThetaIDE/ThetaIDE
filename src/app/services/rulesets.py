@@ -136,23 +136,23 @@ def _rulesets_at(base, env, paths):
 
 
 def resolve_ruleset(workspace, environment, name) -> Ruleset:
-    env = symbolic_environment(environment, workspace)
     if not isinstance(name, str) or not name or "\\" in name:
         raise ValueError("Select one ruleset")
     parts = name.split("/")
     if len(parts) == 2:
-        qualified_env, name = parts
-        qualified_env = symbolic_environment(qualified_env, workspace)
-        if env and env != qualified_env:
-            raise ValueError(f"Ruleset belongs to {qualified_env}, not {env}")
-        env = qualified_env
+        # A qualified selection owns its resource identity. Compatibility with
+        # the simulator is the experiment author's responsibility.
+        env, name = parts
+        env = _environment_id(env)
     elif len(parts) != 1:
         raise ValueError("Ruleset selectors must be a name or environment/name")
-    if name in (".", ".."):
+    else:
+        env = symbolic_environment(environment, workspace)
+    if not name or name in (".", ".."):
         raise ValueError("Invalid ruleset name")
     if not env:
         raise ValueError("Select an environment or use an environment/ruleset selector")
-    matches = [r for r in available_rulesets(workspace, env) if r.name == name]
+    matches = [r for r in available_rulesets(workspace) if r.environment == env and r.name == name]
     if not matches:
         raise ValueError(f"No ruleset {name!r} for environment {env!r}")
     return matches[0]

@@ -33,8 +33,7 @@ def test_catalog_resolves_profiles_overrides_and_qualified_selectors(tmp_path):
     assert tree.ruleset_names() == ["cartpole/anticipatory_v1", "cartpole/default", "mountaincar/default"]
     assert resolve_ruleset(tmp_path, None, "cartpole/default").directory == folder
     assert symbolic_environment({"name": "gym_classic_control/cartpole", "symbolic_name": "mountaincar"}, tmp_path) == "mountaincar"
-    with pytest.raises(ValueError, match="belongs to"):
-        resolve_ruleset(tmp_path, "cartpole", "mountaincar/default")
+    assert resolve_ruleset(tmp_path, "cartpole", "mountaincar/default").environment == "mountaincar"
     with pytest.raises(ValueError, match="Select an environment"):
         resolve_ruleset(tmp_path, None, "default")
 
@@ -49,6 +48,19 @@ def test_editor_opens_exact_folder_or_catalog_without_basename_search(tmp_path):
     from frontend.parameter_actions import opening_targets
     targets = opening_targets({"type": "open-in-editor", "domain": "ruleset"}, value="cartpole/default", context=context, workspace=tmp_path)
     assert targets == [("Open rules folder", folder)]
+    context["config"] = {"env": {"name": "mountaincar", "symbolic_name": "mountaincar"}}
+    assert rules_folder_targets(value="cartpole/default", context=context)[0]["path"] == str(folder)
+
+
+def test_qualified_ruleset_keeps_catalog_identity_even_when_a_profile_overrides_it(tmp_path):
+    folder = resource(tmp_path)
+    profile = tmp_path / "in/config/env/cartpole.yaml"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("symbolic_name: mountaincar\n")
+    # New selections use catalog paths; only legacy bare names consult profiles.
+    assert resolve_ruleset(tmp_path, {"name": "other"}, "cartpole/default").directory == folder
+    with pytest.raises(ValueError, match="No ruleset"):
+        resolve_ruleset(tmp_path, "cartpole", "default")
 
 
 def test_ruleset_owns_valuation_and_rejects_path_escape(tmp_path):
@@ -61,7 +73,7 @@ def test_ruleset_owns_valuation_and_rejects_path_escape(tmp_path):
     meta.write_text("valuation: ../../escape.py\n")
     with pytest.raises(ValueError, match="inside"):
         resolve_ruleset(tmp_path, "cartpole", "default").valuation_path
-    for name in ["../default", "/tmp/evil", "default/../../evil"]:
+    for name in ["../default", "/tmp/evil", "default/../../evil", "cartpole/", "/default", "cartpole/.."]:
         with pytest.raises(ValueError):
             resolve_ruleset(tmp_path, "cartpole", name)
 
@@ -171,7 +183,7 @@ import torch
 from src.app.core.provider_loader import provider_object
 get_nsfr_model = provider_object("nsfr", "common.py:get_nsfr_model")
 from src.app.services.rulesets import resolve_ruleset
-m = get_nsfr_model("cartpole", "anticipatory_v1", "cpu", train=True)
+m = get_nsfr_model("unmapped_simulator", "cartpole/anticipatory_v1", "cpu", train=True)
 x = torch.tensor([[[0., 0., .03, -.8], [0., 0., .03, -.8]]])
 y = m(x)
 assert y[0, m.prednames.index("left")] > y[0, m.prednames.index("right")]

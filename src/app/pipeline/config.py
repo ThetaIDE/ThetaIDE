@@ -50,21 +50,22 @@ _KNOWN_ALGORITHMS: set[str] = set()
 _KNOWN_MODELS: set[str] = set()
 
 
-def _declared_selectors(kind, group):
+def _declared_selectors(kind, group, paths=None):
     from src.app.core.provider_catalog import get_catalog
-    values = {selector for p in get_catalog().packages for c in p.capabilities if c.kind==kind for selector in (c.id,*c.aliases)}
+    catalog = get_catalog(paths)
+    values = {selector for p in catalog.packages for c in p.capabilities if c.kind==kind for selector in (c.id,*c.aliases)}
     prefix='in/config/'+group+'/'
-    values.update(dest.removeprefix(prefix).rsplit('.',1)[0] for p in get_catalog().packages
+    values.update(dest.removeprefix(prefix).rsplit('.',1)[0] for p in catalog.packages
                   for dest in p.manifest.get('payload',{}).get('configs',{}) if dest.startswith(prefix))
     return values
 
 
-def get_known_algorithms() -> set[str]:
-    return _declared_selectors('algorithm','agent')
+def get_known_algorithms(paths=None) -> set[str]:
+    return _declared_selectors('algorithm','agent', paths)
 
 
-def get_known_models() -> set[str]:
-    return _declared_selectors('model','model')
+def get_known_models(paths=None) -> set[str]:
+    return _declared_selectors('model','model', paths)
 
 
 _MODEL_KEYS = {
@@ -124,14 +125,17 @@ def deep_merge(base: dict, override: dict) -> dict:
         return base
     result = dict(base)
     for k, v in override.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+        if k in ("data_module", "symbolic_state_loader") and k in result:
+            from src.app.core.data_loaders import merge_loader_selection
+            result[k] = merge_loader_selection(result[k], v)
+        elif k in result and isinstance(result[k], dict) and isinstance(v, dict):
             result[k] = deep_merge(result[k], v)
         else:
             result[k] = v
     return result
 
 
-def find_group_method_config(method_name: str, group: str | None = None) -> dict:
+def find_group_method_config(method_name: str, group: str | None = None, *, paths=None) -> dict:
     """Find and load a group-level method config YAML file.
 
     Location:
@@ -141,11 +145,12 @@ def find_group_method_config(method_name: str, group: str | None = None) -> dict
         return {}
 
     clean_name = normalize_agent_name(method_name)
+    paths = paths or WorkspacePaths.for_process()
     candidates = [
-        WorkspacePaths.for_process().config / "experiment" / group / "methods" / f"{clean_name}.yaml",
+        paths.config / "experiment" / group / "methods" / f"{clean_name}.yaml",
     ]
     if method_name != clean_name:
-        candidates.append(WorkspacePaths.for_process().config / "experiment" / group / "methods" / f"{method_name}.yaml")
+        candidates.append(paths.config / "experiment" / group / "methods" / f"{method_name}.yaml")
 
     for path in candidates:
         if path.is_file():
@@ -268,7 +273,7 @@ def method_is_enabled(method_cfg: Any) -> bool:
         return True
 
 
-def parse_methods_dict(cfg) -> dict[str, dict]:
+def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
     """Parse and normalize the structured methods: dict from Hydra config.
 
     Supports hierarchical parameter specification:
@@ -344,8 +349,8 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
 
     # Extract universal global parameters (excluding agent, model, tune, and standalone algo/arch blocks)
     universal_global = {}
-    known_algos = get_known_algorithms()
-    known_models = get_known_models()
+    known_algos = get_known_algorithms(paths) if paths is not None else get_known_algorithms()
+    known_models = get_known_models(paths) if paths is not None else get_known_models()
     for k, v in shared_params.items():
         if k in ("agent", "model", "tune", "search_space"):
             continue
@@ -404,7 +409,8 @@ def parse_methods_dict(cfg) -> dict[str, dict]:
 
         # Look up reusable group method definition if available (supporting explicit base/template or method_name)
         base_name = m_dict.get("base") or m_dict.get("template") or method_name
-        base_group_method = find_group_method_config(base_name, group=group)
+        base_group_method = (find_group_method_config(base_name, group=group, paths=paths) if paths is not None
+                             else find_group_method_config(base_name, group=group))
         if base_group_method:
             m_dict = deep_merge(base_group_method, m_dict)
 

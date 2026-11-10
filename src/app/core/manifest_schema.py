@@ -19,7 +19,16 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
         "capabilities": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "entry_point"],
             "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"type": "string"},
                            "entry_point": {"type": "string", "minLength": 1},
-                           "aliases": {"type": "array", "items": {"type": "string"}}}}},
+                           "aliases": {"type": "array", "items": {"type": "string"}},
+                           "role": {"enum": ["training", "symbolic_state"]},
+                           "output_contracts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                           "parameter_schema": {"type": "object"},
+                           "input_requirements": {"type": "array", "items": {
+                               "type": "object", "required": ["slot", "contract"], "properties": {
+                                   "slot": {"enum": ["data_module", "symbolic_state_loader"]},
+                                   "contract": {"type": "string", "minLength": 1},
+                                   "when": {"type": "object", "additionalProperties": {"type": "array"}}
+                               }}}}}},
         "payload": {"type": "object", "required":["implementations","resources","configs"], "properties": {
             "implementations": {"type": "array", "items": {"type": "string"}},
             "resources": {"type": "array", "items": {"type": "string"}},
@@ -37,6 +46,8 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
         "kind": {
             "type": "string",
             "enum": [
+                "site",
+                "monitor",
                 "model",
                 "algorithm",
                 "objective",
@@ -208,7 +219,9 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
 SEMVER_REGEX = re.compile(r"^\d+\.\d+\.\d+.*$")
 ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
 VALID_KINDS = {
+    "site",
     "algorithm", "objective", "tuner", "rules",
+    "monitor",
     "model",
     "method",
     "agent",

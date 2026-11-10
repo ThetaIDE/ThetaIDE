@@ -343,20 +343,16 @@ def test_no_plot_selection_skips_phase_and_plot_directory(qapp, tmp_path, monkey
     local_runner.run_plotting_phase(cfg, {})
 
 
-def test_slurm_omits_plot_job_without_selection(tmp_path, monkeypatch):
+def test_slurm_uses_one_allocation_for_the_whole_pipeline(tmp_path, monkeypatch):
     from src.app.pipeline import slurm_runner
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(slurm_runner, "save_experiment_snapshot", lambda *args: None)
-    monkeypatch.setattr(slurm_runner, "save_run_config", lambda *args: None)
-    monkeypatch.setattr(slurm_runner, "generate_sbatch_header", lambda **kwargs: "#!/bin/sh\n")
-    monkeypatch.setattr(slurm_runner, "get_shell_env_block", lambda *args: "")
-    monkeypatch.setattr(slurm_runner, "get_shell_python_cmd", lambda *args: "python")
     submitted = []
-    monkeypatch.setattr(slurm_runner, "submit_sbatch", lambda script: submitted.append(script) or "1")
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "run", "consolidate": True})
-    slurm_runner.run_slurm_training(cfg, {"methods": {}})
-    assert len(submitted) == 1 and "plot/manager.py" not in submitted[0]
+    monkeypatch.setattr(slurm_runner, "submit", lambda root, experiment, overrides, cfg:
+                        submitted.append((experiment, overrides, cfg)) or {"job_id": "1"})
+    cfg = OmegaConf.create({"group": "g", "experiment_id": "run", "experiment_name": "g/run"})
+    assert slurm_runner.run_slurm_training(cfg, {"sanitized_extra_args": ["seed=3"]}) == (["1"], [], True)
+    assert len(submitted) == 1 and submitted[0][:2] == ("g/run", ["seed=3"])
     assert not (tmp_path / "results/plots").exists()
 
 

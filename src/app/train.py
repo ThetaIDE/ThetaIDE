@@ -70,9 +70,11 @@ def main(cfg: DictConfig):
     # 1. Resolve Data Module from explicit config (CLI > experiment > group > env) or paradigm fallback
     from src.app.core.datamodule_registry import get_datamodule_class
 
-    dm_cfg = cfg.get("data_module")
-    if dm_cfg is None and hasattr(cfg, "env") and hasattr(cfg.env, "get"):
-        dm_cfg = cfg.env.get("data_module")
+    from src.app.core.data_loaders import data_loader_errors, loader_selection
+    errors = data_loader_errors(cfg)
+    if errors:
+        raise ValueError(" ".join(errors))
+    dm_cfg, _ = loader_selection(cfg, "data_module")
 
     dm_name = None
     dm_params = {}

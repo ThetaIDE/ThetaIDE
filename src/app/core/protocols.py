@@ -87,7 +87,10 @@ class ModelMonitoringProtocol(Protocol):
     Runners decide when to call this hook, add train/eval to metric names, and may
     persist samples only when enabled by configuration. Optional attributes
     ``monitoring_namespace`` and ``monitoring_metadata()`` allow selection and
-    metadata for a saved sample artifact.
+    metadata for a saved sample artifact. Advertise final phase-qualified
+    outputs in capability ``monitoring.provides`` and require the runner's
+    ``model_observations.v1`` hook (see docs/reference/MONITOR_CONTRACT.md). Runners check
+    the Run's monitor selection before invoking optional collection work.
     """
 
     def collect_monitoring(self, obs: torch.Tensor) -> tuple[dict[str, float], dict[str, Any]]:
@@ -157,7 +160,7 @@ def walk_model_modules(root: Any) -> list[Any]:
 
 @runtime_checkable
 class DataModulePluginProtocol(Protocol):
-    """Protocol for pluggable DataModules providing PyTorch datasets and DataLoaders."""
+    """Training-role providers supplying PyTorch datasets and DataLoaders."""
 
     def setup(self, stage: str | None = None) -> None:
         """Prepare datasets and splits."""
@@ -169,6 +172,15 @@ class DataModulePluginProtocol(Protocol):
 
     def val_dataloader(self) -> Any:
         """Return PyTorch DataLoader for validation batches."""
+        ...
+
+
+@runtime_checkable
+class SymbolicStateLoaderProtocol(Protocol):
+    """Inference-time conversion, separate from model construction and batching."""
+
+    def __call__(self, observation: torch.Tensor) -> torch.Tensor:
+        """Return [batch, objects, features] on the input device."""
         ...
 
 
@@ -285,3 +297,24 @@ class StandardModelActorCriticWrapper(nn.Module):
             return self.backbone.get_action_probs(obs)
         logits = self.backbone(obs.float().reshape(obs.shape[0], -1))
         return torch.softmax(logits, dim=-1)
+
+
+@runtime_checkable
+class HasModelMonitors(Protocol):
+    """Optional model-owned instances; mirror defaults in capability.monitor_defaults."""
+    def get_monitor_specs(self) -> dict[str, dict[str, Any]]:
+        ...
+
+
+@runtime_checkable
+class MonitorProtocol(Protocol):
+    """Providers collect on isolated probes; optional setup/state/close share a lifecycle."""
+    def collect(self, context: Any) -> Any:
+        ...
+
+
+@runtime_checkable
+class HasMonitoringAdapter(Protocol):
+    """Architecture-specific access points, implemented by the owning model."""
+    def get_monitoring_adapter(self, algorithm: str) -> Any:
+        ...

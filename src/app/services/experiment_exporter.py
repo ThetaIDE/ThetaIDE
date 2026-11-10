@@ -356,6 +356,10 @@ class ExperimentExporter:
         from src.app.core.provider_catalog import get_catalog
         catalog = get_catalog(WorkspacePaths(self.workspace_root))
         selected = catalog.resolve(kind, str(selector))
+        if selected is None and kind == 'datamodule':
+            from src.app.core.data_loaders import loader_selection
+            binding, _ = loader_selection({'symbolic_state_loader': selector}, 'symbolic_state_loader', paths=catalog.paths)
+            selected = catalog.resolve(kind, binding['name']) if binding else None
         if selected is None: raise ValueError(f"No declared {kind} provider for {selector!r}; export/install its native package first")
         package, cap = selected
         if package.origin == 'python_distribution': return
@@ -394,9 +398,12 @@ class ExperimentExporter:
             self._trace_declared_provider('plotter',name,files_to_pack)
 
     def _trace_data_modules(self, group, env_name, files_to_pack, raw_cfg=None):
-        for key in ('data_module','datamodule','data'):
+        for key in ('data_module','symbolic_state_loader','datamodule','data'):
             for name in _component_names((raw_cfg or {}).get(key)):
                 self._trace_declared_provider('datamodule',name,files_to_pack)
+        for method in ((raw_cfg or {}).get('methods') or {}).values():
+            if isinstance(method, dict):
+                self._trace_data_modules(group, env_name, files_to_pack, raw_cfg=method)
 
     def _trace_workflows(
         self,
@@ -461,8 +468,10 @@ class ExperimentExporter:
                 paradigms_found.add(str(cfg["paradigm"]))
             if "workflow" in cfg and cfg["workflow"]:
                 workflows_found.add(str(cfg["workflow"]))
-            if "data_module" in cfg and cfg["data_module"]:
-                data_modules_found.update(_component_names(cfg["data_module"]))
+            for values in (cfg, *((cfg.get("methods") or {}).values())):
+                if isinstance(values, dict):
+                    for key in ("data_module", "symbolic_state_loader"):
+                        data_modules_found.update(_component_names(values.get(key)))
             if "evaluator" in cfg and cfg["evaluator"]:
                 evaluators_found.update(_component_names(cfg["evaluator"]))
             plotters_found.update(_plot_names(cfg.get("plots")))
