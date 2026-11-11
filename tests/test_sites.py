@@ -307,3 +307,18 @@ def test_hydra_inherits_and_overrides_site_group(tmp_path, monkeypatch):
     composed = compose_experiment('g/test', workspace=WorkspacePaths(tmp_path))
     assert composed.cfg.site.scheduler == 'slurm'
     assert compose_experiment('g/test', ['site=local'], workspace=WorkspacePaths(tmp_path)).cfg.site.scheduler == 'local'
+
+
+def test_repeat_results_sync_discovers_new_post_run_plot(tmp_path, monkeypatch):
+    remote_root, local_root = tmp_path / 'cluster', tmp_path / 'local'
+    value, logs, _ = record(remote_root)
+    local_root.mkdir()
+    write_json(local_root / '.thetaide/workspace.json', {'id': value['project_id']})
+    fake_pull(monkeypatch, remote_root, local_root)
+    transfer.sync(local_root, 'cluster', 'results')
+    plot = remote_root / 'results/plots' / value['group'] / value['result_experiment_id'] / 'late.png'
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b'new plot after completion')
+    result = transfer.sync(local_root, 'cluster', 'results')
+    assert result['transferred'] == 1
+    assert (local_root / plot.relative_to(remote_root)).read_bytes() == plot.read_bytes()

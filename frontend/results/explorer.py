@@ -8,6 +8,7 @@ with a rule under them, and folders for experiments. Runs, agents and versions c
 from __future__ import annotations
 
 import re
+from pathlib import PurePosixPath
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QMenu, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
@@ -43,6 +44,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     delete_selection_requested = pyqtSignal(list)  # (group, run or None)
     archive_group_requested = pyqtSignal(str)
     delete_group_requested = pyqtSignal(str)
+    rename_requested = pyqtSignal(str, str, str)  # kind, group, experiment/run ID (empty for groups)
 
     def __init__(self, parent=None, settings_manager=None):
         super().__init__(parent)
@@ -131,15 +133,20 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             name = _RUN_SUFFIX.sub("", exp)
             key = (group, name)
             if key not in experiments:
-                exp_item = self._item(groups[group], name, "experiment", key,
+                exp_item = self._item(groups[group], PurePosixPath(name).name, "experiment", key,
                                       Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                exp_item.setToolTip(0, f"results/logs/{group}/{name}")
                 exp_item.setIcon(0, folder_icon())
                 experiments[key] = exp_item
-            run_item = self._item(experiments[key], exp, "run", f"{group}/{exp}", _PARENT)
+            run_item = self._item(experiments[key], PurePosixPath(exp).name, "run", f"{group}/{exp}", _PARENT)
             times = [a.get("started") for a in entry.get("agents") or [] if isinstance(a.get("started"), str)]
             suffix = _RUN_SUFFIX.search(exp)
             run_item.setData(0, _TIME, max(times, default=suffix.group()[1:16].replace("-", "T") if suffix else ""))
-            run_item.setToolTip(0, f"results/logs/{group}/{exp}")
+            note = f"results/logs/{group}/{exp}"
+            if entry.get('incomplete_results'):
+                run_item.setText(0, run_item.text(0) + ' · incomplete results')
+                note += '\nJob ended before result publication completed. Showing the downloaded partial results.'
+            run_item.setToolTip(0, note)
             run_item.setIcon(0, folder_icon())
             for agent in agents:
                 self._item(run_item, agent or "Run files", "agent", Source(group, exp, agent), _CHECKABLE)
@@ -339,6 +346,11 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self.tree.setCurrentItem(item)
         menu = QMenu(self.tree)
         if len(self.tree.selectedItems()) == 1:
+            kind, identity = item.data(0, _KIND), item.data(0, _DATA)
+            if kind in ("group", "experiment", "run"):
+                group, experiment = ((identity, "") if kind == "group" else
+                                     identity if kind == "experiment" else identity.split("/", 1))
+                menu.addAction("Rename…", lambda: self.rename_requested.emit(kind, group, experiment))
             if item.data(0, _KIND) == "group":
                 group = item.data(0, _DATA)
                 menu.addAction("Archive group…", lambda: self.archive_group_requested.emit(group))

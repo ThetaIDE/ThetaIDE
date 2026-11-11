@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics
+from ..model import LIVE_STATUSES, METRIC_COLUMNS, available_metrics, remote_run_is_active
 from ..results.metrics_catalog import describe, group_sort_key, metric_group
 from ..queue_panel import QueuePanel
 from ..theme import theme_color
@@ -270,7 +270,7 @@ class MonitorPanel(QWidget):
         self.queue_preview = QueuePanel(self._open_queue_job, split_methods=True,
                                         lives_for_job=self._queue_lives_for_job,
                                         phases_for_job=self._queue_phases_for_job,
-                                        on_cancel=getattr(getattr(host, "jobs", None), "cancel", None))
+                                        on_cancel=self._cancel_queue_job)
         self.queue_preview.structure_changed.connect(self._place_queue_overlay)
         self.queue_layout.addWidget(self.queue_preview)
         self.queue_overlay.hide()
@@ -419,16 +419,32 @@ class MonitorPanel(QWidget):
             if not (job.get("sweep_parent") or job.get("sweep_trial")):
                 job["description"] = run.get("description", "") if run else ""
             jobs.append(job)
-        self.queue_preview.set_data(dict(data, active=jobs))
+        from .remote_queue import queue_jobs
+        remote_jobs = queue_jobs(getattr(self.host, 'runs', []))
+        for job in remote_jobs:
+            run = self._remote_queue_run(job['job_id'])
+            self.host.live_for_run(run, load=True)  # warm the synced telemetry cache
+        self.queue_preview.set_data(dict(data, active=[*jobs, *remote_jobs]))
         self.queue_preview.empty.setText("No running or queued jobs")
         self._place_queue_overlay()
 
+    def _remote_queue_run(self, job_id):
+        from .remote_queue import find_run
+        return find_run(getattr(self.host, 'runs', []), job_id)
+
+    def _cancel_queue_job(self, job_id, target=''):
+        if job_id.startswith('remote:'):
+            return
+        cancel = getattr(self.host.jobs, 'cancel', None)
+        if callable(cancel): cancel(job_id, target)
+
     def _queue_lives_for_job(self, job_id):
-        run = self.host.run_for_job(job_id)
+        run = self._remote_queue_run(job_id) or self.host.run_for_job(job_id)
         return self.host.live_for_run(run, load=False) if run else {}
 
     def _queue_phases_for_job(self, job_id):
-        lives = getattr(self.host, 'live_runs_for_job', lambda _: {})(job_id)
+        lives = (self._queue_lives_for_job(job_id) if self._remote_queue_run(job_id) else
+                 getattr(self.host, 'live_runs_for_job', lambda _: {})(job_id))
         return {name: live.stage for name, live in lives.items() if not live.is_finished()}
 
     def _queue_changed(self, _data):
@@ -436,7 +452,13 @@ class MonitorPanel(QWidget):
             self._refresh_queue_overlay()
 
     def _open_queue_job(self, job_id, method):
-        self.host.open_job(job_id, method)
+        run = self._remote_queue_run(job_id)
+        if run is not None:
+            self.host.select_run(run)
+            self.focus_agent(method or '')
+            self.show_view('Overview')
+        else:
+            self.host.open_job(job_id, method)
         self.queue_button.setChecked(False)
         self.queue_overlay.hide()
 
@@ -472,23 +494,30 @@ class MonitorPanel(QWidget):
         """Refill the runs list (its ticks are kept)."""
         self.sidebar.set_runs(runs)
         self._refresh_run_selectors()
+        if self.queue_overlay.isVisible():
+            self._refresh_queue_overlay()
+
+    @staticmethod
+    def _belongs_in_monitor(run):
+        return remote_run_is_active(run) if run.get('remote') else run.get('status') in (*LIVE_STATUSES, 'queued')
 
     def _monitor_runs(self):
-        runs = [run for run in getattr(self.host, "runs", [])
-                if run.get("status") in (*LIVE_STATUSES, "queued")]
+        runs = [run for run in getattr(self.host, "runs", []) if self._belongs_in_monitor(run)]
         selected = self.host.selected
-        if (selected and selected.get("status") in (*LIVE_STATUSES, "queued")
+        if (selected and self._belongs_in_monitor(selected)
                 and not any(run.get("id") == selected.get("id") for run in runs)):
             runs.append(selected)
         return runs
 
     def _current_run(self):
         selected = self.host.selected
-        if selected and selected.get("status") in (*LIVE_STATUSES, "queued"):
+        if selected and self._belongs_in_monitor(selected):
             return selected
         return next(iter(self._monitor_runs()), None)
 
     def _refresh_run_selectors(self):
+        if hasattr(self, 'site_sync'):
+            self.site_sync.refresh_target()
         selected = self._current_run()
         if not selected:
             self.group_button.hide()
@@ -590,6 +619,8 @@ class MonitorPanel(QWidget):
         if run.get("remote"):
             remote = run["remote"]
             note = f"{remote['site']} · {remote.get('state', 'unknown')} · last synced {remote.get('last_sync') or 'never'}"
+            if remote_run_is_active(run):
+                note += " · results not finalized"
             if remote.get('status_error'):
                 note += " · scheduler status unavailable"
         self.status_note = note

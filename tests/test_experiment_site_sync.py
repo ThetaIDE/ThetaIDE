@@ -12,15 +12,17 @@ def test_selected_site_button_pulls_results_and_hides_for_local():
     control = ExperimentSiteSyncControl()
     control.start = Mock()
     assert control.isHidden()
-    control.set_config({'site': {'name': 'ncshare/common', 'scheduler': 'slurm'}})
+    control.set_config({'site': {'name': 'ncshare/common', 'scheduler': 'slurm'}}, experiment='group/recipe')
     assert not control.isHidden()
     control.button.click()
-    control.start.assert_called_once_with('ncshare/common', 'sync')
+    control.start.assert_called_once_with('ncshare/common', 'experiment', experiment='group/recipe')
     assert control.mode == 'results'
     control.set_config({'site': {'name': 'local', 'scheduler': 'local'}})
     assert control.isHidden()
     control.set_config({'hydra': {'runtime': {'choices': {'site': 'another/site'}}}})
     assert control.site == 'another/site' and not control.isHidden()
+    control.set_config({'site': {'name': 'local/default', 'scheduler': 'local'}}, experiment='group/recipe')
+    assert control.isHidden()
     control.set_config(None)
     assert control.isHidden()
     control.close()
@@ -33,6 +35,7 @@ def test_remote_work_keeps_monitor_visible_without_local_jobs():
     Window._set_monitor_active(host, False)
     host.tabs.set_tab_visible.assert_called_with('monitor', True)
     host.runs[0]['status'] = 'completed'
+    host.runs[0]['remote']['scheduler_state'] = 'completed'
     Window._set_monitor_active(host, False)
     host.tabs.set_tab_visible.assert_called_with('monitor', False)
 

@@ -175,17 +175,17 @@ def main(cfg: DictConfig):
         from stable_baselines3.common.logger import KVWriter
     except ImportError:
         print(
-            "\n[Error] Stable-Baselines3 is not installed in the active environment.\n"
-            "Please run: pip install stable-baselines3 shimmy\n"
-            "or install the SB3 plugin via the Theta Hub.\n"
+            "\n[Error] Stable-Baselines3 could not be imported. "
+            "The traceback below identifies the missing or broken dependency.\n",
+            file=sys.stderr,
         )
-        sys.exit(1)
+        raise
 
     try:
         import gymnasium as gym
     except ImportError:
-        print("\n[Error] Gymnasium is required for SB3. Run: pip install gymnasium\n")
-        sys.exit(1)
+        print("\n[Error] Gymnasium could not be imported; see the dependency traceback below.\n", file=sys.stderr)
+        raise
 
     group = str(cfg.get("group", "default_group"))
     exp_id = str(cfg.get("experiment_id", "default_exp"))

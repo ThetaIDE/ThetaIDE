@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import html
+from pathlib import PurePosixPath
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -165,6 +167,7 @@ class ResultsPanel(QWidget):
         self.explorer.delete_selection_requested.connect(self._delete_selection)
         self.explorer.archive_group_requested.connect(self._archive_group)
         self.explorer.delete_group_requested.connect(self._delete_group)
+        self.explorer.rename_requested.connect(self._rename_results)
         self.tabs = QTabWidget()
         # Hidden pages participate in QTabWidget's minimumSizeHint. In particular,
         # the Curves toolbar can otherwise consume the entire splitter width and
@@ -321,6 +324,26 @@ class ResultsPanel(QWidget):
                 self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
 
+    def _rename_results(self, kind, group, experiment):
+        old_name = group if kind == "group" else PurePosixPath(experiment).name
+        new_name, accepted = QInputDialog.getText(self, f"Rename {kind}", "New name:", text=old_name)
+        if not accepted or new_name == old_name:
+            return
+        selected = self.run_keys()
+
+        def finished(data, error):
+            if error:
+                QMessageBox.warning(self, "Rename failed", str(error))
+                return
+            renamed = data["runs"]
+            target = next((renamed[key] for key in selected if key in renamed), None)
+            if target:
+                self._pending_open_run = tuple(target.split("/", 1))
+            self.sources = []
+            self.refresh()
+
+        self.loader.backend.rename_results(kind, group, experiment, new_name, finished)
+
     def _archive_run(self, group, experiment):
         path, _ = QFileDialog.getSaveFileName(self, "Archive run", f"{group}-{experiment}.zip", "ZIP archives (*.zip)")
         if not path:
@@ -428,7 +451,7 @@ class ResultsPanel(QWidget):
         listing = tuple(
             sorted(
                 (e["group"], e["experiment_id"], tuple(a.get("name") for a in e.get("agents") or []),
-                 bool(e.get("has_run_logs")),
+                 bool(e.get("has_run_logs")), bool(e.get("incomplete_results")),
                  tuple((name, tuple(versions)) for name, versions in sorted(e.get("completed_versions", {}).items())))
                 for e in entries if e.get("finished")
             )
@@ -515,9 +538,20 @@ class ResultsPanel(QWidget):
                 browser.set_manifests(manifests)
                 if name == "Files" and self._pending_log:
                     key, job_id = self._pending_log
-                    candidates = [a for run, a in browser.artifacts() if run == key and job_id and
-                                  a["path"].endswith((f"/{job_id}.stderr.log", f"/{job_id}.stdout.log"))]
-                    candidates.sort(key=lambda a: (not bool(a.get("size")), not a["path"].endswith(".stderr.log")))
+                    def log_priority(artifact):
+                        path = artifact['path']
+                        name = PurePosixPath(path).name
+                        if name == 'pipeline.err': priority = 0
+                        elif job_id and name == f'{job_id}.stderr.log': priority = 1
+                        elif name == 'scheduler.err.preview.log' or path.endswith('.err'): priority = 2
+                        elif name == 'pipeline.log': priority = 3
+                        elif job_id and name == f'{job_id}.stdout.log': priority = 4
+                        elif name == 'scheduler.out.preview.log': priority = 5
+                        else: return None
+                        return (not bool(artifact.get('size')), priority, path)
+                    candidates = [a for run, a in browser.artifacts()
+                                  if run == key and log_priority(a) is not None]
+                    candidates.sort(key=log_priority)
                     if candidates and browser.select(key, candidates[0]["path"]):
                         self._pending_log = None
 

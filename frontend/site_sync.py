@@ -28,6 +28,11 @@ class SiteSyncControl(QWidget):
         self.menu = QMenu(self.button)
         self.button.setMenu(self.menu)
         self.menu.aboutToShow.connect(self.populate)
+        if self.run_provider is not None:
+            self.button.setMenu(None)
+            self.button.setText('Sync')
+            self.button.setToolTip('Download all published results for the displayed experiment run.')
+            self.button.clicked.connect(self.sync_run)
         self.status = label('', 'muted')
         self.transfer_progress.connect(lambda done, total: self.status.setText(f'{done / 1048576:.1f}/{total / 1048576:.1f} MiB'))
         self.cancel_button = QPushButton('Cancel transfer')
@@ -50,20 +55,21 @@ class SiteSyncControl(QWidget):
         if callable(log):
             log(message)
 
+    def refresh_target(self):
+        if self.run_provider is not None:
+            remote = (self.run_provider() or {}).get('remote') or {}
+            self.button.setEnabled(bool(remote.get('site') and remote.get('execution_id'))
+                                   and not getattr(self, '_transferring', False))
+
+    def sync_run(self):
+        remote = (self.run_provider() or {}).get('remote') or {}
+        if remote.get('site') and remote.get('execution_id'):
+            self.start(remote['site'], 'experiment', execution_id=remote['execution_id'])
+
     def populate(self):
         self.menu.clear()
         if self.run_provider is not None:
-            run = self.run_provider() or {}
-            remote = run.get('remote') or {}
-            site, execution_id = remote.get('site'), remote.get('execution_id')
-            action = self.menu.addAction('Sync experiment')
-            action.setEnabled(bool(site and execution_id))
-            action.setToolTip('Download all published outputs for this experiment run, including diagnostics and checkpoints.'
-                              if site and execution_id else 'Select a synced remote experiment run first.')
-            if site and execution_id:
-                action.triggered.connect(lambda checked=False, site=site, execution_id=execution_id:
-                                         self.start(site, 'experiment', execution_id=execution_id))
-            self.menu.addSeparator()
+            return
         for site, config in transfer.connections(self.paths.root).items():
             if not config.get('host') or not config.get('remote_root'): continue
             self.menu.addAction(('Pull metrics from ' if self.mode == 'metrics' else 'Pull results from ') + site, lambda checked=False, site=site: self.start(site, 'sync'))
@@ -73,13 +79,15 @@ class SiteSyncControl(QWidget):
         notice = self.menu.addAction('Edit site profiles in Components')
         notice.setEnabled(False)
 
-    def start(self, site, action, *, execution_id=None):
+    def start(self, site, action, *, execution_id=None, experiment=None):
         if action not in ('sync', 'diagnostics', 'experiment'):
             raise ValueError('Sync controls only download results. Use Run to upload experiment code.')
-        if action == 'experiment' and not execution_id:
+        if action == 'experiment' and not (execution_id or experiment):
             raise ValueError('Select a remote experiment run before syncing the experiment.')
         transfer_mode = 'results' if action == 'experiment' else self.mode
         options = {'execution_id': execution_id} if execution_id else {}
+        if experiment: options['experiment'] = experiment
+        self._transferring = True
         import threading
         self.cancel_event = threading.Event()
         self.cancel_button.show()
@@ -88,7 +96,9 @@ class SiteSyncControl(QWidget):
         if action == 'diagnostics': function = lambda: transfer.sync(self.paths.root, site, transfer_mode, **options, diagnostics=True, cancel_event=self.cancel_event, progress=self.transfer_progress.emit)
         else: function = lambda: transfer.sync(self.paths.root, site, transfer_mode, **options, cancel_event=self.cancel_event, progress=self.transfer_progress.emit)
         def done(result, error):
+            self._transferring = False
             self.button.setEnabled(True)
+            self.refresh_target()
             self.cancel_button.hide()
             if error:
                 self.status.setText(f'{site}: download failed')
@@ -138,24 +148,32 @@ class ExperimentSiteSyncControl(SiteSyncControl):
             self.layout().insertWidget(0, self.button)
         self.button.setToolTip('Pull published results, metrics and monitor data from this experiment’s site.')
         self.button.hide()
-        self.button.clicked.connect(lambda: self.start(self.site, 'sync'))
+        self.button.clicked.connect(self.sync_experiment)
         self.site = None
+        self.experiment = None
         self.status.clear()
         self.hide()
 
-    def set_config(self, config):
+    def set_config(self, config, experiment=None):
         from src.app.sites import site_name
         site = site_name(config or {})
-        site = site if site != 'local' else None
-        if site != self.site:
+        local = site in ('local', 'local/default') or ((config or {}).get('site') or {}).get('scheduler') == 'local'
+        site = None if local else site
+        if site != self.site or experiment != self.experiment:
             self.status.clear()
         self.site = site
-        title = f'Sync monitor & results from {site}' if site else 'Sync monitor & results'
+        self.experiment = experiment
+        title = f'Sync {experiment or "experiment"} from {site}' if site else 'Sync'
         self.button.setAccessibleName(title)
         self.button.setToolTip(title + ': pull published results, metrics and monitor data.')
         self.button.setVisible(site is not None)
-        self.setVisible(site is not None and (not self._toolbar_button or bool(self.status.text())))
+        self.setVisible(site is not None and not self._toolbar_button)
 
-    def start(self, site, action):
-        self.show()
-        super().start(site, action)
+    def sync_experiment(self):
+        if self.site and self.experiment:
+            self.start(self.site, 'experiment', experiment=self.experiment)
+
+    def start(self, site, action, **options):
+        if not self._toolbar_button:
+            self.show()
+        super().start(site, action, **options)

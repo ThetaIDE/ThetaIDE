@@ -400,7 +400,7 @@ class QueuePanel(QWidget):
             if card is None:
                 card = ProcessCard(job, method, self.content,
                                    show_progress=self.lives_for_job is not None,
-                                   can_cancel=self.on_cancel is not None)
+                                   can_cancel=self.on_cancel is not None and not job.get('remote'))
                 card.activated.connect(self.on_open)
                 card.expand_button.toggled.connect(lambda checked, k=key: self._toggle_node(k, checked))
                 if self.on_cancel is not None:

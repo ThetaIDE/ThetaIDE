@@ -180,7 +180,8 @@ def _submit(root, experiment, overrides, cfg):
             if str(key).startswith('THETA_') or key == 'PYTHONPATH': raise ValueError(f'{key} is managed by Theta')
             script += 'export ' + str(key) + '=' + shlex.quote(str(value)) + '\n'
         script += 'set -u\n'
-        script += shlex.join([python, '-m', 'src.app.sites', '_run', '--root', str(root), execution_id]) + '\n'
+        # Slurm signals the batch PID; the supervisor must own that PID to finalize.
+        script += 'exec ' + shlex.join([python, '-m', 'src.app.sites', '_run', '--root', str(root), execution_id]) + '\n'
         (directory / 'job.sbatch').write_text(script)
         record['state'] = 'submitting'
         write_json(path, record)
@@ -377,32 +378,52 @@ def run(root, execution_id):
     def stop(signum, _frame):
         interrupted.append(signum)
         if not stop_started: stop_started.append(time.monotonic())
-        if process and process.poll() is None: os.killpg(process.pid, signum)
+        if process and process.poll() is None:
+            try: os.killpg(process.pid, signum)
+            except ProcessLookupError: pass
     previous = {number: signal.signal(number, stop) for number in (signal.SIGTERM, signal.SIGINT)}
     code = 1
     try:
-        with runtime_log.open('w') as output:
-            process = subprocess.Popen([sys.executable, str(snapshot / 'run_pipeline.py'), record['experiment'],
+        from src.app.services.process_output import ProcessOutput
+        import traceback
+        error_log = runtime_log.with_suffix('.err')
+        with runtime_log.open('w', encoding='utf-8', errors='replace') as output, error_log.open('w', encoding='utf-8', errors='replace') as errors:
+            process = subprocess.Popen([sys.executable, '-u', str(snapshot / 'run_pipeline.py'), record['experiment'],
                                         *overrides], cwd=runtime, env=environment,
-                                       stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
-            while process.poll() is None:
-                if interrupted: break
-                if publisher:
-                    try:
-                        publisher.tick()
-                    except Exception as exc:
-                        record['publication_error'] = str(exc)
-                        (runtime / '.thetaide/publication-stop').touch()
-                        os.killpg(process.pid, signal.SIGTERM)
-                        interrupted.append(signal.SIGTERM)
-                        break
-                try: process.wait(timeout=1)
-                except subprocess.TimeoutExpired: pass
-            if interrupted and process.poll() is None:
-                try: process.wait(timeout=int(policy['stage_out_seconds']) // 2 if policy else 30)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-            code = process.wait()
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                       encoding='utf-8', errors='replace', bufsize=1, start_new_session=True)
+            capture = ProcessOutput(process, output, errors, stderr=sys.stderr)
+            try:
+                while process.poll() is None:
+                    if interrupted: break
+                    if publisher:
+                        try:
+                            publisher.tick()
+                        except Exception as exc:
+                            record['publication_error'] = str(exc)
+                            capture.write_error('[Theta] Result publication failed:\n' + traceback.format_exc())
+                            (runtime / '.thetaide/publication-stop').touch()
+                            stop(signal.SIGTERM, None)
+                            break
+                    try: process.wait(timeout=1)
+                    except subprocess.TimeoutExpired: pass
+                if interrupted:
+                    capture.write_error(f'[Theta] Received {signal.Signals(interrupted[-1]).name}; stopping training and finalizing saved results.\n')
+                if interrupted and process.poll() is None:
+                    try: process.wait(timeout=int(policy['stage_out_seconds']) // 2 if policy else 30)
+                    except subprocess.TimeoutExpired:
+                        capture.write_error('[Theta] Training did not stop in time; sending SIGKILL before final stage-out.\n')
+                        os.killpg(process.pid, signal.SIGKILL)
+                code = process.wait()
+            except BaseException:
+                capture.write_error('[Theta] Execution supervisor failed:\n' + traceback.format_exc())
+                if process.poll() is None:
+                    try: os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                    process.wait()
+                raise
+            finally:
+                capture.finish()
     finally:
         if publisher:
             try:
@@ -412,6 +433,15 @@ def run(root, execution_id):
                 record['publication_state'] = 'sealed'
             except Exception as exc:
                 record.update(publication_state='incomplete', publication_error=str(exc))
+                import traceback
+                diagnostic = '[Theta] Final result publication failed:\n' + traceback.format_exc()
+                print(diagnostic, file=sys.stderr, flush=True)
+                for diagnostic_log in (runtime_log, runtime_log.with_suffix('.err')):
+                    try:
+                        with diagnostic_log.open('a', encoding='utf-8', errors='replace') as stream:
+                            stream.write(diagnostic)
+                    except OSError as log_error:
+                        print(f'[Theta] Could not save {diagnostic_log.name}: {log_error}', file=sys.stderr, flush=True)
             finally:
                 record['last_durable'] = publisher.manifest['durable']
                 publisher.close()

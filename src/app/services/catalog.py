@@ -314,10 +314,25 @@ def _result_replicates(run_dir: Path):
     return found
 
 
+def _remote_result_record(run_dir: Path):
+    """Find the exact remote execution owning this downloaded result directory."""
+    relative = run_dir.relative_to(LOGS_DIR)
+    group, experiment = relative.parts[0], Path(*relative.parts[1:]).as_posix()
+    state = _read_json(LOGS_DIR.parent.parent / '.thetaide/site_sync.json')
+    return next(({**record, 'site': site, 'last_sync': sync.get('last_sync')}
+                 for site, sync in state.items() for record in sync.get('executions', [])
+                 if record.get('group') == group and record.get('result_experiment_id') == experiment), None)
+
+
 def _result_snapshot(run_dir: Path, replicates=None):
     """Published versions and checkpoint folders; active trials never enter Results."""
     from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
 
+    from src.app.sites.result_state import results_available
+    remote = _remote_result_record(run_dir)
+    remote_available = remote is not None and results_available(remote)
+    if remote is not None and not remote_available:
+        return {}, set(), set(), True
     versions, terminal_trials, trial_states = {}, set(), {}
     if replicates is None:
         replicates = _result_replicates(run_dir)
@@ -351,7 +366,7 @@ def _result_snapshot(run_dir: Path, replicates=None):
                 terminal = trial_states.get(key)
                 if key in replicates:
                     terminal = replicates[key]["status"] in ("completed", "failed", "cancelled")
-                if terminal is True or (terminal is None and not version.name.startswith("version_sweep_") and
+                if remote_available or terminal is True or (terminal is None and not version.name.startswith("version_sweep_") and
                                         (runtime.get("end_time_iso") or runtime.get("completed_at"))):
                     completed.append(version.name)
             if completed:
@@ -360,6 +375,9 @@ def _result_snapshot(run_dir: Path, replicates=None):
                 complete_methods.add(agent_dir.name)
             elif all_versions:
                 in_progress = True
+    if remote_available:
+        complete_methods.update(versions)
+        in_progress = False
     return versions, complete_methods, terminal_trials, in_progress
 
 
@@ -367,10 +385,13 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
     """Every experiment folder under results/logs, however it was launched (GUI, CLI or SLURM).
 
     `agents` lists each agent that logged something, with its timing and reward summary;
-    `finished` is true once every agent has recorded an end time.
-    With `completed_only`, summarize only finalized versions; an ongoing experiment
-    can expose its finished trials while withholding its active ones.
+    `finished` is true once every agent has recorded an end time, or the remote
+    allocation has terminated. With `completed_only`, ongoing local experiments
+    expose only finalized versions; terminated remote runs expose the downloaded
+    snapshot, with `incomplete_results` distinguishing failed publication.
     """
+    from src.app.sites.result_state import results_available, results_complete
+
     runs = []
     # Older repeated executions gave every replicate its own experiment ID.
     # They remain available in the Executions browser, but should not flood the
@@ -401,6 +422,8 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
         seen["metadata"].add(run_dir / "runtime.json")
         seen["configs"].add(run_dir / "config.yaml")
         seen["agents"].update(agent_dirs)
+        remote = _remote_result_record(run_dir)
+        remote_available = remote is not None and results_available(remote)
         if completed_only:
             versions, _, _, in_progress = _result_snapshot(run_dir)
             agents = []
@@ -411,7 +434,7 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
                 summary = _read_agent_summary(run_dir / name, version / "runtime.json", version / "metrics.csv")
                 summary["finished"] = summary["finished"] or _read_json(version / "runtime.json").get("completed_at") or True
                 agents.append(summary)
-            if not agents:
+            if not agents and not remote_available:
                 continue
         else:
             agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
@@ -424,8 +447,8 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
                 "agents": agents,
                 **({"completed_versions": versions, "in_progress": in_progress} if completed_only else {}),
                 **({"has_run_logs": True} if any(run_dir.glob("*.stderr.log")) or
-                   any(run_dir.glob("*.combined.log")) else {}),
-                "finished": bool(agents) and all(agent["finished"] for agent in agents),
+                   any(run_dir.glob("*.combined.log")) or remote_available else {}),
+                "finished": remote_available or (bool(agents) and all(agent["finished"] for agent in agents)),
             }
         )
     _save_persisted_summaries(seen)
@@ -436,12 +459,16 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
         for remote in sync.get('executions', []):
             identity = remote.get('result_experiment_id', '')
             for entry in runs:
-                if entry['group'] == remote.get('group') and (entry['experiment_id'] == identity or entry['experiment_id'].startswith(identity + '_')):
+                if entry['group'] == remote.get('group') and entry['experiment_id'] == identity:
                     entry['remote'] = {**remote, 'site': site, 'last_sync': sync.get('last_sync')}
+                    entry['incomplete_results'] = results_available(remote) and not results_complete(remote)
                     matched.add(remote['execution_id'])
-            if not completed_only and remote['execution_id'] not in matched:
+            if remote['execution_id'] not in matched and (not completed_only or results_available(remote)):
                 runs.append({'group': remote['group'], 'experiment_id': identity, 'config': {}, 'metadata': {},
-                             'agents': [], 'finished': False,
+                             'agents': [], 'finished': results_available(remote),
+                             'incomplete_results': results_available(remote) and not results_complete(remote),
+                             **({'has_run_logs': True, 'completed_versions': {}, 'in_progress': False}
+                                if results_available(remote) else {}),
                              'remote': {**remote, 'site': site, 'last_sync': sync.get('last_sync')}})
     return runs
 
@@ -607,6 +634,8 @@ _KIND_BY_SUFFIX = {
     ".pkl": "cache",
     ".parquet": "cache",
     ".log": "log",
+    ".err": "log",
+    ".out": "log",
 }
 
 
@@ -703,6 +732,18 @@ def delete_run(group: str, experiment_id: str) -> None:
     for path in _mutable_run_dirs(group, experiment_id).values():
         shutil.rmtree(path)
 
+def _readable_run_dirs(group: str, experiment_id: str):
+    dirs = _run_dirs(group, experiment_id)
+    remote = _remote_result_record(LOGS_DIR / group / experiment_id)
+    if remote:
+        execution = remote.get('execution_id', '')
+        check_path_segment(execution)
+        directory = results_dir() / 'slurm' / execution
+        if directory.is_dir():
+            dirs['slurm'] = directory
+    return dirs
+
+
 def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -> dict[str, Any]:
     """Every file a run produced across results/{logs,plots,checkpoints,tensorboard,datasets}.
 
@@ -711,7 +752,7 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
     `version` folders it sits under, when it has them. `agents` maps each agent with logged metrics to its
     version folders, oldest first. Raises FileNotFoundError if the run has no folders.
     """
-    dirs = _run_dirs(group, experiment_id)
+    dirs = _readable_run_dirs(group, experiment_id)
     if not dirs:
         raise FileNotFoundError(f"Run not found: {group}/{experiment_id}")
     base = results_dir()
@@ -720,12 +761,15 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
     published, complete_methods, terminal_trials, in_progress = (
         _result_snapshot(run_logs, replicates) if completed_only else ({}, set(), set(), False)
     )
-    if completed_only and not published:
+    from src.app.sites.result_state import results_available, results_complete
+    remote = _remote_result_record(run_logs)
+    remote_available = remote is not None and results_available(remote)
+    if completed_only and not published and not remote_available:
         raise FileNotFoundError(f"No completed results for {group}/{experiment_id}")
     whole_run_finished = completed_only and not in_progress
 
     def visible(root, parts):
-        if not completed_only:
+        if not completed_only or remote_available:
             return True
         version = next((p for p in parts if p.startswith("version_")), None)
         if version:
@@ -789,6 +833,7 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
                             for agent, versions in agents.items()},
         "artifacts": artifacts,
         "truncated": truncated,
+        "incomplete_results": remote_available and not results_complete(remote),
     }
 
 
@@ -820,7 +865,7 @@ def read_run_file(group: str, experiment_id: str, path: str) -> bytes:
     Only files inside this run's own results/<root>/<group>/<experiment_id> folders are read: anything
     else raises PermissionError. A missing file raises FileNotFoundError.
     """
-    dirs = _run_dirs(group, experiment_id)
+    dirs = _readable_run_dirs(group, experiment_id)
     target = (results_dir().resolve() / path).resolve()
     if not any(target.is_relative_to(d.resolve()) for d in dirs.values()):
         raise PermissionError("Path is outside this run's results")

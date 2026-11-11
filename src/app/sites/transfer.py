@@ -227,6 +227,8 @@ def _index(root, mode, execution_id=None, diagnostics=False):
             finalized = record.get('artifacts_finalized')
             artifacts = read_json(receipt.parent / 'artifacts.json').get('files', []) if finalized else None
             paths = [safe_path(root, item['path']) for item in artifacts] if artifacts is not None else list(set(owned_files(root, record)))
+            if mode == 'results' and finalized and not record.get('remote_cleaned_at'):
+                paths += list(owned_files(root, record))  # include newly generated post-run outputs
             # The receipt is transferred too, so manually submitted runs are discovered.
             paths += [receipt]
             if record.get('remote_cleaned_at'): paths = [receipt]
@@ -274,7 +276,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
         raise
 
 
-def sync(root, site, mode='metrics', *, execution_id=None, diagnostics=False, cancel_event=None, progress=None):
+def sync(root, site, mode='metrics', *, execution_id=None, experiment=None, diagnostics=False, cancel_event=None, progress=None):
     if mode not in ('metrics', 'results'): raise ValueError('Unknown sync mode')
     root = Path(root).resolve()
     config = connection(root, site)
@@ -289,11 +291,17 @@ def sync(root, site, mode='metrics', *, execution_id=None, diagnostics=False, ca
             if diagnostics: options += ['--diagnostics']
             listing = remote(root, site, '_index', *options)
             if listing['project_id'] != workspace_id(root): raise ValueError('Remote project identity does not match')
+            if experiment:
+                # Filter the returned manifest without requiring new cluster CLI flags.
+                records = [record for record in listing['executions'] if record.get('experiment') == experiment]
+                selected_ids = {record['execution_id'] for record in records}
+                listing = {**listing, 'executions': records,
+                           'files': [item for item in listing['files'] if item.get('execution_id') in selected_ids]}
             synced_executions = listing['executions']
-            if execution_id:
+            if execution_id or experiment:
                 # A scoped pull must retain discovery/status for other experiments.
                 synced_executions = [record for record in status.get('executions', [])
-                                     if record['execution_id'] != execution_id] + listing['executions']
+                                     if record['execution_id'] != execution_id and (not experiment or record.get('experiment') != experiment)] + listing['executions']
             transfer_output.emit(f'Found {len(listing["executions"])} executions and {len(listing["files"])} published files.')
             for record in listing['executions']:
                 job_state = record.get('scheduler_state') or record.get('state', 'unknown')

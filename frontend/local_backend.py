@@ -90,6 +90,10 @@ class LocalBackend(QObject):
     def delete_run(self, group: str, experiment_id: str, callback: Callback):
         self._submit(catalog.delete_run, group, experiment_id, callback=callback)
 
+    def rename_results(self, kind: str, group: str, experiment_id: str, new_name: str, callback: Callback):
+        from src.app.services.result_rename import rename_results
+        self._submit(rename_results, kind, group, experiment_id, new_name, callback=callback)
+
     def archive_group(self, group: str, destination: str, callback: Callback):
         self._submit(catalog.archive_group, group, destination, callback=callback)
 

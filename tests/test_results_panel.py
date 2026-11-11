@@ -248,6 +248,80 @@ def test_artifact_rename_cancel_and_failure_preserve_current_file(monkeypatch):
     panel.close()
 
 
+@pytest.mark.parametrize("kind", ["group", "experiment", "run"])
+def test_main_results_context_menu_renames_on_disk(tmp_path, monkeypatch, kind):
+    import json
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtWidgets import QInputDialog, QMenu
+    from src.app.services import catalog
+    from src.app.services.result_rename import rename_results
+    from frontend.results.explorer import _DATA, _KIND
+
+    monkeypatch.setattr(catalog, "LOGS_DIR", tmp_path / "logs")
+    for run in ("run", "run_20261110-120000"):
+        logs = tmp_path / "logs/group" / run
+        version = logs / "agent/version_0"
+        version.mkdir(parents=True)
+        (logs / "config.yaml").write_text("seed: 1")
+        (version / "metrics.csv").write_text("transitions,eval/reward\n1,10\n")
+        (version / "runtime.json").write_text(json.dumps({"completed_at": "2026-11-10"}))
+
+    def answer(fn, callback, *args, **kwargs):
+        try:
+            data = fn(*args, **kwargs)
+        except Exception as exc:
+            callback(None, str(exc))
+        else:
+            callback(data, None)
+
+    class Backend:
+        def list_runs(self, callback, **kwargs):
+            callback({"runs": catalog.list_runs(**kwargs)}, None)
+
+        def run_manifest(self, group, run, callback, **kwargs):
+            answer(catalog.run_manifest, callback, group, run, **kwargs)
+
+        def run_metrics(self, group, run, agent, callback, **kwargs):
+            answer(catalog.run_metrics, callback, group, run, agent, **kwargs)
+
+        def run_file(self, group, run, path, callback):
+            answer(catalog.read_run_file, callback, group, run, path)
+
+        def rename_results(self, kind, group, run, name, callback):
+            answer(rename_results, callback, kind, group, run, name)
+
+    panel = ResultsPanel(Backend())
+    panel.refresh()
+    target = next(item for item in panel.explorer._items() if item.data(0, _KIND) == kind
+                  and (kind != "run" or item.data(0, _DATA) == "group/run"))
+    monkeypatch.setattr(panel.explorer.tree, "itemAt", lambda position: target)
+    prompts = []
+
+    def name(*args, **kwargs):
+        prompts.append(args[1])
+        return "renamed", True
+
+    monkeypatch.setattr(QInputDialog, "getText", name)
+
+    def choose_rename(menu, position):
+        action = next(action for action in menu.actions() if action.text() == "Rename…")
+        action.trigger()
+
+    monkeypatch.setattr(QMenu, "exec", choose_rename)
+    panel.explorer._context_menu(QPoint())
+    assert prompts == [f"Rename {kind}"]
+    renamed_key = "renamed/run" if kind == "group" else "group/renamed"
+    assert renamed_key in {f"{entry['group']}/{entry['experiment_id']}" for entry in catalog.list_runs()}
+    assert panel.explorer.tree.currentItem() is not None
+    assert panel.run_keys()[0].startswith("renamed/" if kind == "group" else "group/renamed")
+    browser = panel.browser("Files")
+    panel.update_artifacts()
+    assert browser.artifacts()
+    assert all((tmp_path / artifact["path"]).is_file() for _, artifact in browser.artifacts())
+    assert "eval/reward" in panel.grid.cards
+    panel.close()
+
+
 @pytest.mark.parametrize("tree_name", ["runs", "files"])
 def test_results_tree_splitters_resize_without_snapping_closed(tree_name):
     panel, _ = make_panel()

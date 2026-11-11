@@ -63,6 +63,7 @@ from .model import (
     Config,
     Store,
     disk_run,
+    remote_run_is_active,
     metric_points,
     metric_points_from_api,
     new_run,
@@ -399,7 +400,6 @@ class Window(QMainWindow):
         splitter.addWidget(self.config_tree)
         from .site_sync import ExperimentSiteSyncControl
         self.experiment_site_sync = ExperimentSiteSyncControl(self.config_tree, button=self.config_tree.btn_sync)
-        self.config_tree.layout().insertWidget(1, self.experiment_site_sync)
         self.experiment_site_sync.synced.connect(lambda _: self.request_disk_runs())
 
         # Square buttons located at the top of the filetree next to 'New' and 'Copy'
@@ -2047,7 +2047,8 @@ class Window(QMainWindow):
         remote_site = ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm"
         if hasattr(self, "experiment_site_sync"):
             self.experiment_site_sync.set_config(
-                getattr(self, "composed_config", None) if has_experiment else None)
+                getattr(self, "composed_config", None) if has_experiment else None,
+                experiment=getattr(self, "current_experiment", None))
         terminal_loading = bool(getattr(self, "_site_terminal_loading", False))
         ready = self.compose_valid and has_experiment and not missing_components and not terminal_loading
         for button in launch_buttons(self):
@@ -2459,12 +2460,7 @@ class Window(QMainWindow):
             self.render_run()
 
     def _set_monitor_active(self, active):
-        active = active or any(
-            run.get("remote") and run.get("status") in ("running", "queued")
-            and not run["remote"].get("status_error")
-            and run["remote"].get("scheduler_state") in
-                ("running", "pending", "configuring", "completing", "suspended", "requeued", "requeue_hold")
-            for run in getattr(self, "runs", []))
+        active = active or any(remote_run_is_active(run) for run in getattr(self, "runs", []))
         # Reconcile visibility even when the queue was already idle: layout
         # restoration and manually opened views can have made the tab visible.
         self._queue_has_active_jobs = active
@@ -2478,7 +2474,8 @@ class Window(QMainWindow):
 
     def _open_last_run_results(self, run):
         # JobManager starts the next queued job after emitting job_changed.
-        if self.active_runs or self.jobs.is_busy() or self._quitting:
+        if (self.active_runs or self.jobs.is_busy() or self._quitting
+                or any(remote_run_is_active(item) for item in self.runs)):
             return
         self._set_monitor_active(False)
         backend = run.get("backend") or {}
@@ -2683,6 +2680,7 @@ class Window(QMainWindow):
         if error:
             self.log(f"Could not list runs in results/logs: {error}")
             return
+        remote_active = {run["id"] for run in self.runs if remote_run_is_active(run)}
         self.disk_entries = {(entry["group"], entry["experiment_id"]): entry for entry in data.get("runs", [])}
         linked = {(run["backend"]["group"], run["backend"]["experiment_id"])
                   for run in self.runs if not run["simulated"] and not run.get("transient")}
@@ -2690,6 +2688,11 @@ class Window(QMainWindow):
         self.runs = [run for run in self.runs if not run.get("transient")]
         for key, entry in self.disk_entries.items():
             if key in linked:
+                for run in self.runs:
+                    if (run.get('remote') and run['backend']['group'] == key[0]
+                            and run['backend']['experiment_id'] == key[1]):
+                        run['remote'] = entry.get('remote') or run['remote']
+                        run['status'] = disk_run(entry)['status']
                 continue  # the app already has a record for this run
             fresh = disk_run(entry)
             run = previous.get(fresh["id"])
@@ -2710,6 +2713,11 @@ class Window(QMainWindow):
             self.select_run(self.latest_run())
         elif self.selected is not None and self.selected.get("remote"):
             self.select_run(self.selected)
+        ended = [run for run in self.runs if run['id'] in remote_active
+                 and not remote_run_is_active(run)]
+        if ended:
+            last = self.selected if any(run is self.selected for run in ended) else ended[0]
+            QTimer.singleShot(0, lambda: self._open_last_run_results(last))
 
     def load_disk_metrics(self, run):
         """Fetch the metrics of a run found in results/logs (the app has none recorded for it)."""

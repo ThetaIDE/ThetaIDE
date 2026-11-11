@@ -59,7 +59,11 @@ def main(argv=None):
         print(json.dumps(result, indent=2, default=str))
         return 0
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        if args.command == '_run':
+            import traceback
+            traceback.print_exc()
+        else:
+            print(str(exc), file=sys.stderr)
         return 2
 
 

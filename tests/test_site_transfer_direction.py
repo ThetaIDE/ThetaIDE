@@ -25,7 +25,7 @@ def test_every_sync_control_downloads_without_uploading_or_launching(mode, monke
     # Run the transfer deterministically while still exercising the UI action wiring.
     control.backend._submit = lambda fn, *, callback: callback(fn(), None)
     if mode == 'experiment':
-        control.set_config({'site': {'name': 'cluster'}})
+        control.set_config({'site': {'name': 'cluster'}}, experiment='group/recipe')
         control.button.click()
         assert calls == [('cluster', 'results', False)]
     else:

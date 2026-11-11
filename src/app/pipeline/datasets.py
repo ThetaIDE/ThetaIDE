@@ -243,26 +243,27 @@ def _execute_training(cmd, env, output_log, on_start=None):
     # execution manifest and later debugging.
     output_path = Path(output_log)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", errors="replace") as log_file:
+    from src.app.services.process_output import ProcessOutput
+    with output_path.open("w", encoding="utf-8", errors="replace") as log_file, output_path.with_suffix('.err').open('w', encoding='utf-8', errors='replace') as errors:
         process = subprocess.Popen(
-            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
         )
+        capture = ProcessOutput(process, log_file, errors, stdout=sys.stdout, stderr=sys.stderr)
         if on_start:
             on_start(process.pid)
         watcher = threading.Thread(target=watch, daemon=True)
         watcher.start()
-        assert process.stdout is not None
         try:
-            for line in process.stdout:
-                log_file.write(line)
-                log_file.flush()
-                sys.stdout.write(line)
-                sys.stdout.flush()
             return_code = process.wait()
+        except BaseException:
+            kill_process_tree(process.pid)
+            process.wait()
+            raise
         finally:
             stopped.set()
             watcher.join()
+            capture.finish()
     if cancelled.is_set():
         raise TrainingCancelled()
     if return_code:

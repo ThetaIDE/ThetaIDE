@@ -217,12 +217,30 @@ def _value(value, kind, fallback):
         return fallback  # e.g. an unresolved ${...} interpolation in a saved config
 
 
+def remote_run_is_active(run):
+    remote = run.get('remote') or {}
+    from src.app.sites.result_state import results_available
+    if not remote or results_available(remote):
+        return False
+    if remote.get('status_error'):
+        return False
+    state = remote.get('scheduler_state', remote.get('state', run.get('status')))
+    return state in ('prepared', 'submitting', 'queued', 'pending', 'configuring',
+                     'running', 'completing', 'suspended', 'requeued', 'requeue_hold')
+
+
 def _remote_status(entry):
+    from src.app.sites.execution import TERMINAL
+    from src.app.sites.result_state import results_complete
+
     remote = entry['remote']
     value = remote.get('state', 'unknown')
-    # A captured worker state can outlive its allocation. Prefer scheduler evidence
-    # for unfinished work, and keep an unavailable status distinct from running.
-    if value not in ('completed', 'failed', 'cancelled', 'submission_failed'):
+    if results_complete(remote):
+        if value not in TERMINAL:
+            value = remote.get('scheduler_state')
+        if value not in TERMINAL:
+            return 'completed'
+    elif value not in ('completed', 'failed', 'cancelled', 'submission_failed'):
         if remote.get('status_error'):
             value = 'unknown'
         elif 'scheduler_state' in remote:
@@ -230,7 +248,8 @@ def _remote_status(entry):
     if value in ('configuring', 'requeued', 'requeue_hold'): value = 'pending'
     if value in ('completing', 'suspended'): value = 'running'
     if value in ('pending', 'prepared', 'submitting'): return 'queued'
-    if value in ('timeout', 'out_of_memory', 'node_fail', 'preempted', 'boot_fail', 'submission_failed'): return 'failed'
+    if value in ('timeout', 'out_of_memory', 'node_fail', 'preempted', 'boot_fail',
+                 'submission_failed', 'deadline', 'revoked'): return 'failed'
     if value in ('completed', 'failed', 'cancelled', 'running'): return value
     return 'incomplete'
 
