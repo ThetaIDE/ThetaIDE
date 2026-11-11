@@ -171,12 +171,11 @@ class MonitorPanel(QWidget):
         layout.setSpacing(12)
 
         self.content = content
-        # One status row: badge, the run's name and description, its numbers, and the other views.
+        # Run title above a separate row for status information and view controls.
         self.status_strip = StatusStrip()
         from ..site_sync import SiteSyncControl
         self.site_sync = SiteSyncControl('metrics', self, run_provider=self._current_run)
         self.site_sync.synced.connect(lambda _: host.request_disk_runs())
-        self.status_strip.add_trailing(self.site_sync)
         # Long names give way first, ending in … (the full text is on the tooltip), so the row fits.
         self.run_title = ElidedLabel("Your next experiment")
         self.run_title.setObjectName("heading")
@@ -228,13 +227,16 @@ class MonitorPanel(QWidget):
         self.method_legend.setWordWrap(True)
         title_layout.addWidget(self.method_legend)
         title_layout.addWidget(self.run_caption)
-        self.status_strip.add_title(title_block)
+        layout.addWidget(title_block)
         self.status_strip.badge.hide()
         self.run_caption.hide()
         view_buttons = QWidget()
         view_row = QHBoxLayout(view_buttons)
         view_row.setContentsMargins(8, 0, 0, 0)
         view_row.setSpacing(4)
+        self.site_sync.button.setObjectName("monitorViewButton")
+        self.site_sync.layout().setSpacing(4)
+        view_row.addWidget(self.site_sync)
         self.view_buttons: dict[str, QPushButton] = {}
         for name in self.VIEW_NAMES:
             button = QPushButton(name)
@@ -619,6 +621,9 @@ class MonitorPanel(QWidget):
         if run.get("remote"):
             remote = run["remote"]
             note = f"{remote['site']} · {remote.get('state', 'unknown')} · last synced {remote.get('last_sync') or 'never'}"
+            details = [remote.get(key) for key in ('termination_reason', 'scheduler_state_raw', 'scheduler_time_limit') if remote.get(key)]
+            if details:
+                note += " · " + " · ".join(details)
             if remote_run_is_active(run):
                 note += " · results not finalized"
             if remote.get('status_error'):

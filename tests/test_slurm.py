@@ -73,6 +73,7 @@ def test_slurm_ncshare_split_sites():
     assert "#SBATCH --mem=8G" in header_common
     assert "--gres" not in header_common
     assert cfg_common.site.consolidate is False
+    assert "#SBATCH --time=" not in header_common
 
     GlobalHydra.instance().clear()
     initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
@@ -85,6 +86,7 @@ def test_slurm_ncshare_split_sites():
     assert "#SBATCH --mem=32G" in header_gpu
     assert "#SBATCH --gres=gpu:1" in header_gpu
     assert cfg_gpu.site.consolidate is True
+    assert "#SBATCH --time=" not in header_gpu
 
     GlobalHydra.instance().clear()
 

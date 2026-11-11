@@ -16,6 +16,28 @@ def replicate_label(manifest, run):
     return f"{method} · seed {run.get('training_seed')}"
 
 
+
+def synced_execution_sources(project_root, group, experiment):
+    """Rebase cluster seed feeds onto the exact downloaded execution directory."""
+    from src.app.sites.storage import safe_path
+    relative = str(group) + '/' + str(experiment)
+    manifests = safe_path(project_root, 'results/executions/' + relative)
+    logs = safe_path(project_root, 'results/logs/' + relative)
+    found, sources = False, []
+    for path in sorted(manifests.glob('*/manifest.json')):
+        try:
+            manifest = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        found = True
+        for run in manifest.get('runs', []):
+            if run.get('status') != 'running' or not run.get('version'):
+                continue
+            agent = str(run.get('agent') or run.get('method', 'run'))
+            directory = safe_path(logs, agent)
+            sources.append((replicate_label(manifest, run), directory, run['version']))
+    return found, sources
+
 def trial_execution(logs_root, method, trial):
     """Read a shared execution, adapting the earlier objective-runner artifacts read-only.
 

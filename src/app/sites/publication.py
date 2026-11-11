@@ -178,7 +178,9 @@ class Publisher:
             relative = path.relative_to(self.runtime).as_posix()
             if path.name.startswith('.') or path.name.endswith(('-wal', '-shm', '-journal')): continue
             if path.suffix in ('.sqlite', '.db', '.sqlite3'): continue
-            category = 'checkpoints' if relative.startswith('results/checkpoints/') else ('diagnostics' if '/monitors/' in relative else 'metrics')
+            category = ('metrics' if path.name == 'tuning_summary.json' else
+                        'checkpoints' if relative.startswith('results/checkpoints/') else
+                        'diagnostics' if '/monitors/' in relative else 'metrics')
             small = path.suffix in SMALL and category != 'checkpoints'
             try: info = path.stat()
             except FileNotFoundError: continue

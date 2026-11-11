@@ -6,7 +6,8 @@ mail_user: null
 mail_type: END,FAIL
 consolidate: false
 resources:
-  time: 01:00:00
+  # Omit --time so NCShare uses its partition default.
+  time: null
   nodes: 1
   gpu_type: null
   gres: null

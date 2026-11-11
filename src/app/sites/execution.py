@@ -22,6 +22,39 @@ from .storage import digest, read_json, record_lock, safe_path, transfer_lock, w
 TERMINAL = {'completed', 'failed', 'cancelled', 'timeout', 'out_of_memory', 'node_fail', 'preempted', 'boot_fail', 'deadline', 'revoked'}
 
 
+def worker_threads(config, environment):
+    """Allocation size is a ceiling, not the thread count of each serial worker."""
+    site = config.get('site') or {}
+    extra = site.get('extra_env_vars') or {}
+    requested = int(site.get('threads_per_worker') or extra.get('THETA_MANAGED_THREADS')
+                    or extra.get('OMP_NUM_THREADS') or 1)
+    allocated = int(environment.get('SLURM_CPUS_PER_TASK') or
+                    (config.get('resources') or {}).get('cores') or 1)
+    return max(1, min(requested, allocated))
+
+
+def accounting_details(fields):
+    names = ('scheduler_state_raw', 'scheduler_exit_code', 'scheduler_reason',
+             'scheduler_elapsed', 'scheduler_time_limit', 'scheduler_start', 'scheduler_end')
+    return {key: value.strip() for key, value in zip(names, fields[1:])}
+
+
+def close_unfinished_runs(runtime, record, status):
+    """Called only after allocation-owned producers have stopped, before publication."""
+    directory = safe_path(runtime, 'results/executions/' + record['group'] + '/' + record['result_experiment_id'])
+    for path in directory.glob('*/manifest.json'):
+        manifest = read_json(path)
+        for run in manifest.get('runs', []):
+            if run.get('status') in ('queued', 'pending', 'running'):
+                run.update(status=status, error='Allocation ended before this seed completed')
+        write_json(path, manifest)
+    if record['config'].get('tuning') is not None:
+        from src.app.pipeline.tuners import get_tuner
+        hook = getattr(get_tuner(record['config']), 'finalize_interrupted', None)
+        if callable(hook):
+            hook(Path(runtime), record)
+
+
 def receipt_path(root, execution_id):
     if not re.fullmatch(r'[a-f0-9]{32}', execution_id): raise ValueError('Invalid execution ID')
     return Path(root) / 'results/slurm' / execution_id / 'submission.json'
@@ -331,7 +364,7 @@ def run(root, execution_id):
                        PYTHONPATH=str(snapshot) + os.pathsep + environment.get('PYTHONPATH', ''),
                        THETA_EXECUTION_ID=execution_id, THETA_OUTPUT_ROOT=str(runtime),
                        THETA_PYTHON_EXECUTABLE=sys.executable,
-                       THETA_MANAGED_THREADS=str(os.environ.get('SLURM_CPUS_PER_TASK', '1')),
+                       THETA_MANAGED_THREADS=str(worker_threads(record['config'], environment)),
                        THETA_MANAGED_SERIAL='1')
     for key in ('THETA_RESOURCE_POOL', 'THETA_RESOURCE_QUEUE_PARENT', 'THETAIDE_SETTINGS_FILE', 'THETA_PROVIDER_SNAPSHOT'):
         environment.pop(key, None)
@@ -381,6 +414,9 @@ def run(root, execution_id):
         if process and process.poll() is None:
             try: os.killpg(process.pid, signum)
             except ProcessLookupError: pass
+    deadline = float(os.environ.get('SLURM_JOB_END_TIME') or 0)
+    allowance = int(policy['stage_out_seconds']) if policy else 60
+    termination_reason = None
     previous = {number: signal.signal(number, stop) for number in (signal.SIGTERM, signal.SIGINT)}
     code = 1
     try:
@@ -388,6 +424,8 @@ def run(root, execution_id):
         import traceback
         error_log = runtime_log.with_suffix('.err')
         with runtime_log.open('w', encoding='utf-8', errors='replace') as output, error_log.open('w', encoding='utf-8', errors='replace') as errors:
+            output.write(f"[Theta] Allocation {record.get('job_id')}: worker_threads={environment['THETA_MANAGED_THREADS']}, requested_time={record.get('resources', {}).get('time') or 'partition default'}, deadline={datetime.fromtimestamp(deadline, timezone.utc).isoformat() if deadline else 'unknown'}.\n")
+            output.flush()
             process = subprocess.Popen([sys.executable, '-u', str(snapshot / 'run_pipeline.py'), record['experiment'],
                                         *overrides], cwd=runtime, env=environment,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -408,7 +446,11 @@ def run(root, execution_id):
                     try: process.wait(timeout=1)
                     except subprocess.TimeoutExpired: pass
                 if interrupted:
-                    capture.write_error(f'[Theta] Received {signal.Signals(interrupted[-1]).name}; stopping training and finalizing saved results.\n')
+                    near_deadline = deadline and 0 <= deadline - time.time() <= allowance + 60
+                    termination_reason = ('Result publication failed: ' + record['publication_error'] if record.get('publication_error') else
+                                          'Likely Slurm pre-timeout warning: allocation deadline is near' if near_deadline else
+                                          'External termination signal; inspect scheduler accounting for attribution')
+                    capture.write_error(f'[Theta] Received {signal.Signals(interrupted[-1]).name}: {termination_reason}. Finalizing results.\n')
                 if interrupted and process.poll() is None:
                     try: process.wait(timeout=int(policy['stage_out_seconds']) // 2 if policy else 30)
                     except subprocess.TimeoutExpired:
@@ -425,6 +467,12 @@ def run(root, execution_id):
             finally:
                 capture.finish()
     finally:
+        if interrupted or code != 0:
+            try:
+                close_unfinished_runs(runtime, record, 'cancelled' if interrupted else 'failed')
+            except Exception:
+                import traceback
+                print('[Theta] Could not finalize interrupted trial statuses:\n' + traceback.format_exc(), file=sys.stderr, flush=True)
         if publisher:
             try:
                 allowance = policy['stage_out_seconds']
@@ -450,6 +498,7 @@ def run(root, execution_id):
             record = {**read_json(path), **{key: value for key, value in record.items() if key in ('publication_state', 'publication_error', 'last_durable')}}
             training_state = 'cancelled' if interrupted else ('completed' if code == 0 else 'failed')
             record.update(state=training_state, training_state=training_state,
+                          termination_reason=termination_reason, termination_signal=interrupted[-1] if interrupted else None,
                           exit_code=code, ended_at=datetime.now(timezone.utc).isoformat())
             write_json(path, record)
     if publisher and record.get('publication_state') == 'sealed':
@@ -477,12 +526,13 @@ def refresh_status(root, record):
         else:
             record['scheduler_state'] = 'unknown'
             result = subprocess.run(['sacct', '--noheader', '--parsable2', '--allocations', '--jobs', job_id,
-                                     '--format=JobIDRaw,State,ExitCode'], capture_output=True, text=True, timeout=20, check=True)
+                                     '--format=JobIDRaw,State%80,ExitCode,Reason%120,Elapsed,Timelimit,Start,End'], capture_output=True, text=True, timeout=20, check=True)
             for line in result.stdout.splitlines():
                 parts = line.split('|')
                 if len(parts) >= 3 and parts[0] == job_id:
                     state = parts[1].split()[0].rstrip('+').lower()
                     record['scheduler_state'] = state
+                    record.update(accounting_details(parts))
                     if state in TERMINAL:
                         training = record.get('training_state') or (record.get('state') if record.get('state') in TERMINAL else 'unknown')
                         record['training_state'] = training
@@ -533,20 +583,23 @@ def refresh_many(root, records, *, minimum_seconds=10):
                             if fields[2].strip() == f'theta:{record["project_id"]}:{record["execution_id"]}': record['job_id'] = fields[0].strip()
             missing = [str(item['job_id']) for item in batch if item.get('job_id') and str(item['job_id']) not in states]
             exits = {}
+            details = {}
             if missing:
                 accounting = subprocess.run(['sacct', '--noheader', '--parsable2', '--allocations', '--jobs', ','.join(missing),
-                                             '--format=JobIDRaw,State,ExitCode'], capture_output=True, text=True, timeout=20, check=True)
+                                             '--format=JobIDRaw,State%80,ExitCode,Reason%120,Elapsed,Timelimit,Start,End'], capture_output=True, text=True, timeout=20, check=True)
                 for line in accounting.stdout.splitlines():
                     fields = line.split('|')
                     if len(fields) >= 3 and fields[0] in missing:
                         states[fields[0]] = fields[1].split()[0].rstrip('+').lower()
                         exits[fields[0]] = fields[2]
+                        details[fields[0]] = accounting_details(fields)
             for record in batch:
                 path = receipt_path(root, record['execution_id'])
                 with record_lock(path):
                     current = read_json(path)
                     state = states.get(str(record.get('job_id')), 'unknown')
                     current.update(job_id=record.get('job_id'), scheduler_state=state, scheduler_checked_at=now.isoformat())
+                    current.update(details.get(str(record.get('job_id')), {}))
                     if state in TERMINAL:
                         training = current.get('training_state') or (current.get('state') if current.get('state') in TERMINAL else 'unknown')
                         current.update(training_state=training,

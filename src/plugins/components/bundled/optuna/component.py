@@ -309,6 +309,29 @@ class OptunaTuner:
         except KeyError as exc:
             raise ConfigurationError(f"Study {study_name!r} does not exist and cannot be resumed.") from exc
 
+    def read_study_snapshot(self, database):
+        from .utils import read_study_snapshot
+        info = database.stat()
+        return read_study_snapshot(str(database), info.st_mtime_ns, info.st_size)
+
+    def finalize_interrupted(self, runtime, record):
+        """Close interrupted trials before the allocation's final database export."""
+        import optuna
+        from .utils import write_study_summary
+        database = runtime / 'results/optuna' / record['execution_id'] / 'study.sqlite'
+        if not database.is_file():
+            return
+        storage = 'sqlite:///' + str(database.resolve())
+        checkpoint = runtime / 'results/checkpoints' / record['group'] / record['result_experiment_id']
+        import json
+        for summary in checkpoint.glob('*/tuning_summary.json'):
+            name = json.loads(summary.read_text())['study']
+            study = optuna.load_study(study_name=name, storage=storage)
+            for trial in study.get_trials(states=(optuna.trial.TrialState.RUNNING,)):
+                study.tell(trial.number, state=optuna.trial.TrialState.FAIL)
+            study.set_user_attr('theta_last_stop_reason', 'interrupted')
+            write_study_summary(study, summary.parent)
+
     def finalize(self, group, experiment, method, storage, study_name):
         from src.plugins.components.bundled.optuna.utils import promote_best_trial_checkpoint
         return promote_best_trial_checkpoint(group, experiment, method, storage, study_name)

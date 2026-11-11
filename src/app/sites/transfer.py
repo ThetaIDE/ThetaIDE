@@ -306,6 +306,9 @@ def sync(root, site, mode='metrics', *, execution_id=None, experiment=None, diag
             for record in listing['executions']:
                 job_state = record.get('scheduler_state') or record.get('state', 'unknown')
                 transfer_output.emit(f'Job {record.get("job_id") or record["execution_id"]}: {job_state}')
+                detail = {key: record[key] for key in ('scheduler_state_raw', 'scheduler_reason', 'scheduler_exit_code', 'scheduler_elapsed', 'scheduler_time_limit', 'termination_reason') if record.get(key)}
+                if detail:
+                    transfer_output.emit('Job details: ' + json.dumps(detail))
                 if record.get('status_error'):
                     transfer_output.emit('Scheduler status unavailable: ' + record['status_error'])
             if any(record.get('execution_policy') for record in listing['executions']):

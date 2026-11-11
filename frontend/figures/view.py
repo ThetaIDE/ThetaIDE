@@ -21,7 +21,6 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QColorDialog,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -31,12 +30,12 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
+from ..widgets import SpinBox as QSpinBox, DoubleSpinBox as QDoubleSpinBox
 from ..theme import theme_color
 from .model import FigureSpec, PanelRef, available_experiments, render, series_labels
 from .sources import PanelSource

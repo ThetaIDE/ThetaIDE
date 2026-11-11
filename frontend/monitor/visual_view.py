@@ -6,10 +6,10 @@ import json
 import numpy as np
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import (QComboBox, QDoubleSpinBox, QGraphicsItem, QGraphicsScene,
+from PyQt6.QtWidgets import (QComboBox, QGraphicsItem, QGraphicsScene,
                             QGraphicsView, QHBoxLayout, QPushButton, QVBoxLayout, QWidget)
 
-from ..widgets import ToggleSlider, label
+from ..widgets import DoubleSpinBox as QDoubleSpinBox, ToggleSlider, label
 from ..theme import theme_color
 from .visual_data import VisualSnapshot, comparable, snapshots
 

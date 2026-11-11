@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 pytest.importorskip("PyQt6")
-from PyQt6.QtCore import QPoint
+from PyQt6.QtCore import QPoint, QRect
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -35,7 +35,7 @@ from frontend.config_viewer import (
     set_config_tree,
 )
 from frontend.theme import current_theme, stylesheet
-from frontend.widgets import ExpandingTextEdit, HierarchicalComboBox, ToggleSlider
+from frontend.widgets import DoubleSpinBox, ExpandingTextEdit, FlowLayout, HierarchicalComboBox, SpinBox, ToggleSlider
 
 app = QApplication.instance() or QApplication([])
 
@@ -692,7 +692,15 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
             if field.property("parameterExpands"):
                 assert field.maximumWidth() > field_width
                 continue
-            assert field.minimumWidth() == field.maximumWidth() == field_width, (title(box), field.objectName())
+            ancestor = field.parentWidget()
+            in_column = bool(field.property("parameterColumn"))
+            while ancestor is not None and ancestor is not box:
+                if ancestor.property("parameterColumn"):
+                    in_column = True
+                    break
+                ancestor = ancestor.parentWidget()
+            assert field.maximumWidth() == field_width, (title(box), field.objectName())
+            assert field.minimumWidth() == (min(NUMBER_FIELD_WIDTH, field_width) if in_column else field_width)
         for button in box.findChildren(QToolButton):
             if button.property("parameterRemove"):
                 assert button.property("parameterHoverBound"), (title(box), button.toolTip())
@@ -790,6 +798,14 @@ def test_experiment_description_spans_two_columns_with_environment_children_and_
     assert form.itemAt(0, QFormLayout.ItemRole.FieldRole).layout().itemAt(0).widget() is widget.combo_env
     assert widget.combo_paradigm.mapTo(widget, QPoint()).y() == widget.combo_env.mapTo(widget, QPoint()).y()
     assert widget.combo_env.mapTo(widget, QPoint()).x() > widget.combo_paradigm.mapTo(widget, QPoint()).x()
+    site = widget.field_widgets["site"]
+    grid = controller.rows.layout
+    site_group = next(group for group in controller.rows.groups if group.caption.text() == "Site")
+    assert grid.getItemPosition(grid.indexOf(env_group.parts[0]))[:2] == (0, 1)
+    assert grid.getItemPosition(grid.indexOf(block))[:2] == (1, 1)
+    assert grid.getItemPosition(grid.indexOf(site_group.parts[0]))[:2] == (1, 0)
+    assert site.mapTo(widget, QPoint()).x() == widget.combo_paradigm.mapTo(widget, QPoint()).x()
+    assert site.mapTo(widget, QPoint()).y() < block.mapTo(widget, block.rect().bottomLeft()).y()
     assert widget.txt_description.width() > PARAM_FIELD_WIDTH * 2
     assert widget.txt_description.mapTo(widget, widget.txt_description.rect().bottomLeft()).y() < widget.combo_env.mapTo(widget, QPoint()).y()
     assert widget._get_explicit_env() == "demo"
@@ -818,6 +834,125 @@ def test_experiment_description_spans_two_columns_with_environment_children_and_
     assert widget._get_explicit_env() == "demo"
     assert widget.save_to_disk()
     assert yaml.safe_load(widget.current_path.read_text())["env"]["num_steps"] == 128
+
+
+@pytest.mark.parametrize("rel", ["experiment/demo/test.yaml", "experiment/demo/_base.yaml"])
+def test_input_row_reordering_preserves_site_and_environment_children(viewer, rel):
+    widget = load(viewer, {"paradigm": "online_rl", "env": {"num_envs": 2},
+                           "resources": {"cores": 8}, "methods": {}}, rel)
+    env_label = "Environment" if rel.endswith("/_base.yaml") else "Environment / Task"
+    controller = parameter_controller(widget, "Paradigm", env_label, "Site")
+    site = widget.field_widgets["site"]
+    env = widget.combo_env
+    data = yaml.safe_dump(widget.raw_data)
+    move_parameter(widget, controller, "Site", "Paradigm")
+    assert controller.rows.groups[0].caption.text() == "Site"
+    assert widget.field_widgets["site"] is site
+    assert widget.combo_env is env
+    assert yaml.safe_dump(widget.raw_data) == data
+    assert not widget.is_dirty
+    env_group = next(group for group in controller.rows.groups if group.caption.text() == env_label)
+    assert env_group.parts[1].property("parameterPath") == "env"
+    site_group = controller.rows.groups[0]
+    assert isinstance(site_group.parts[1], IndentedHierarchyBlock)
+
+
+def test_runtime_booleans_wrap_as_complete_controls_and_still_edit(viewer):
+    widget = load(viewer, {"paradigm": "online_rl", "seed": 7, "save_dataset": True,
+                           "recover": True, "no_plot": True, "custom_flag": False, "methods": {}})
+    flow = widget.findChild(FlowLayout, "runtimeParameters")
+    assert flow is not None
+    controls = [flow.itemAt(i).widget() for i in range(flow.count())]
+    box = boxes(widget)[0]
+    rendered = box.grab().toImage()
+    background = rendered.pixelColor(4, box.height() // 2)
+    for control in controls:
+        point = control.mapTo(box, QPoint(0, control.height() - 1))
+        assert rendered.pixelColor(point) == background
+    assert any(control.property("parameterPath") == "custom_flag" for control in controls)
+    width = sum(control.sizeHint().width() for control in controls) + flow.spacing() * (len(controls) - 1)
+    flow.setGeometry(QRect(0, 0, width, 100))
+    assert len({control.y() for control in controls}) == 1
+    flow.setGeometry(QRect(0, 0, width // 2, 100))
+    assert len({control.y() for control in controls}) > 1
+    for control in controls:
+        caption = control.findChild(QLabel)
+        toggle = control.findChild(ToggleSlider)
+        assert caption is not None and toggle is not None
+        assert toggle.parentWidget() is caption.parentWidget()
+    controller = parameter_controller(widget, "Run methods in parallel", "Timestamp experiment")
+    move_parameter(widget, controller, "Timestamp experiment", "Run methods in parallel")
+    assert not widget.is_dirty
+    widget.chk_timestamp_experiment.setChecked(True)
+    assert widget.raw_data["timestamp_experiment"] is True
+    custom = next(control for control in controls if control.property("parameterPath") == "custom_flag")
+    custom.findChild(ToggleSlider).setChecked(True)
+    assert widget.raw_data["custom_flag"] is True
+    assert not any(button.text() == "Random" for button in widget.findChildren(QToolButton))
+    for field in widget.findChildren(QAbstractSpinBox):
+        assert field.buttonSymbols() == QAbstractSpinBox.ButtonSymbols.NoButtons
+
+
+@pytest.mark.parametrize("factory", [SpinBox, DoubleSpinBox])
+def test_shared_numeric_inputs_hide_arrows_and_keep_numeric_editing(factory):
+    field = factory()
+    field.setRange(0, 100)
+    assert field.buttonSymbols() == QAbstractSpinBox.ButtonSymbols.NoButtons
+    field.lineEdit().setText("42")
+    field.interpretText()
+    assert field.value() == 42
+
+
+@pytest.mark.parametrize("rel", ["experiment/demo/test.yaml", "experiment/demo/_base.yaml"])
+@pytest.mark.parametrize("width", [960, 1050, 1400])
+def test_environment_and_site_children_do_not_overlap_labels(viewer, rel, width):
+    widget = load(viewer, {"paradigm": "online_rl", "env": {
+        "num_envs": 4, "options": {"depth": 2}}, "resources": {
+        "cores": 8, "memory": "16G", "time": "01:00:00"}, "methods": {}}, rel)
+    widget.resize(width, 1000)
+    app.processEvents()
+    paths = set()
+    for block in boxes(widget)[0].findChildren(IndentedHierarchyBlock):
+        form = block.form_layout
+        for row in range(form.rowCount()):
+            caption_item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            field_item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+            caption = caption_item.widget() if caption_item else None
+            field_row = field_item.layout() if field_item else None
+            if not isinstance(caption, QLabel) or field_row is None:
+                continue
+            for index in range(field_row.count()):
+                field = field_row.itemAt(index).widget()
+                if field is None or not field.property("parameterPath"):
+                    continue
+                paths.add(field.property("parameterPath"))
+                caption_rect = QRect(caption.mapTo(block, QPoint()), caption.size())
+                field_rect = QRect(field.mapTo(block, QPoint()), field.size())
+                assert not caption_rect.intersects(field_rect), field.property("parameterPath")
+                assert field_rect.right() < block.width()
+    assert {"env.num_envs", "env.options.depth", "resources.cores", "resources.memory", "resources.time"} <= paths
+    assert not widget.is_dirty
+
+
+@pytest.mark.parametrize("rel", ["experiment/demo/test.yaml", "experiment/demo/_base.yaml"])
+@pytest.mark.parametrize("resources", [{}, {"cores": 8, "memory": "16G"}])
+def test_explicit_site_stays_beside_its_label_with_both_actions(viewer, rel, resources):
+    widget = load(viewer, {"paradigm": "online_rl", "env": {"num_envs": 1},
+                           "defaults": [{"override /site": "ncshare/common"}],
+                           "resources": resources, "methods": {}}, rel)
+    widget.resize(960, 1000)
+    app.processEvents()
+    box = boxes(widget)[0]
+    caption = next(item for item in box.findChildren(QLabel) if item.text() == "Site")
+    field = widget.field_widgets["site"]
+    caption_rect = QRect(caption.mapTo(box, QPoint()), caption.size())
+    field_rect = QRect(field.mapTo(box, QPoint()), field.size())
+    assert field_rect.left() > caption_rect.right()
+    assert abs(field_rect.center().y() - caption_rect.center().y()) <= 4
+    assert field_rect.x() == widget.combo_paradigm.mapTo(box, QPoint()).x()
+    assert field.currentText() == "ncshare/common"
+    assert any(button.toolTip() == "Use inherited site" for button in box.findChildren(QToolButton))
+    assert not widget.is_dirty
 
 
 @pytest.mark.parametrize("rel", ["experiment/demo/test.yaml", "experiment/demo/_base.yaml"])

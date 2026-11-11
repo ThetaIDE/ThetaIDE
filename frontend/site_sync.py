@@ -11,6 +11,7 @@ from .widgets import label
 
 
 class SiteSyncControl(QWidget):
+    watch_in_terminal = False
     synced = pyqtSignal(str)
     transfer_progress = pyqtSignal(object, object)
     console_output = pyqtSignal(str)
@@ -46,14 +47,58 @@ class SiteSyncControl(QWidget):
             self.status.setToolTip(latest)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.button)
-        layout.addWidget(self.status)
+        if self.run_provider is not None:
+            layout.addWidget(self.status)
+            layout.addWidget(self.button)
+        else:
+            layout.addWidget(self.button)
+            layout.addWidget(self.status)
         layout.addWidget(self.cancel_button)
 
     def _console_log(self, message):
         log = getattr(self.window(), 'log', None)
         if callable(log):
             log(message)
+        terminal = getattr(self, '_sync_terminal', None)
+        if terminal is not None:
+            terminal.append_output(message + '\r\n')
+
+    def _open_terminal(self, site, mode):
+        if not self.watch_in_terminal:
+            return
+        window = self.window()
+        panel, tabs = getattr(window, 'terminal_panel', None), getattr(window, 'tabs', None)
+        if panel is None or tabs is None:
+            return
+        self._return_view = tabs.currentWidget()
+        terminal = panel.new_shell(output_only=True, title=f'Sync {mode} · {site}')
+        self._sync_terminal = terminal
+        def closed():
+            if self._sync_terminal is terminal:
+                if self._transferring:
+                    self.cancel_event.set()
+                self._sync_terminal = None
+        terminal.closed.connect(closed)
+        tabs.setCurrentWidget(panel)
+        terminal.focus_terminal()
+
+    def _finish_terminal(self, success):
+        terminal = getattr(self, '_sync_terminal', None)
+        if terminal is None:
+            return
+        terminal.finish_output(0 if success else 1)
+        window = self.window()
+        panel, tabs = window.terminal_panel, window.tabs
+        # Do not interrupt navigation or another transfer the user selected.
+        if (tabs.currentWidget() is panel and panel.terminal is terminal
+                and self._return_view is not None and tabs.indexOf(self._return_view) >= 0):
+            tabs.setCurrentWidget(self._return_view)
+        self._sync_terminal = None
+        selected = panel.terminal
+        if terminal in panel.terminals:
+            panel.close_shell(panel.terminals.index(terminal))
+        if selected is not terminal and selected in panel.terminals:
+            panel.set_current_shell(panel.terminals.index(selected))
 
     def refresh_target(self):
         if self.run_provider is not None:
@@ -80,6 +125,8 @@ class SiteSyncControl(QWidget):
         notice.setEnabled(False)
 
     def start(self, site, action, *, execution_id=None, experiment=None):
+        if getattr(self, '_transferring', False):
+            return
         if action not in ('sync', 'diagnostics', 'experiment'):
             raise ValueError('Sync controls only download results. Use Run to upload experiment code.')
         if action == 'experiment' and not (execution_id or experiment):
@@ -90,6 +137,7 @@ class SiteSyncControl(QWidget):
         self._transferring = True
         import threading
         self.cancel_event = threading.Event()
+        self._open_terminal(site, transfer_mode)
         self.cancel_button.show()
         self.button.setEnabled(False)
         self.status.setText(f'{site}: downloading…')
@@ -104,6 +152,7 @@ class SiteSyncControl(QWidget):
                 self.status.setText(f'{site}: download failed')
                 self.status.setToolTip(error)
                 self.console_output.emit(f'[site {site}] {action} failed: {error}')
+                self._finish_terminal(False)
                 QMessageBox.warning(self, 'Site Transfer', error)
                 return
             self.status.setText(f'{site}: synced {result["last_sync"][11:19]}')
@@ -123,6 +172,7 @@ class SiteSyncControl(QWidget):
             for error in result.get('diagnostic_report_errors', []):
                 self.console_output.emit(f'[site {site}] Monitor report warning: {error}')
             self.synced.emit(site)
+            self._finish_terminal(True)
         def logged_transfer():
             from src.app.sites.transfer_output import output_to
             emit = lambda message: self.console_output.emit(f'[site {site}] {message}')
@@ -134,6 +184,8 @@ class SiteSyncControl(QWidget):
 
 class ExperimentSiteSyncControl(SiteSyncControl):
     """Pull the selected experiment's site, including monitor diagnostics."""
+
+    watch_in_terminal = True
 
     def __init__(self, parent=None, *, button=None):
         super().__init__('results', parent)

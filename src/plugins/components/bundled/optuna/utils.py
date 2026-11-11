@@ -391,6 +391,8 @@ def write_study_summary(study, ckpt_root):
                 temporary = stream.name
                 json.dump(summary, stream, indent=2, allow_nan=False)
             os.replace(temporary, directory / "tuning_summary.json")
+            from src.app.sites.publication import committed
+            committed(directory / "tuning_summary.json")
         finally:
             if temporary and os.path.exists(temporary):
                 os.unlink(temporary)
@@ -463,3 +465,32 @@ def promote_best_trial_checkpoint(
     write_study_summary(study, ckpt_root)
     print(f"\n[Optuna Winner] Promoted trial #{trial.number} from {source}")
     return str(trial.number)
+
+
+from functools import lru_cache
+
+
+@lru_cache(maxsize=16)
+def read_study_snapshot(database, mtime_ns, size):
+    """Adapt a downloaded, closed SQLite export without changing the source database."""
+    import json
+    import shutil
+    import tempfile
+    from pathlib import Path
+    import optuna
+    with tempfile.TemporaryDirectory(prefix='theta-study-reader-') as temporary:
+        root = Path(temporary)
+        local = root / 'study.sqlite'
+        shutil.copyfile(database, local)
+        storage = 'sqlite:///' + str(local)
+        summaries = []
+        for item in optuna.get_all_study_summaries(storage=storage):
+            study = optuna.load_study(study_name=item.study_name, storage=storage)
+            method = study.user_attrs.get('theta_log_method')
+            if not method:
+                continue
+            destination = root / 'summary'
+            destination.mkdir(exist_ok=True)
+            write_study_summary(study, destination)
+            summaries.append((method, json.loads((destination / 'tuning_summary.json').read_text())))
+        return summaries

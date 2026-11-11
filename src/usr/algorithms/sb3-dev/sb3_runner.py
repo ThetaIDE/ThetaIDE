@@ -96,9 +96,19 @@ def evaluate_policy_modes(model, env, *, episodes, seed, callback=None):
                 set_random_seed(seed, using_cuda=model.device.type == "cuda")
                 model.action_space.seed(seed)
                 env.seed(seed)
+                started = time.monotonic()
+                heartbeat = [started, 0]
+                def progress(local_vars, global_vars):
+                    heartbeat[1] += 1
+                    now = time.monotonic()
+                    if now - heartbeat[0] >= 30:
+                        print(f"[Evaluation] {mode}: {heartbeat[1]} environment steps in {now - started:.1f}s", flush=True)
+                        heartbeat[0] = now
+                    if deterministic and callback is not None:
+                        callback(local_vars, global_vars)
                 rewards, _ = evaluate_policy(
                     model, env, n_eval_episodes=episodes, deterministic=deterministic,
-                    return_episode_rewards=True, callback=callback if deterministic else None,
+                    return_episode_rewards=True, callback=progress,
                 )
                 results[mode] = [float(value) for value in rewards]
     finally:
@@ -161,6 +171,8 @@ def main(cfg: DictConfig):
     if os.environ.get('THETA_MANAGED_THREADS'):
         import torch
         torch.set_num_threads(int(os.environ['THETA_MANAGED_THREADS']))
+    import torch
+    print(f"[Runtime] torch_threads={torch.get_num_threads()}, interop_threads={torch.get_num_interop_threads()}", flush=True)
     model_cfg = cfg.get("model", {})
     from src.app.pipeline.tuners import trial_monitor
     monitor = trial_monitor(cfg)
@@ -329,8 +341,12 @@ def main(cfg: DictConfig):
                     index = int(sample_rng.integers(observation_count))
                     if index < len(eval_observations):
                         eval_observations[index] = observation
+            started = time.monotonic()
+            print(f"[Evaluation] step={self.num_timesteps}: {max(1, int(cfg.get('eval_episodes') or 5))} episodes per mode (greedy + sampled).", flush=True)
             results = evaluate_policy_modes(self.model, self.eval_env,
                 episodes=max(1, int(cfg.get("eval_episodes") or 5)), seed=seed, callback=capture_eval)
+            print(f"[Evaluation] step={self.num_timesteps}: completed in {time.monotonic() - started:.2f}s; "
+                  + ", ".join(f"{mode}={np.mean(rewards):.1f}" for mode, rewards in results.items()), flush=True)
             if eval_observations:
                 self._model_monitor(np.stack(eval_observations), "eval")
             step = int(self.num_timesteps)

@@ -13,6 +13,7 @@ from omegaconf import OmegaConf, open_dict
 
 from src.app.pipeline.variability import make_plan, run_execution
 from src.app.services.cancellation import TrainingCancelled
+from src.app.workspace import WorkspacePaths
 
 
 def execute_resolved(cfg, run, on_start, on_wait, *, script):
@@ -120,7 +121,7 @@ def run_objective(cfg, *, execute=None):
     return result.value
 
 
-@hydra.main(version_base=None, config_path="../../../in/config", config_name="config")
+@hydra.main(version_base=None, config_path=str(WorkspacePaths.for_process().primary_config), config_name="config")
 def main(cfg):
     try:
         return run_objective(cfg)
@@ -128,5 +129,18 @@ def main(cfg):
         return {"theta_trial_status": "pruned"}
 
 
-if __name__ == "__main__":
+def launch():
+    """Expose component configs when Hydra composes and launches sweep trials."""
+    paths = WorkspacePaths.for_process()
+    search = [f"file://{p}" for p in paths.config_roots() if p.is_dir() and p != paths.primary_config]
+    if not any(arg.lstrip('+').startswith('hydra.searchpath=') for arg in sys.argv[1:]):
+        # Keep overrides together: argparse cannot resume positional arguments
+        # after a flag such as --multirun splits them.
+        index = next((i for i, arg in enumerate(sys.argv[1:], 1)
+                      if not arg.startswith('-') and '=' in arg), len(sys.argv))
+        sys.argv.insert(index, 'hydra.searchpath=[' + ','.join(search) + ']')
     main()
+
+
+if __name__ == "__main__":
+    launch()

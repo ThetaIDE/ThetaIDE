@@ -2049,8 +2049,7 @@ class Window(QMainWindow):
             self.experiment_site_sync.set_config(
                 getattr(self, "composed_config", None) if has_experiment else None,
                 experiment=getattr(self, "current_experiment", None))
-        terminal_loading = bool(getattr(self, "_site_terminal_loading", False))
-        ready = self.compose_valid and has_experiment and not missing_components and not terminal_loading
+        ready = self.compose_valid and has_experiment and not missing_components
         for button in launch_buttons(self):
             button.setEnabled(ready)
         if not has_experiment:
@@ -2068,11 +2067,8 @@ class Window(QMainWindow):
                 self.builder_status.setObjectName("configError")
                 self.builder_status.setText(f"✗ Missing component: {missing_str}")
                 self.builder_status.setStyle(self.builder_status.style())
-        elif terminal_loading:
-            tip = "Opening cluster terminal…"
-            btn_text = "Opening terminal…"
         elif remote_site:
-            tip = "Upload project, copy the submission command, and open an SSH terminal. Paste and Enter to submit."
+            tip = "Upload project in a new shell in the Terminal pane, then connect to SSH. Paste and Enter to submit."
             btn_text = "Open cluster terminal"
         elif not self.compose_valid:
             err = getattr(self, "compose_error", None) or "This configuration has not passed pipeline validation."
@@ -2266,6 +2262,16 @@ class Window(QMainWindow):
                       if status == "running"}
             return {label: live for label, live in followed.items()
                     if label in active and (live.start or live.rows) and not live.is_finished()}
+        if load and run.get('remote') and backend.get('group') and backend.get('experiment_id'):
+            from src.app.pipeline.execution_data import synced_execution_sources
+            found, sources = synced_execution_sources(self.jobs.project_root, backend['group'], backend['experiment_id'])
+            if found:
+                active = {}
+                for label, directory, version in sources:
+                    live = self.disk_lives.load_version(directory, version)
+                    if live and (live.start or live.rows) and not live.is_finished():
+                        active[label] = live
+                return active
         if load and backend.get("group") and backend.get("experiment_id"):
             from .monitor.sweep_view import study_summaries
             for method, study in study_summaries(self.jobs.project_root, run):

@@ -10,7 +10,6 @@ resources:
   gpus: 0
   no_gres: true
   nodes: 1
-  time: '00:15:00'
 execution:
   schema_version: 1
   runtime: scratch

@@ -69,9 +69,9 @@ New work uploads/publications get current mtimes, while source archive/input met
 
 ## Submission and concurrency
 
-In the desktop, **Run opens a terminal overlay inside the Theta window immediately**. Play dims and ignores repeated clicks until the terminal is ready. The overlay stays above the main UI and follows the window when it moves or resizes. Close it with **×** or **Escape**; clicking outside it keeps it open. It contains only the terminal pane and its close button, with no shell toolbar or sidebar. It shows snapshot preparation, live rsync progress, verification, and then the interactive SSH session in the same window. Upload errors remain visible there and prevent the SSH handoff. Clicking Run again while that window is open brings it forward.
+In the desktop, **Run switches to the Terminal pane and creates a new shell** in its existing shell list. That shell shows snapshot preparation, live rsync progress, verification, and then the interactive SSH session. Upload errors remain visible there and prevent the SSH handoff. Existing shells stay available in the list.
 
-Closing the overlay with **Escape** or **×**, or closing the main window, terminates its local upload/SSH process and closes the terminal connection. A late terminal startup callback cannot reopen a dismissed session. Jobs already accepted by Slurm continue independently.
+Use **Close shell** to terminate that shell's upload/SSH process and close its connection. Switching panes or selecting another shell keeps the session running. Closing the main window also closes its terminal sessions. A late startup callback cannot reopen a closed shell. Jobs already accepted by Slurm continue independently.
 
 The experiment is saved before upload. Once SSH is ready in the configured remote project root, paste the copied command and press Enter:
 
@@ -79,7 +79,7 @@ The experiment is saved before upload. Once SSH is ready in the configured remot
 venv/bin/python3 run_pipeline.py GROUP/EXPERIMENT
 ```
 
-The saved experiment supplies the site and parameters. The clipboard command has no `cd`, redundant `site=` override, or chained installation/preflight commands. Experiment validation still runs inside the pipeline. An interpreter configured outside the project keeps its absolute path. Run does not automatically submit a job; closing the terminal during upload ends the local handoff, while closing it after a confirmed Slurm job ID does not cancel that job.
+The saved experiment supplies the site and parameters. The clipboard command has no `cd`, redundant `site=` override, or chained installation/preflight commands. Experiment validation still runs inside the pipeline. An interpreter configured outside the project keeps its absolute path. Run does not automatically submit a job; using Close shell during upload ends the local handoff, while closing it after a confirmed Slurm job ID does not cancel that job.
 
 
 From the cluster control checkout:
@@ -127,9 +127,9 @@ Cluster Python stderr is retained in `results/slurm/<execution_id>/pipeline.err`
 
 **Run uploads project code to the cluster and opens the submission terminal. Monitor Sync, Sync Results, and the experiment toolbar sync icon download published data to your machine.** These sync controls offer only pull actions. Run does not download results, and pulling monitor/results data does not upload project code or launch experiments.
 
-The Console shows SSH/rsync commands, transfer output, and a `Saved <local path> (<bytes> bytes)` line after each verified result is placed locally. Completion reports files saved, unchanged files, downloaded bytes, and the local destination. An unchanged sync explicitly reports no new files. Internal manifests and captured experiment configurations are omitted from console output. Scheduler errors remain visible; unknown scheduler status does not finalize a publication or count as confirmed active work. Sync again to resolve scheduler uncertainty. No sync fabricates a seal or repairs missing scratch outputs.
+The Experiment panel’s Sync button opens a named log in the Terminal pane, showing SSH/rsync commands, transfer output, and a `Saved <local path> (<bytes> bytes)` line after each verified result is placed locally. Completion reports files saved, unchanged files, downloaded bytes, and the local destination. When experiment sync finishes, its terminal log closes automatically and returns to the Experiment panel, unless you navigated elsewhere during transfer. Monitor and Results sync controls stream to Console and keep you in your current view. Close the sync log to cancel a running transfer. Errors are reported in a dialog, and output remains available in Console. An unchanged sync explicitly reports no new files. Internal manifests and captured experiment configurations are omitted from console output. Scheduler errors remain visible; unknown scheduler status does not finalize a publication or count as confirmed active work. Sync again to resolve scheduler uncertainty. No sync fabricates a seal or repairs missing scratch outputs.
 
-In the Experiment panel, selecting an experiment with a non-local site shows a square **Sync** icon in the file tree toolbar (hover to see the site name). Click it to pull all published results, including monitor diagnostics, for the selected experiment on that site. This is the only sync control in the experiment tree; transfer output and progress are available in Console. The run list and Results refresh after transfer; synced running or queued remote jobs also make the Monitor visible. Sync is manual and reflects the last published cluster data.
+In the Experiment panel, selecting an experiment with a non-local site shows a square **Sync** icon in the file tree toolbar (hover to see the site name). Click it to pull all published results, including monitor diagnostics, for the selected experiment on that site. This is the only sync control in the experiment tree. The run list and Results refresh after transfer; synced running or queued remote jobs also make the Monitor visible. Sync is manual and reflects the last published cluster data.
 
 Locally:
 
@@ -183,3 +183,17 @@ venv/bin/python run_pipeline.py site maintenance --apply
 Expired managed uploads/transfers are reclaimed at bounded sync maintenance points. Source GC uses ownership and surviving receipt references under the same project mutation lock as submission. Active transfer leases renew during retrieval. Unclassified legacy uploads/workspaces/sync copies are inventory-only and are never moved/deleted automatically.
 
 Other sites without an execution policy retain the shared-workspace compatibility executor. Legacy active SQLite sync is now refused: export on its owning compute node or migrate after its processes close. Old unsealed runs need explicit scheduled repair/migration; they do not gain the new CPU publication guarantees retroactively.
+
+### Worker threads and shutdown diagnostics
+
+Allocation cores and worker threads are separate: serial cluster workers default to one
+thread, bounded by the allocation. Set `site.threads_per_worker` explicitly when a
+workload benefits from more threads. The supervisor logs the chosen count and deadline;
+the SB3 development runner logs evaluation durations and progress every 30 seconds.
+
+Set `resources.time` on long sweeps explicitly. Omitting it inherits the partition
+default (NCShare common currently defaults to 30 minutes). Sync preserves the raw
+accounting state, cancellation attribution when supplied, reason, elapsed time and time
+limit. A SIGTERM near `SLURM_JOB_END_TIME` is reported as a likely pre-timeout warning;
+other SIGTERMs remain unattributed unless accounting supplies the cause. After producers
+stop, unfinished seed records and tuning trials are finalized before the final export.

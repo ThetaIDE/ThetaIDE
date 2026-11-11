@@ -3,7 +3,6 @@ import copy
 import inspect
 import json
 import math
-import random
 import re
 import weakref
 from pathlib import Path
@@ -19,7 +18,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -27,6 +25,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLayout,
     QLineEdit,
     QMenu,
     QMessageBox,
@@ -34,7 +33,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSpinBox,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -48,10 +46,10 @@ from .sidetabs import svg_icon
 from .theme import theme_color
 from .widgets import (
     ComboBox as BaseComboBox, DoubleSpinBox, SpinBox, label, SmoothScrollArea, ToggleSlider,
-    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit, integer_field,
+    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit, FlowLayout, integer_field,
 )
 from .metric_picker import MetricPicker, logged_metrics
-from .parameter_reorder import ColumnRows, FormRows, GridRows, ListRows, ParameterReorder, form_groups
+from .parameter_reorder import ColumnRows, FlowRows, FormRows, GridRows, ListRows, ParameterReorder, form_groups
 from src.app.services import LOGS_DIR, PROJECT_ROOT
 from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 
@@ -320,6 +318,7 @@ class ParameterForm(QFormLayout):
         self.setVerticalSpacing(8)
         self.setHorizontalSpacing(10)
         self.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
     def addRow(self, *items):
@@ -331,8 +330,8 @@ class ParameterForm(QFormLayout):
                 item.widget().setWordWrap(True)
 
 
-def _two_column_parameter_layout(form):
-    """Balance top-level rows across columns while keeping children with their parent."""
+def _two_column_parameter_layout(form, *, align_rows=False):
+    """Arrange sibling parameters in two columns, keeping children with their parent."""
     grid = QGridLayout()
     grid.setContentsMargins(0, 0, 0, 0)
     grid.setHorizontalSpacing(14)
@@ -341,7 +340,7 @@ def _two_column_parameter_layout(form):
     grid.setColumnStretch(0, 1)
     grid.setColumnStretch(1, 1)
     grid.setProperty("equalParameterColumns", True)
-    columns = [QVBoxLayout(), QVBoxLayout()]
+    columns = [] if align_rows else [QVBoxLayout(), QVBoxLayout()]
     for index, column in enumerate(columns):
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
@@ -350,9 +349,19 @@ def _two_column_parameter_layout(form):
     groups = form_groups(form)
     while form.rowCount():
         form.takeRow(0)
+
+    def mark_column_field(item):
+        if isinstance(item, QWidget):
+            item.setProperty("parameterColumn", True)
+        elif isinstance(item, QLayout):
+            for index in range(item.count()):
+                child = item.itemAt(index)
+                mark_column_field(child.widget() or child.layout())
+
     for group in groups:
         parts = []
         for caption, field in group.parts:
+            mark_column_field(field)
             if caption is None:
                 parts.append(field)
             else:
@@ -641,6 +650,7 @@ class IndentedHierarchyBlock(QFrame):
         self.form_layout.setContentsMargins(0, 4, 0, 6)
         self.form_layout.setVerticalSpacing(6)
         self.form_layout.setHorizontalSpacing(10)
+        self.form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
     def addRow(self, label_or_widget, widget=None):
         if widget is not None:
@@ -861,7 +871,21 @@ class ConfigBox(QFrame):
                     field.setMaximumWidth(16777215)
                     field.setSizePolicy(QSizePolicy.Policy.Expanding, field.sizePolicy().verticalPolicy())
                 else:
-                    field.setFixedWidth(field_width)
+                    ancestor = field.parentWidget()
+                    in_column = bool(field.property("parameterColumn"))
+                    while ancestor is not None and ancestor is not self:
+                        if ancestor.property("parameterColumn"):
+                            in_column = True
+                            break
+                        ancestor = ancestor.parentWidget()
+                    if in_column:
+                        # Indentation and row actions also consume column width.
+                        # Let nested editors shrink before wrapping the form row.
+                        field.setMinimumWidth(min(NUMBER_FIELD_WIDTH, field_width))
+                        field.setMaximumWidth(field_width)
+                        field.setSizePolicy(QSizePolicy.Policy.Expanding, field.sizePolicy().verticalPolicy())
+                    else:
+                        field.setFixedWidth(field_width)
         for form in self.findChildren(QFormLayout):
             form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             form.setHorizontalSpacing(10)
@@ -1843,6 +1867,8 @@ class ConfigViewer(QWidget):
                            if not getattr(form, "_parameter_column_row", False))
             layouts.extend(ListRows(layout) for layout in box.findChildren(QVBoxLayout)
                            if layout.property("parameterReorderList"))
+            layouts.extend(FlowRows(layout) for layout in box.findChildren(FlowLayout)
+                           if layout.property("parameterReorderFlow"))
             # Name child levels before applying a saved parent order.
             for rows in layouts:
                 for group in rows.groups:
@@ -2317,8 +2343,8 @@ class ConfigViewer(QWidget):
             self.field_widgets["paradigm"] = self.combo_paradigm
             self.field_widgets["env"] = self.combo_env
 
-            box_base.add_layout(_two_column_parameter_layout(form_base))
-            self._add_experiment_site(box_base, data, resolved)
+            self._add_experiment_site(form_base, data, resolved)
+            box_base.add_layout(_two_column_parameter_layout(form_base, align_rows=True))
             if self._has_experiment_lower_params(data, resolved):
                 self._add_experiment_separator(box_base)
             self._add_experiment_trainer_fields(box_base, data, resolved)
@@ -2403,8 +2429,8 @@ class ConfigViewer(QWidget):
                 env_label = label("Environment / Task")
                 inputs_form.addRow(env_label, _parameter_row(self.combo_env, add=self._environment_parameter_adder(data, resolved)))
             self._add_environment_parameters(inputs_form, data)
-            box_inputs.add_layout(_two_column_parameter_layout(inputs_form))
-            self._add_experiment_site(box_inputs, data, resolved)
+            self._add_experiment_site(inputs_form, data, resolved)
+            box_inputs.add_layout(_two_column_parameter_layout(inputs_form, align_rows=True))
             if self._has_experiment_lower_params(data, resolved):
                 self._add_experiment_separator(box_inputs)
             self._add_experiment_trainer_fields(box_inputs, data, resolved)
@@ -2535,11 +2561,6 @@ class ConfigViewer(QWidget):
         row_seed = QHBoxLayout()
         row_seed.setSpacing(6)
         row_seed.addWidget(self.spin_seed)
-        btn_rand_seed = QToolButton()
-        btn_rand_seed.setText("Random")
-        btn_rand_seed.setToolTip("Pick a random seed")
-        btn_rand_seed.clicked.connect(lambda: self.spin_seed.setValue(random.randint(1, 9999)))
-        row_seed.addWidget(btn_rand_seed)
         if "seed" in data:
             btn_del_seed = _make_subtle_tool_button("close", "Remove seed override to rely on group default", size=20, icon_size=12)
             btn_del_seed.clicked.connect(lambda: (self.raw_data.pop("seed", None), self._mark_dirty(), self._render_boxes()))
@@ -2598,6 +2619,7 @@ class ConfigViewer(QWidget):
             "hydra", "plots", "tuning", "sweeper", "sweep"
         }
         extra_experiment_items = []
+        extra_boolean_items = []
         for extra_k, extra_v in list(data.items()):
             if extra_k in standard_top_level_keys:
                 continue
@@ -2625,8 +2647,11 @@ class ConfigViewer(QWidget):
                     _reveal_remove_on_row_hover(row_extra, btn_del_extra)
                 if extra_k == "batch_size":
                     self._add_sweep_toggle(row_extra, "params", "config.batch_size", extra_v)
-                row_extra.addStretch()
-                extra_experiment_items.append((label(str(extra_k)), row_extra))
+                if isinstance(extra_v, bool):
+                    extra_boolean_items.append((extra_k, row_extra))
+                else:
+                    row_extra.addStretch()
+                    extra_experiment_items.append((label(str(extra_k)), row_extra))
 
         def budget_label(text):
             widget = label(text)
@@ -2689,19 +2714,25 @@ class ConfigViewer(QWidget):
         if self._plugin_enabled("tensorboard"):
             OPTIONAL_RUNTIME_FLAGS.insert(0, ("tensorboard", "Log to TensorBoard"))
 
-        runtime_form = ParameterForm()
+        runtime_form = FlowLayout(spacing=16)
         runtime_form.setObjectName("runtimeParameters")
+        runtime_form.setProperty("parameterReorderFlow", True)
         chk_widgets = {}
 
-        # Show checkboxes only for flags explicitly present in the experiment config (or when showing resolved defaults)
+        # Keep each label, toggle, and optional removal action together as the row wraps.
         active_flags = [
             (k, lbl) for k, lbl in OPTIONAL_RUNTIME_FLAGS
             if k in data or show_resolved or k in ("run_in_parallel", "timestamp_experiment")
         ]
 
         for flag_key, flag_label in active_flags:
-            row_flag = QHBoxLayout()
+            flag = QWidget()
+            flag.setProperty("parameterBoolean", True)
+            flag.setProperty("parameterPath", flag_key)
+            row_flag = QHBoxLayout(flag)
+            row_flag.setContentsMargins(0, 0, 0, 0)
             row_flag.setSpacing(6)
+            row_flag.addWidget(label(flag_label))
             chk = ToggleSlider(checked=bool(data.get(flag_key, resolved.get(flag_key, False))))
             if flag_key == "timestamp_experiment":
                 chk.setToolTip("Add a timestamp when results already exist to keep previous runs.")
@@ -2730,8 +2761,16 @@ class ConfigViewer(QWidget):
             elif not is_base and flag_key not in ("run_in_parallel", "timestamp_experiment"):
                 row_flag.addWidget(label(str(chk.isChecked()).lower(), "muted"))
 
-            row_flag.addStretch()
-            runtime_form.addRow(flag_label, row_flag)
+            runtime_form.addWidget(flag)
+
+        for key, row in extra_boolean_items:
+            flag = QWidget()
+            flag.setProperty("parameterBoolean", True)
+            flag.setProperty("parameterPath", key)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.insertWidget(0, label(key))
+            flag.setLayout(row)
+            runtime_form.addWidget(flag)
 
         self.chk_timestamp_experiment = chk_widgets.get("timestamp_experiment")
         self.chk_tb = chk_widgets.get("tensorboard")
@@ -4481,11 +4520,10 @@ class ConfigViewer(QWidget):
         self._mark_dirty()
         self._render_boxes()
 
-    def _add_experiment_site(self, box, data, resolved):
+    def _add_experiment_site(self, form, data, resolved):
         tree = config_tree()
         inherited = self._site_selection(resolved) or "local"
         selected = self._site_selection(data)
-        form = ParameterForm()
         self.combo_site = ComboBox()
         self.combo_site.setObjectName("experimentSiteSelector")
         self.combo_site.addItem(f"{inherited} (default)", self.INHERIT)
@@ -4510,7 +4548,6 @@ class ConfigViewer(QWidget):
             block = IndentedHierarchyBlock(level=1)
             self._render_generic_dict_contents(block, resources, ("resources",), defaults=defaults)
             form.addRow(block)
-        box.add_layout(form)
 
     def _add_site_resource(self, key, value):
         self.raw_data.setdefault("resources", {})[key] = value

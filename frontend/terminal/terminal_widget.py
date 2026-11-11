@@ -377,9 +377,11 @@ class TerminalWidget(QWidget):
 
     session_started = pyqtSignal()
     session_exited = pyqtSignal(int)
+    closed = pyqtSignal()
 
     def __init__(self, cwd: Optional[str] = None, parent: Optional[QWidget] = None,
-                 command: Optional[list[str]] = None, env: Optional[dict[str, str]] = None):
+                 command: Optional[list[str]] = None, env: Optional[dict[str, str]] = None,
+                 output_only: bool = False):
         super().__init__(parent)
         self.cwd = cwd or str(Path.cwd())
         self.pty = PtySession(cwd=self.cwd, command=command, parent=self)
@@ -387,6 +389,10 @@ class TerminalWidget(QWidget):
         self.bridge = TerminalBridge(self)
         self._is_ready = False
         self._closed = False
+        self._output_only = output_only
+        self.session_title = None
+        self._output_finished = False
+        self._pending_output = []
         self._pending_theme: Optional[dict] = None
         self._current_cols = 80
         self._current_rows = 24
@@ -421,14 +427,20 @@ class TerminalWidget(QWidget):
 
     def _on_terminal_ready(self):
         """xterm.js has loaded, mounted, and reported ready."""
-        # WebChannel can deliver readiness after the overlay was dismissed.
+        # WebChannel can deliver readiness after the terminal was closed.
         # A closed terminal must never launch a hidden upload or SSH session.
         if self._closed:
             return
         self._is_ready = True
-        if not self.pty.is_alive():
+        if self._output_only:
+            if not self._output_finished:
+                self.session_started.emit()
+        elif not self.pty.is_alive():
             self.pty.start(cols=self._current_cols, rows=self._current_rows)
             self.session_started.emit()
+        for text in self._pending_output:
+            self.bridge.data_received.emit(text)
+        self._pending_output.clear()
 
         if self._pending_theme:
             self.apply_theme(self._pending_theme)
@@ -445,6 +457,24 @@ class TerminalWidget(QWidget):
         """Send raw data from PTY process to xterm.js."""
         self.bridge.data_received.emit(text)
 
+    def append_output(self, text: str):
+        """Display task output, including messages received before xterm is ready."""
+        if self._closed:
+            return
+        if self._is_ready:
+            self.bridge.data_received.emit(text)
+        else:
+            self._pending_output.append(text)
+
+    def finish_output(self, exit_code: int):
+        self._output_finished = True
+        self.session_exited.emit(exit_code)
+
+    def session_active(self):
+        if self._output_only:
+            return not self._closed and not self._output_finished
+        return self.pty.is_alive()
+
     def _on_pty_exit(self, exit_code: int):
         """Child shell exited; notify xterm and signal."""
         msg = f"\r\n\x1b[90m[Process completed with exit code {exit_code} — Press '+ New shell' or Enter to restart]\x1b[0m\r\n"
@@ -460,7 +490,7 @@ class TerminalWidget(QWidget):
 
     def restart_session(self):
         """Terminate current process and start a fresh shell session."""
-        if self._closed:
+        if self._closed or self._output_only:
             return
         self.pty.close()
         self.bridge.clear_requested.emit()
@@ -668,9 +698,12 @@ class TerminalWidget(QWidget):
         return getattr(self, "_current_terminal_theme", {})
 
     def closeEvent(self, event):
+        was_closed = self._closed
         self._closed = True
         self.pty.close()
         super().closeEvent(event)
+        if not was_closed:
+            self.closed.emit()
 
 
 class TerminalPanel(QWidget):
@@ -786,10 +819,14 @@ class TerminalPanel(QWidget):
     def shell_count(self) -> int:
         return len(self.terminals)
 
-    def new_shell(self, command: Optional[list[str]] = None) -> "TerminalWidget":
+    def new_shell(self, command: Optional[list[str]] = None, *,
+                  cwd: Optional[str] = None, output_only: bool = False,
+                  title: Optional[str] = None) -> "TerminalWidget":
         """Open another shell and switch to it: `command` if given (chosen from the menu),
         otherwise the default shell from Settings."""
-        term = TerminalWidget(cwd=self.cwd, parent=self, command=command or self._command, env=self._env)
+        term = TerminalWidget(cwd=cwd or self.cwd, parent=self, command=command or self._command,
+                              env=self._env, output_only=output_only)
+        term.session_title = title
         term.chosen_shell = command is not None  # keeps its program when the Settings default changes
         term.shell_number = self._next_number
         self._next_number += 1
@@ -871,6 +908,8 @@ class TerminalPanel(QWidget):
     # ── Status ───────────────────────────────────────────────────────────────
 
     def _shell_name(self, term: "TerminalWidget") -> str:
+        if term.session_title:
+            return term.session_title
         argv = term.pty.command or get_default_shell()
         return Path(argv[0]).stem or "shell"
 
@@ -895,7 +934,7 @@ class TerminalPanel(QWidget):
         if term is None:
             return
         name = self._shell_name(term)
-        if exit_code is not None or not term.pty.is_alive():
+        if exit_code is not None or not term.session_active():
             self.title_label.setText(f"Terminal · {name} · exited" if exit_code is None
                                      else f"Terminal · {name} · exited ({exit_code})")
             dot_role = "disabled"
@@ -1013,7 +1052,7 @@ class TerminalPanel(QWidget):
         for row, term in enumerate(self.terminals):
             item = self.shell_list.item(row)
             if item is not None:
-                item.setForeground(QColor(text_color if term.pty.is_alive() else colors.get("muted", text_color)))
+                item.setForeground(QColor(text_color if term.session_active() else colors.get("muted", text_color)))
         self._update_status()
 
     def closeEvent(self, event):

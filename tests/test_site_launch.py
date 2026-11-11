@@ -1,14 +1,11 @@
-"""The Run window appears before work, and upload/SSH share its terminal."""
+"""Cluster Run uses a new shell in the terminal pane for upload and SSH."""
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QLineEdit, QWidget, QPushButton
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from frontend import site_launch
 from src.app.sites import transfer
@@ -18,121 +15,72 @@ from src.app.workspace import WorkspacePaths
 app = QApplication.instance() or QApplication(['test-site-launch'])
 
 
-@pytest.mark.parametrize('dismiss', ['x', 'escape', 'parent'])
-def test_run_opens_terminal_immediately_and_reuses_visible_window(tmp_path, monkeypatch, dismiss):
-    import frontend.terminal
-    panels = []
-    class Terminal(QWidget):
-        session_started = pyqtSignal()
-        session_exited = pyqtSignal(int)
-        def __init__(self, cwd, command, parent=None):
-            super().__init__(parent)
-            self.cwd, self.command = cwd, command
-            assert not window.start_button.isEnabled()
-            self.closed = False
-            panels.append(self)
-        def focus_terminal(self):
-            self.setFocus()
-        def close(self):
-            self.closed = True
-            return super().close()
-    monkeypatch.setattr(frontend.terminal, 'TerminalWidget', Terminal)
+def test_run_creates_and_selects_new_shell_in_existing_terminal_pane(tmp_path, monkeypatch):
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWidgets import QTabWidget
+    from frontend.terminal import TerminalPanel
+
+    # Control readiness ourselves so the test never opens a real SSH connection.
+    monkeypatch.setattr(QWebEngineView, 'load', lambda *_: None)
     monkeypatch.setattr(WorkspacePaths, 'for_process', classmethod(lambda cls: cls(tmp_path)))
     transfer.configure(tmp_path, 'cluster', 'fake', '/home/user/theta')
-    monkeypatch.setattr(transfer, 'push', lambda *_a, **_k: pytest.fail('GUI thread started hidden upload'))
+    monkeypatch.setattr(transfer, 'push', lambda *_a, **_k: pytest.fail('GUI thread started upload'))
     window = QWidget()
-    window.resize(1200, 800)
-    window.show()
+    window.tabs = QTabWidget(window)
+    window.tabs.addTab(QWidget(), 'Experiment')
+    # A custom terminal start folder must not change the cluster upload root.
+    window.terminal_panel = TerminalPanel(cwd=str(tmp_path / 'custom'), parent=window)
+    window.tabs.addTab(window.terminal_panel, 'Terminal')
+    first = window.terminal_panel.terminal
     window.compose_valid = True
     window.composed_config = {'site': {'name': 'cluster', 'scheduler': 'slurm'}}
     window.current_experiment = 'cartpole/single'
-    window.start_button = QPushButton('Play', window)
-    window.start_button.clicked.connect(lambda: site_launch.launch(window))
-    site_launch.launch(window)
-    dialog = window._site_launch_dialog
-    assert dialog.isVisible() and len(panels) == 1
-    assert not window.start_button.isEnabled() and window._site_terminal_loading
-    assert window.start_button.graphicsEffect().opacity() == .35
-    assert not dialog.isWindow() and dialog.parentWidget() is window
-    assert dialog.body_layout.count() == 2
-    assert dialog.body_layout.itemAt(1).widget() is panels[0]
-    assert dialog.geometry() == window.rect()
-    window.resize(900, 600)
-    app.processEvents()
-    assert dialog.geometry() == window.rect()
-    assert dialog.rect().contains(dialog.card.geometry())
-    # Clicking the backdrop keeps the terminal open.
-    QTest.mouseClick(dialog, Qt.MouseButton.LeftButton)
-    assert dialog.isVisible()
-    window.start_button.click()
-    assert len(panels) == 1
-    command = panels[0].command
-    assert command[:5] == [sys.executable, '-u', '-m', 'src.app.sites', 'launch']
-    assert command[-2:] == ['--experiment', 'cartpole/single']
-    assert str(tmp_path) in command and 'cluster' in command
-    assert QApplication.clipboard().text() == 'venv/bin/python3 run_pipeline.py cartpole/single'
-    panels[0].session_started.emit()
-    assert window.start_button.isEnabled() and not window._site_terminal_loading
-    assert window.start_button.graphicsEffect() is None
-    site_launch.launch(window)
-    assert window._site_launch_dialog is dialog and len(panels) == 1
-    if dismiss == 'x':
-        dialog.close_button.click()
-    elif dismiss == 'escape':
-        child = QLineEdit(panels[0])
-        child.show()
-        child.setFocus()
-        override = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
-        QApplication.sendEvent(child, override)
-        assert override.isAccepted()
-        QTest.keyClick(child, Qt.Key.Key_Escape)
-    else:
+    try:
+        site_launch.launch(window)
+        panel = window.terminal_panel
+        terminal = panel.terminal
+        assert window.tabs.currentWidget() is panel
+        assert panel.shell_count() == 2 and panel.terminals[0] is first
+        assert terminal is not first
+        assert terminal.cwd == str(tmp_path)
+        assert first.cwd == str(tmp_path / 'custom')
+        assert terminal.pty.command == [sys.executable, '-u', '-m', 'src.app.sites', 'launch',
+                                        '--root', str(tmp_path), 'cluster', '--experiment', 'cartpole/single']
+        assert QApplication.clipboard().text() == 'venv/bin/python3 run_pipeline.py cartpole/single'
+        # Each explicit Run uses the existing New shell workflow.
+        site_launch.launch(window)
+        assert panel.shell_count() == 3 and panel.terminal is not terminal
+        assert not hasattr(window, '_site_launch_dialog')
+    finally:
+        window.terminal_panel.close()
         window.close()
-    assert not dialog.isVisible()
-    assert panels[0].closed and not window._site_launch_pending
-    window.close()
 
 
 @pytest.mark.parametrize('started', [False, True])
-@pytest.mark.parametrize('dismiss', ['escape', 'x', 'parent'])
-def test_overlay_close_terminates_pty_and_blocks_late_startup(tmp_path, started, dismiss):
-    from frontend.terminal.terminal_widget import TerminalWidget
+def test_close_shell_terminates_pty_and_blocks_late_startup(tmp_path, monkeypatch, started):
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from frontend.terminal import TerminalPanel
 
-    window = QWidget()
-    window.resize(900, 600)
-    window.show()
-    dialog = site_launch.TerminalOverlay(window)
-    # A real PTY process stands in for the upload driver, which execs SSH in
-    # place. No cluster connection is needed to verify its lifetime.
-    terminal = TerminalWidget(cwd=str(tmp_path), parent=dialog,
-                              command=[sys.executable, '-c', 'import time; time.sleep(60)'])
-    dialog.body_layout.addWidget(terminal)
-    dialog.finished.connect(lambda _: terminal.close())
-    dialog.show()
+    monkeypatch.setattr(QWebEngineView, 'load', lambda *_: None)
+    panel = TerminalPanel(cwd=str(tmp_path))
+    terminal = panel.new_shell(command=[sys.executable, '-c', 'import time; time.sleep(60)'])
     try:
         if started:
             terminal._on_terminal_ready()
             assert terminal.pty.is_alive()
             process = terminal.pty.process
-        if dismiss == 'escape':
-            QTest.keyClick(terminal.web_view.focusProxy() or terminal.web_view, Qt.Key.Key_Escape)
-        elif dismiss == 'x':
-            dialog.close_button.click()
-        else:
-            window.close()
-        assert not dialog.isVisible()
+        panel.close_shell()
+        assert terminal not in panel.terminals
         assert not terminal.pty.is_alive()
         assert terminal.pty.master_fd is None
         if started:
             assert process.poll() is not None
-        # Queued renderer callbacks and restart requests must not reopen SSH.
+        # A queued renderer callback cannot reopen a shell that was removed.
         terminal._on_terminal_ready()
         terminal.restart_session()
-        app.processEvents()
         assert not terminal.pty.is_alive()
     finally:
-        terminal.close()
-        window.close()
+        panel.close()
 
 
 def test_terminal_upload_finishes_before_interactive_ssh(tmp_path, monkeypatch, capsys):

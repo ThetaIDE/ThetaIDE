@@ -11,7 +11,6 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -23,7 +22,6 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
-    QSpinBox,
     QStackedWidget,
     QStyle,
     QToolButton,
@@ -35,7 +33,7 @@ from src.app.services import PROJECT_ROOT
 
 from .hotkeys import parse_action_key
 from .theme import current_theme, theme_color
-from .widgets import SmoothScrollArea, ToggleSlider, label
+from .widgets import SmoothScrollArea, SpinBox as QSpinBox, ToggleSlider, label
 
 if TYPE_CHECKING:
     from .app import Window

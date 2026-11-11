@@ -31,6 +31,24 @@ def study_summaries(project_root, run):
             method = path.relative_to(root).parts[0]
             logs = Path(project_root) / "results/logs" / backend["group"] / backend["experiment_id"]
             found[(method, data["study"])] = study_execution_states(data, logs, data.get("log_method") or method)
+    # Older compute snapshots omitted commits for live tuning summaries. Recover
+    # study metadata from the downloaded database export, never the live database.
+    remote = (run or {}).get('remote') or {}
+    execution_id = remote.get('execution_id')
+    if not found and execution_id:
+        from src.app.sites.storage import safe_path
+        from src.app.pipeline.tuners import get_tuner
+        database = safe_path(project_root, 'results/optuna/' + execution_id + '/study.sqlite')
+        if database.is_file():
+            try:
+                config = remote.get('config') or {}
+                reader = getattr(get_tuner(config), 'read_study_snapshot', None)
+                if callable(reader):
+                    logs = Path(project_root) / 'results/logs' / backend['group'] / backend['experiment_id']
+                    for method, data in reader(database):
+                        found[(method, data['study'])] = study_execution_states(data, logs, data.get('log_method') or method)
+            except (OSError, ValueError, RuntimeError):
+                pass  # A partially pulled snapshot is retried after its stamp changes.
     return [(method, data) for (method, _), data in found.items()]
 
 

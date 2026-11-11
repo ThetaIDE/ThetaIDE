@@ -137,6 +137,7 @@ QLabel#value { color: #b8bb26; font-size: 25px; font-weight: 600; }
 QFrame#card, QFrame[configBox="true"] { background: #32302f; border: 1px solid #504945; border-radius: 5px; }
 QFrame#card QLabel, QFrame[configBox="true"] QLabel { background: transparent; }
 QWidget[configBoxBody="true"] { background: transparent; }
+QWidget[parameterBoolean="true"] { background: transparent; }
 QPushButton, QToolButton { background: #3c3836; border: 1px solid #504945; border-radius: 4px; padding: 7px 12px; }
 QPushButton:hover, QToolButton:hover { background: #504945; border-color: #a89984; }
 QPushButton:checked { background: #504945; color: #fabd2f; border-color: #fabd2f; font-weight: 600; }
@@ -153,16 +154,8 @@ QComboBox::down-arrow { image: url("@ARROW_DOWN@"); width: 10px; height: 10px; }
 QComboBox::down-arrow:disabled { image: url("@ARROW_DOWN_OFF@"); }
 QComboBox QAbstractItemView { background: #32302f; border: 1px solid #504945; padding: 0; outline: 0; selection-background-color: #504945; selection-color: #fabd2f; }
 QComboBox QAbstractItemView::item { min-height: 26px; padding: 0 8px; }
-QSpinBox, QDoubleSpinBox { padding-right: 30px; }
-QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border; width: 24px; background: #3c3836; border: 0; border-left: 1px solid #504945; }
-QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-position: top right; border-bottom: 1px solid #504945; border-top-right-radius: 3px; }
-QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-position: bottom right; border-bottom-right-radius: 3px; }
-QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background: #504945; }
-QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed, QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed { background: #665c54; }
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url("@ARROW_UP@"); width: 10px; height: 10px; }
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url("@ARROW_DOWN@"); width: 10px; height: 10px; }
-QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off, QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:off { image: url("@ARROW_UP_OFF@"); }
-QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off, QDoubleSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:off { image: url("@ARROW_DOWN_OFF@"); }
+QSpinBox, QDoubleSpinBox { padding-right: 6px; }
+QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button { width: 0; height: 0; border: 0; }
 QPlainTextEdit, QTextEdit { background: #1d2021; border: 0; padding: 10px; selection-background-color: #504945; font-family: Menlo, Monaco, 'Cascadia Code', 'Consolas', monospace; font-size: 12px; }
 QTextEdit[parameterText="true"] { background: #1d2021; border: 1px solid #504945; border-radius: 3px; padding: 6px; min-height: 18px; selection-background-color: #665c54; font-family: ".AppleSystemUIFont", "Segoe UI", system-ui, sans-serif; }
 QTextEdit[parameterText="true"]:focus { border-color: #d79921; }

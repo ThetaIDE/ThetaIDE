@@ -103,11 +103,28 @@ class FormRows:
 
 
 class ColumnRows:
-    """The existing balanced two-column presentation, with logical siblings."""
+    """Two-column presentation with logical siblings and optional shared rows."""
     def __init__(self, grid, columns, groups):
         self.layout, self.columns, self.groups = grid, columns, groups
 
     def apply(self):
+        if not self.columns:
+            # Use physical rows so a later sibling can fill the cell beside a
+            # child block, without waiting for the whole parent group to end.
+            while self.layout.count():
+                self.layout.takeAt(0)
+            rows = [0, 0]
+            for group in self.groups:
+                column = 0 if rows[0] <= rows[1] else 1
+                for part in group.parts:
+                    if isinstance(part, QWidget):
+                        self.layout.addWidget(part, rows[column], column, Qt.AlignmentFlag.AlignTop)
+                    else:
+                        self.layout.addLayout(part, rows[column], column, Qt.AlignmentFlag.AlignTop)
+                    rows[column] += 1
+            self.layout.setVerticalSpacing(8)
+            self.layout.activate()
+            return
         for column in self.columns:
             while column.count():
                 column.takeAt(0)
@@ -156,6 +173,18 @@ class ListRows:
                 else:
                     self.layout.addLayout(part)
         self.layout.activate()
+
+
+class FlowRows(ListRows):
+    """A wrapping list of self-contained parameter controls."""
+
+    def __init__(self, layout):
+        self.layout = layout
+        self.groups = []
+        for i in range(layout.count()):
+            widget = layout.itemAt(i).widget()
+            caption = next(iter(widget.findChildren(QLabel)), None)
+            self.groups.append(ParameterGroup([widget], caption))
 
 
 class GridRows:
