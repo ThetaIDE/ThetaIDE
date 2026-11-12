@@ -1,0 +1,2 @@
+# Keep numerical parity datasets local, including artificial fixtures.
+*.npz

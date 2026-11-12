@@ -31,6 +31,14 @@ cache/
 *.pkl
 *.pth
 *.npz
+*.npy
+*.csv
+*.tsv
+*.parquet
+*.arrow
+*.feather
+*.hdf5
+*.jsonl
 
 # Training output written outside results/ (ad-hoc scripts, notebooks, other loggers)
 lightning_logs/
@@ -58,6 +66,7 @@ scratch/
 
 # Local datasets
 in/datasets/
+datasets/
 
 # Packaging / Distribution
 build/

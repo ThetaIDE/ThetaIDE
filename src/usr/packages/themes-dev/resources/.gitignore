@@ -1,0 +1,3 @@
+# Keep demonstration datasets local, including artificial inputs.
+*.npz
+*.csv
