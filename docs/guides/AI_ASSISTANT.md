@@ -1,6 +1,6 @@
 # AI Assistant
 
-The **AI Assistant** is a Theta Hub plugin. It adds an **AI** sidebar tab where you chat with OpenAI, Anthropic, Gemini or a local Ollama model about this workspace's runs:
+The **AI Assistant** is a Theta Hub plugin. It adds an **AI** sidebar tab where you chat with OpenAI, Anthropic, Gemini, OpenRouter or a local Ollama model about this workspace's runs:
 
 - why a run failed, from its logs and metrics
 - how two runs differ, and which config change explains it
