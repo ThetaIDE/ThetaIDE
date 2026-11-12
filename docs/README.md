@@ -10,11 +10,14 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Develop components from the GUI or terminal](guides/COMPONENT_DEVELOPMENT.md)
 - [Create editable objectives](guides/CUSTOM_OBJECTIVES.md)
 - [Use mechanistic monitors](guides/MECHANISTIC_MONITORS.md)
+- [Run THEMES/AL experiments](guides/THEMES_AL.md)
 - [Configure local training resources](guides/TRAINING_RESOURCES.md)
 - [Run and sync cluster jobs](guides/CLUSTER_JOBS.md)
 
 ## Reference
 
+- [Method execution contract v1](reference/EXECUTION_CONTRACT.md)
+- [Execution refactor implementation status](development/EXECUTION_ABSTRACTIONS_STATUS.md)
 - [Pipeline and component service API](reference/API.md)
 - [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md)
 - [Data loader ownership and selection](reference/DATA_LOADER_CONTRACT.md)
@@ -36,6 +39,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
+- [Execution abstractions, THEMES components, and the AL group](plans/EXECUTION_ABSTRACTIONS_AND_THEMES_PLAN.md) — strict execution-contract migration using editable first-party dev components, then THEMES/AL; production Hub release and general workflows deferred. [Implementation prompt](plans/EXECUTION_ABSTRACTIONS_IMPLEMENTATION_PROMPT.md).
 - [Slurm hardening and NCShare CPU rollout](plans/SLURM_NCSHARE_HARDENING_PLAN.md) — storage/publication policy, parallelism and continuation boundaries, implementation sequence, and CPU acceptance gate.
 - [Project organization and workspace separation proposal](plans/PROJECT_ORGANIZATION_PLAN.md) — deferred architecture proposal.
 - [Hyperparameter sweep design](plans/HYPERPARAMETER_SWEEPS_DESIGN.md) — design draft.
@@ -44,6 +48,8 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Monitor responsiveness investigation](reports/MONITOR_PERFORMANCE_20261112.md)
+- [Frontend performance diagnosis](reports/FRONTEND_PERFORMANCE_DIAGNOSIS_20261111.md)
 - [Slurm integration and NCShare operational review](reports/SLURM_NCSHARE_REVIEW_20261110.md)
 - [CartPole final sweep and objective review](reports/CARTPOLE_FINAL_SWEEP_20261109.md)
 - [Sweep dashboard comparison](reports/OPTUNA_DASHBOARD_GAPS.md)
@@ -67,3 +73,5 @@ Add documentation to the matching folder and link it from this index. Put design
 The native visual monitoring foundation (roadmap sections 1–3) is described in
 [Mechanistic monitoring](guides/MECHANISTIC_MONITORS.md#native-diagnostics-and-network-inspection)
 and the [rich output contract](reference/MONITOR_CONTRACT.md#rich-output-declarations-v1).
+
+- [THEMES source audit and corrective implementation](guides/THEMES_SOURCE_AUDIT.md)

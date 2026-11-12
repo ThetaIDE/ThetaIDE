@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..live_run import LiveRun, format_duration
-from ..results.data import chart_points, group_metrics, thin
+from ..results.data import IncrementalXYThinner, chart_points, group_metrics, thin
 from ..results.inspector import format_value
 from ..results.metrics_catalog import describe
 from ..results.plot_grid import PlotGrid, chart_title
@@ -336,32 +336,51 @@ class ChartsView(QWidget):
         self._lives, self._colors, self._live = lives, colors, live
         self._comparing = colors is not None if comparing is None else comparing
         rows = {name: live.rows for name, live in lives.items()}
-        # Telemetry rows are append-only; clear/reload replaces the list. Keep the
-        # lists alive as well as their lengths so identity cannot be recycled.
+        # Retain each source list: ordinary appends inspect only the new rows.
         sources = [(name, rs, len(rs)) for name, rs in rows.items()]
-        previous = getattr(self, "_point_sources", [])
-        changed = len(sources) != len(previous) or any(
-            name != old_name or rs is not old_rows or size != old_size
-            for (name, rs, size), (old_name, old_rows, old_size) in zip(sources, previous)
+        previous = {name: (rs, size) for name, rs, size in getattr(self, "_point_sources", [])}
+        rebuild = not hasattr(self, "_point_axis") or any(
+            name not in previous or rs is not previous[name][0] or size < previous[name][1]
+            for name, rs, size in sources
         )
-        if changed or not hasattr(self, "_point_axis"):
+        additions = {name: rs[0 if rebuild else previous[name][1]:] for name, rs, _ in sources}
+        axis = getattr(self, "_point_axis", "step")
+        if axis != "transitions" and any("transitions" in r for rs in additions.values() for r in rs):
+            axis, rebuild = "transitions", True
+        # Removing a source can also change the common x-axis.
+        if set(previous) - set(rows):
             axis = "transitions" if any("transitions" in r for rs in rows.values() for r in rs) else "step"
-            self.points = {}
-            metrics: dict[str, None] = {}
-            for name, series_rows in rows.items():
-                per_metric: dict[str, list[tuple[float, float]]] = {}
-                for r in series_rows:
-                    for key, value in r.items():
-                        if key not in COUNTERS:
-                            metrics.setdefault(key)
-                            if axis in r:
-                                per_metric.setdefault(key, []).append((r[axis], value))
-                for values in per_metric.values():
-                    values.sort(key=lambda p: p[0])
-                self.points[name] = per_metric
-            self._point_sources = sources
-            self._point_axis, self._point_metrics = axis, metrics
+            rebuild = True
+        if rebuild:
+            axis = "transitions" if any("transitions" in r for rs in rows.values() for r in rs) else "step"
+            additions = rows
+            self.points = {name: {} for name in rows}
+            self._point_metrics = {}
             self._drawn_points = {}
+            self._point_thinners = {}
+        metrics = self._point_metrics
+        for name, new_rows in additions.items():
+            per_metric = self.points[name]
+            changed_metrics = set()
+            unordered = set()
+            for r in new_rows:
+                for key, value in r.items():
+                    if key not in COUNTERS:
+                        metrics.setdefault(key)
+                        if axis in r:
+                            points = per_metric.setdefault(key, [])
+                            if points and r[axis] < points[-1][0]:
+                                unordered.add(key)
+                            points.append((r[axis], value))
+                            changed_metrics.add(key)
+            for metric in changed_metrics:
+                if metric in unordered:
+                    # Stable sorting preserves duplicate-step order, including late reports.
+                    per_metric[metric].sort(key=lambda p: p[0])
+                    self._point_thinners.pop((name, metric), None)
+                self._drawn_points.pop((name, metric), None)
+        self._point_sources = sources
+        self._point_axis = axis
         axis, metrics = self._point_axis, self._point_metrics
         self.axis_name = "environment steps" if axis == "transitions" else "logged step"
         self._series_colors = {
@@ -394,7 +413,8 @@ class ChartsView(QWidget):
                 if points:
                     key = (name, metric)
                     if key not in self._drawn_points:
-                        self._drawn_points[key] = thin(chart_points(points, metric), metric)
+                        thinner = self._point_thinners.setdefault(key, IncrementalXYThinner())
+                        self._drawn_points[key] = chart_points(thinner.sample(points), metric)
                     series.append((name, self._drawn_points[key], self._series_colors[name]))
             chart.set_metric(metric, chart_title(metric))
             chart.hold_y = live

@@ -283,14 +283,61 @@ MAX_DRAWN_POINTS = 2000
 def thin(points: list[dict], metric: str, limit: int = MAX_DRAWN_POINTS) -> list[dict]:
     """At most about `limit` chart points, for drawing only: each bucket keeps its lowest and highest
     value (in x order), so spikes and dips survive. Shorter series come back unchanged."""
+    return _thin(points, lambda point: point[metric], limit)
+
+
+def thin_xy(points: list[Point], limit: int = MAX_DRAWN_POINTS) -> list[Point]:
+    """Thin before constructing chart dictionaries, retaining the same extrema and latest point."""
+    return _thin(points, lambda point: point[1], limit)
+
+
+class IncrementalXYThinner:
+    """The same extrema buckets as thin_xy, reused for an append-only sorted series.
+
+    A bucket-width change rebuilds the sample; ordinary appends revisit only the
+    last partial bucket and new points. Callers discard this cache after a reorder.
+    """
+
+    def __init__(self, limit: int = MAX_DRAWN_POINTS):
+        self.limit = limit
+        self._points = None
+        self._size = self._count = 0
+        self._buckets = []
+
+    def sample(self, points: list[Point]) -> list[Point]:
+        if len(points) <= self.limit:
+            self._points = None
+            self._buckets = []
+            self._count = 0
+            return points
+        size = math.ceil(len(points) / (self.limit // 2))
+        if points is not self._points or size != self._size or len(points) < self._count:
+            self._buckets = []
+            start = 0
+        else:
+            start = (self._count // size) * size
+            del self._buckets[start // size:]
+        for offset in range(start, len(points), size):
+            bucket = points[offset:offset + size]
+            low = min(range(len(bucket)), key=lambda i: bucket[i][1])
+            high = max(range(len(bucket)), key=lambda i: bucket[i][1])
+            self._buckets.append([bucket[i] for i in sorted({low, high})])
+        self._points, self._size, self._count = points, size, len(points)
+        kept = [point for bucket in self._buckets for point in bucket]
+        if kept[-1] is not points[-1]:
+            kept.append(points[-1])
+        return kept
+
+
+def _thin(points, value, limit):
     if len(points) <= limit:
         return points
     size = math.ceil(len(points) / (limit // 2))
     kept = []
     for start in range(0, len(points), size):
         bucket = points[start : start + size]
-        low = min(range(len(bucket)), key=lambda i: bucket[i][metric])
-        high = max(range(len(bucket)), key=lambda i: bucket[i][metric])
+        low = min(range(len(bucket)), key=lambda i: value(bucket[i]))
+        high = max(range(len(bucket)), key=lambda i: value(bucket[i]))
         kept.extend(bucket[i] for i in sorted({low, high}))
     if kept[-1] is not points[-1]:
         kept.append(points[-1])  # the latest value is always drawn

@@ -214,7 +214,7 @@ def test_the_disk_cache_rereads_only_changed_runs(tmp_path):
     run_log.log({"eval/reward": 2.0}, step=2)
     run_log.finish()
     again = cache.load(tmp_path, "g", "e", ["ppo"])["ppo"]
-    assert again is not first and again.latest("eval/reward") == 2.0 and again.is_finished()
+    assert again is first and again.latest("eval/reward") == 2.0 and again.is_finished()
     assert cache.cached(tmp_path, "g", "e", ["ppo", "missing"]) == {"ppo": again}
 
 

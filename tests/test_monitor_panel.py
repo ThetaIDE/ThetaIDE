@@ -64,7 +64,7 @@ def test_config_preview_is_nonmodal_and_follows_selected_run(tmp_path):
     second.mkdir()
     (first / "config.yaml").write_text("method: ppo\n")
     (second / "config.yaml").write_text("method: dqn\n")
-    host = SimpleNamespace(selected={"id": "first"}, run_folder=lambda run: tmp_path / run["id"])
+    host = SimpleNamespace(selected={"id": "first", "status": "running"}, run_folder=lambda run: tmp_path / run["id"])
     monitor = MonitorPanel(host)
     monitor.resize(900, 700)
     monitor.show()
@@ -72,13 +72,88 @@ def test_config_preview_is_nonmodal_and_follows_selected_run(tmp_path):
     assert monitor.run_caption.isHidden()
     QTest.mouseClick(monitor.yaml_button, Qt.MouseButton.LeftButton)
     assert monitor.yaml_overlay.isVisible()
-    assert monitor.yaml_viewer.toPlainText() == "method: ppo\n"
-    host.selected = {"id": "second"}
+    assert monitor.yaml_viewer.toPlainText().endswith("method: ppo\n")
+    assert "Saved experiment configuration" in monitor.yaml_viewer.toPlainText()
+    host.selected = {"id": "second", "status": "running"}
     monitor.show_selected(host.selected)
-    assert monitor.yaml_viewer.toPlainText() == "method: dqn\n"
+    assert monitor.yaml_viewer.toPlainText().endswith("method: dqn\n")
     QTest.mouseClick(monitor, Qt.MouseButton.LeftButton)
     assert not monitor.yaml_overlay.isVisible()
     assert not monitor.yaml_button.isChecked()
+    monitor.close()
+
+
+def test_config_preview_follows_streaming_run_trial_and_seed(tmp_path):
+    import yaml
+    from frontend.live_run import LiveRun
+
+    (tmp_path / "config.yaml").write_text("model: wrong-experiment-file\n")
+    active = {"id": "active", "status": "running"}
+    first, second = LiveRun(), LiveRun()
+    for live, seed in ((first, 11), (second, 22)):
+        live.add([{"type": "start", "run": {"pid": seed, "host": "worker", "version": f"seed_{seed}"},
+                   "config": {"seed": seed, "agent": {"policy": "MlpPolicy"},
+                              "model": {"name": "blendrl-dev"}}}])
+    first_name = "BlendRL · study · trial 20 · seed 0"
+    second_name = "BlendRL · study · trial 20 · seed 1"
+    lives = {first_name: first, second_name: second}
+    host = SimpleNamespace(selected={"id": "old", "status": "completed"}, runs=[active],
+                           run_folder=lambda run: tmp_path,
+                           live_for_run=lambda run, load=True: lives if run is active else {})
+    monitor = MonitorPanel(host)
+    monitor.show()
+    monitor.show_run_yaml()
+    assert yaml.safe_load(monitor.yaml_viewer.toPlainText()) == first.config
+    assert first_name in monitor.yaml_viewer.toPlainText()
+    monitor.focus_agent(second_name)
+    text = monitor.yaml_viewer.toPlainText()
+    assert yaml.safe_load(text) == second.config
+    assert second_name in text and "Pid: 22" in text
+    second.add([{"type": "event", "kind": "model", "data": {
+        "policy_class": "theta.ThetaActorCriticPolicy", "model_class": "blendrl.BlenderActorCritic",
+        "model_components": ["symbolic.NSFReasoner", "neural.DNNModel"]}}])
+    monitor.refresh_live()
+    text = monitor.yaml_viewer.toPlainText()
+    assert "Runtime policy_class: theta.ThetaActorCriticPolicy" in text
+    assert "Runtime model_class: blendrl.BlenderActorCritic" in text
+    assert "symbolic.NSFReasoner" in text
+    assert yaml.safe_load(text) == second.config
+    monitor.close()
+
+
+def test_config_preview_does_not_replace_missing_process_config_with_experiment(tmp_path):
+    from frontend.live_run import LiveRun
+
+    (tmp_path / "config.yaml").write_text("model: misleading-parent-config\n")
+    live = LiveRun()
+    live.add([{"type": "metrics", "step": 1, "data": {"loss": 1}}])
+    host = SimpleNamespace(selected={"id": "active", "status": "running"},
+                           run_folder=lambda run: tmp_path, live_for_run=lambda run, load=True: {"worker": live})
+    monitor = MonitorPanel(host)
+    monitor.show_run_yaml()
+    text = monitor.yaml_viewer.toPlainText()
+    assert "not been reported by this process" in text
+    assert "misleading-parent-config" not in text
+    monitor.close()
+
+
+def test_config_preview_uses_process_from_focused_sweep():
+    import yaml
+    from frontend.live_run import LiveRun
+
+    first, second = LiveRun(), LiveRun()
+    first.add([{"type": "start", "config": {"model": "first"}}])
+    second.add([{"type": "start", "config": {"model": "second"}}])
+    lives = {"A · study-a · trial 1": first, "B · study-b · trial 2": second}
+    host = SimpleNamespace(selected={"id": "active", "status": "running"},
+                           live_for_run=lambda run, load=True: lives)
+    monitor = MonitorPanel(host)
+    monitor.focused_agent = next(iter(lives))
+    monitor._focus_run_id = "active"
+    monitor._focused_sweep = "B:study-b"
+    monitor.views.setCurrentWidget(monitor.sweep_view)
+    monitor.show_run_yaml()
+    assert yaml.safe_load(monitor.yaml_viewer.toPlainText()) == second.config
     monitor.close()
 
 

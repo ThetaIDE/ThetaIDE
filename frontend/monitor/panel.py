@@ -249,7 +249,7 @@ class MonitorPanel(QWidget):
         self.yaml_button = QPushButton("Config")
         self.yaml_button.setObjectName("monitorViewButton")
         self.yaml_button.setCheckable(True)
-        self.yaml_button.setToolTip("Show the saved configuration for the selected run")
+        self.yaml_button.setToolTip("Show the monitored process's resolved configuration and runtime policy")
         self.yaml_button.clicked.connect(self.show_run_yaml)
         view_row.addWidget(self.yaml_button)
         self.queue_button = QPushButton("Queue")
@@ -343,7 +343,7 @@ class MonitorPanel(QWidget):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(LIVE_REFRESH_MS)
-        self._refresh_timer.timeout.connect(self.refresh_live)
+        self._refresh_timer.timeout.connect(self._refresh_if_visible)
         self._clock = QTimer(self)
         self._clock.setInterval(1000)
         self._clock.timeout.connect(self._tick_status)
@@ -474,15 +474,58 @@ class MonitorPanel(QWidget):
         self.yaml_overlay.show()
         self.yaml_overlay.raise_()
 
-    def _refresh_run_yaml(self):
-        run = self.host.selected
+    def _refresh_run_yaml(self, lives=None):
+        import yaml
+
+        run = self._current_run()
+        if lives is None:
+            lookup = getattr(self.host, "live_for_run", None)
+            lives = lookup(run, load=True) if run and callable(lookup) else {}
+            lives = {name: live for name, live in lives.items()
+                     if (live.start or live.rows) and not live.is_finished()}
+        candidates = lives
+        if self._focused_sweep and self.views.currentWidget() is self.sweep_view:
+            method, study = self._focused_sweep.split(":", 1)
+            prefix = f"{method} · {study} · trial "
+            candidates = {name: live for name, live in lives.items() if name.startswith(prefix)}
+        source = (self.focused_agent if self._focus_run_id == (run or {}).get("id")
+                  and self.focused_agent in candidates else next(iter(candidates), None))
+        if source is not None:
+            live = candidates[source]
+            identity = (live.start or {}).get("run") or {}
+            header = [f"Process: {source}"]
+            for key in ("host", "pid", "version"):
+                if identity.get(key) is not None:
+                    header.append(f"{key.capitalize()}: {identity[key]}")
+            runtime = next((event.get("data") or {} for event in reversed(live.events)
+                            if event.get("kind") == "model"), {})
+            if runtime:
+                for key in ("algorithm_class", "policy_class", "model_class", "model_components"):
+                    if runtime.get(key):
+                        header.append(f"Runtime {key}: {runtime[key]}")
+            else:
+                header.append("Runtime policy/model has not been reported by this process yet.")
+            text = "\n".join("# " + line for item in header for line in item.splitlines()) + "\n\n"
+            text += (yaml.safe_dump(live.config, sort_keys=False, allow_unicode=True) if live.config else
+                     "Configuration has not been reported by this process yet.")
+            self._set_run_yaml(text)
+            return
+        if lives:
+            self._set_run_yaml("Configuration is not available yet for the monitored sweep's process.")
+            return
         folder = self.host.run_folder(run) if run else None
         path = folder / "config.yaml" if folder else None
         try:
             text = path.read_text(encoding="utf-8") if path else ""
         except OSError:
             text = ""
-        self.yaml_viewer.setPlainText(text if text else "Saved configuration is not available yet for this run.")
+        self._set_run_yaml(("# Saved experiment configuration; no streaming process configuration is available yet.\n\n" + text)
+                           if text else "Configuration is not available yet for the monitored process.")
+
+    def _set_run_yaml(self, text):
+        # Clock ticks should not reset selection or scrolling in the open preview.
+        if self.yaml_viewer.toPlainText() != text:
+            self.yaml_viewer.setPlainText(text)
 
     def show_view(self, name: str):
         """Show one of the views ("Overview" is the charts workspace) and mark its button."""
@@ -636,8 +679,17 @@ class MonitorPanel(QWidget):
 
     def live_changed(self):
         """New records (or another run selected): redraw the live views soon, once for many changes."""
-        if not self._refresh_timer.isActive():
+        if self.isVisible() and not self._refresh_timer.isActive():
             self._refresh_timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.live_changed()
+
+    def _refresh_if_visible(self):
+        # A pending update can outlive a switch to another pane.
+        if self.isVisible():
+            self.refresh_live()
 
     def _run_is_live(self, run) -> bool:
         return bool(run) and not run.get("simulated") and run.get("status") in LIVE_STATUSES
@@ -665,6 +717,8 @@ class MonitorPanel(QWidget):
             self.sweep_view.set_studies([])
             self.sweep_view.set_lives({})
             self._log_run_id = None
+            if self.yaml_overlay.isVisible():
+                self._refresh_run_yaml({})
             return
         from .sweep_view import study_summaries
         jobs = getattr(self.host, "jobs", None)
@@ -720,6 +774,8 @@ class MonitorPanel(QWidget):
         if not self.focused_agent:
             self.focused_agent = methods[0] if methods else None
             self._focus_run_id = run["id"]
+        if self.yaml_overlay.isVisible():
+            self._refresh_run_yaml(lives)
         menu = self.method_button.menu()
         trial_menu = self.trial_button.menu()
         if not menu.isVisible():

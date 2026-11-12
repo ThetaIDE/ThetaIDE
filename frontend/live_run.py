@@ -167,12 +167,37 @@ def format_duration(seconds: float | None) -> str:
 class LiveRunCache:
     """LiveRuns of finished (or other sessions') runs, read from disk and re-read only when files change.
 
-    Each agent's newest version_N is read whole through AgentFeed: its events.jsonl when it has one,
-    else its metrics.csv (rows only, without times, so no speed or system history).
+    Append-only streams retain their AgentFeed and LiveRun between reads. CSV fallback is replayed
+    when changed because training tools can rewrite its history, even with an unchanged header.
     """
 
     def __init__(self):
         self._entries: dict[tuple, tuple[tuple, LiveRun]] = {}
+        self._feeds: dict[tuple, Any] = {}
+
+    def _load_entry(self, key, feed, version_dir):
+        stamp = (str(version_dir), *(_file_stamp(version_dir / name) for name in ("events.jsonl", "metrics.csv")))
+        cached = self._entries.get(key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        previous_feed = self._feeds.get(key)
+        # Only a growing stream on the same file can be tailed. Replacements,
+        # truncation, version switches and CSV rewrites replay into a fresh run.
+        append = (cached is not None and previous_feed is not None
+                  and stamp[0] == cached[0][0] and len(stamp[1]) > 1
+                  and stamp[1][2:] == cached[0][1][2:]
+                  and stamp[1][0] > cached[0][1][0])
+        live = cached[1] if append else LiveRun()
+        if append:
+            feed = previous_feed
+        records, reset = feed.read()
+        live.add(records, reset=reset, now=_file_time(version_dir))
+        self._entries[key] = (stamp, live)
+        if feed.kind == "stream":
+            self._feeds[key] = feed
+        else:
+            self._feeds.pop(key, None)
+        return live
 
     def load_version(self, agent_dir, version):
         """Read a specific trial's telemetry without switching to a newer trial."""
@@ -183,15 +208,8 @@ class LiveRunCache:
         version_dir = feed.newest_version()
         if version_dir is None:
             return None
-        stamp = (str(version_dir), *(_file_stamp(version_dir / name) for name in ("events.jsonl", "metrics.csv")))
         key = ("version", str(version_dir))
-        cached = self._entries.get(key)
-        if cached is None or cached[0] != stamp:
-            live = LiveRun()
-            records, _ = feed.read()
-            live.add(records, now=_file_time(version_dir))
-            self._entries[key] = cached = (stamp, live)
-        return cached[1]
+        return self._load_entry(key, feed, version_dir)
 
     def cached(self, logs_dir, group: str, experiment_id: str, agents: list[str]) -> dict[str, LiveRun]:
         """What was read before, without touching the disk (possibly out of date)."""
@@ -213,15 +231,8 @@ class LiveRunCache:
             version_dir = feed.newest_version()
             if version_dir is None:
                 continue
-            stamp = (str(version_dir), *(_file_stamp(version_dir / name) for name in ("events.jsonl", "metrics.csv")))
             key = (str(logs_dir), group, experiment_id, agent)
-            cached = self._entries.get(key)
-            if cached is None or cached[0] != stamp:
-                live = LiveRun()
-                records, _ = feed.read()
-                live.add(records, now=_file_time(version_dir))
-                self._entries[key] = cached = (stamp, live)
-            lives[agent] = cached[1]
+            lives[agent] = self._load_entry(key, feed, version_dir)
         return lives
 
 
@@ -230,7 +241,7 @@ def _file_stamp(path) -> tuple:
         stat = path.stat()
     except OSError:
         return (None,)
-    return (stat.st_size, stat.st_mtime_ns)
+    return (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino)
 
 
 def _file_time(version_dir) -> float:
