@@ -13,6 +13,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Run THEMES/AL experiments](guides/THEMES_AL.md)
 - [Configure local training resources](guides/TRAINING_RESOURCES.md)
 - [Run and sync cluster jobs](guides/CLUSTER_JOBS.md)
+- [Ask the AI Assistant about runs](guides/AI_ASSISTANT.md)
 
 ## Reference
 

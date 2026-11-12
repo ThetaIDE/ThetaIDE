@@ -59,6 +59,7 @@ gui = [
     "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
     "pywinpty>=2.0; sys_platform == 'win32'",
     "arxiv>=2.1",        # arXiv Papers panel
+    "keyring>=24",       # AI Assistant: API keys in the OS keychain
     "truststore>=0.9",   # HTTPS through the OS certificate store (networks that inspect TLS)
 ]
 video = [

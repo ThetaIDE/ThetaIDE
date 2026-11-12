@@ -32,6 +32,12 @@
       "version": "1.0.0"
     },
     {
+      "id": "ai_assistant",
+      "root": "src/plugins/app/bundled/ai_assistant",
+      "kind": "plugin",
+      "version": "1.0.0"
+    },
+    {
       "id": "arxiv_papers",
       "root": "src/plugins/app/bundled/arxiv_papers",
       "kind": "plugin",
