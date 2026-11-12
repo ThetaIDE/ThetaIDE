@@ -1,0 +1,5 @@
+# @package _global_
+defaults:
+  - /experiment/AL/_base
+  - _self_
+# Development and acceptance runs live beneath AL/codex through recipe identity.

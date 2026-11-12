@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /experiment/AL/codex/_base
+  - _self_
+experiment_id: themes_synthetic
+methods:
+  ticc_em_edm:
+    agent:
+      name: themes-dev/em_edm
+      em_iterations: 6
+      updates: 100
+      sgld_steps: 10
+    model:
+      name: themes-dev/ticc
+      ticc_iterations: 8

@@ -1,0 +1,11 @@
+algorithm: themes-dev/em_edm
+backend: numerical
+patients: 0
+groups: 2
+min_group_segments: 1
+em_iterations: 2
+updates: 3
+sgld_steps: 1
+density_weight: 0.1
+monitor_probe_count: 64
+monitor_max_snapshots: 8

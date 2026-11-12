@@ -1,0 +1,8 @@
+data_module: themes-dev/csv_trajectories
+role: training
+visit_column: VisitIdentifier
+time_column: MinutesFromArrival
+action_column: a_2
+person_column: null
+test_fraction: 0.2
+feature_columns: [SystolicBP, MAP, RespiratoryRate, PulseOx, HeartRate, Temperature, WBC, BiliRubin, BUN, Lactate, Creatinine, Platelet, Bands, FIO2]

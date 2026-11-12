@@ -1,0 +1,24 @@
+{
+  "source": "THEMES/demo independent reconstruction",
+  "extracted": "2026-11-11",
+  "sha256": {
+    "core.py": "c20a814775418dde9fe322754dbd84821b919466a5daad168dce306f0fd7c51e",
+    "run_mimic.py": "dab3abf8ad0347b4d9bc0ad4a232cb4e0d6d6f47c0edd323c587d47d12449637",
+    "README.md": "f4ae81ad1f16501b4cd4f71c47aeb3fbfb60cc75e43b3f1fb16179466597b104"
+  },
+  "core_changes": [
+    "Optional observation callbacks for numerical monitoring; stable component IDs and prior traces. Fitting arithmetic/schedule unchanged.",
+    "Learner no longer constructs policies; selected model supplies policy factory."
+  ],
+  "redistribution": "Local research only; upstream redistribution/license review remains required before public distribution.",
+  "current_core_sha256": "5dab00dbff67c0f26a4fc2ec779d52e111b25af370fb424bcf41e43047b5fd1a",
+  "original_source_mirror": "reference/original/SOURCE_MANIFEST.json",
+  "original_source_equivalent": false,
+  "paper_source_port": {
+    "source_equivalent": false,
+    "reference_manifest": "reference/original/SOURCE_MANIFEST.json",
+    "method_reference": "https://arxiv.org/abs/2305.09070",
+    "differences": "docs/guides/THEMES_SOURCE_AUDIT.md",
+    "historical_demo_retained": true
+  }
+}

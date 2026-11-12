@@ -330,3 +330,16 @@ IDs. Negative velocity selects the left predicate, positive velocity selects
 right, and zero selects noop; truth values are 0.99/0.01. This local ruleset
 supplies the valuation missing from the installed environment package and leaves
 managed packages unchanged. See `src/usr/rules/mountaincar/monitoring_default`.
+
+
+## Numerical AL diagnostics
+
+The editable THEMES suite also publishes provider-owned TICC, EM and EDM training
+signals and bounded policy-response, feature-replacement and membership snapshots
+through the same telemetry/Diagnostics formats. These are not arbitrary standalone
+monitor plugins attached to an SB3-style adapter: the numerical schedule exposes
+explicit observation boundaries. Fixed probes come from training rows only;
+feature replacement is model sensitivity, not a causal treatment intervention.
+See [THEMES/AL](THEMES_AL.md#plotman-figures-and-live-diagnostics) for controls and
+composable PlotMan panels. Broader architecture support and engine-wide resume
+or reproducibility are separate work.

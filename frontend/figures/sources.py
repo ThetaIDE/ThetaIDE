@@ -54,7 +54,15 @@ class PanelSource:
         if self._registry is None:
             from plot.manager import discover_plotters
 
-            self._registry = discover_plotters()
+            from src.app.core.plotter_registry import get_plotter_class
+            self._registry = {}
+            for name, cls in discover_plotters().items():
+                try:
+                    cls = cls or get_plotter_class(name)
+                    if cls is not None:
+                        self._registry[name] = cls
+                except Exception as exc:
+                    self._errors[(name, "")] = f"{type(exc).__name__}: {exc}"
         return self._registry
 
     def plotter_names(self) -> list[str]:

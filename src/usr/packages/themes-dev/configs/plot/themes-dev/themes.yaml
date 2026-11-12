@@ -1,0 +1,5 @@
+name: themes-dev/themes
+split: all
+max_visits: 6
+figsize: [8, 4.5]
+dpi: 160

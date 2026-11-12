@@ -1,0 +1,18 @@
+{
+  "source": "Original THEMES/demo core.py and run_mimic.py",
+  "core_sha256": "c20a814775418dde9fe322754dbd84821b919466a5daad168dce306f0fd7c51e",
+  "torch": "2.14.1",
+  "numpy": "1.26.4",
+  "seed": 42,
+  "settings": {
+    "stages": 2,
+    "ticc_iterations": 2,
+    "groups": 2,
+    "em_iterations": 2,
+    "updates": 3,
+    "sgld_steps": 1,
+    "min_group_segments": 1
+  },
+  "rtol": 1e-05,
+  "atol": 1e-06
+}

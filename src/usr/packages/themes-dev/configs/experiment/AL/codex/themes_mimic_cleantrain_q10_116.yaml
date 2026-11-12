@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+  - /experiment/AL/codex/_base
+  - _self_
+experiment_id: themes_mimic_cleantrain_q10_116
+description: Local THEMES CSV demonstrations; binary a_2, train-only preprocessing, fixed-row TICC + EM-EDM.
+# External clinical file: read in place, never distributed with the provider.
+dataset_path: ${oc.env:THEMES_DATASETS_DIR,../../THEMES/datasets}/MIMIC_cleantrain_md_expert_Q10_116.csv
+data_module: themes-dev/csv_trajectories
+methods:
+  ticc_em_edm:
+    agent:
+      name: themes-dev/em_edm
+      patients: 0
+      groups: 3
+      min_group_segments: 5
+      em_iterations: 6
+      updates: 250
+      sgld_steps: 10
+    model:
+      name: themes-dev/ticc
+      stages: 5
+      ticc_iterations: 12

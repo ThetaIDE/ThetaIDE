@@ -1,0 +1,12 @@
+CartPole-v1: ppo2
+MountainCar-v0: ppo2
+BipedalWalker-v3: ppo2
+Pendulum-v0: ppo2
+Acrobot-v1: ppo2
+MountainCar_v2: ppo2
+MountainCar_v3: ppo2
+GridWorld: None
+Highway: None
+Mayo: None
+MIMICIII: None
+CCHS: None

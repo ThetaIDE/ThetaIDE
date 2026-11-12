@@ -1,0 +1,12 @@
+data_module: themes-dev/time_csv_trajectories
+role: training
+visit_column: VisitIdentifier
+time_column: MinutesFromArrival
+action_column: a_2
+person_column: null
+test_fraction: 0.2
+window_minutes: 60.0
+lag_rows: 0
+policy_scaling: train_minmax_zero_one
+clip_policy_inputs: false
+feature_columns: [SystolicBP, MAP, RespiratoryRate, PulseOx, HeartRate, Temperature, WBC, BiliRubin, BUN, Lactate, Creatinine, Platelet, Bands, FIO2]

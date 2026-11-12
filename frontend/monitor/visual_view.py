@@ -74,16 +74,20 @@ def draw_matrix(canvas, snapshot, layer, state, **_):
                    QImage.Format.Format_RGBA8888).copy()
     item = canvas.scene().addPixmap(QPixmap.fromImage(image).scaled(850, 450,
         Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation))
-    item.setToolTip(f"{chosen['id']} · {chosen.get('coverage', '')}\nRows: fixed probes; columns: saved feature IDs")
+    row_axis, column_axis = chosen.get('row_axis', 'probe samples'), chosen.get('column_axis', 'saved IDs')
+    item.setToolTip(f"{chosen['id']} · {chosen.get('coverage', '')}\nRows: {row_axis}; columns: {column_axis}")
     semantics = chosen.get("value_semantics", "Signed activation")
     unit = chosen.get("unit", "model units")
     legend = (f"range {value_range[0]:g} → {value_range[1]:g}; fixed scale" if value_range is not None
               else f"range ±{scale:.5g}; per-snapshot scale")
-    text(canvas.scene(), 0, -80, f"{chosen['id']} · rows: probe samples · columns: saved IDs\n"
+    text(canvas.scene(), 0, -80, f"{chosen['id']} · rows: {row_axis} · columns: {column_axis}\n"
          f"{semantics}, {unit}: blue + / red −; {legend}; gray = missing")
     columns = chosen.get("feature_ids", [])
     names = ", ".join(map(str, columns[:16])) + (" …" if len(columns) > 16 else "")
-    text(canvas.scene(), 0, 460, chosen.get("coverage", "") + (f"\nColumn order: {names}" if names else ""))
+    rows = chosen.get('row_ids', [])
+    row_names = ', '.join(map(str, rows[:24])) + (' …' if len(rows) > 24 else '')
+    text(canvas.scene(), 0, 460, chosen.get("coverage", "") + (f"\nColumn order: {names}" if names else "")
+         + (f"\nRow order: {row_names}" if row_names else ""))
 
 
 

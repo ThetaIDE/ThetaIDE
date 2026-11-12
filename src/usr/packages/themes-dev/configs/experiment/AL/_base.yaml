@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - override /env: null
+paradigm: apprenticeship
+group: AL
+seed: 42
+eval_episodes: 0
+# Read-only artificial demonstrations shipped with the editable provider.
+dataset_path: package://themes-dev/resources/synthetic.npz
+evaluator: themes-dev/recorded_actions
+# The numerical runner produces overview.png within its own run bundle.
+no_plot: true

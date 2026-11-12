@@ -1,0 +1,5 @@
+architecture: themes-dev/ticc
+stages: 2
+sparsity: 0.01
+switch_penalty: 4.0
+ticc_iterations: 2
