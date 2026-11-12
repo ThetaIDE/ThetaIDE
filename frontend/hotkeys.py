@@ -493,9 +493,21 @@ class HotkeyManager(QObject):
         """Resolve a digit [0-9] to a canonical pane ID.
 
         Priority:
-          1. Explicit ``hotkeys.panes`` list from settings.toml
-          2. Default: 0 → settings, 1-9 → sidebar tabs in order
+          1. Explicit ``hotkeys.bindings`` mapping (including unassigned digits)
+          2. Legacy ``hotkeys.panes`` list when bindings have not been migrated
+          3. Default: 0 → settings, 1-9 → sidebar tabs in order
         """
+        bindings = self.settings_manager.get("hotkeys", "bindings", default=None)
+        if isinstance(bindings, dict):
+            target = f"ACTION + {index}"
+            for pid, combo in bindings.items():
+                normalized = str(combo).strip().upper()
+                if not normalized.startswith("ACTION"):
+                    normalized = f"ACTION + {normalized}"
+                if normalized == target:
+                    return PANE_ALIASES.get(pid.lower(), pid)
+            return None
+
         configured = self.settings_manager.hotkey_panes
         if 0 <= index < len(configured):
             raw = configured[index]

@@ -1,6 +1,5 @@
 """Full-screen, simplified, boxed configuration viewer for Theta-IDE."""
 import copy
-import inspect
 import json
 import math
 import re
@@ -51,6 +50,7 @@ from .widgets import (
 from .metric_picker import MetricPicker, logged_metrics
 from .parameter_reorder import ColumnRows, FlowRows, FormRows, GridRows, ListRows, ParameterReorder, form_groups
 from src.app.services import LOGS_DIR, PROJECT_ROOT
+from src.app.core.provider_discovery import discovery_cached, provider_discovery_snapshot
 from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 
 # Forms stay readable on wide windows: the column of boxes stops growing past CONTENT_WIDTH,
@@ -577,6 +577,12 @@ def get_method_candidate_hyperparameters(
     return candidates
 
 
+def _dataset_workspace():
+    from src.app.workspace import WorkspacePaths
+    tree = config_tree()
+    return WorkspacePaths.from_config_root(tree.config_root) if tree else WorkspacePaths.for_process()
+
+
 def discover_datasets(env_name: str | None = None) -> list[str]:
     """Discover available dataset files and folders in in/datasets and results/datasets."""
     found = []
@@ -798,8 +804,10 @@ def _read_group_base(tree, group):
         return {}
 
 
+@discovery_cached
 def _component_profiles(config_root: Path, directory: str, selector: str) -> dict[str, dict]:
     """Installed YAML profiles, keyed by the runtime component name."""
+    from src.app.core.provider_metadata import profile_values
     profiles = {}
     profile_root = config_root / directory
     if profile_root.is_dir():
@@ -807,7 +815,7 @@ def _component_profiles(config_root: Path, directory: str, selector: str) -> dic
             if path.name.startswith(("_", ".")):
                 continue
             try:
-                values = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                values = profile_values(path)
             except (OSError, yaml.YAMLError):
                 continue
             if isinstance(values, dict):
@@ -1224,6 +1232,7 @@ class ConfigViewer(QWidget):
         self.chk_recover = None
         self.chk_no_plot = None
         self.view_mode = "resolved" if (settings_manager and settings_manager.show_resolved_defaults) else "overrides"
+        self._form_settings = self._form_settings_snapshot()
         if self.settings_manager:
             self.settings_manager.changed.connect(self._on_settings_changed)
 
@@ -1241,15 +1250,25 @@ class ConfigViewer(QWidget):
             return self.plugin_manager.is_plugin_enabled(plugin_id)
         return True
 
+    def _form_settings_snapshot(self):
+        sm = self.settings_manager
+        return tuple(bool(sm and getattr(sm, key)) for key in (
+            "show_resolved_defaults", "show_method_agent_defaults",
+            "show_method_model_defaults", "show_all_default_params",
+        ))
+
     def _on_settings_changed(self):
-        if self.settings_manager:
-            new_mode = "resolved" if self.settings_manager.show_resolved_defaults else "overrides"
-            if new_mode != self.view_mode:
-                self.view_mode = new_mode
-                self.chk_view_mode.blockSignals(True)
-                self.chk_view_mode.setChecked(new_mode == "resolved")
-                self.chk_view_mode.blockSignals(False)
-            self._render_boxes()
+        state = self._form_settings_snapshot()
+        previous = self._form_settings
+        if state == previous:
+            return
+        self._form_settings = state
+        if state[0] != previous[0]:
+            self.view_mode = "resolved" if state[0] else "overrides"
+            self.chk_view_mode.blockSignals(True)
+            self.chk_view_mode.setChecked(state[0])
+            self.chk_view_mode.blockSignals(False)
+        self._render_boxes()
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
@@ -1676,6 +1695,7 @@ class ConfigViewer(QWidget):
         elif self.raw_data:
             self._render_boxes()
 
+    @provider_discovery_snapshot()
     def load_file(self, file_path: Path, rel_path: str):
         """Parse YAML file and render visual boxes."""
         if getattr(self, "auto_save", False) and self.is_dirty:
@@ -1712,6 +1732,7 @@ class ConfigViewer(QWidget):
         from frontend.hub.installer import HubInstaller
         return HubInstaller(workspace, workspace / ".thetaide").is_installed_file(self.current_path)
 
+    @provider_discovery_snapshot()
     def _render_boxes(self):
         """Rebuild structural changes safely, retaining the current viewport."""
         if getattr(self, "_rendering_boxes", False):
@@ -2115,8 +2136,6 @@ class ConfigViewer(QWidget):
                 self.raw_data.pop("save_dataset", None)
             if self.raw_data.get("recover") is False:
                 self.raw_data.pop("recover", None)
-            if self.raw_data.get("no_plot") is False:
-                self.raw_data.pop("no_plot", None)
 
     def _cap_form_fields(self):
         """Limit field widths in every label/field form and two-column grid."""
@@ -2737,6 +2756,8 @@ class ConfigViewer(QWidget):
             if flag_key == "timestamp_experiment":
                 chk.setToolTip("Add a timestamp when results already exist to keep previous runs.")
                 chk.toggled.connect(lambda value: self._on_field_edited("timestamp_experiment", value))
+            elif flag_key == "no_plot":
+                chk.toggled.connect(lambda value: self._on_field_edited("no_plot", value))
             elif flag_key == "run_in_parallel":
                 chk.setToolTip("Train every configured method in a separate process at the same time.")
                 chk.toggled.connect(lambda value: self._on_field_edited("run_in_parallel", value))
@@ -4014,67 +4035,48 @@ class ConfigViewer(QWidget):
         self._mark_dirty()
         self._render_boxes()
 
+    @provider_discovery_snapshot()
     def _component_choices(self, kind: str) -> dict[str, dict]:
+        tree = config_tree()
+        paradigm = self.raw_data.get("paradigm") or self._inherited_paradigm()
+        paths = self._loader_paths()
+        return self._component_choices_for(kind, paradigm, paths, tree.config_root if tree else paths.config)
+
+    @discovery_cached
+    def _component_choices_for(self, kind, paradigm, paths, config_root):
+        from src.app.core.provider_metadata import capability_metadata, selector_metadata
+        from src.app.core.provider_catalog import DuplicateProvider
         if kind == "symbolic_state_loader":
             from src.app.core.data_loaders import state_loader_choices
-            return state_loader_choices(paths=self._loader_paths())
-        tree = config_tree()
-        root = tree.config_root if tree else PROJECT_ROOT / "in" / "config"
-        directory, selector = {
-            "data_module": ("data", "data_module"),
-            "evaluator": ("eval", "evaluator"),
-            "plots": ("plot", "plotter"),
-        }[kind]
-        profiles = _component_profiles(root, directory, selector)
-        try:
-            if kind == "data_module":
-                from src.app.core.datamodule_registry import get_datamodule_class, list_registered_datamodules
-                names = list_registered_datamodules()
-                resolve = get_datamodule_class
-            elif kind == "evaluator":
-                from src.app.core.eval_registry import get_evaluator_class, list_registered_evaluators
-                names = list_registered_evaluators()
-                resolve = get_evaluator_class
-            else:
-                from src.app.core.plotter_registry import get_plotter_class, list_registered_plotters
-                names = list_registered_plotters()
-                resolve = get_plotter_class
-            for name in names:
-                try:
-                    component_class = resolve(str(name))
-                    source = Path(inspect.getfile(component_class)) if component_class else None
-                    if source is not None and not source.exists():
-                        continue
-                except (OSError, TypeError):
-                    pass
-                profiles.setdefault(str(name), {})
-            if kind == "data_module":
-                from src.app.core.data_loaders import loader_metadata
-                profiles = {name: values for name, values in profiles.items()
-                            if values.get("role", loader_metadata({"name": values.get("name") or name},
-                                paths=self._loader_paths()).get("role", "training")) == "training"}
-            paradigm = self.raw_data.get("paradigm") or self._inherited_paradigm()
-            if paradigm and kind != "plots":
-                allowed = {}
-                for name, values in profiles.items():
-                    supported = values.get("compatible_paradigms") or values.get("paradigms")
-                    if not supported:
-                        try:
-                            cls = resolve(name)
-                        except Exception:
-                            cls = None
-                        declared = getattr(cls, "get_supported_paradigms", None)
-                        if callable(declared):
-                            try:
-                                supported = declared()
-                            except Exception:
-                                supported = None
-                    if not supported or paradigm in supported:
-                        allowed[name] = values
-                profiles = allowed
-        except Exception:
-            pass
-        return profiles
+            profiles = state_loader_choices(paths=paths)
+            capability_kind, selector = "datamodule", "data_module"
+        else:
+            directory, selector, capability_kind = {
+                "data_module": ("data", "data_module", "datamodule"),
+                "evaluator": ("eval", "evaluator", "evaluator"),
+                "plots": ("plot", "plotter", "plotter"),
+            }[kind]
+            profiles = {}
+            for root in dict.fromkeys((config_root, *paths.config_roots())):
+                for name, values in _component_profiles(root, directory, selector).items():
+                    profiles.setdefault(name, values)
+            for name in selector_metadata(capability_kind, paths):
+                profiles.setdefault(name, {})
+        allowed = {}
+        for name, values in profiles.items():
+            try:
+                metadata = capability_metadata(capability_kind, str(values.get(selector) or values.get("name") or name), paths)
+            except DuplicateProvider:
+                continue
+            if kind in ("data_module", "symbolic_state_loader"):
+                role = values.get("role", metadata.get("role", "training"))
+                if role != ("training" if kind == "data_module" else "symbolic_state"):
+                    continue
+            supported = (values.get("compatible_paradigms") or values.get("paradigms")
+                         or metadata.get("compatible_paradigms") or metadata.get("paradigms"))
+            if not paradigm or not supported or paradigm in supported:
+                allowed[name] = values
+        return allowed
 
     @staticmethod
     def _component_name(value: Any) -> str:
@@ -4746,8 +4748,20 @@ class ConfigViewer(QWidget):
         status = QLabel("")
 
         def _update_source_status(path_text):
-            path = Path(path_text.strip())
-            if path_text.strip() and path.exists():
+            from src.app.pipeline.datasets import resolve_dataset_for_method
+            try:
+                source = path_text.strip()
+                if "${" in source:
+                    from omegaconf import OmegaConf
+                    source = OmegaConf.create({**resolved, **data, "dataset_path": source})["dataset_path"]
+                path = None
+                if source:
+                    path = resolve_dataset_for_method(
+                        "dataset preview", {}, {"dataset_path": source}, paths=_dataset_workspace()
+                    )
+            except Exception:  # The full preflight reports invalid references; this is a file-status hint.
+                path = None
+            if path is not None and path.exists():
                 try:
                     size_mb = path.stat().st_size / (1024 * 1024)
                     status.setText(f"✓ Exists ({size_mb:.1f} MB)")
@@ -6075,9 +6089,8 @@ class ConfigViewer(QWidget):
 
     def _browse_dataset_path(self):
         """Open file dialog to select a dataset file or directory."""
-        initial_dir = str(Path.cwd() / "in" / "datasets")
-        if not Path(initial_dir).is_dir():
-            initial_dir = str(Path.cwd())
+        workspace = _dataset_workspace()
+        initial_dir = str(workspace.datasets if workspace.datasets.is_dir() else workspace.root)
         selected, _ = QFileDialog.getOpenFileName(
             self,
             "Select Dataset",
@@ -6086,8 +6099,9 @@ class ConfigViewer(QWidget):
         )
         if selected:
             try:
-                rel = Path(selected).relative_to(Path.cwd()).as_posix()
-            except ValueError:
+                import os
+                rel = Path(os.path.relpath(selected, workspace.root)).as_posix()
+            except ValueError:  # Different Windows drives cannot share a relative path.
                 rel = selected
             if hasattr(self, "combo_dataset_path"):
                 self.combo_dataset_path.setEditText(rel)
@@ -6374,6 +6388,7 @@ class ConfigViewer(QWidget):
         self._mark_dirty()
         self._refresh_sweep_box()
 
+    @provider_discovery_snapshot()
     def _refresh_sweep_box(self):
         """Update dependent sweep controls without replacing unrelated editors."""
         self._sweep_refresh_timer.stop()
@@ -7453,7 +7468,7 @@ class ConfigViewer(QWidget):
             overrides.append(f"save_dataset={str(data['save_dataset']).lower()}")
         if "recover" in data and data["recover"]:
             overrides.append(f"recover={str(data['recover']).lower()}")
-        if "no_plot" in data and data["no_plot"]:
+        if "no_plot" in data:
             overrides.append(f"no_plot={str(data['no_plot']).lower()}")
 
         if "dataset_path" in data and data["dataset_path"]:

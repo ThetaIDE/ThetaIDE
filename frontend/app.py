@@ -841,9 +841,7 @@ class Window(QMainWindow):
                 else:
                     action.setShortcut(QKeySequence())
 
-        # --- Settings view sync ---
-        if hasattr(self, "settings_view") and hasattr(self.settings_view, "sync_from_settings"):
-            self.settings_view.sync_from_settings()
+        # SettingsView subscribes directly to SettingsManager.changed.
 
     def _on_action_key_changed(self, index):
         if not hasattr(self, "settings_action_key_combo"):

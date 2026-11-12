@@ -125,6 +125,10 @@ class WorkspacePaths:
 
     def manifests(self):
         import json
+        from src.app.core.provider_discovery import current_snapshot
+        snapshot = current_snapshot()
+        if snapshot is not None and self in snapshot.manifests:
+            return list(snapshot.manifests[self])
         candidates = sorted({p.resolve() for root in self.component_roots if root.is_dir()
                        for p in root.rglob(".theta_component.json")
                        if not any(part in ("__pycache__", ".git", "node_modules") for part in p.parts)}, key=lambda p: (len(p.parts), str(p)))
@@ -136,7 +140,10 @@ class WorkspacePaths:
                 if json.loads(path.read_text()).get("storage_version") == STORAGE_VERSION:
                     package_roots.append(path.parent)
             except (ValueError, OSError): pass
-        return sorted(result)
+        result = sorted(result)
+        if snapshot is not None:
+            snapshot.manifests[self] = tuple(result)
+        return result
 
     def config_file(self, value: str | Path) -> Path:
         path = Path(value).expanduser()

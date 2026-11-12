@@ -9,11 +9,14 @@ import copy
 import yaml
 
 from src.app.workspace import WorkspacePaths
+from src.app.core.provider_discovery import discovery_cached
+from src.app.core.provider_metadata import profile_values
 
 LOADER_SLOTS = ("data_module", "symbolic_state_loader")
 SLOT_ROLES = {"data_module": "training", "symbolic_state_loader": "symbolic_state"}
 
 
+@discovery_cached
 def _profile(group, name, paths):
     path = paths.resolve_config(f"{group}/{name}.yaml")
     if not path.is_file():
@@ -24,7 +27,7 @@ def _profile(group, name, paths):
             if relative:
                 path = package.root / relative
                 break
-    return (yaml.safe_load(path.read_text()) or {}) if path.is_file() else {}
+    return profile_values(path) if path.is_file() else {}
 
 
 def plain(value):
@@ -148,33 +151,36 @@ def input_requirements(cfg, method=None, *, paths=None):
 
 
 def loader_metadata(selection, *, paths=None):
-    from src.app.core.provider_catalog import get_catalog
+    from src.app.core.provider_metadata import capability_metadata
     if not selection:
         return {}
-    selected = get_catalog(paths or WorkspacePaths.for_process()).resolve("datamodule", selection["name"])
-    if selected is None:
-        return {}
-    package, capability = selected
-    return {"id": capability.id, "paradigms": package.manifest.get("paradigms"), **capability.metadata}
+    return capability_metadata("datamodule", selection["name"], paths or WorkspacePaths.for_process())
 
 
 def state_loader_choices(*, paths=None):
     """State providers and distinct profiles, without importing model packages."""
-    from src.app.core.provider_catalog import get_catalog
-    paths = paths or WorkspacePaths.for_process()
-    choices = {}
+    return _state_loader_choices(paths or WorkspacePaths.for_process())
+
+
+@discovery_cached
+def _state_loader_choices(paths):
+    from src.app.core.provider_catalog import get_catalog, DuplicateProvider
+    from src.app.core.provider_metadata import selector_metadata
+    choices = {name: {} for name, metadata in selector_metadata("datamodule", paths).items()
+               if metadata.get("role") == "symbolic_state"}
     for package in get_catalog(paths).packages:
-        for capability in package.capabilities:
-            if capability.kind == "datamodule" and capability.metadata.get("role") == "symbolic_state":
-                choices[capability.id] = {}
         for dest, relative in package.manifest.get("payload", {}).get("configs", {}).items():
             if not dest.startswith("in/config/data/"):
                 continue
             path = paths.resolve_config(dest.removeprefix("in/config/"))
             if not path.is_file():
                 path = package.root / relative
-            profile = yaml.safe_load(path.read_text()) or {}
-            if profile.get("role") == "symbolic_state":
+            profile = profile_values(path)
+            try:
+                metadata = loader_metadata({"name": profile.get("data_module") or profile.get("name") or ""}, paths=paths)
+            except DuplicateProvider:
+                continue
+            if profile.get("role", metadata.get("role")) == "symbolic_state":
                 choices[dest.removeprefix("in/config/data/").removesuffix(".yaml")] = profile
     return choices
 

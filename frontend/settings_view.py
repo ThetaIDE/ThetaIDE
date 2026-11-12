@@ -540,8 +540,9 @@ class MenuShortcutEdit(QLineEdit):
             self.comboChanged.emit(norm)
 
     def set_conflict_style(self, has_conflict: bool):
-        self._has_conflict = has_conflict
-        self._update_appearance()
+        if self._has_conflict != has_conflict:
+            self._has_conflict = has_conflict
+            self._update_appearance()
 
     def _update_appearance(self):
         if self._is_recording:
@@ -1719,24 +1720,14 @@ class SettingsView(QWidget):
                 bindings[pane_id] = normalized
             elif pane_id in bindings:
                 del bindings[pane_id]
-            sm.set("hotkeys", "bindings", bindings)
-
-            # Update legacy hotkey_panes for digits 0-9
-            panes = list(sm.hotkey_panes)
-            while len(panes) < 10:
-                panes.append("none")
-
+            # Bindings are authoritative; mirror digits for older clients in the
+            # same commit, clearing stale slots after rebinding to a letter.
+            panes = ["none"] * 10
             for d in range(10):
-                target_combo = f"Action + {d}".upper()
-                assigned_pid = next((p for p, c in bindings.items() if c.upper() == target_combo), None)
-                if assigned_pid:
-                    panes[d] = assigned_pid
-                elif panes[d] == pane_id and not normalized:
-                    panes[d] = "none"
-            sm.set("hotkeys", "panes", panes)
-
-        # Validate conflicts across all inputs
-        self._validate_hotkey_conflicts()
+                panes[d] = next((p for p, c in bindings.items()
+                                 if c.upper() == f"ACTION + {d}"), "none")
+            sm.set_many({("hotkeys", "bindings"): bindings,
+                         ("hotkeys", "panes"): panes})
 
         if hasattr(self.window, "statusBar") and self.window.statusBar():
             title = self._get_pane_title(pane_id)
@@ -1749,8 +1740,8 @@ class SettingsView(QWidget):
         sm = getattr(self.window, "settings_manager", None)
         default_bindings = {DEFAULT_PANES[i]: f"Action + {i}" for i in range(len(DEFAULT_PANES))}
         if sm:
-            sm.set("hotkeys", "bindings", default_bindings)
-            sm.set("hotkeys", "panes", list(DEFAULT_PANES))
+            sm.set_many({("hotkeys", "bindings"): default_bindings,
+                         ("hotkeys", "panes"): list(DEFAULT_PANES)})
 
         for pid, edit in self.pane_hotkey_edits.items():
             expected = default_bindings.get(pid, "")
@@ -1853,7 +1844,6 @@ class SettingsView(QWidget):
                 expected = bindings.get(pid, "")
                 if edit.get_canonical_combo() != expected:
                     edit.set_canonical_combo(expected)
-            self._validate_hotkey_conflicts()
 
         # 4. Menu shortcut edits
         if hasattr(self, "menu_shortcut_edits") and self.menu_shortcut_edits:
@@ -1868,7 +1858,8 @@ class SettingsView(QWidget):
                     edit.blockSignals(True)
                     edit.setKeySequence(seq)
                     edit.blockSignals(False)
-            self._validate_hotkey_conflicts()
+
+        self._validate_hotkey_conflicts()
 
         # 5. Zoom controls sync
         zoom_val = getattr(self.window, "zoom_factor", sm.zoom)

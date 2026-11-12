@@ -90,4 +90,5 @@ def list_registered_evaluators() -> List[str]:
     """Return sorted list of registered evaluator names."""
     from src.app.core.provider_catalog import get_catalog
     names = {key for p in get_catalog().packages for c in p.capabilities if c.kind == "evaluator" for key in (c.id, *c.aliases)}
-    return sorted(names | {"EpisodicRewardEvalProtocol", "OfflineRLEvalProtocol", "ClassificationEvalProtocol", "ReconstructionEvalProtocol"})
+    from src.app.core.provider_metadata import BUILTIN_SELECTORS
+    return sorted(names | set(BUILTIN_SELECTORS["evaluator"]))

@@ -142,8 +142,8 @@ class PluginManager(QObject):
         disabled_list = sorted(pid for pid, on in self.enabled_states.items() if not on)
         if self._settings is not None:
             try:
-                self._settings.set("plugins", "enabled", enabled_list)
-                self._settings.set("plugins", "disabled", disabled_list)
+                self._settings.set_many({("plugins", "enabled"): enabled_list,
+                                         ("plugins", "disabled"): disabled_list})
             except Exception as exc:
                 self.window.log(f"Failed to save plugin states to settings.toml: {exc}")
         else:

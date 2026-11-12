@@ -108,4 +108,5 @@ def list_registered_datamodules() -> List[str]:
     """Return sorted list of registered data module names."""
     from src.app.core.provider_catalog import get_catalog
     names = {key for p in get_catalog().packages for c in p.capabilities if c.kind == "datamodule" for key in (c.id, *c.aliases)}
-    return sorted({key for key,value in DATAMODULE_REGISTRY.items() if value.__module__.startswith("src.app.")} | names | {"RLDataModule", "SimulatorDataModule", "RLReplayBufferDataModule", "SupervisedDataModule", "CrossValidationDataModule", "TabularNpzDataModule", "SupervisedNpzDataModule", "UnsupervisedDataModule"})
+    from src.app.core.provider_metadata import BUILTIN_SELECTORS
+    return sorted({key for key,value in DATAMODULE_REGISTRY.items() if value.__module__.startswith("src.app.")} | names | set(BUILTIN_SELECTORS["datamodule"]))

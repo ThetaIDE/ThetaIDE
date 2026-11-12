@@ -93,7 +93,7 @@ class DuplicateProvider(ValueError): pass
 
 
 class ProviderCatalog:
-    def __init__(self, paths=None, app_roots=()):
+    def __init__(self, paths=None, app_roots=(), *, manifests=None):
         self.paths = paths if isinstance(paths, WorkspacePaths) else WorkspacePaths(paths) if paths else WorkspacePaths.for_process()
         inventory = self.paths.application / "src/plugins/inventory.json"
         self.distribution_inventory = json.loads(inventory.read_text()).get("packages", []) if inventory.is_file() else []
@@ -102,7 +102,7 @@ class ProviderCatalog:
         self.diagnostics: list[str] = []
         overrides = self.paths.data_dir / "provider_overrides.json"
         self.overrides = json.loads(overrides.read_text()) if overrides.is_file() else {}
-        self._discover()
+        self._discover(manifests)
 
     def _origin(self, root, meta):
         if any(root.is_relative_to(p.resolve()) for p in self.paths.bundled_roots):
@@ -113,9 +113,10 @@ class ProviderCatalog:
         if root.is_relative_to(self.paths.research) or any(root.is_relative_to(p.resolve()) for p in self.extra_app_roots): return "user"
         return "unknown"
 
-    def _discover(self):
-        manifests = list(self.paths.manifests())
-        manifests.extend(p for root in self.extra_app_roots if root.is_dir() for p in root.rglob(".theta_component.json"))
+    def _discover(self, manifests=None):
+        if manifests is None:
+            manifests = list(self.paths.manifests())
+            manifests.extend(p for root in self.extra_app_roots if root.is_dir() for p in root.rglob(".theta_component.json"))
         seen = set()
         for path in sorted(set(manifests)):
             root = path.parent.resolve()
@@ -196,15 +197,23 @@ _CATALOGS = {}
 
 def get_catalog(paths=None, app_roots=()):
     """Cache metadata by workspace plus filesystem generation, never imported provider objects."""
+    from src.app.core.provider_discovery import current_snapshot
     paths = paths if isinstance(paths, WorkspacePaths) else WorkspacePaths(paths) if paths else WorkspacePaths.for_process()
     extra = tuple(Path(p) for p in app_roots)
-    files = [*paths.manifests(), paths.application / "src/plugins/inventory.json", paths.data_dir / "provider_overrides.json"]
-    files.extend(p for root in extra if root.is_dir() for p in root.rglob(".theta_component.json"))
-    stamp = tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in sorted(set(files)) if p.is_file())
     key = (paths, extra)
+    snapshot = current_snapshot()
+    if snapshot is not None and key in snapshot.catalogs:
+        return snapshot.catalogs[key]
+    manifests = list(paths.manifests())
+    manifests.extend(p for root in extra if root.is_dir() for p in root.rglob(".theta_component.json"))
+    files = [*manifests, *(p.parent / "plugin.json" for p in manifests),
+             paths.application / "src/plugins/inventory.json", paths.data_dir / "provider_overrides.json"]
+    stamp = tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in sorted(set(files)) if p.is_file())
     cached = _CATALOGS.get(key)
     if cached is None or cached[0] != stamp:
-        cached = _CATALOGS[key] = (stamp, ProviderCatalog(paths, extra))
+        cached = _CATALOGS[key] = (stamp, ProviderCatalog(paths, extra, manifests=manifests))
+    if snapshot is not None:
+        snapshot.catalogs[key] = cached[1]
     return cached[1]
 
 

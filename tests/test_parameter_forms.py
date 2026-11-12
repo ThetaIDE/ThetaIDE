@@ -75,6 +75,49 @@ def boxes(widget):
             if isinstance(widget.boxes_layout.itemAt(i).widget(), ConfigBox)]
 
 
+def test_form_load_and_rebuild_share_discovery_only_within_operation(viewer, monkeypatch):
+    from collections import Counter
+    from pathlib import Path
+    from src.app.core.provider_discovery import current_snapshot
+
+    original = Path.rglob
+    walks = []
+
+    def walk(root, pattern):
+        if pattern == ".theta_component.json":
+            walks.append(root)
+        return original(root, pattern)
+
+    monkeypatch.setattr(Path, "rglob", walk)
+    widget, _, root = viewer
+    path = root / "test.yaml"
+    path.write_text("paradigm: online_rl\nseed: 1\n")
+    widget.load_file(path, "experiment/demo/test.yaml")
+    assert walks and max(Counter(walks).values()) == 1
+    assert current_snapshot() is None
+    walks.clear()
+    widget.raw_data["seed"] = 42
+    widget.is_dirty = True
+    widget._render_boxes()
+    assert walks and max(Counter(walks).values()) == 1
+    assert current_snapshot() is None
+    assert widget.is_dirty and widget.raw_data["seed"] == 42
+
+
+def test_declared_loader_roles_skip_metadata_fallback(viewer, monkeypatch):
+    widget, _, _ = viewer
+    # The common fixture stubs choices; exercise the real filtering here.
+    del widget._component_choices
+    widget.raw_data = {"paradigm": "online_rl"}
+    monkeypatch.setattr("frontend.config_viewer._component_profiles", lambda *args: {
+        "train": {"role": "training"}, "state": {"role": "symbolic_state"},
+    })
+    monkeypatch.setattr("src.app.core.provider_metadata.selector_metadata", lambda *args: {})
+    with patch("src.app.core.data_loaders.loader_metadata") as metadata:
+        assert widget._component_choices("data_module") == {"train": {"role": "training"}}
+    metadata.assert_not_called()
+
+
 @pytest.mark.parametrize("rel,title", [
     ("experiment/demo/_base.yaml", "Group Defaults"),
     ("experiment/demo/nested/_base.yaml", "Experiment"),
@@ -855,6 +898,15 @@ def test_input_row_reordering_preserves_site_and_environment_children(viewer, re
     assert env_group.parts[1].property("parameterPath") == "env"
     site_group = controller.rows.groups[0]
     assert isinstance(site_group.parts[1], IndentedHierarchyBlock)
+
+
+def test_plotting_opt_in_survives_toggle_save_and_launch(viewer):
+    widget = load(viewer, {"no_plot": True, "methods": {}})
+    widget.chk_no_plot.setChecked(False)
+    assert widget.raw_data["no_plot"] is False
+    assert "no_plot=false" in widget.get_overrides()
+    assert widget.save_to_disk()
+    assert yaml.safe_load(widget.current_path.read_text())["no_plot"] is False
 
 
 def test_runtime_booleans_wrap_as_complete_controls_and_still_edit(viewer):
@@ -1639,3 +1691,30 @@ def test_schema_integer_controls_preserve_large_values_and_validate_bounds(viewe
         assert widget.raw_data['budget'] == 2**60 + 1 and not widget.is_dirty
     field.setText('17179869184'); field.editingFinished.emit()
     assert widget.raw_data['budget'] == 17179869184 and widget.is_dirty
+
+
+def test_external_dataset_browse_and_save_use_project_relative_path(viewer, tmp_path, monkeypatch):
+    from pathlib import Path
+    from frontend.config_viewer import QFileDialog
+    widget = load(viewer, {'paradigm': 'online_rl', 'seed': 1})
+    monkeypatch.chdir(tmp_path)
+    box = ConfigBox('Dataset')
+    widget._add_dataset_source_fields(box, {}, {}, required=True, paradigm='apprenticeship')
+    source = tmp_path.parent.parent / f'external-{tmp_path.name}.csv'
+    source.write_text('artificial fixture')
+    monkeypatch.setenv('THETA_TEST_DATASET', str(source))
+    widget.combo_dataset_path.setEditText('${oc.env:THETA_TEST_DATASET}')
+    assert any(label.text().startswith('✓ Exists') for label in box.findChildren(QLabel))
+    assert widget.raw_data['dataset_path'] == '${oc.env:THETA_TEST_DATASET}'
+    with patch.object(QFileDialog, 'getOpenFileName', return_value=(str(source), 'CSV')):
+        widget._browse_dataset_path()
+    import os
+    from frontend.config_viewer import _dataset_workspace
+    expected = Path(os.path.relpath(source, _dataset_workspace().root)).as_posix()
+    assert expected.startswith('../')
+    assert widget.combo_dataset_path.currentText() == expected
+    assert widget.raw_data['dataset_path'] == expected
+    assert any(label.text().startswith('✓ Exists') for label in box.findChildren(QLabel))
+    assert widget.save_to_disk()
+    assert yaml.safe_load(widget.current_path.read_text())['dataset_path'] == expected
+    box.close()

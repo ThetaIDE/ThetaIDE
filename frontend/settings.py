@@ -355,26 +355,39 @@ class SettingsManager(QObject):
             raise ValueError("set() requires at least one key and a value.")
         *keys, value = keys_and_value
 
-        # Update the in-memory merged view
-        node = self._data
-        for k in keys[:-1]:
-            node = node.setdefault(k, {})
-        node[keys[-1]] = value
+        self.set_many({tuple(keys): value})
 
-        # Persist to the workspace file (load → patch → write)
+    def set_many(self, updates: dict[tuple[str, ...], Any]) -> None:
+        """Commit related preferences with one atomic write and one notification.
+
+        Equal effective values are ignored. Publish the new in-memory state only
+        after persistence succeeds, so subscribers always see a complete commit.
+        """
+        missing = object()
+        pending = {}
+        for keys, value in updates.items():
+            if not keys or not all(isinstance(key, str) for key in keys):
+                raise ValueError("Settings paths must contain one or more string keys.")
+            if self.get(*keys, default=missing) != value:
+                pending[keys] = copy.deepcopy(value)
+        if not pending:
+            return
+
         on_disk = _parse_toml_file(self._workspace_path)
-        disk_node = on_disk
-        for k in keys[:-1]:
-            disk_node = disk_node.setdefault(k, {})
-        disk_node[keys[-1]] = value
+        for keys, value in pending.items():
+            node = on_disk
+            for key in keys[:-1]:
+                if not isinstance(node.get(key), dict):
+                    node[key] = {}
+                node = node[key]
+            node[keys[-1]] = value
 
-        # Temporarily pause the watcher so our own write doesn't re-trigger reload
         self._watcher.removePath(str(self._workspace_path))
         try:
             _write_toml_file(self._workspace_path, on_disk)
+            self._reload()
         finally:
-            self._watcher.addPath(str(self._workspace_path))
-
+            self._watch_files()
         self.changed.emit()
 
     def persist_key(self, section: str, key: str, value: Any) -> None:

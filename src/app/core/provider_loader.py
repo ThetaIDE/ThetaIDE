@@ -136,6 +136,8 @@ def invalidate(paths=None, package_root=None, package_id=None):
     for key in list(_LOADED):
         if key[0] == str(paths.root) and (package_root is None or key[2] == str(Path(package_root).resolve())) and (package_id is None or key[1] == package_id): _LOADED.pop(key)
     from src.app.core.provider_catalog import _CATALOGS, _entrypoint_metadata
+    from src.app.core.provider_discovery import invalidate_discovery_snapshot
+    invalidate_discovery_snapshot()
     _CATALOGS.clear()
     _entrypoint_metadata.cache_clear()
     discovery = sys.modules.get("src.app.core.plugin_discovery")
