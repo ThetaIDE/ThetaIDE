@@ -50,7 +50,7 @@ def main():
         print("  site=ncshare_common   Slurm cluster on NCShare CPU common partition (one job per method)")
         print("  site=arc              Slurm cluster execution on ARC")
         print("  plot_only=true        Plot prior local results (Slurm plot_only is unavailable)")
-        print("  no_plot=true          Skip automatic plotting")
+        print("  no_plot=false         Enable plotting of configured figures and tables (opt-in)")
         print("  no_online=true        Skip online training phase")
         print("  no_offline=true       Skip offline training phase")
         print("  dry_run=true          Validate config and exit")
@@ -190,15 +190,8 @@ def main():
 
     # Load paradigm definition for component assembly
     paradigm_def = None
-    try:
-        from src.app.core.paradigm_loader import load_paradigm_definition
-
-        paradigm_name = cfg.get("paradigm", None)
-        if paradigm_name:
-            paradigm_def = load_paradigm_definition(paradigm_name)
-    except Exception as e:
-        # Paradigm loading is best-effort during transition; log but don't abort
-        print(f"[Notice] Could not load paradigm definition: {e}")
+    from src.app.core.paradigm_loader import load_paradigm_definition
+    paradigm_def = load_paradigm_definition(cfg.get("paradigm"))
 
     # Keep the selected site while running the common pipeline inside a batch allocation.
     site_name = None

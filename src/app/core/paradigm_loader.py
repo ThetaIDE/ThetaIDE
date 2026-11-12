@@ -125,11 +125,17 @@ def load_paradigm_definition(paradigm_name: str) -> ParadigmDefinition:
 
     raw = load_paradigm(paradigm_name)
 
+    runner = get_component(raw.get("runner"))
+    version = getattr(runner, "execution_contract", None)
+    if runner is not None and not runner.__module__.startswith("src.app."):
+        version = runner.__dict__.get("execution_contract")
+    if runner is None or version != 1:
+        raise ValueError(f"Paradigm {paradigm_name!r} requires a registered execution-contract-v1 runner; got {raw.get('runner')!r}")
     return ParadigmDefinition(
         name=paradigm_name,
         type=raw.get("type", "base"),
         description=raw.get("description", ""),
-        runner_cls=get_component(raw.get("runner")),
+        runner_cls=runner,
         data_module_cls=get_component(raw.get("data_module") or raw.get("default_data_module")),
         eval_protocol_cls=get_component(raw.get("eval_protocol")),
         default_callback_names=raw.get("default_callbacks") or [],

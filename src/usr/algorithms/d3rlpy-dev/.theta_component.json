@@ -1,0 +1,227 @@
+{
+  "id": "d3rlpy-dev",
+  "name": "d3rlpy editable execution backend",
+  "kind": "suite",
+  "version": "0.1.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "origin": "user",
+  "parent": {
+    "id": "d3rlpy-suite",
+    "version": "1.0.3",
+    "origin": "hub"
+  },
+  "capabilities": [
+    {
+      "id": "d3rlpy-dev/bc",
+      "kind": "algorithm",
+      "entry_point": "d3rlpy_backend.py:execute",
+      "execution_contract": 1,
+      "backend": "d3rlpy",
+      "paradigms": [
+        "offline_rl"
+      ]
+    },
+    {
+      "id": "d3rlpy-dev/cql",
+      "kind": "algorithm",
+      "entry_point": "d3rlpy_backend.py:execute",
+      "execution_contract": 1,
+      "backend": "d3rlpy",
+      "paradigms": [
+        "offline_rl"
+      ]
+    },
+    {
+      "id": "d3rlpy-dev/iql",
+      "kind": "algorithm",
+      "entry_point": "d3rlpy_backend.py:execute",
+      "execution_contract": 1,
+      "backend": "d3rlpy",
+      "paradigms": [
+        "offline_rl"
+      ]
+    },
+    {
+      "id": "d3rlpy-dev/td3_bc",
+      "kind": "algorithm",
+      "entry_point": "d3rlpy_backend.py:execute",
+      "execution_contract": 1,
+      "backend": "d3rlpy",
+      "paradigms": [
+        "offline_rl"
+      ]
+    },
+    {
+      "id": "d3rlpy-dev/vector",
+      "kind": "model",
+      "entry_point": "d3rlpy_backend.py:create_encoder",
+      "backend": "d3rlpy",
+      "paradigms": [
+        "offline_rl"
+      ]
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "d3rlpy_backend.py"
+    ],
+    "resources": [],
+    "configs": {
+      "in/config/agent/d3rlpy-dev/bc.yaml": "configs/agent/d3rlpy-dev/bc.yaml",
+      "in/config/agent/d3rlpy-dev/cql.yaml": "configs/agent/d3rlpy-dev/cql.yaml",
+      "in/config/agent/d3rlpy-dev/iql.yaml": "configs/agent/d3rlpy-dev/iql.yaml",
+      "in/config/agent/d3rlpy-dev/td3_bc.yaml": "configs/agent/d3rlpy-dev/td3_bc.yaml",
+      "in/config/model/d3rlpy-dev/vector.yaml": "configs/model/d3rlpy-dev/vector.yaml",
+      "in/config/experiment/Execution/d3rlpy_smoke.yaml": "configs/experiment/Execution/d3rlpy_smoke.yaml"
+    }
+  },
+  "config_paths": [
+    "in/config/agent/d3rlpy-dev/bc.yaml",
+    "in/config/agent/d3rlpy-dev/cql.yaml",
+    "in/config/agent/d3rlpy-dev/iql.yaml",
+    "in/config/agent/d3rlpy-dev/td3_bc.yaml",
+    "in/config/model/d3rlpy-dev/vector.yaml",
+    "in/config/experiment/Execution/d3rlpy_smoke.yaml"
+  ],
+  "parameter_schema": {
+    "type": "object",
+    "properties": {},
+    "x-theta-config-schemas": {
+      "in/config/agent/d3rlpy-dev/bc.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "d3rlpy"
+            ]
+          },
+          "learning_rate": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "n_steps": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "in/config/agent/d3rlpy-dev/cql.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "d3rlpy"
+            ]
+          },
+          "learning_rate": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "n_steps": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "in/config/agent/d3rlpy-dev/iql.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "d3rlpy"
+            ]
+          },
+          "learning_rate": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "n_steps": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "in/config/agent/d3rlpy-dev/td3_bc.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "d3rlpy"
+            ]
+          },
+          "learning_rate": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "n_steps": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "in/config/model/d3rlpy-dev/vector.yaml": {
+        "type": "object",
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "hidden_units": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "activation": {
+            "type": "string",
+            "enum": [
+              "relu",
+              "tanh",
+              "elu"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "pip": [
+      "d3rlpy>=2.8,<3",
+      "gymnasium"
+    ],
+    "components": []
+  }
+}

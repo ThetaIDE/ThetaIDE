@@ -198,23 +198,6 @@ class UnsupervisedRunner(SupervisedRunner):
     label - so this subclasses rather than duplicates it.
     """
 
-    def train_model(
-        self,
-        model: Any,
-        train_loader: DataLoader,
-        val_loader: DataLoader | None = None,
-        epochs: int = 20,
-        callbacks: list | None = None,
-        device_str: str = "auto",
-        enable_checkpointing: bool = False,
-    ):
-        log.info("Unsupervised paradigm: training %s for %d epoch(s)", type(model).__name__, epochs)
-        return super().train_model(
-            model,
-            train_loader,
-            val_loader=val_loader,
-            epochs=epochs,
-            callbacks=callbacks,
-            device_str=device_str,
-            enable_checkpointing=enable_checkpointing,
-        )
+    def run(self, cfg, context):
+        from src.app.core.execution import execute_backend
+        return execute_backend(cfg, context)

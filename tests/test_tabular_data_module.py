@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import lightning as L
 
 from src.app.core.paradigm_loader import get_component
 
@@ -149,9 +150,7 @@ def test_the_module_feeds_the_autoencoder(tmp_path):
     definition = load_paradigm_definition("unsupervised")
     protocol = definition.eval_protocol_cls()
     before = protocol.evaluate(module, dm.val_dataloader())["recon_mse"]
-    definition.runner_cls().train_model(
-        module, dm.train_dataloader(), val_loader=dm.val_dataloader(), epochs=5, device_str="cpu"
-    )
+    L.Trainer(max_epochs=5, accelerator='cpu', devices=1, logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, train_dataloaders=dm.train_dataloader(), val_dataloaders=dm.val_dataloader())
     assert protocol.evaluate(module, dm.val_dataloader())["recon_mse"] < before
 
 

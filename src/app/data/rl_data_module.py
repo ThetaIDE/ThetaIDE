@@ -62,7 +62,7 @@ class RLDataModule(L.LightningDataModule, BaseDataModule):
                     import subprocess
                     import sys
 
-                    subprocess.run([sys.executable, "-m", "src.app.pipeline.provider_worker", str(preprocess_script)], check=True)
+                    subprocess.run([sys.executable, "-m", "src.app.pipeline.resource_worker", str(preprocess_script)], check=True)
 
             full_reader = DatasetReader(self.cfg.dataset_path)
 

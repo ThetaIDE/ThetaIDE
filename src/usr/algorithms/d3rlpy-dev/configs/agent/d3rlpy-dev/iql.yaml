@@ -1,0 +1,6 @@
+algorithm: d3rlpy-dev/iql
+backend: d3rlpy
+compatible_paradigms: [offline_rl]
+learning_rate: 0.0003
+batch_size: 256
+n_steps: 50000

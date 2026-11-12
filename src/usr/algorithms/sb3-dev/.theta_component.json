@@ -53,9 +53,6 @@
           "vf_coef": {
             "type": "number"
           },
-          "entrypoint": {
-            "type": "string"
-          },
           "learning_rate_schedule": {
             "type": "string",
             "enum": [
@@ -70,6 +67,12 @@
             "minimum": 0,
             "default": 0,
             "description": "Final rate when using a linear learning-rate schedule."
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "sb3"
+            ]
           }
         }
       },
@@ -111,9 +114,6 @@
           "exploration_fraction": {
             "type": "number"
           },
-          "entrypoint": {
-            "type": "string"
-          },
           "learning_rate_schedule": {
             "type": "string",
             "enum": [
@@ -128,6 +128,12 @@
             "minimum": 0,
             "default": 0,
             "description": "Final rate when using a linear learning-rate schedule."
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "sb3"
+            ]
           }
         }
       },
@@ -166,9 +172,6 @@
           "clip_range": {
             "type": "number"
           },
-          "entrypoint": {
-            "type": "string"
-          },
           "learning_rate_schedule": {
             "type": "string",
             "enum": [
@@ -183,6 +186,12 @@
             "minimum": 0,
             "default": 0,
             "description": "Final rate when using a linear learning-rate schedule."
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "sb3"
+            ]
           }
         }
       },
@@ -221,9 +230,6 @@
           "ent_coef": {
             "type": "string"
           },
-          "entrypoint": {
-            "type": "string"
-          },
           "learning_rate_schedule": {
             "type": "string",
             "enum": [
@@ -238,6 +244,12 @@
             "minimum": 0,
             "default": 0,
             "description": "Final rate when using a linear learning-rate schedule."
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "sb3"
+            ]
           }
         }
       }
@@ -247,7 +259,8 @@
     "in/config/agent/sb3-dev/a2c.yaml",
     "in/config/agent/sb3-dev/dqn.yaml",
     "in/config/agent/sb3-dev/ppo.yaml",
-    "in/config/agent/sb3-dev/sac.yaml"
+    "in/config/agent/sb3-dev/sac.yaml",
+    "in/config/experiment/Execution/sb3_smoke.yaml"
   ],
   "paradigms": [
     "online_rl"
@@ -258,7 +271,7 @@
     {
       "id": "sb3-dev/a2c",
       "kind": "algorithm",
-      "entry_point": "sb3_runner.py:main",
+      "entry_point": "sb3_runner.py:execute",
       "aliases": [],
       "paradigms": [
         "online_rl"
@@ -276,12 +289,14 @@
         ],
         "provides": [],
         "catalog": "monitor_catalog.py:describe"
-      }
+      },
+      "execution_contract": 1,
+      "backend": "sb3"
     },
     {
       "id": "sb3-dev/dqn",
       "kind": "algorithm",
-      "entry_point": "sb3_runner.py:main",
+      "entry_point": "sb3_runner.py:execute",
       "aliases": [],
       "paradigms": [
         "online_rl"
@@ -299,12 +314,14 @@
         ],
         "provides": [],
         "catalog": "monitor_catalog.py:describe"
-      }
+      },
+      "execution_contract": 1,
+      "backend": "sb3"
     },
     {
       "id": "sb3-dev/ppo",
       "kind": "algorithm",
-      "entry_point": "sb3_runner.py:main",
+      "entry_point": "sb3_runner.py:execute",
       "aliases": [],
       "paradigms": [
         "online_rl"
@@ -322,12 +339,14 @@
         ],
         "provides": [],
         "catalog": "monitor_catalog.py:describe"
-      }
+      },
+      "execution_contract": 1,
+      "backend": "sb3"
     },
     {
       "id": "sb3-dev/sac",
       "kind": "algorithm",
-      "entry_point": "sb3_runner.py:main",
+      "entry_point": "sb3_runner.py:execute",
       "aliases": [],
       "paradigms": [
         "online_rl"
@@ -340,7 +359,9 @@
         ],
         "provides": [],
         "catalog": "monitor_catalog.py:describe"
-      }
+      },
+      "execution_contract": 1,
+      "backend": "sb3"
     }
   ],
   "payload": {
@@ -356,7 +377,8 @@
       "in/config/agent/sb3-dev/a2c.yaml": "configs/agent/sb3-dev/a2c.yaml",
       "in/config/agent/sb3-dev/dqn.yaml": "configs/agent/sb3-dev/dqn.yaml",
       "in/config/agent/sb3-dev/ppo.yaml": "configs/agent/sb3-dev/ppo.yaml",
-      "in/config/agent/sb3-dev/sac.yaml": "configs/agent/sb3-dev/sac.yaml"
+      "in/config/agent/sb3-dev/sac.yaml": "configs/agent/sb3-dev/sac.yaml",
+      "in/config/experiment/Execution/sb3_smoke.yaml": "configs/experiment/Execution/sb3_smoke.yaml"
     }
   },
   "config_path": "in/config/agent/sb3-dev/a2c.yaml",

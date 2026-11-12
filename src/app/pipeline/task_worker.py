@@ -1,7 +1,6 @@
 """Execute a resolved training task in a fresh interpreter, independent of the tuner."""
 import json
 import os
-import runpy
 import sys
 import traceback
 from pathlib import Path
@@ -49,26 +48,19 @@ def _main():
     OmegaConf.save(task_config, metadata / 'config.yaml')
     OmegaConf.save(config.hydra, metadata / 'hydra.yaml')
     try:
-        from src.app.core.provider_loader import resolve_resource
-        from src.app.components.transactions import provider_lease
-        from src.app.workspace import WorkspacePaths
-        lease = provider_lease(WorkspacePaths.for_process())
-        lease.__enter__()
-        from src.app.pipeline.provider_worker import run as run_provider_script
-        namespace = run_provider_script(str(resolve_resource(script)), run_name='_theta_trial')
-        entrypoint = namespace['main']
-        # The config is already composed in the coordinator. Calling Hydra's
-        # wrapped task avoids starting a second sweep in this worker.
-        entrypoint = getattr(entrypoint, '__wrapped__', entrypoint)
-        if config.hydra.job.chdir:
-            os.chdir(output)
-        value = entrypoint(task_config)
+        from src.app.pipeline.engine import DEFAULT_ENGINE_SCRIPT
+        application = Path(__file__).resolve().parents[2]
+        if script in (DEFAULT_ENGINE_SCRIPT, str(application / "app/train.py")):
+            from src.app.train import main
+        elif script in ("src/app/pipeline/repeated_task.py", str(application / "app/pipeline/repeated_task.py")):
+            from src.app.pipeline.repeated_task import main
+        else:
+            raise ValueError("Trial workers execute only Theta-owned method/coordinator bootstraps")
+        value = main.__wrapped__(task_config)
         result = {'value': value}
     except BaseException as exc:
         traceback.print_exc()
         result = {'error': f'{type(exc).__name__}: {exc}'}
-    finally:
-        if "lease" in locals(): lease.__exit__(None, None, None)
     Path(result_path).write_text(json.dumps(result))
     return 1 if 'error' in result else 0
 

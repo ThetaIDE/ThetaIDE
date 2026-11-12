@@ -125,9 +125,9 @@ def test_episode_outcomes_require_a_declared_runner_contract(tmp_path,monkeypatc
     meta=package(root,kind='method',capabilities=[{'id':'native','kind':'algorithm',
         'entry_point':'model.py:Model'}])
     monkeypatch.setenv('THETA_WORKSPACE',str(tmp_path))
-    assert not runner_supports_episode_outcomes('src/usr/algorithms/sb3-suite/sb3_runner.py')
-    assert not runner_supports_episode_outcomes('package://native/model.py')
+    assert not runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'missing'})
+    assert not runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'native'})
     meta['capabilities'][0]['episode_outcomes']=True
     (root/'.theta_component.json').write_text(json.dumps(meta))
     invalidate(paths,root)
-    assert runner_supports_episode_outcomes('package://native/model.py')
+    assert runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'native'})

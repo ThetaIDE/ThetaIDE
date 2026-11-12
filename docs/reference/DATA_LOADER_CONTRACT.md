@@ -80,3 +80,35 @@ venv/bin/python scripts/migrate_data_loaders.py path/to/experiment.yaml \
 Add `--write` to apply the displayed changes. Use `blendrl-dev_symbolic_state` for the editable dev package. The converter provider must be installed before running the migrated recipe.
 
 Migration moves `env.data_module` into the experiment default and moves `env.symbolic_observation_builder` or `model.symbolic.observation_builder` into an explicit state-loader binding, including method-local hooks. Explicit new bindings take precedence. Existing builder functions and model construction settings are retained. Custom builders may specify `object_count: null` to preserve their own object count. Migration does not modify installed Hub packages or old checkpoint files. YAML is rewritten with its global Hydra package directive preserved; review the diff for comments and formatting.
+
+## Numerical trajectory providers
+
+The apprenticeship runner consumes `themes.trajectories/v1` from a training
+provider through `load(path, patients, seed)` and `prepare(data, seed)`, rather
+than requesting Lightning batches. The loader owns source schema validation,
+visit grouping, ordering, action/feature selection, splits, lagging and fitted
+preprocessing. The runner receives the resulting arrays and fitted state and
+passes them to the numerical models; it contains no dataset-specific parsing.
+
+`themes-dev/csv_trajectories` is the custom loader for downloaded THEMES CSVs.
+Its editable profile exposes visit, time, action, feature and optional actual
+person columns, plus held-out fraction. It defaults to binary `a_2` and the
+14 physiological columns; `Action`, `Shock`, identifiers, timestamps and other
+intervention flags cannot become policy features. It preserves original CSV row
+indices and timestamps. Missing unused Shock annotations are ignored. Configured
+actual person IDs keep repeated visits together; otherwise splitting is by visit.
+Scalers fit training visits only, and persisted loader schema plus source checksum
+support independent lineage verification and frozen inference after reload.
+
+CSV files remain external local datasets. The provider payload contains the
+loader and recipe references, never clinical rows. See the [AL guide](../guides/THEMES_AL.md)
+for runnable local CSV recipes and the fixed-row solver/time-window conventions.
+
+
+Dataset source paths are workspace references. Relative paths (including `../`
+for external files) resolve from the Theta project root, independent of process
+working directory or temporary preview configuration directories. The shared
+file picker saves relative paths when possible; explicit absolute and home-relative
+paths remain valid. Package URIs retain provider-relative resolution. An explicit
+missing path fails with the actual file reference and `dataset_path` guidance,
+without silently choosing other data or suggesting component installation.

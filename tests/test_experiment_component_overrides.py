@@ -326,6 +326,14 @@ def test_figures_box_is_optional_and_uses_two_column_cards(qapp, tmp_path, monke
     viewer.close()
 
 
+@pytest.mark.parametrize("config_path", ["in/config/config.yaml", "src/app/config_defaults/config.yaml"])
+def test_root_config_disables_plotting_by_default(config_path):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert yaml.safe_load((root / config_path).read_text())["no_plot"] is True
+
+
 def test_no_plot_selection_skips_phase_and_plot_directory(qapp, tmp_path, monkeypatch):
     from src.app.pipeline import local_runner
     from src.app.pipeline.plot_config import should_run_plotting
@@ -334,7 +342,9 @@ def test_no_plot_selection_skips_phase_and_plot_directory(qapp, tmp_path, monkey
     cfg = OmegaConf.create({"group": "g", "experiment_id": "run"})
     assert not should_run_plotting(cfg)
     assert not should_run_plotting(OmegaConf.create({"plots": [], "env": {"default_plots": ["losses"]}}))
-    assert should_run_plotting(OmegaConf.create({"plots": ["losses"]}))
+    assert not should_run_plotting(OmegaConf.create({"plots": ["losses"]}))
+    assert should_run_plotting(OmegaConf.create({"plots": ["losses"], "no_plot": False}))
+    assert not should_run_plotting(OmegaConf.create({"plots": [], "no_plot": False}))
     assert not should_run_plotting(OmegaConf.create({"plots": ["losses"], "no_plot": True}))
     local_runner._setup_output_dirs(cfg)
     assert not (tmp_path / "results/plots").exists()

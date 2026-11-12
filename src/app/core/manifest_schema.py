@@ -20,6 +20,8 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
             "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"type": "string"},
                            "entry_point": {"type": "string", "minLength": 1},
                            "aliases": {"type": "array", "items": {"type": "string"}},
+                           "execution_contract": {"type": "integer", "minimum": 1},
+                           "backend": {"type": "string"},
                            "role": {"enum": ["training", "symbolic_state"]},
                            "output_contracts": {"type": "array", "items": {"type": "string", "minLength": 1}},
                            "parameter_schema": {"type": "object"},

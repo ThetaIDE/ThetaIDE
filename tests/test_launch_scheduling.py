@@ -233,7 +233,12 @@ def test_sb3_initial_and_final_evaluations_are_testing_before_metrics(tmp_path, 
                             'eval_episodes': 1, 'eval_freq_steps': 100,
                             'variability_run_id': 'r', 'variability_method': 'dqn', 'variability_version': 'version_0',
                             'telemetry': {'system_interval': 0}})
-    runner.main.__wrapped__(cfg)
+    from src.app.core.execution import RunContext
+    context = RunContext('r', catalog.paths, 73, tmp_path / 'checkpoints')
+    try:
+        runner.execute(cfg, context)
+    finally:
+        context.close()
     rows = [json.loads(line) for line in next(tmp_path.glob('results/logs/g/e/dqn/version_0/events.jsonl')).read_text().splitlines()]
     stage = None
     evaluations = []

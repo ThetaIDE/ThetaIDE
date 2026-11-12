@@ -44,8 +44,9 @@ class EpisodicRewardEvalProtocol(BaseEvalProtocol):
 class OnlineRLRunner(BaseParadigmRunner):
     """Runs the online RL training loop for simulator-based agents.
 
-    Dispatches the declared online methods sequentially
-    or via cluster jobs, followed by the automated plotting phase.
+    Executes one resolved method through its declared backend.
     """
 
-    pass
+    def run(self, cfg, context):
+        from src.app.core.execution import execute_backend
+        return execute_backend(cfg, context)

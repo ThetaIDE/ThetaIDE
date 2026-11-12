@@ -187,8 +187,8 @@ def validate_objective(cfg, *, workspace=None):
         from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
         from src.app.pipeline.config import parse_methods_dict
         for name, method in parse_methods_dict(cfg).items():
-            script = resolve_engine(method, cfg)[0]
-            if not runner_supports_episode_outcomes(script):
+            resolve_engine(method, cfg)
+            if not runner_supports_episode_outcomes({**dict(cfg.items()), **method}):
                 raise ValueError(f"Method {name!r} does not supply the episode outcomes required by this objective")
     tuning = cfg.get("tuning") or {}
     options = (tuning.get("options") or {}).get("optuna") or {}

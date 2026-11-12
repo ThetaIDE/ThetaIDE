@@ -1,0 +1,11 @@
+type: base
+description: Static demonstrations with retrospective TICC stages and EM-EDM imitation policies
+environment_source: static_dataset
+method: {algorithm: required, model: required}
+training: {budget: phases}
+runner: themes-dev/runner
+default_data_module: themes-dev/trajectories
+monitor_metric: eval/mixture_nll
+constraints:
+  requires: {methods: non_empty}
+  forbids: {eval_episodes: non_zero}

@@ -55,6 +55,8 @@ def build_method_overrides(
         else:
             method_cfg = dict(method_cfg)
 
+    from src.app.core.execution import reject_selectors
+    reject_selectors(method_cfg, f"method {method_name}")
     from src.app.pipeline.tuning_config import require_runnable_tuning, tuning_enabled
 
     require_runnable_tuning(cfg, {method_name: method_cfg})
@@ -106,6 +108,8 @@ def build_method_overrides(
         f"paradigm={paradigm}",
         f"model={model_arch}",
     ]
+    if method_cfg.get("backend"):
+        overrides.append(f"++backend={method_cfg['backend']}")
     # The orchestrator may derive these from the experiment path, so the
     # experiment YAML itself need not contain them. Jobs and artifact promotion
     # must nevertheless use the same resolved identifiers.
@@ -154,7 +158,6 @@ def build_method_overrides(
     if not uses_agents:
         overrides.append(f"++model.name={agent_name}")
         overrides.append(f"++model.architecture={runtime_arch}")
-        overrides.append(f"++agent.name={agent_name}")
     else:
         if not agent_algo:
             raise ValueError(f"Method '{method_name}' is missing required key 'agent' for paradigm '{paradigm}'.")
@@ -196,6 +199,7 @@ def build_method_overrides(
         "runner",
         "script",
         "engine",
+        "backend",
         "python",
         "venv_python",
         "venv",

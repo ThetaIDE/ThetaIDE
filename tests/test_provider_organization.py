@@ -178,7 +178,7 @@ def test_fresh_worker_resolves_native_script_and_records_snapshot(tmp_path):
                         files={"run.py": "from .helper import VALUE\nfrom pathlib import Path\nPath('worker.txt').write_text(str(VALUE))\n"})
     installer.install(component, install_dependencies=False)
     env = {**os.environ, **installer.paths.process_environment(), "PYTHONPATH": str(PROJECT_ROOT)}
-    result = subprocess.run([sys.executable, "-m", "src.app.pipeline.provider_worker", "package://toy-suite/run.py"],
+    result = subprocess.run([sys.executable, "-m", "src.app.pipeline.resource_worker", "package://toy-suite/run.py"],
                             cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert (installer.paths.root / "worker.txt").read_text() == "1"

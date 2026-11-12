@@ -175,7 +175,6 @@ def _run_methods_sequential(cfg, context) -> None:
                 if value is not None:
                     value = OmegaConf.to_container(value, resolve=True) if OmegaConf.is_config(value) else value
                     overrides.append(f"++{key}={objective_override(value)}")
-            overrides.append(f"++theta_execution.script={json.dumps(engine_script)}")
             engine_script = "src/app/pipeline/repeated_task.py"
         from src.app.services.cancellation import TrainingCancelled
         targets = [f"method:{agent_name}"]

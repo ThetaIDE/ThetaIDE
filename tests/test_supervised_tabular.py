@@ -19,6 +19,7 @@ from importlib.metadata import entry_points
 
 import pytest
 import torch
+import lightning as L
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.app.core.paradigm_loader import get_component, load_paradigm_definition
@@ -205,9 +206,7 @@ def test_the_supervised_runner_trains_a_classifier():
         protocol = definition.eval_protocol_cls()
 
         before = protocol.evaluate(module, dm.val_dataloader())["auc"]
-        definition.runner_cls().train_model(
-            module, dm.train_dataloader(), val_loader=dm.val_dataloader(), epochs=25, device_str="cpu"
-        )
+        L.Trainer(max_epochs=25, accelerator='cpu', devices=1, logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, train_dataloaders=dm.train_dataloader(), val_dataloaders=dm.val_dataloader())
         after = protocol.evaluate(module, dm.val_dataloader())["auc"]
 
         assert after > before

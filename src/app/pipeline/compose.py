@@ -105,7 +105,10 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
 
 def validate_composed(composed: ComposedExperiment) -> list[str]:
     """Run pre-flight paradigm validation. Returns notices; raises ConfigurationError."""
-    notices = validate_experiment_config(composed.cfg, composed.experiment, is_sweep=composed.is_sweep, config_dir=composed.config_dir)
+    notices = validate_experiment_config(
+        composed.cfg, composed.experiment, is_sweep=composed.is_sweep,
+        config_dir=composed.config_dir, workspace=composed.workspace,
+    )
     _validate_method_composition(composed)
     from src.app.sites import scheduler
     if scheduler(composed.cfg) == "slurm":
@@ -142,8 +145,6 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
     workspace = (composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR)).root
     schemas = {name: schemas_for_method(workspace, settings) for name, settings in methods.items()}
     sweep = not tuning_disabled(composed.cfg) and composed.is_sweep
-    if not any(schemas.values()) and not (sweep and any(m.get("tune") or m.get("search_space") for m in methods.values())):
-        return
     import json
 
     from hydra.core.override_parser.overrides_parser import OverridesParser
@@ -153,8 +154,6 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
     parser = OverridesParser.create()
     for name, plan in method_plans(composed).items():
         has_sweep = sweep and bool(plan["settings"].get("tune") or plan["settings"].get("search_space"))
-        if not has_sweep and not schemas.get(name):
-            continue
         fixed, sampled = {}, {}
         validate_sweep_dimensions(plan["settings"], schemas.get(name, {}), name)
         try:
@@ -171,6 +170,13 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
             for key in fixed:
                 sampled.pop(key, None)
             trial = compose_experiment(composed.experiment, [*fixed.values(), *sampled.values()], config_dir=composed.config_dir, workspace=composed.workspace)
+            from src.app.core.execution import execution_backend
+            execution_backend(trial.cfg, paths=composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR))
+            from src.app.core.paradigm_loader import load_paradigm_definition
+            runner = load_paradigm_definition(trial.cfg.get("paradigm")).runner_cls
+            validator = getattr(runner, "validate_config", None)
+            if callable(validator):
+                validator(trial.cfg, paths=composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR))
             validate_method_components(trial.cfg, schemas.get(name, {}), name)
         except Exception as exc:
             raise ConfigurationError(f"Method '{name}' trial configuration cannot be composed: {exc}") from exc
@@ -201,13 +207,14 @@ def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
 
 def effective_config(cfg: DictConfig) -> dict[str, Any]:
     """The resolved experiment config as plain data, without Hydra's runtime bookkeeping."""
+    config = OmegaConf.create(OmegaConf.to_container(cfg, resolve=False))
+    config.pop("hydra", None)
     try:
-        data = OmegaConf.to_container(cfg, resolve=True)
+        data = OmegaConf.to_container(config, resolve=True)
     except Exception:
-        data = OmegaConf.to_container(cfg, resolve=False)
+        data = OmegaConf.to_container(config, resolve=False)
     if not isinstance(data, dict):
         return {}
-    data.pop("hydra", None)
     return cast(dict[str, Any], data)
 
 

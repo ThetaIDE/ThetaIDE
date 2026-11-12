@@ -166,8 +166,11 @@ class ThetaSB3Writer:
         pass
 
 
-@hydra.main(version_base=None, config_path=str(WorkspacePaths.for_process().primary_config), config_name="config")
-def main(cfg: DictConfig):
+def execute(cfg: DictConfig, context):
+    from src.app.core.execution import RunResult
+    if cfg.get("resume") or cfg.get("recover") or context.checkpoint:
+        raise ValueError("sb3-dev supports inference reload of native .zip checkpoints; exact training resume is unsupported")
+    context.check_cancelled()
     if os.environ.get('THETA_MANAGED_THREADS'):
         import torch
         torch.set_num_threads(int(os.environ['THETA_MANAGED_THREADS']))
@@ -232,6 +235,9 @@ def main(cfg: DictConfig):
         version=cfg.get("variability_version") if cfg.get("variability_run_id") else trial_log_version(cfg),
     )
 
+    cleanup_logger = lambda: logger.finish(status="failed")
+    context.on_cleanup(cleanup_logger)
+
     from hydra.core.hydra_config import HydraConfig
 
     hydra_cfg = HydraConfig.get()
@@ -245,6 +251,7 @@ def main(cfg: DictConfig):
         ckpt_dir = trial_checkpoint_dir_from_config(ckpt_dir, cfg) or (
             ckpt_dir / "sweeps" / str(hydra_cfg.sweeper.study_name) / f"trial_{hydra_cfg.job.num}"
         )
+    ckpt_dir = context.artifacts
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # Custom SB3 Callback to bridge telemetry into the Theta-IDE telemetry run
@@ -395,6 +402,7 @@ def main(cfg: DictConfig):
             self.run.set_stage("training", "Training started")
 
         def _on_step(self) -> bool:
+            context.check_cancelled()
             self.episodes.record(self.locals.get("infos", []), self.num_timesteps)
             interval = int(model_cfg.get("monitoring_interval", 256) or 0)
             observations = self.locals.get("new_obs")
@@ -458,13 +466,15 @@ def main(cfg: DictConfig):
     else:
         env = make_environment()
 
+    context.on_cleanup(env.close)
+
     # Resolve algorithm class
     algo_map = {"PPO": PPO, "DQN": DQN, "A2C": A2C, "SAC": SAC}
     AlgoClass = resolve_algorithm(algo_name, algo_map)
 
     # Hyperparameters
     algo_kwargs = algorithm_options(agent_cfg, AlgoClass)
-    seed = cfg.get("seed", agent_cfg.get("seed"))
+    seed = context.seed
     if seed is not None:
         algo_kwargs["seed"] = int(seed)
     selected_model = (model_cfg.get("architecture") or model_cfg.get("name") or model_cfg.get("type")) if hasattr(model_cfg, "get") else None
@@ -546,6 +556,9 @@ def main(cfg: DictConfig):
             status = "pruned"
             logger.event("stage", str(exc), stage="pruned")
         else:
+            from src.app.services.cancellation import TrainingCancelled
+            if isinstance(exc, (TrainingCancelled, KeyboardInterrupt)):
+                status = "cancelled"
             logger.event("error", f"{type(exc).__name__}: {exc}", level="error")
             raise
     finally:
@@ -565,6 +578,7 @@ def main(cfg: DictConfig):
         for name in checkpoint_names:
             logger.artifact(ckpt_dir / name, kind="checkpoint")
         logger.finish(status=status)
+        context.remove_cleanup(cleanup_logger)
         if cb.eval_env is not None:
             cb.eval_env.close()
         env.close()
@@ -572,16 +586,8 @@ def main(cfg: DictConfig):
     print(f"\n[SB3 Engine Complete] Total time: {end_time - start_time:.2f}s")
     print(f"Checkpoints saved to: {ckpt_dir}")
     print(f"Telemetry logged to: {logger.version_dir}")
-    return {"theta_trial_status": "pruned"} if status == "pruned" else objective
-
-
-def launch():
-    paths = WorkspacePaths.for_process()
-    search = [f"file://{p}" for p in paths.config_roots() if p.is_dir() and p != paths.primary_config]
-    if not any(arg.lstrip('+').startswith('hydra.searchpath=') for arg in sys.argv[1:]):
-        sys.argv.append('hydra.searchpath=[' + ','.join(search) + ']')
-    main()
-
-
-if __name__ == "__main__":
-    launch()
+    return RunResult(status=status, objective=objective,
+                     metrics={"eval/reward": cb.last_eval_reward} if cb.last_eval_reward is not None else {},
+                     metric_definitions={"eval/reward": {"direction": "maximize", "meaning": "Mean greedy episodic return"}},
+                     artifacts=[{"path": str(ckpt_dir / name), "kind": "checkpoint", "format": "sb3.zip"} for name in checkpoint_names],
+                     progress={"unit": "transitions", "completed": cb.num_timesteps})

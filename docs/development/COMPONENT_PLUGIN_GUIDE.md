@@ -64,8 +64,8 @@ or `choices`). Supported field types are `int`, `float`, `text`, `choice`,
 and `bool`. A field may declare `when: {other_key: value}` to show it only
 when another setting has that value. `validate_config` and `validate_dimension` reject unsupported
 settings or spaces. `compile` receives the base overrides and method context;
-`job_entrypoint` may replace the training script or interpreter with a tuner
-runner. `study_name`, `storage`, `prepare`, and `finalize` manage the run.
+`job_entrypoint` must retain the Theta-owned method bootstrap; interpreter
+selection remains a resource concern. `study_name`, `storage`, `prepare`, and `finalize` manage the run.
 For Slurm, the component must be installed in the submission and execution
 environments; `prepare` runs at submission and `finalize` runs in the job.
 
@@ -121,6 +121,18 @@ For a component with several profiles, list each one in `config_paths` and use
 keeps profile-specific keys and choices attached to the profile the editor opens.
 The editor reads this metadata from the installed component manifest; plugin
 code is not imported to build the form.
+
+Data-module, state-loader, evaluator, and plotter dropdowns also read declarations
+without importing their implementations. Declare public names and aliases in
+`capabilities`, loader `role` and `output_contracts` on each data capability, and
+`paradigms` (or `compatible_paradigms`) for compatibility filtering. Capability
+compatibility overrides package compatibility; profile compatibility takes
+precedence for that profile. Missing compatibility metadata leaves a choice
+unrestricted. Class methods such as `get_supported_paradigms` are runtime hooks
+and are not executed to populate dropdowns. Packaged YAML defaults are available
+before installation materializes workspace copies; workspace profiles take
+precedence. An existing explicit selector remains visible if its provider is
+missing or incompatible. Runtime still resolves and validates the selected code.
 
 Parameters can declare `x-theta-actions` to expose a hover/focus pencil. The IDE
 owns the presentation and editor routing; the component owns all target paths.
@@ -563,3 +575,6 @@ The experiment YAML contains the configured values; component manifests describe
 Validation applies JSON Schema draft 2020-12 to the selected method's composed agent or model configuration. An opted-in field's sweep choices and numeric bounds are checked against the same field schema. The pipeline also composes a representative Optuna trial before launching; this detects missing Hydra paths, but does not exhaustively test combinations of sweep dimensions or guarantee that training will succeed. Components without a validation schema continue to work with the shared pipeline checks.
 
 On component update or reinstall, existing user YAML values are retained and missing block-mapping defaults from the new component are added. Explicit nulls are values and are retained. Flow-style mappings and incompatible structures are preserved rather than rewritten; they may need manual reconciliation. Check the config and validation output after upgrading a component.
+
+Learning providers must follow [execution contract v1](../reference/EXECUTION_CONTRACT.md).
+Author new integrations in explicit editable dev components before a separate Hub release.

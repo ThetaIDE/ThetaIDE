@@ -107,13 +107,10 @@ class TestAlgorithmConfigurationAdherence:
 
     def test_runner_engine_resolution(self):
         """Method config runner/engine overrides must accurately resolve to target entrypoints."""
-        # 1. Custom runner entrypoint
-        script1, py1 = resolve_engine({"runner": "src/usr/algorithms/my_custom_runner.py"})
-        assert script1 == "src/usr/algorithms/my_custom_runner.py"
-
-        # 2. Method plugins select framework-specific runners by profile entrypoint.
-        script2, _ = resolve_engine({"entrypoint": "src/usr/algorithms/sb3-suite/sb3_runner.py"})
-        assert script2 == "src/usr/algorithms/sb3-suite/sb3_runner.py"
+        from src.app.pipeline.exceptions import ConfigurationError
+        for field in ("runner", "entrypoint", "script", "engine"):
+            with pytest.raises(ConfigurationError, match="Removed execution fields"):
+                resolve_engine({field: "obsolete"})
 
 
 # ==============================================================================

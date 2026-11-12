@@ -26,7 +26,8 @@ logging:
   backends: {}
 plot_style: null
 plot_only: false
-no_plot: false
+# Plotting is opt-in; set no_plot=false to run configured figures and tables.
+no_plot: true
 dry_run: false
 dash: false
 dash_only: false

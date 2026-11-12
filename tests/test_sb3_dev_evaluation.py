@@ -1,4 +1,7 @@
 """Paired evaluation protocol for the editable runner used by local experiments."""
+from src.app.core.execution import RunContext
+from src.app.workspace import WorkspacePaths
+
 import copy
 import csv
 import importlib.util
@@ -120,7 +123,10 @@ def test_runner_records_both_modes_and_keeps_greedy_checkpoint_selection(
     if repeated:
         cfg.update({"variability_run_id": "run-1", "variability_method": "ppo",
                     "variability_version": "version_0", "variability_evaluation_seed": evaluation_seed})
-    runner.main.__wrapped__(cfg)
+    runner.execute(cfg, RunContext(
+        'test', WorkspacePaths.for_process(),
+        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        cfg.agent.name / str(cfg.get('variability_version') or '')))
     base = evaluation_seed if repeated else 10000000
     assert calls == [(0, True, base, 2), (0, False, base, 2),
                      (0, True, base + 1, 2), (0, False, base + 1, 2),

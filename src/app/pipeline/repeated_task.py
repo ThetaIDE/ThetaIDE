@@ -16,7 +16,7 @@ from src.app.services.cancellation import TrainingCancelled
 from src.app.workspace import WorkspacePaths
 
 
-def execute_resolved(cfg, run, on_start, on_wait, *, script):
+def execute_resolved(cfg, run, on_start, on_wait):
     """The same resource admission/cancellation path as ordinary training."""
     from src.app.pipeline.datasets import run_experiment
     directory = Path(run["logs"]) / run["agent"] / run["version"]
@@ -41,8 +41,9 @@ def execute_resolved(cfg, run, on_start, on_wait, *, script):
     if runtime.get("log_version"):
         targets.append(f"trial:{runtime['log_version']}")
     task_config = OmegaConf.to_container(cfg, resolve=True)
-    task_config["entrypoint"] = script
     from src.app.core.provider_loader import resolve_resource
+    from src.app.pipeline.engine import DEFAULT_ENGINE_SCRIPT
+    script = DEFAULT_ENGINE_SCRIPT
     run_experiment(["src.app.pipeline.task_worker", str(resolve_resource(script)),
                     str(config_path.resolve()), str(result_path.resolve())],
                    script_entrypoint="-m", python_executable=sys.executable,
@@ -63,14 +64,12 @@ def run_objective(cfg, *, execute=None):
     if os.environ.get("THETA_RESOURCE_POOL"):
         from src.app.services.resource_budget import ResourcePool
         ResourcePool(os.environ["THETA_RESOURCE_POOL"], os.environ.get("THETAIDE_SETTINGS_FILE")).release_coordinator_reservation(os.getpid())
-    spec = cfg.get("theta_execution") or cfg.get("theta_objective_runner") or {}
-    script = str(spec["script"])
     name = str(OmegaConf.select(cfg, "agent.name") or OmegaConf.select(cfg, "model.name") or "run").replace("/", "_")
     planning_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     if planning_cfg.get("variability") is None:
         with open_dict(planning_cfg):
             planning_cfg.variability = {"training_runs": 1, "starting_seed": int(cfg.get("seed", 1))}
-    plan = make_plan(planning_cfg, {"methods": {name: {"entrypoint": script}}, "is_interactive": True})
+    plan = make_plan(planning_cfg, {"methods": {name: {}}, "is_interactive": True})
     version = trial_log_version(cfg) or "version_execution_" + uuid.uuid4().hex[:12]
     runtime = cfg.get("theta_tuning") or {}
     parent = {"kind": "trial" if runtime.get("study_name") else "method", "method": name,
@@ -84,7 +83,7 @@ def run_objective(cfg, *, execute=None):
 
     def dispatch(child, run, on_start, on_wait):
         if execute is None:
-            execute_resolved(child, run, on_start, on_wait, script=script)
+            execute_resolved(child, run, on_start, on_wait)
         else:
             # Test injection follows the same lifecycle without starting an OS process.
             with open_dict(child):
@@ -95,7 +94,7 @@ def run_objective(cfg, *, execute=None):
             on_start(os.getpid())
             execute(child, directory)
 
-    path = run_execution(cfg, {"methods": {name: {"entrypoint": script}}}, plan,
+    path = run_execution(cfg, {"methods": {name: {}}}, plan,
                          dispatch=dispatch, parent=parent, raise_on_failure=False)
     execution = json.loads(path.read_text(encoding="utf-8"))
     if any(run["status"] == "cancelled" for run in execution["runs"]):

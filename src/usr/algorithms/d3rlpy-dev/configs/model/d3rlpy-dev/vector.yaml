@@ -1,0 +1,3 @@
+architecture: d3rlpy-dev/vector
+hidden_units: [256, 256]
+activation: relu

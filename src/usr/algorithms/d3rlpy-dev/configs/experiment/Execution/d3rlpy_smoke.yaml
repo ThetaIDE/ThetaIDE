@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - override /env: gym_classic_control/cartpole
+paradigm: offline_rl
+no_plot: true
+seed: 42
+# Set this to a local DatasetWriter transition directory.
+dataset_path: null
+methods:
+  bc:
+    agent:
+      name: d3rlpy-dev/bc
+      n_steps: 4
+      batch_size: 4
+      n_steps_per_epoch: 2
+    model:
+      name: d3rlpy-dev/vector
+      hidden_units: [16, 16]

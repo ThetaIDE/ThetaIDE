@@ -10,6 +10,12 @@ pytest.importorskip("stable_baselines3")
 pytest.importorskip("gymnasium")
 
 
+def policy_module():
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.core.provider_loader import load_module
+    return load_module(get_catalog().package('sb3-dev'), 'theta_sb3_policy.py')
+
+
 def test_blendrl_uses_its_configured_symbolic_observation_builder():
     from src.usr.models.blendrl.agents.blender_agent import BlenderActorCritic
 
@@ -50,7 +56,7 @@ def test_ppo_adapter_accepts_other_environment_and_model_without_symbolic_metada
             action = dist.sample() if action is None else action
             return ActionResult(action, dist.log_prob(action), dist.entropy(), self.critic(obs))
 
-    adapter = importlib.import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy").ThetaActorCriticPolicy
+    adapter = policy_module().ThetaActorCriticPolicy
     env = gym.make("MountainCar-v0")
     model = PPO(adapter, env, n_steps=8, batch_size=4, n_epochs=1,
                 policy_kwargs={"theta_config": {"model": {}}, "theta_model": "test_other_domain_policy",
@@ -67,7 +73,7 @@ def test_ppo_trains_and_reloads_actual_blendrl(tmp_path, actor_mode):
     from src.usr.models.blendrl.agents.blender_agent import BlenderActorCritic
     from src.usr.models.dnn.dnn_model import DNNModel
 
-    policy = importlib.import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy").ThetaActorCriticPolicy
+    policy = policy_module().ThetaActorCriticPolicy
     cfg = {"model": {"architecture": "blendrl", "actor_mode": actor_mode, "blend_function": "softmax",
                      "blender": {"mode": "neural", "model": {"name": "basics/dnn", "hidden_sizes": [16, 16]}},
                      "neural": {"type": "dnn", "hidden_sizes": [32, 32]},
@@ -112,13 +118,13 @@ def test_missing_model_methods_report_compatibility_error():
             super().__init__()
             self.weight = torch.nn.Parameter(torch.ones(1))
 
-    policy = importlib.import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy").ThetaActorCriticPolicy
+    policy = policy_module().ThetaActorCriticPolicy
     env = gym.make("CartPole-v1")
     with pytest.raises(ValueError, match="implement get_action_probs"):
         PPO(policy, env, policy_kwargs={"theta_config": {"model": {}}, "theta_model": "test_incomplete_sb3_model",
                                        "env_name": "cartpole", "action_meanings": ["left", "right"]})
     from stable_baselines3 import DQN
-    dqn_policy = importlib.import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy").ThetaDQNPolicy
+    dqn_policy = policy_module().ThetaDQNPolicy
     with pytest.raises(ValueError, match="implement get_q_values"):
         DQN(dqn_policy, env, policy_kwargs={"theta_config": {"model": {}}, "theta_model": "test_incomplete_sb3_model",
                                            "env_name": "cartpole", "action_meanings": ["left", "right"]})
@@ -142,7 +148,7 @@ def test_dqn_uses_selected_model_q_values_and_reloads(tmp_path):
     from stable_baselines3 import DQN
     from src.usr.models.mlp.mlp_model import MLPQNetwork
 
-    policy = importlib.import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy").ThetaDQNPolicy
+    policy = policy_module().ThetaDQNPolicy
     cfg = {"model": {"architecture": "basics/mlp", "hidden_dims": [11, 7], "activation": "relu"}}
     env = gym.make("CartPole-v1")
     model = DQN(policy, env, buffer_size=40, learning_starts=0, batch_size=4, train_freq=1,
@@ -170,7 +176,7 @@ def test_dqn_uses_blendrl_to_build_symbolic_observations():
     from stable_baselines3 import DQN
     from src.usr.models.blendrl.agents.blender_agent import BlenderActorCritic
 
-    adapter = importlib.import_module("src.usr.algorithms.sb3-suite.theta_sb3_policy").ThetaDQNPolicy
+    adapter = policy_module().ThetaDQNPolicy
     cfg = {"model": {"architecture": "blendrl", "actor_mode": "hybrid", "blend_function": "softmax",
                      "blender": {"mode": "neural", "model": {"name": "basics/dnn", "hidden_sizes": [16, 16]}},
                      "neural": {"type": "dnn", "hidden_sizes": [32, 32]},
@@ -215,7 +221,7 @@ def test_model_optimizer_groups_follow_sb3_schedule(algorithm_name, policy_name)
         def get_q_values(self, obs):
             return self.actor(obs) + self.critic(obs)
 
-    module = importlib.import_module('src.usr.algorithms.sb3-suite.theta_sb3_policy')
+    module = policy_module()
     env = gym.make('CartPole-v1')
     kwargs = {'theta_config': {'model': {}}, 'theta_model': 'test_grouped_model', 'env_name': 'cartpole'}
     algo = getattr(module, algorithm_name)
@@ -245,7 +251,7 @@ def test_blendrl_optimizer_rates_allow_null_model_defaults_and_agent_fallback():
 
 def test_blendrl_routing_monitor_reports_experts_and_keeps_gradients_usable():
     import gymnasium as gym
-    module = importlib.import_module('src.usr.algorithms.sb3-suite.theta_sb3_policy')
+    module = policy_module()
     cfg = {'model': {'architecture': 'blendrl', 'actor_mode': 'hybrid', 'blend_function': 'softmax',
                      'logic_lr': .002, 'blender_lr': .003,
                      'blender': {'mode': 'neural', 'model': {'name': 'basics/dnn', 'hidden_sizes': [16, 16]}},

@@ -114,11 +114,25 @@ def resolve_dataset_path(
     return Path("in/datasets") / dataset_name_internal
 
 
-def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any) -> Path:
-    """Resolve the dataset path for an offline method from method_cfg or env config."""
+def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any, *, paths=None) -> Path:
+    """Resolve a dataset; explicit relative paths are anchored to the workspace."""
     explicit_ds = method_cfg.get("dataset_path") or (cfg.get("dataset_path") if hasattr(cfg, "get") else None)
-    if explicit_ds and Path(explicit_ds).exists():
-        return Path(explicit_ds)
+    if explicit_ds and str(explicit_ds).startswith("package://"):
+        from src.app.core.provider_loader import resolve_resource
+        return resolve_resource(str(explicit_ds), paths=paths)
+    if explicit_ds:
+        path = Path(explicit_ds).expanduser()
+        if not path.is_absolute():
+            from src.app.workspace import WorkspacePaths
+            path = (paths or WorkspacePaths.for_process()).root / path
+        path = path.resolve()
+        if path.exists():
+            return path
+        hint = ''
+        supplied = Path(explicit_ds).expanduser()
+        if not supplied.is_absolute() and (Path('/') / supplied).exists():
+            hint = " This looks like an absolute path missing its leading '/'."
+        raise FileNotFoundError(f"Dataset file or directory does not exist: {path}. Check dataset_path.{hint}")
 
     # For offline paradigms, dataset comes from the environment config
     env_cfg = cfg.get("env") if hasattr(cfg, "get") else getattr(cfg, "env", None)

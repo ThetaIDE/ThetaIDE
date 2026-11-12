@@ -45,8 +45,9 @@ class OfflineRLEvalProtocol(BaseEvalProtocol):
 class OfflineRLRunner(BaseParadigmRunner):
     """Runs the offline RL training loop for each (dataset, agent) pair.
 
-    Calls run_offline_phase() directly from local_runner, which subprocesses
-    train.py for each agent×dataset combination with the correct Hydra overrides.
+    Executes one resolved method through its declared backend.
     """
 
-    pass
+    def run(self, cfg, context):
+        from src.app.core.execution import execute_backend
+        return execute_backend(cfg, context)

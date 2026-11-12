@@ -1177,7 +1177,7 @@ python run_pipeline.py <group>/<experiment></code></pre>
   </tr>
   <tr><td><code>dry_run=true</code></td><td>Validate the config and exit</td></tr>
   <tr><td><code>plot_only=true</code></td><td>Run only the plotting phase</td></tr>
-  <tr><td><code>no_plot=true</code></td><td>Skip automatic plotting</td></tr>
+  <tr><td><code>no_plot=false</code></td><td>Enable plotting of configured figures and tables (disabled by default)</td></tr>
   <tr><td><code>no_online=true</code> / <code>no_offline=true</code></td><td>Skip the online or offline training phase</td></tr>
   <tr><td><code>experiment_id=&lt;name&gt;</code></td><td>Override the results directory name</td></tr>
   <tr><td><code>site=ncshare</code> / <code>site=arc</code> (and <code>ncshare_gpu</code>, <code>ncshare_common</code>)</td><td>Submit to a Slurm cluster instead of running locally (see <a href="cluster_slurm">Cluster Execution</a>)</td></tr>

@@ -48,27 +48,11 @@ class BaseParadigmRunner(ABC):
     defined by the paradigm.
     """
 
-    def run(
-        self,
-        cfg: Any,
-        data_module: BaseDataModule | None = None,
-        eval_protocol: BaseEvalProtocol | None = None,
-        callbacks: list | None = None,
-        context: dict | None = None,
-    ) -> None:
-        """Execute the standard paradigm training loop (setup → methods → plot)."""
-        from src.app.pipeline.local_runner import (
-            _setup_output_dirs,
-            run_methods,
-            run_plotting_phase,
-        )
+    execution_contract = 1
 
-        _setup_output_dirs(cfg)
-        if context is not None:
-            run_methods(cfg, context)
-
-        if not (hasattr(cfg, "get") and cfg.get("no_plot", False)):
-            run_plotting_phase(cfg, context or {})
+    @abstractmethod
+    def run(self, cfg: Any, context: Any):
+        """Execute one resolved method and return a RunResult. Never dispatch methods."""
 
 
 class BaseMetaPipeline(ABC):

@@ -20,4 +20,4 @@ def requested_plots(cfg):
 
 
 def should_run_plotting(cfg):
-    return not cfg.get("no_plot", False) and bool(requested_plots(cfg))
+    return not cfg.get("no_plot", True) and bool(requested_plots(cfg))

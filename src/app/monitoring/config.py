@@ -90,33 +90,13 @@ def model_capabilities(cfg, catalog):
 
 
 def runner_metadata(context, catalog, script=None):
-    from src.app.pipeline.engine import resolve_engine, DEFAULT_ENGINE_SCRIPT
-    from src.app.core.provider_loader import resolve_resource
-    from omegaconf import OmegaConf
-    agent = context.get("agent") or {}
-    selector = agent if isinstance(agent, str) else agent.get("name") or agent.get("algorithm")
-    import yaml
-    profile = catalog.paths.resolve_config(f"agent/{selector}.yaml") if selector else None
-    effective = (yaml.safe_load(profile.read_text()) or {}) if profile and profile.is_file() else {}
-    effective.update(agent if isinstance(agent, Mapping) else {})
-    run_context = {**plain(context), "agent": effective}
-    runner, _ = resolve_engine(run_context, OmegaConf.create(run_context))
-    runner = script or runner
-    if runner == DEFAULT_ENGINE_SCRIPT:
-        from src.app.telemetry.monitors import BUILTIN_MONITORING
-        return BUILTIN_MONITORING
-    try:
-        source = resolve_resource(runner, paths=catalog.paths).resolve()
-    except (ValueError, FileNotFoundError):
-        return {}
-    selected = catalog.resolve("algorithm", str(selector)) if selector else None
-    if selected is None and effective.get("algorithm"):
-        selected = catalog.resolve("algorithm", str(effective["algorithm"]))
-    candidates = ([selected] if selected else []) + [(p, c) for p in catalog.packages for c in p.capabilities if c.kind == "algorithm"]
-    for package, cap in candidates:
-        if package.resource(cap.entry_point.split(":")[0]).resolve() == source:
-            return cap.metadata.get("monitoring", {})
-    return {}
+    from src.app.core.execution import algorithm_selection
+    _, selected = algorithm_selection(context, paths=catalog.paths)
+    from src.app.telemetry.monitors import BUILTIN_MONITORING
+    if selected:
+        default = BUILTIN_MONITORING if selected[1].metadata.get("backend") == "lightning" else {}
+        return selected[1].metadata.get("monitoring", default)
+    return BUILTIN_MONITORING
 
 
 def validate_context(context, *, catalog, script=None, configured=None):

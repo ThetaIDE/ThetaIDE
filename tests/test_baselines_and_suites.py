@@ -20,8 +20,9 @@ def test_benchmark_engine_resolution():
         "src/usr/algorithms/sb3-suite/sb3_runner.py",
         "src/usr/algorithms/d3rlpy-suite/d3rlpy_runner.py",
     ):
-        script, _ = resolve_engine({"entrypoint": path})
-        assert script == path
+        from src.app.pipeline.exceptions import ConfigurationError
+        with pytest.raises(ConfigurationError, match="Removed execution fields"):
+            resolve_engine({"entrypoint": path})
 
 
 def test_gym_classic_control_environments():

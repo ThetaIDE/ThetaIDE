@@ -78,40 +78,14 @@ class TestContractLogger:
 
 
 class TestEngineResolution:
-    def test_default_returns_train_py(self):
-        script, py_bin = resolve_engine(method_cfg={})
-        assert script == DEFAULT_ENGINE_SCRIPT
-        assert py_bin is None
+    def test_common_worker(self):
+        assert resolve_engine({}) == (DEFAULT_ENGINE_SCRIPT, None)
 
-    def test_custom_script_or_entrypoint(self):
-        script, py_bin = resolve_engine(method_cfg={"entrypoint": "custom/run.py"})
-        assert script == "custom/run.py"
+    @pytest.mark.parametrize("key", ["entrypoint", "runner", "script", "engine", "venv", "venv_python"])
+    def test_obsolete_fields_are_rejected(self, key):
+        from src.app.pipeline.exceptions import ConfigurationError
+        with pytest.raises(ConfigurationError, match="Removed execution fields"):
+            resolve_engine({key: "old"})
 
-        script2, _ = resolve_engine(method_cfg={"runner": "custom/runner.py"})
-        assert script2 == "custom/runner.py"
-
-    def test_profile_declared_runner(self):
-        script, _ = resolve_engine(method_cfg={"entrypoint": "src/usr/methods/example/example_runner.py"})
-        assert script == "src/usr/methods/example/example_runner.py"
-
-        script_torch, _ = resolve_engine(method_cfg={"engine": "pytorch"})
-        assert script_torch == DEFAULT_ENGINE_SCRIPT
-
-    def test_custom_venv_or_python(self, tmp_path):
-        fake_venv = tmp_path / "my_venv"
-        bin_dir = fake_venv / "bin"
-        bin_dir.mkdir(parents=True)
-        py_bin = bin_dir / "python3"
-        py_bin.touch()
-
-        script, resolved_py = resolve_engine(method_cfg={"entrypoint": "custom/runner.py", "venv": str(fake_venv)})
-        assert script == "custom/runner.py"
-        assert resolved_py == str(py_bin)
-
-    def test_resolve_from_cfg_agent(self):
-        class FakeCfg:
-            agent = {"entrypoint": "src/usr/methods/example/example_runner.py"}
-
-        script, py_bin = resolve_engine(method_cfg={}, cfg=FakeCfg())
-        assert script == "src/usr/methods/example/example_runner.py"
-        assert py_bin is None
+    def test_explicit_python(self):
+        assert resolve_engine({"python": "/custom/python"}) == (DEFAULT_ENGINE_SCRIPT, "/custom/python")

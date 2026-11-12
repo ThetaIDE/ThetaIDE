@@ -224,7 +224,10 @@ def _load_raw_experiment_yaml(experiment_name: str, config_dir: Path | None = No
 # ---------------------------------------------------------------------------
 
 
-def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = False, config_dir: Path | None = None) -> list[str]:
+def validate_experiment_config(
+    cfg: Any, experiment_name: str, is_sweep: bool = False,
+    config_dir: Path | None = None, workspace: WorkspacePaths | None = None,
+) -> list[str]:
     """Validate experiment configuration against its declared paradigm.
 
     Returns a list of non-fatal notice strings.
@@ -246,6 +249,16 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
             f"Add 'paradigm: <name>' to its group _base.yaml. "
             f"Available paradigms: {list_paradigms()}."
         )
+
+    from src.app.core.execution import execution_backend, reject_selectors
+    from src.app.core.paradigm_loader import load_paradigm_definition
+    reject_selectors(cfg, "experiment")
+    load_paradigm_definition(paradigm_name)
+    for method_name, method in parse_methods_dict(cfg).items():
+        reject_selectors(method, f"method {method_name}")
+        effective = dict(cfg.items())
+        effective.update(method)
+        execution_backend(effective)
 
     paradigm_def = load_paradigm(paradigm_name)  # raises ConfigurationError if unknown
     constraints = paradigm_def.get("constraints", {})
@@ -300,11 +313,15 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
     _validate_methods_for_paradigm(cfg, paradigm_name, paradigm_def)
 
     from src.app.core.data_loaders import data_loader_errors
-    paths = WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process()
+    paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process())
     for method_name, method in (parse_methods_dict(cfg, paths=paths) or {"training": None}).items():
         errors = data_loader_errors(cfg, method, paths=paths)
         if errors:
             raise ConfigurationError(f"Method '{method_name}': " + " ".join(errors))
+
+    # External files are not installable components. Report dataset errors before
+    # the component inventory can turn them into misleading Hub guidance.
+    _validate_offline_dataset_paths(cfg, notices, paths=paths)
 
     # --- Missing Components Validation ---
     missing_comps = find_missing_components(cfg)
@@ -333,9 +350,6 @@ def validate_experiment_config(cfg: Any, experiment_name: str, is_sweep: bool = 
                 )
         except Exception:
             pass
-
-    # --- Offline dataset path checks (non-fatal) ---
-    _validate_offline_dataset_paths(cfg, notices)
 
     return notices
 
@@ -599,8 +613,11 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
                         if not ds.exists():
                             missing.append(f"dataset: {ds}")
                     except Exception:
-                        ds_name = None
-                        if env_obj and hasattr(env_obj, "get"):
+                        ds_name = m_spec.get("dataset_path") or (
+                            cfg_or_dict.get("dataset_path") if hasattr(cfg_or_dict, "get")
+                            else getattr(cfg_or_dict, "dataset_path", None)
+                        )
+                        if not ds_name and env_obj and hasattr(env_obj, "get"):
                             ds_name = env_obj.get("dataset_name") or env_obj.get("name")
                         missing.append(f"dataset: {ds_name or m_name}")
             except Exception:
@@ -645,7 +662,7 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
     return list(dict.fromkeys(missing))
 
 
-def _validate_offline_dataset_paths(cfg: Any, notices: list[str]) -> None:
+def _validate_offline_dataset_paths(cfg: Any, notices: list[str], *, paths=None) -> None:
     """Ensure static dataset paradigms have resolvable dataset files before launching."""
     paradigm_name = cfg.get("paradigm") if hasattr(cfg, "get") else getattr(cfg, "paradigm", None)
     if not paradigm_uses_static_dataset(paradigm_name):
@@ -659,7 +676,7 @@ def _validate_offline_dataset_paths(cfg: Any, notices: list[str]) -> None:
     methods = parse_methods_dict(cfg)
     for method_name, method_cfg in methods.items():
         try:
-            ds_path = resolve_dataset_for_method(method_name, method_cfg, cfg)
+            ds_path = resolve_dataset_for_method(method_name, method_cfg, cfg, paths=paths)
             if not ds_path.exists():
                 raise ConfigurationError(
                     f"[ConfigurationError] Method '{method_name}' in paradigm '{paradigm_name}' "

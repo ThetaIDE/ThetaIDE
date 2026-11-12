@@ -72,7 +72,7 @@ def make_plan(cfg, context):
         raise ConfigurationError("variability evaluation requires telemetry.metrics to include eval/reward")
     for name, method in context["methods"].items():
         script = resolve_engine(method, cfg)[0]
-        runner_supports_eval = runner_supports_episode_outcomes(script)
+        runner_supports_eval = runner_supports_episode_outcomes({**dict(cfg.items()), **method})
         episode_events = (runner_supports_eval and cfg.get("paradigm") == "online_rl"
                           and isinstance(episodes, int) and not isinstance(episodes, bool) and episodes > 0
                           and selection.keeps("eval/reward"))

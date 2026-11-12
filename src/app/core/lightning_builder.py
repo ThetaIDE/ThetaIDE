@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 def _exit_on_signal(signum, frame):
     print(f"\n[Signal {signum}] Training interrupted.")
-    raise SystemExit(128 + signum)
+    from src.app.services.cancellation import TrainingCancelled
+    raise TrainingCancelled()
 
 
 def get_method_name(cfg) -> str:
@@ -37,16 +38,17 @@ def get_method_name(cfg) -> str:
 class SaveInitialCheckpointCallback(Callback):
     """Callback to save an initial, untrained model checkpoint before training starts."""
 
-    def __init__(self, ckpt_dir, cfg):
+    def __init__(self, ckpt_dir, cfg, isolated=False):
         super().__init__()
         self.ckpt_dir = ckpt_dir
         self.cfg = cfg
+        self.isolated = isolated
 
     def on_fit_start(self, trainer, pl_module):
         os.makedirs(self.ckpt_dir, exist_ok=True)
         init_ckpt = os.path.join(self.ckpt_dir, "best_model.ckpt")
         trainer.save_checkpoint(init_ckpt)
-        if self.cfg.get("theta_tuning"):
+        if self.isolated or self.cfg.get("theta_tuning"):
             trainer.save_checkpoint(os.path.join(self.ckpt_dir, "epoch_000.ckpt"))
             return
         from hydra.utils import get_original_cwd
@@ -287,7 +289,7 @@ def _telemetry_logger(cfg, csv_logger, method_name):
     return ThetaLogger(lambda: csv_logger.log_dir, sinks, config, meta, system_interval, selection_from_config(cfg))
 
 
-def build_trainer(cfg, model=None):
+def build_trainer(cfg, model=None, *, context=None):
     print_hardware_diagnostics()
     infer_dynamic_timesteps(cfg)
 
@@ -299,7 +301,7 @@ def build_trainer(cfg, model=None):
     )
     if isinstance(agent_seed, DictConfig):
         agent_seed = agent_seed.get("seed", default_seed)
-    L.seed_everything(agent_seed)
+    L.seed_everything(context.seed if context is not None else agent_seed)
 
     from hydra.utils import get_original_cwd
 
@@ -341,6 +343,9 @@ def build_trainer(cfg, model=None):
     if trial_dir is not None:
         ckpt_dir = str(trial_dir)
 
+    if context is not None:
+        ckpt_dir = str(context.artifacts)
+
     try:
         signal.signal(signal.SIGTERM, _exit_on_signal)
         signal.signal(signal.SIGUSR1, _exit_on_signal)
@@ -353,7 +358,7 @@ def build_trainer(cfg, model=None):
     from src.app.telemetry.selection import selection_from_config
 
     evaluates = not is_online or selection_from_config(cfg).keeps_section("eval")
-    callbacks = [SaveInitialCheckpointCallback(ckpt_dir, cfg)]
+    callbacks = [SaveInitialCheckpointCallback(ckpt_dir, cfg, isolated=context is not None)]
     if evaluates:
         callbacks.extend(configured_evaluator_callbacks(cfg))
     from src.app.pipeline.tuners import training_callbacks
@@ -499,7 +504,13 @@ def build_trainer(cfg, model=None):
     trainer = L.Trainer(**trainer_kwargs, logger=loggers, callbacks=callbacks)
 
     ckpt_path = None
-    if cfg.get("recover", False):
+    if context is not None and (cfg.get("recover") or cfg.get("resume")) and not context.checkpoint:
+        raise ValueError("Recovery requires an explicit resume_from Lightning checkpoint")
+    if context is not None and context.checkpoint:
+        if not Path(context.checkpoint).is_file():
+            raise FileNotFoundError(context.checkpoint)
+        ckpt_path = context.checkpoint
+    elif cfg.get("recover", False):
         potential_ckpt = os.path.join(ckpt_dir, "best_model.ckpt")
         if os.path.exists(potential_ckpt):
             print(f"Recovering from checkpoint: {potential_ckpt}")
@@ -508,7 +519,7 @@ def build_trainer(cfg, model=None):
     return trainer, ckpt_dir, ckpt_path
 
 
-def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_time):
+def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_time, *, context=None):
     gpu_stats = {}
     if torch.cuda.is_available():
         device_idx = torch.cuda.current_device()
@@ -615,7 +626,8 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
         atomic_yaml_save(cfg, os.path.join(ckpt_dir, "config.yaml"))
         exp_ckpt_root = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id)
         os.makedirs(exp_ckpt_root, exist_ok=True)
-        atomic_yaml_save(cfg, os.path.join(exp_ckpt_root, "config.yaml"))
+        if context is None:
+            atomic_yaml_save(cfg, os.path.join(exp_ckpt_root, "config.yaml"))
 
         if hydra_output_dir:
             import shutil
@@ -649,7 +661,8 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
     exp_log_root = os.path.join("results/logs", cfg.group, cfg.experiment_id)
     os.makedirs(exp_log_root, exist_ok=True)
     try:
-        atomic_yaml_save(cfg, os.path.join(exp_log_root, "config.yaml"))
+        if context is None:
+            atomic_yaml_save(cfg, os.path.join(exp_log_root, "config.yaml"))
     except Exception as e:
         print(f"Notice: Could not save logger config.yaml: {e}")
 
@@ -660,7 +673,7 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
 
     parent_ckpt_dir = str(Path(ckpt_dir).parent) if Path(ckpt_dir).name.isdigit() else str(Path(ckpt_dir))
     parent_ckpt_target = os.path.join(parent_ckpt_dir, "best_model.ckpt")
-    if not (cfg.get("theta_variability_sample") or cfg.get("theta_objective_sample")) and os.path.abspath(final_ckpt_target) != os.path.abspath(parent_ckpt_target) and os.path.exists(final_ckpt_target):
+    if context is None and not (cfg.get("theta_variability_sample") or cfg.get("theta_objective_sample")) and os.path.abspath(final_ckpt_target) != os.path.abspath(parent_ckpt_target) and os.path.exists(final_ckpt_target):
         try:
             import shutil
 

@@ -211,9 +211,15 @@ def test_selected_components_are_intersected_with_actual_runner_hooks(tmp_path):
     available_monitors(cfg, catalog=catalog, read_config=read, errors=errors)
     assert errors == []
     cfg.pop("monitors")
-    # Custom script wins over the selected algorithm profile; no hooks declared.
+    # Historical script selectors do not redefine the registered backend's
+    # monitor hooks. They remain inspectable but execution rejects them.
     cfg["methods"]["one"]["entrypoint"] = str(tmp_path / "custom.py")
-    assert available_monitors(cfg, catalog=catalog, read_config=read) == []
+    assert {spec.name for spec in available_monitors(cfg, catalog=catalog, read_config=read)} == {
+        "train/loss", "blend/", "tuning/score"}
+    from src.app.core.execution import reject_selectors
+    from src.app.pipeline.exceptions import ConfigurationError
+    with pytest.raises(ConfigurationError, match="Removed execution fields"):
+        reject_selectors(cfg["methods"]["one"], "method")
 
 
 @pytest.mark.parametrize("metadata", [{"provides": [{"name": "step"}]},

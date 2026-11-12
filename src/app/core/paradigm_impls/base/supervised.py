@@ -286,33 +286,6 @@ class SupervisedRunner(BaseParadigmRunner):
     handling optimizer stepping, epoch scheduling, and metric logging.
     """
 
-    def train_model(
-        self,
-        model: Any,
-        train_loader: DataLoader,
-        val_loader: DataLoader | None = None,
-        epochs: int = 20,
-        callbacks: list | None = None,
-        device_str: str = "auto",
-        enable_checkpointing: bool = False,
-    ):
-        """Execute standard supervised training using PyTorch Lightning."""
-        import lightning as L
-
-        trainer_kwargs = {
-            "max_epochs": epochs,
-            "accelerator": "auto" if device_str == "auto" else ("gpu" if "cuda" in device_str else "cpu"),
-            "devices": 1,
-            "enable_progress_bar": False,
-            "logger": False,
-            "enable_checkpointing": enable_checkpointing,
-            "callbacks": callbacks or [],
-        }
-
-        if torch.cuda.is_available():
-            torch.backends.cudnn.benchmark = True
-            trainer_kwargs["precision"] = "bf16-mixed" if torch.cuda.is_bf16_supported() else "16-mixed"
-
-        trainer = L.Trainer(**trainer_kwargs)
-        trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-        return trainer
+    def run(self, cfg, context):
+        from src.app.core.execution import execute_backend
+        return execute_backend(cfg, context)

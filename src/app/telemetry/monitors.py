@@ -287,24 +287,10 @@ def available_monitors(cfg: dict, *, catalog=None, script: str | None = None,
         context["agent"] = agent
         model, _ = component("model", context.get("model"))
         context["model"] = deep_merge(model, context.get("model_params") or {})
-        runner, _ = resolve_engine(method, OmegaConf.create(context))
-        runner = script or runner
-        metadata = BUILTIN_MONITORING if runner == DEFAULT_ENGINE_SCRIPT else {}
-        runner_package = None
-        if runner != DEFAULT_ENGINE_SCRIPT:
-            from src.app.core.provider_loader import resolve_resource
-            try:
-                source = resolve_resource(runner, paths=paths).resolve()
-            except (ValueError, FileNotFoundError):
-                source = None
-            candidates = [selected_agent] if selected_agent else []
-            candidates += [(p, c) for p in catalog.packages if p.origin != "python_distribution"
-                           for c in p.capabilities if c.kind == "algorithm" and (p, c) not in candidates]
-            for package, cap in candidates:
-                if source is not None and package.resource(cap.entry_point.split(":", 1)[0]).resolve() == source:
-                    metadata = cap.metadata.get("monitoring", {})
-                    runner_package = package
-                    break
+        runner = DEFAULT_ENGINE_SCRIPT
+        default = BUILTIN_MONITORING if not selected_agent or selected_agent[1].metadata.get("backend") == "lightning" else {}
+        metadata = selected_agent[1].metadata.get("monitoring", default) if selected_agent else default
+        runner_package = selected_agent[0] if selected_agent else None
         supported = set(metadata.get("supports", []))
         add(metadata, "Runner", supported, package=runner_package, config=agent, context=context)
         if include_shared and runner == DEFAULT_ENGINE_SCRIPT and (context.get("trainer") or {}).get("accelerator") in ("gpu", "cuda"):

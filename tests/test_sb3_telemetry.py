@@ -1,3 +1,6 @@
+from src.app.core.execution import RunContext
+from src.app.workspace import WorkspacePaths
+
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,7 +9,7 @@ import pytest
 
 
 spec = importlib.util.spec_from_file_location(
-    "sb3_runner_telemetry", Path(__file__).resolve().parents[1] / "src/usr/algorithms/sb3-suite/sb3_runner.py"
+    "sb3_runner_telemetry", Path(__file__).resolve().parents[1] / "src/usr/algorithms/sb3-dev/sb3_runner.py"
 )
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
@@ -52,9 +55,9 @@ def test_sb3_logger_dump_forwards_diagnostics_and_losses():
 
 def test_component_qualified_algorithm_names_do_not_fall_back_to_ppo():
     algorithms = {"PPO": object(), "DQN": object()}
-    assert runner.resolve_algorithm("sb3/dqn", algorithms) is algorithms["DQN"]
+    assert runner.resolve_algorithm("sb3-dev/dqn", algorithms) is algorithms["DQN"]
     with pytest.raises(ValueError, match="Unsupported SB3 algorithm"):
-        runner.resolve_algorithm("sb3/typo", algorithms)
+        runner.resolve_algorithm("sb3-dev/typo", algorithms)
 
 
 def test_sb3_options_are_forwarded_for_the_selected_algorithm():
@@ -89,13 +92,16 @@ def test_qualified_dqn_job_saves_a_dqn_not_a_ppo(tmp_path, monkeypatch):
     from omegaconf import OmegaConf
 
     cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "total_timesteps": 4,
-                            "agent": {"name": "dqn", "algorithm": "sb3/dqn", "buffer_size": 32,
+                            "agent": {"name": "dqn", "algorithm": "sb3-dev/dqn", "buffer_size": 32,
                                       "learning_starts": 100, "batch_size": 4},
                             "seed": 73, "model": {"sb3_native_policy": True},
                             "env": {"env_id": "CartPole-v1", "num_envs": 2}})
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(HydraConfig, "get", staticmethod(lambda: SimpleNamespace(mode=SimpleNamespace(name="RUN"))))
-    runner.main.__wrapped__(cfg)
+    runner.execute(cfg, RunContext(
+        'test', WorkspacePaths.for_process(),
+        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        cfg.agent.name / str(cfg.get('variability_version') or '')))
     checkpoint = tmp_path / "results/checkpoints/g/e/dqn/best_model.zip"
     loaded = sb3.DQN.load(checkpoint)
     assert isinstance(loaded, sb3.DQN)
@@ -130,15 +136,18 @@ def test_final_evaluation_uses_last_update_and_best_checkpoint_survives(tmp_path
                             "agent": {"name": "ppo", "algorithm": "PPO", "n_steps": 8, "batch_size": 4,
                                       "n_epochs": 2, "learning_rate": .01},
                             "model": {"sb3_native_policy": True}, "env": {"env_id": "CartPole-v1"}})
-    runner.main.__wrapped__(cfg)
-    assert evaluations == [0, 2]
+    runner.execute(cfg, RunContext(
+        'test', WorkspacePaths.for_process(),
+        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        cfg.agent.name / str(cfg.get('variability_version') or '')))
+    assert evaluations == [0, 0, 2, 2]
     root = tmp_path / "results/checkpoints/g/e/ppo/version_0"
     best, latest = sb3.PPO.load(root / "best_model.zip"), sb3.PPO.load(root / "latest_model.zip")
     assert best._n_updates == 0
     assert latest._n_updates == 2
     assert any(not torch.equal(v, latest.policy.state_dict()[k]) for k, v in best.policy.state_dict().items())
     events = [json.loads(line) for line in (tmp_path / "results/logs/g/e/ppo/version_0/evaluation_events.jsonl").read_text().splitlines()]
-    assert [e["training_step"] for e in events] == [0, 8]
+    assert [e["training_step"] for e in events if e["evaluation_mode"] == "greedy"] == [0, 8]
     assert events[-1]["episode_outcomes"] == [100.]
     with (tmp_path / "results/logs/g/e/ppo/version_0/metrics.csv").open() as stream:
         updates = [float(row["diagnostics/n_updates"]) for row in csv.DictReader(stream)
@@ -168,8 +177,11 @@ def test_sb3_pruning_reports_evaluation_and_does_not_save_best(tmp_path, monkeyp
     })
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(HydraConfig, "get", staticmethod(lambda: SimpleNamespace(mode=SimpleNamespace(name="RUN"))))
-    result = runner.main.__wrapped__(cfg)
-    assert result == {"theta_trial_status": "pruned"}
+    result = runner.execute(cfg, RunContext(
+        'test', WorkspacePaths.for_process(),
+        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        cfg.agent.name / str(cfg.get('variability_version') or '')))
+    assert result.status == "pruned"
     study.tell(trial, state=optuna.trial.TrialState.PRUNED)
     frozen = study.trials[-1]
     assert frozen.state == optuna.trial.TrialState.PRUNED

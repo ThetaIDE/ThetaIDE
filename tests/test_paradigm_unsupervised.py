@@ -14,6 +14,7 @@ from importlib.metadata import entry_points
 
 import pytest
 import torch
+import lightning as L
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.app.core.paradigm_loader import get_component, load_paradigm_definition
@@ -380,7 +381,7 @@ def test_the_runner_actually_trains_the_autoencoder():
 
     protocol = definition.eval_protocol_cls()
     before = protocol.evaluate(module, loader)["recon_mse"]
-    definition.runner_cls().train_model(module, loader, val_loader=loader, epochs=5, device_str="cpu")
+    L.Trainer(max_epochs=5, accelerator='cpu', devices=1, logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, train_dataloaders=loader, val_dataloaders=loader)
     after = protocol.evaluate(module, loader)["recon_mse"]
 
     assert after < before, f"reconstruction did not improve: {before:.4f} -> {after:.4f}"
@@ -456,7 +457,7 @@ def test_autoencoder_learns_real_clinical_data():
 
     protocol = definition.eval_protocol_cls()
     before = protocol.evaluate(module, test_loader, n_clusters=2)["recon_mse"]
-    definition.runner_cls().train_model(module, train_loader, val_loader=test_loader, epochs=30, device_str="cpu")
+    L.Trainer(max_epochs=30, accelerator='cpu', devices=1, logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, train_dataloaders=train_loader, val_dataloaders=test_loader)
     after = protocol.evaluate(module, test_loader, n_clusters=2)["recon_mse"]
 
     assert after < before / 2, f"reconstruction barely improved: {before:.3f} -> {after:.3f}"
@@ -488,7 +489,7 @@ def test_reconstruction_quality_and_cluster_quality_are_not_the_same_thing():
         )
         train_loader = DataLoader(TensorDataset(torch.tensor(x_train)), batch_size=32, shuffle=True)
         test_loader = DataLoader(TensorDataset(torch.tensor(x_test)), batch_size=32)
-        definition.runner_cls().train_model(module, train_loader, val_loader=test_loader, epochs=30, device_str="cpu")
+        L.Trainer(max_epochs=30, accelerator='cpu', devices=1, logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(module, train_dataloaders=train_loader, val_dataloaders=test_loader)
         mse = definition.eval_protocol_cls().evaluate(module, test_loader, n_clusters=2)["recon_mse"]
         with torch.no_grad():
             latent = module.encode(torch.tensor(x_test)).numpy()

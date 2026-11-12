@@ -26,3 +26,12 @@ Use this runner for all methods in a comparison to keep the protocol consistent.
 Compare independent training seeds; episode standard deviation is not a
 confidence interval across training runs. Include the untrained and rule-only
 baselines when measuring what a hybrid policy gains from learning.
+
+## Execution contract v1
+
+The paradigm runner invokes `sb3_runner.py:execute(cfg, context)` as a backend.
+Profiles no longer select scripts. Capabilities declare `execution_contract: 1`
+and `backend: sb3`; use `sb3-dev/*` explicitly. `Execution/sb3_smoke` exercises the
+common worker with native `.zip` checkpoints, telemetry and greedy/sampled
+matched-seed evaluation. Exact training resume is rejected; native inference
+reload remains supported. Production `sb3/*` profiles require a separate release.

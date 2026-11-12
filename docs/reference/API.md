@@ -153,3 +153,10 @@ storage paths and lifecycle semantics. Hub originals are read-only; edit an inde
 ## Provider ownership and execution
 
 `WorkspacePaths` separates distribution assets from selected-workspace installed/user content. `ProviderCatalog`/`get_catalog` list metadata and resolve kind-qualified capabilities; `resolve_provider`, `resolve_resource`, and `environment_resource` load selected implementations/resources. The canonical agent registry is `src.app.core.agent_registry`, with compatible shared-object re-exports. See [native storage, exports, leases and worker contracts](PLUGIN_STORAGE.md).
+
+## Single-method learning runtime
+
+See [execution contract v1](EXECUTION_CONTRACT.md) for registered runner invocation,
+backend selection, cancellation/results, removed selectors and editable migration.
+`BaseParadigmRunner.run(cfg, context)` executes one method; experiment and queue
+orchestration remain in the existing coordinator services.
