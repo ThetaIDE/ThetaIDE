@@ -74,7 +74,7 @@ def trial_execution(logs_root, method, trial):
         return None
 
 
-def study_execution_states(summary, logs_root, method):
+def study_execution_states(summary, logs_root, method, *, executions_root=None):
     """Enrich a study snapshot with actual seed-worker states from shared records."""
     trials = []
     for trial in summary.get("trials", []):
@@ -88,6 +88,30 @@ def study_execution_states(summary, logs_root, method):
                 starts = [run["execution_started"] for run in runs if run.get("execution_started") and run.get("status") == "running"]
                 trial["execution_started"] = min(starts) if starts else trial.get("execution_started")
         trials.append(trial)
+    # Cluster telemetry/manifests are published more frequently than database
+    # exports. Preserve the study snapshot's values, but admit a newer active
+    # trial so monitor navigation does not disappear between exports.
+    known = {trial.get('id') for trial in trials}
+    for path in sorted(Path(executions_root).glob('*/manifest.json')) if executions_root is not None else ():
+        try:
+            execution = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        parent = execution.get('parent') or {}
+        number = parent.get('trial_number')
+        if (parent.get('kind') != 'trial' or parent.get('study') != summary.get('study')
+                or not isinstance(number, int) or number in known):
+            continue
+        active = [run for run in execution.get('runs', [])
+                  if run.get('method') == method and run.get('status') == 'running']
+        if not active:
+            continue
+        starts = [run['execution_started'] for run in active if run.get('execution_started')]
+        trials.append({'id': number, 'state': 'running', 'log_version': parent.get('log_version'),
+                       'execution_started': min(starts) if starts else None,
+                       'parameters': {}, 'value': None, 'execution': execution})
+        known.add(number)
+    trials.sort(key=lambda trial: trial['id'])
     return dict(summary, trials=trials)
 
 

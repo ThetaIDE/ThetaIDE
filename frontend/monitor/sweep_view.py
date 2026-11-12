@@ -21,6 +21,8 @@ def study_summaries(project_root, run):
     if not backend.get("group") or not backend.get("experiment_id"):
         return []
     root = Path(project_root) / "results" / "checkpoints" / backend["group"] / backend["experiment_id"]
+    executions = (Path(project_root) / 'results/executions' / backend['group'] / backend['experiment_id']
+                  if (run or {}).get('remote') else None)
     found = {}
     for path in sorted(root.glob("*/tuning_summary.json")) + sorted(root.glob("*/sweeps/*/tuning_summary.json")):
         try:
@@ -30,7 +32,8 @@ def study_summaries(project_root, run):
         if data.get("study") and isinstance(data.get("trials"), list):
             method = path.relative_to(root).parts[0]
             logs = Path(project_root) / "results/logs" / backend["group"] / backend["experiment_id"]
-            found[(method, data["study"])] = study_execution_states(data, logs, data.get("log_method") or method)
+            found[(method, data["study"])] = study_execution_states(
+                data, logs, data.get("log_method") or method, executions_root=executions)
     # Older compute snapshots omitted commits for live tuning summaries. Recover
     # study metadata from the downloaded database export, never the live database.
     remote = (run or {}).get('remote') or {}
@@ -46,7 +49,8 @@ def study_summaries(project_root, run):
                 if callable(reader):
                     logs = Path(project_root) / 'results/logs' / backend['group'] / backend['experiment_id']
                     for method, data in reader(database):
-                        found[(method, data['study'])] = study_execution_states(data, logs, data.get('log_method') or method)
+                        found[(method, data['study'])] = study_execution_states(
+                            data, logs, data.get('log_method') or method, executions_root=executions)
             except (OSError, ValueError, RuntimeError):
                 pass  # A partially pulled snapshot is retried after its stamp changes.
     return [(method, data) for (method, _), data in found.items()]

@@ -37,6 +37,18 @@ venv/bin/python run_pipeline.py site push ncshare/common
 
 Both ends need rsync 3 or newer. Authenticate/MFA in a separate terminal first; transfers use SSH BatchMode. Edit SSH aliases in the site component's `ssh_config`. No operation edits home SSH configuration.
 
+Sync, upload, and remote checks allow 60 seconds to establish each SSH connection. For a slower login host, set `connection.ssh_connect_timeout_seconds: 120` (a positive integer) in the site's `_defaults.yaml`. This setting also applies to rsync's SSH transport; it controls connection setup, not the duration of a download. A connection timeout can also indicate an unreachable host or a required VPN; increasing it does not resolve those network problems.
+
+### Sync transport and login-node load
+
+For compute-published results, sync reads the committed manifest, skips verified objects already cached locally, and downloads all missing objects in one sequential rsync batch per remote storage root. A typical NCShare pull has a work-storage batch and, when needed, a small home-control batch for scheduler log previews. It does not start one rsync or remote Python helper per object. An unchanged pull starts no rsync.
+
+On macOS and Linux, each sync uses a private temporary SSH control socket so indexing, downloads, lease renewal, and release can reuse one authenticated connection. The connection closes after cleanup on success or failure, with a 60-second idle expiry as a fallback. Windows keeps separate SSH connections while retaining batched downloads. The socket is scoped to the sync, without editing home SSH settings or sharing another terminal's master connection.
+
+The download lease lasts two hours and is renewed at five-minute intervals while rsync is running, rather than for every object. Each rsync batch retains the existing one-hour transfer limit. Cancellation or renewal failure terminates the transfer child; sync then attempts lease release. Completed objects from failed batches are checksum-verified and cached on the client, while rsync partial files remain available for retry. Objects are verified before local result reconstruction; corrupt or incomplete data is not installed as a result.
+
+Compute jobs continue to own publication hashing, bundling, and database exports. The login node serves published objects and lightweight control operations; the client verifies hashes and reconstructs results. Use metrics sync during training and full results sync when needed to reduce transferred bytes.
+
 On macOS, `/usr/bin/rsync` may be Apple's openrsync (rsync 2.6.9 compatibility), which does not support the protected-argument upload flags. Install modern rsync with `brew install rsync`, then set `connection.rsync_executable` in the site component to its absolute path: typically `/opt/homebrew/bin/rsync` on Apple Silicon or `/usr/local/bin/rsync` on Intel. Check the installed location with `brew --prefix rsync`; its executable is under `bin/rsync`. Pinning the absolute path avoids differences between terminal and desktop-app PATHs. Keep `remote_rsync` separate: it names the executable on the cluster.
 
 Run performs the local version check before staging or connecting for upload. Transfer failures include rsync's captured error output, rather than only a generic exit status. After setting the path, use `site check ncshare/common` to verify both ends before retrying Run.

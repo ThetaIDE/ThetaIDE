@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -280,6 +281,13 @@ def sync(root, site, mode='metrics', *, execution_id=None, experiment=None, diag
     if mode not in ('metrics', 'results'): raise ValueError('Unknown sync mode')
     root = Path(root).resolve()
     config = connection(root, site)
+    from .slurm import ssh_session
+    with ssh_session(root, config):
+        return _sync(root, site, config, mode, execution_id=execution_id, experiment=experiment,
+                     diagnostics=diagnostics, cancel_event=cancel_event, progress=progress)
+
+
+def _sync(root, site, config, mode, *, execution_id=None, experiment=None, diagnostics=False, cancel_event=None, progress=None):
     state_path = root / '.thetaide/site_sync.json'
     with transfer_lock(root):
         state = read_json(state_path)
@@ -537,28 +545,57 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
     try:
         total_bytes = sum(chunk['size'] for chunk in objects.values())
         completed_bytes = 0
+        batches = {}
         for (remote_root, sha), chunk in objects.items():
             if cancel_event and cancel_event.is_set(): raise RuntimeError('Transfer cancelled; completed objects retained for retry')
             target = cache / sha
             if target.is_file() and digest(target) == sha:
                 completed_bytes += chunk['size']
                 continue
-            if listing.get('generation'): remote(root, site, '_renew', listing['generation'])
+            batches.setdefault(remote_root, []).append((sha, chunk))
+        renewed_at = time.monotonic()
+
+        def renew_lease():
+            nonlocal renewed_at
+            if listing.get('generation') and time.monotonic() - renewed_at >= 300:
+                remote(root, site, '_renew', listing['generation'])
+                renewed_at = time.monotonic()
+
+        for remote_root, batch in batches.items():
+            if cancel_event and cancel_event.is_set(): raise RuntimeError('Transfer cancelled; completed objects retained for retry')
+            renew_lease()
             stage = cache / 'incoming'
             stage.mkdir(exist_ok=True)
             names = stage / 'files.list'
-            names.write_bytes(chunk['source'].encode() + b'\0')
-            run_transfer([config.get('rsync_executable', 'rsync'), '-r', *transfer_output.progress_flags(), '--protect-args', '--from0',
+            names.write_bytes(b''.join(chunk['source'].encode() + b'\0' for _, chunk in batch))
+            transfer_output.emit(f'Downloading {len(batch)} missing objects from {remote_root} in one rsync batch.')
+
+            def cache_completed(*, strict):
+                nonlocal completed_bytes, transferred_bytes
+                invalid = False
+                for sha, chunk in batch:
+                    source = safe_path(stage, chunk['source'])
+                    valid = source.is_file() and source.stat().st_size == chunk['size'] and digest(source) == sha
+                    if not valid:
+                        invalid = True
+                        continue
+                    os.replace(source, cache / sha)
+                    transferred_bytes += chunk['size']
+                    completed_bytes += chunk['size']
+                    if progress: progress(completed_bytes, total_bytes)
+                if strict and invalid:
+                    raise ValueError('Artifact changed during transfer; immutable object checksum mismatch')
+
+            try:
+                run_transfer([config.get('rsync_executable', 'rsync'), '-r', *transfer_output.progress_flags(), '--protect-args', '--from0',
                             '--files-from=' + str(names), '--partial-dir=.theta-partial',
                             '--rsync-path=' + config.get('remote_rsync', 'rsync'), '-e', rsync_shell(root, config),
-                            config['host'] + ':' + remote_root + '/', str(stage) + '/'], cancel_event=cancel_event)
-            source = safe_path(stage, chunk['source'])
-            if not source.is_file() or source.stat().st_size != chunk['size'] or digest(source) != sha:
-                raise ValueError('Artifact changed during transfer; immutable object checksum mismatch')
-            os.replace(source, target)
-            transferred_bytes += chunk['size']
-            completed_bytes += chunk['size']
-            if progress: progress(completed_bytes, total_bytes)
+                            config['host'] + ':' + remote_root + '/', str(stage) + '/'], cancel_event=cancel_event,
+                            **({'on_poll': renew_lease} if listing.get('generation') else {}))
+            except Exception:
+                cache_completed(strict=False)
+                raise
+            cache_completed(strict=True)
         for item, chunks in pending:
             target = safe_path(root, item['path'])
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -630,14 +667,14 @@ def renew(root, generation):
     return {'renewed': generation}
 
 
-def run_transfer(arguments, *, cancel_event=None, live_output=False):
+def run_transfer(arguments, *, cancel_event=None, live_output=False, on_poll=None):
     if transfer_output.streaming():
-        return transfer_output.run_streamed(arguments, cancel_event)
+        return transfer_output.run_streamed(arguments, cancel_event, on_poll=on_poll)
     if live_output:
         # The caller is already attached to the floating terminal PTY. Inherit
         # its streams so progress and the original rsync error remain visible.
         return subprocess.run(arguments, check=True, timeout=3600)
-    if cancel_event is None:
+    if cancel_event is None and on_poll is None:
         with tempfile.TemporaryFile() as output:
             result = subprocess.run(arguments, stdout=output, stderr=output, timeout=3600)
             if result.returncode:
@@ -653,8 +690,9 @@ def run_transfer(arguments, *, cancel_event=None, live_output=False):
         deadline = time.monotonic() + 3600
         try:
             while process.poll() is None:
-                if cancel_event.is_set() or time.monotonic() > deadline:
+                if (cancel_event and cancel_event.is_set()) or time.monotonic() > deadline:
                     raise RuntimeError('Transfer cancelled or timed out; verified objects retained for retry')
+                if on_poll: on_poll()
                 try: process.wait(timeout=.2)
                 except subprocess.TimeoutExpired: pass
             if process.returncode:

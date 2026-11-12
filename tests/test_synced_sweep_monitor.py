@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import optuna
+import pytest
 
 from frontend.app import Window
 from frontend.live_run import LiveRunCache
@@ -100,6 +101,60 @@ def test_remote_monitor_renders_trial_title_and_study_overview(tmp_path):
     assert monitor.trial_button.text() == ' / Sweep'
     assert monitor.sweep_view.studies[0][1]['study'] == 's'
     monitor.close()
+
+
+@pytest.mark.parametrize('summary_file', [False, True])
+def test_newer_synced_trial_keeps_sweep_navigation_and_compact_title(tmp_path, summary_file):
+    from unittest.mock import Mock
+    from PyQt6.QtWidgets import QApplication
+    from frontend.monitor.panel import MonitorPanel
+    app = QApplication.instance() or QApplication([])
+    run, database, path = snapshot(tmp_path)
+    run.update(simulated=False, config={})
+    run['remote'].update(site='cluster', state='running', scheduler_state='running')
+    manifest = json.loads(path.read_text())
+    manifest['parent'].update(trial_number=19, log_version='version_trial_19')
+    path.write_text(json.dumps(manifest))
+    if summary_file:
+        backend = run['backend']
+        summary = (tmp_path / 'results/checkpoints' / backend['group'] /
+                   backend['experiment_id'] / 'm/tuning_summary.json')
+        write_json(summary, {'study': 's', 'stop_reason': 'running', 'trials': [
+            {'id': 0, 'state': 'complete', 'value': 12, 'parameters': {'rate': 0.1}}]})
+    before = hashlib.sha256(database.read_bytes()).hexdigest()
+    host = SimpleNamespace(selected=run, runs=[run],
+        jobs=SimpleNamespace(job=lambda _: None, project_root=tmp_path, queue_changed=Mock()),
+        live_runs_for_job=lambda _: {}, disk_lives=LiveRunCache())
+    host.live_for_run = lambda run, load=True: Window.live_for_run(host, run, load)
+    monitor = MonitorPanel(host)
+    monitor.refresh_live()
+    assert monitor.method_button.text() == ' / m'
+    assert monitor.trial_button.text() == ' / Trial 19 · seed 22'
+    assert 'Sweep' in [a.text() for a in monitor.trial_button.menu().actions()]
+    assert 'Trial 19 / Seed 22' in [a.text() for a in monitor.trial_button.menu().actions()]
+    monitor.focus_sweep('m:s')
+    trials = monitor.sweep_view.studies[0][1]['trials']
+    assert [trial['id'] for trial in trials] == [0, 19]
+    assert trials[-1]['value'] is None and trials[-1]['parameters'] == {}
+    if summary_file:
+        assert trials[0]['value'] == 12 and trials[0]['parameters'] == {'rate': 0.1}
+    assert hashlib.sha256(database.read_bytes()).hexdigest() == before
+    monitor.close()
+
+
+def test_new_synced_trial_requires_matching_study_method_and_active_worker(tmp_path):
+    run, _, path = snapshot(tmp_path)
+    manifest = json.loads(path.read_text())
+    manifest['parent']['trial_number'] = 19
+    for field, value in [('study', 'other-study'), ('study', 's')]:
+        manifest['parent'][field] = value
+        if value == 's':
+            manifest['runs'][1]['status'] = 'completed'
+        path.write_text(json.dumps(manifest))
+        assert [t['id'] for _, s in study_summaries(tmp_path, run) for t in s['trials']] == [0]
+    manifest['runs'][1].update(status='running', method='another-method')
+    path.write_text(json.dumps(manifest))
+    assert [t['id'] for _, s in study_summaries(tmp_path, run) for t in s['trials']] == [0]
 
 
 def test_live_tuning_summary_is_published_as_metrics_without_weights(tmp_path):

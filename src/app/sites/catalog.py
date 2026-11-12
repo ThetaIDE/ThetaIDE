@@ -57,7 +57,8 @@ def create(root, name, data=None, variants=None):
     directory.mkdir(parents=True, exist_ok=True)
     data = dict(data or {'scheduler': 'slurm', 'venv_dir': 'venv', 'resources': {'nodes': 1, 'cores': 4, 'gpus': 0, 'memory': '8G', 'time': '01:00:00'}})
     data.setdefault('connection', {'host': None, 'remote_root': None, 'python': 'venv/bin/python3',
-        'ssh_config': f'src/usr/sites/{name}/ssh_config', 'rsync_executable': 'rsync', 'remote_rsync': 'rsync'})
+        'ssh_config': f'src/usr/sites/{name}/ssh_config', 'ssh_connect_timeout_seconds': 60,
+        'rsync_executable': 'rsync', 'remote_rsync': 'rsync'})
     data.setdefault('shortcuts', {'directory': f'src/usr/sites/{name}/bin'})
     (directory / '_defaults.yaml').write_text('# @package site\n' + yaml.safe_dump(data, sort_keys=False))
     for profile, overrides in {'default': {}, **(variants or {})}.items():

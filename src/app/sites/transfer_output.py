@@ -40,7 +40,7 @@ def streaming():
     return _sink.get() is not None
 
 
-def run_streamed(arguments, cancel_event=None):
+def run_streamed(arguments, cancel_event=None, *, on_poll=None):
     """Stream rsync without blocking cancellation or buffering its entire output."""
     command(arguments)
     decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
@@ -74,6 +74,7 @@ def run_streamed(arguments, cancel_event=None):
                 drain()
                 if (cancel_event and cancel_event.is_set()) or time.monotonic() > deadline:
                     raise RuntimeError('Transfer cancelled or timed out; verified objects retained for retry')
+                if on_poll: on_poll()
                 try: process.wait(timeout=.2)
                 except subprocess.TimeoutExpired: pass
             drain(final=True)
