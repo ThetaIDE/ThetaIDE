@@ -119,6 +119,12 @@ The existing `--data-dir` option selects application data paths; it does not mig
 or establish an independent research-workspace lifecycle. User-global preferences live in
 `~/.config/thetaide/settings.toml`.
 
+For frontend development, enable **Settings → Appearance → Developer → Show Reload
+button in footer** (`appearance.show_reload_button = true`). The **Reload** button
+at the bottom right restarts the frontend with the same launch arguments to load
+Python and UI code changes. It saves the session and pending configuration
+autosaves and reconnects to background training. Unsaved editor prompts can cancel
+the reload. You can also press **Ctrl+R** in the terminal that launched ThetaIDE.
 See [Startup performance](../development/STARTUP_PERFORMANCE.md) for optional
 launch/reload timings and the deferred-service lifecycle.
 

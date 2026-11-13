@@ -1168,7 +1168,7 @@ python run_pipeline.py &lt;group&gt;/&lt;experiment&gt; dry_run=true
 
 # Replace with an experiment supplied by your installed components
 python run_pipeline.py <group>/<experiment></code></pre>
-<p>Each command-line run writes its results under the recipe's <code>experiment_id</code>, replacing the previous run with that ID; pass <code>experiment_id=&lt;new name&gt;</code> to keep both. In the IDE, enable Timestamp experiment to give reruns a timestamped ID and keep previous results. Run <code>python run_pipeline.py --help</code> for the full list of orchestration overrides.</p>
+<p>Each command-line run writes its results under the recipe's <code>experiment_id</code>, replacing the previous run with that ID; pass <code>experiment_id=&lt;new name&gt;</code> to keep both. In the IDE, enable Timestamp experiment to save each launch in a timestamped folder inside its experiment ID and keep previous results. Run <code>python run_pipeline.py --help</code> for the full list of orchestration overrides.</p>
 
 <h3>Common Overrides</h3>
 <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: rgba(255,255,255,0.15);">

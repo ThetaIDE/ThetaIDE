@@ -1,5 +1,32 @@
 """Individual outputs transported by this runner; no SB3/torch imports."""
 
+DESCRIPTIONS = {
+    "episode_reward": "Total reward for each completed training episode.",
+    "episode_length": "Number of environment steps in each completed training episode.",
+    "reward": "Mean episode return. Training uses the recent episode window; evaluation uses the evaluation episodes.",
+    "length": "Mean episode length over the recent training episode window.",
+    "reward_std": "Standard deviation of evaluation episode returns; this is episode spread, not uncertainty across training seeds.",
+    "fps": "Training throughput in environment steps per second.",
+    "time_elapsed": "Elapsed training wall-clock time in seconds.",
+    "entropy_loss": "Negative policy entropy used in the optimization objective. More negative values indicate more action randomness.",
+    "policy_gradient_loss": "PPO clipped policy-gradient objective for the latest training update.",
+    "policy_loss": "Policy optimization objective for the latest training update.",
+    "value_loss": "Mean squared error between value predictions and target returns.",
+    "loss": "Training optimization loss reported by the selected algorithm.",
+    "actor_loss": "SAC policy objective combining entropy regularization and predicted action value.",
+    "critic_loss": "SAC critic error against target action values.",
+    "ent_coef_loss": "Objective used to learn SAC's entropy regularization coefficient.",
+    "learning_rate": "Current optimizer learning rate.",
+    "n_updates": "Cumulative number of optimization updates reported by the algorithm.",
+    "approx_kl": "Approximate KL divergence between the old and updated policies; measures the size of a policy update.",
+    "clip_fraction": "Fraction of PPO probability ratios outside the clipping interval.",
+    "explained_variance": "Fraction of return variance explained by value predictions. One is perfect; zero is no better than a constant prediction; negative is worse.",
+    "clip_range": "PPO policy probability-ratio clipping range around one.",
+    "clip_range_vf": "PPO value-prediction clipping range in reward units.",
+    "ent_coef": "Current SAC entropy regularization coefficient.",
+    "std": "Mean standard deviation of the policy's continuous-action distribution.",
+}
+
 
 def describe(config, context):
     agent = config
@@ -7,7 +34,14 @@ def describe(config, context):
     outputs = []
 
     def add(name, group):
-        outputs.append({"name": name, "label": name.rsplit("/", 1)[-1].replace("_", " "), "group": group})
+        leaf = name.rsplit("/", 1)[-1]
+        mode = next((m for m in ("greedy", "sampled") if leaf.startswith(m + "_")), None)
+        description = DESCRIPTIONS[leaf[len(mode) + 1:] if mode else leaf]
+        if mode:
+            description = ("Deterministic highest-probability actions. " if mode == "greedy" else
+                           "Stochastic actions sampled from the policy. ") + description
+        outputs.append({"name": name, "label": leaf.replace("_", " "), "group": group,
+                        "description": description})
 
     for name in ("episode_reward", "episode_length", "reward", "length"):
         add("train/" + name, "Training episodes")

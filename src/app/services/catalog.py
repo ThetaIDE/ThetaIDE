@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-from src.app.pipeline.result_paths import check_result_path, iter_run_dirs
+from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, nested_run_names, SAVED_RUN_NAME
 
 from . import LOGS_DIR, PLOTS_DIR, PROJECT_ROOT
 from .metrics import latest_version_file, read_metrics_table
@@ -96,7 +96,7 @@ _RUN_METADATA_CACHE: dict[Path, tuple[tuple, dict[str, Any]]] = {}
 # reused while the file still matches it, as in memory, so a run that changed while the app was closed is
 # read again. The file is a convenience: if it can't be read or written, listing works as before.
 _PERSISTED_CACHES = {"agents": _SUMMARY_CACHE, "configs": _CONFIG_SUMMARY_CACHE, "metadata": _RUN_METADATA_CACHE}
-_PERSISTED_FORMAT = 1
+_PERSISTED_FORMAT = 2
 _persisted_loaded_for: Path | None = None  # the LOGS_DIR whose cache file has been read this session
 _cache_dirty = False  # an entry was computed since the cache file was last written
 
@@ -267,9 +267,12 @@ def _read_config_summary(config_file: Path) -> dict[str, Any]:
         return {}
     if not isinstance(cfg, dict):
         return {}
+    saved_id = Path(str(cfg.get("experiment_id") or ""))
+    saved_run = len(saved_id.parts) > 1 and SAVED_RUN_NAME.fullmatch(saved_id.name) is not None
     env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
     methods = cfg.get("methods") if isinstance(cfg.get("methods"), dict) else {}
     return {
+        **({"saved_run": True} if saved_run else {}),
         "env": env.get("name"),
         "env_id": env.get("env_id"),
         "seed": cfg.get("seed"),
@@ -676,7 +679,7 @@ def _mutable_run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
     return dirs
 
 
-def _archive_dirs(dirs: dict[str, Path], destination: str) -> None:
+def _archive_dirs(dirs: dict[str, Path], destination: str, *, exclude=frozenset()) -> None:
     """Write an archive atomically, preserving paths relative to results/."""
     target = Path(destination).absolute()
     if any(target.resolve().is_relative_to(path.resolve()) for path in dirs.values()):
@@ -687,6 +690,8 @@ def _archive_dirs(dirs: dict[str, Path], destination: str) -> None:
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for run_dir in dirs.values():
                 for path in sorted(run_dir.rglob("*")):
+                    if path.relative_to(run_dir).parts[0] in exclude:
+                        continue
                     if path.is_symlink():
                         raise ValueError(f"Cannot archive symbolic link: {path}")
                     if path.is_file():
@@ -699,7 +704,8 @@ def _archive_dirs(dirs: dict[str, Path], destination: str) -> None:
 
 def archive_run(group: str, experiment_id: str, destination: str) -> None:
     """Write a ZIP of all results folders for a run, without removing the originals."""
-    _archive_dirs(_mutable_run_dirs(group, experiment_id), destination)
+    _archive_dirs(_mutable_run_dirs(group, experiment_id), destination,
+                  exclude=nested_run_names(LOGS_DIR / group / experiment_id))
 
 
 def _mutable_group_dirs(group: str) -> dict[str, Path]:
@@ -729,8 +735,18 @@ def delete_group(group: str) -> None:
 
 def delete_run(group: str, experiment_id: str) -> None:
     """Delete the run's folders across the results roots."""
-    for path in _mutable_run_dirs(group, experiment_id).values():
-        shutil.rmtree(path)
+    dirs = _mutable_run_dirs(group, experiment_id)
+    saved = nested_run_names(LOGS_DIR / group / experiment_id)
+    for path in dirs.values():
+        if not saved:
+            shutil.rmtree(path)
+            continue
+        for child in path.iterdir():
+            if child.name not in saved:
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
 
 def _readable_run_dirs(group: str, experiment_id: str):
     dirs = _run_dirs(group, experiment_id)
@@ -790,13 +806,15 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
                         and all(t.get("state") in ("complete", "pruned", "fail") for t in trials))
         return parts[0] in complete_methods
 
+    saved = nested_run_names(run_logs)
     artifacts: list[dict[str, Any]] = []
     truncated = False
     for root, run_dir in dirs.items():
         # Prune active version directories before walking their files (notably TensorBoard logs).
         for directory, children, files in os.walk(run_dir):
             relative = Path(directory).relative_to(run_dir).parts
-            children[:] = sorted(name for name in children if not name.startswith("version_") or visible(root, (*relative, name)))
+            children[:] = sorted(name for name in children if (relative or name not in saved)
+                                 and (not name.startswith("version_") or visible(root, (*relative, name))))
             for filename in sorted(files):
                 path = Path(directory) / filename
                 parts = path.relative_to(run_dir).parts

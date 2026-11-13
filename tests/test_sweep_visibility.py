@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 pytest.importorskip("PyQt6")
-from PyQt6.QtWidgets import QApplication, QComboBox, QLineEdit, QToolButton
+from PyQt6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QLineEdit, QToolButton
 from frontend.config_viewer import ConfigViewer
 
 app = QApplication.instance() or QApplication(sys.argv[:1])
@@ -21,8 +21,8 @@ def test_sweeps_without_visible_parameter_rows_are_editable(tmp_path):
     viewer.load_file(path, "experiment/group/experiment.yaml")
     for target in data["methods"]["m"]["tune"]:
         assert viewer.findChild(QComboBox, f"sweepType_m_{target}") is not None
-    low = viewer.findChild(QLineEdit, "sweep_low_m_agent.gae_lambda")
-    low.setText("0.7")
+    low = viewer.findChild(QAbstractSpinBox, "sweep_low_m_agent.gae_lambda")
+    low.setValue(0.7)
     assert viewer.raw_data["methods"]["m"]["tune"]["agent.gae_lambda"]["low"] == 0.7
     viewer.findChild(QToolButton, "sweepRemove_m_model.hidden_sizes.0").click()
     assert "model.hidden_sizes.0" not in viewer.raw_data["methods"]["m"]["tune"]

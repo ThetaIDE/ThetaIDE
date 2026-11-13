@@ -1,6 +1,9 @@
 """Unit tests for terminal-based hot-reloading (Ctrl+R) in Theta-IDE."""
 import os
 import sys
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -27,26 +30,36 @@ except ImportError:
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
 class TestBuildReloadCommand(unittest.TestCase):
-    def test_main_module_rewrite(self):
+    def test_main_module_uses_absolute_entry_point(self):
         cmd = build_reload_command(
             executable="/path/to/python",
             argv=["/Users/user/project/frontend/__main__.py", "--data-dir", "/tmp/runs"],
         )
-        self.assertEqual(cmd, ["/path/to/python", "-m", "frontend", "--data-dir", "/tmp/runs"])
+        self.assertEqual(cmd, ["/path/to/python", str(Path(__file__).resolve().parents[1] / "frontend/__main__.py"), "--data-dir", "/tmp/runs"])
 
     def test_direct_script_preservation(self):
         cmd = build_reload_command(
             executable="/path/to/python",
             argv=["frontend/app.py", "--data-dir", "/tmp/theta-runs"],
         )
-        self.assertEqual(cmd, ["/path/to/python", "frontend/app.py", "--data-dir", "/tmp/theta-runs"])
+        self.assertEqual(cmd, ["/path/to/python", str(Path(__file__).resolve().parents[1] / "frontend/__main__.py"), "--data-dir", "/tmp/theta-runs"])
 
     def test_empty_argv_fallback(self):
         cmd = build_reload_command(
             executable="/path/to/python",
             argv=[],
         )
-        self.assertEqual(cmd, ["/path/to/python", "-m", "frontend"])
+        self.assertEqual(cmd, ["/path/to/python", str(Path(__file__).resolve().parents[1] / "frontend/__main__.py")])
+
+    def test_preserves_interpreter_workspace_and_paths_with_spaces(self):
+        executable = str(Path(tempfile.gettempdir()) / "Other User" / "venv" / "python")
+        flags = ["--workspace", str(Path(tempfile.gettempdir()) / "Research Workspace"),
+                 "--data-dir", str(Path(tempfile.gettempdir()) / "IDE State")]
+        cmd = build_reload_command(executable=executable, argv=["frontend/__main__.py", *flags])
+        self.assertEqual(cmd[0], executable)
+        self.assertTrue(Path(cmd[1]).is_absolute())
+        self.assertTrue(Path(cmd[1]).is_file())
+        self.assertEqual(cmd[2:], flags)
 
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
@@ -191,6 +204,81 @@ class TestTerminalReloader(unittest.TestCase):
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
 class TestReloadFrontendAction(unittest.TestCase):
     @patch("os.execv")
+    def test_cancelled_close_does_not_reload_or_stop_listener(self, mock_execv):
+        window, application, reloader = MagicMock(), MagicMock(), MagicMock()
+        window._quitting = False
+        window.close.return_value = False
+        reloader._reloading = True
+
+        reload_frontend(window=window, app=application, reloader=reloader)
+
+        self.assertFalse(window._quitting)
+        self.assertFalse(window._frontend_reload_pending)
+        self.assertFalse(reloader._reloading)
+        window.windowHandle.assert_not_called()
+        reloader.stop.assert_not_called()
+        application.processEvents.assert_not_called()
+        mock_execv.assert_not_called()
+
+    @patch("os.execv")
+    def test_failed_close_does_not_reload(self, mock_execv):
+        window = MagicMock()
+        window._quitting = False
+        window.close.side_effect = RuntimeError("Cannot save")
+
+        reload_frontend(window=window)
+
+        self.assertFalse(window._quitting)
+        self.assertFalse(window._frontend_reload_pending)
+        window.windowHandle.assert_not_called()
+        mock_execv.assert_not_called()
+
+    @patch("os.execv")
+    def test_native_window_is_destroyed_before_reexec_and_reentrant_reload_is_ignored(self, mock_execv):
+        window, application = MagicMock(), MagicMock()
+        events = []
+        window.close.side_effect = lambda: events.append("close") or True
+        window.windowHandle.return_value.destroy.side_effect = lambda: events.append("destroy")
+
+        def process_events():
+            events.append("events")
+            reload_frontend(window=window, app=application)
+
+        application.processEvents.side_effect = process_events
+        mock_execv.side_effect = lambda *args: events.append("exec")
+        reload_frontend(window=window, app=application)
+
+        self.assertEqual(events, ["close", "destroy", "events", "exec"])
+        mock_execv.assert_called_once()
+
+    @patch("os.execv")
+    def test_fullscreen_native_surface_is_released_before_reexec(self, mock_execv):
+        from PyQt6.QtCore import QEvent, QObject
+        from PyQt6.QtGui import QPlatformSurfaceEvent
+        from PyQt6.QtWidgets import QMainWindow
+
+        events = []
+
+        class SurfaceObserver(QObject):
+            def eventFilter(self, watched, event):
+                if (event.type() == QEvent.Type.PlatformSurface
+                        and event.surfaceEventType() == QPlatformSurfaceEvent.SurfaceEventType.SurfaceAboutToBeDestroyed):
+                    events.append("destroy")
+                return False
+
+        window = QMainWindow()
+        window.showFullScreen()
+        app.processEvents()
+        observer = SurfaceObserver()
+        window.windowHandle().installEventFilter(observer)
+        mock_execv.side_effect = lambda *args: events.append("exec")
+
+        reload_frontend(window=window, app=app)
+
+        self.assertEqual(events, ["destroy", "exec"])
+        window.deleteLater()
+
+    @patch("os.execv")
     def test_reload_frontend_executes_process(self, mock_execv):
         mock_window = MagicMock()
         mock_app = MagicMock()
@@ -210,7 +298,32 @@ class TestReloadFrontendAction(unittest.TestCase):
 
         args = mock_execv.call_args[0]
         self.assertEqual(args[0], sys.executable)
-        self.assertEqual(args[1], [sys.executable, "frontend/app.py", "--data-dir", "/tmp/data"])
+        self.assertEqual(args[1], [sys.executable, str(Path(__file__).resolve().parents[1] / "frontend/__main__.py"), "--data-dir", "/tmp/data"])
+
+    def test_real_qt_reload_reexecutes_from_outside_checkout(self):
+        root = Path(__file__).resolve().parents[1]
+        # Exercise the real close, event processing, and execv; the replacement
+        # exits via --help so the test cannot open a second IDE or touch state.
+        script = f'''
+import sys
+sys.path.insert(0, {str(root)!r})
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication, QMainWindow
+from frontend.terminal_reloader import reload_frontend
+app = QApplication([])
+window = QMainWindow()
+window.show()
+QTimer.singleShot(0, lambda: reload_frontend(window=window, app=app,
+    argv=[{str(root / "frontend/__main__.py")!r}, "--help"]))
+app.exec()
+raise SystemExit("Reload exited without restarting")
+'''
+        with tempfile.TemporaryDirectory(prefix="theta reload ") as outside_checkout:
+            result = subprocess.run([sys.executable, "-c", script], cwd=outside_checkout,
+                                    env=dict(os.environ, QT_QPA_PLATFORM="offscreen"),
+                                    capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--workspace", result.stdout)
 
 
 if __name__ == "__main__":

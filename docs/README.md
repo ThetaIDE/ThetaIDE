@@ -6,7 +6,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Guides
 
-- [Install and launch ThetaIDE](guides/INSTALL.md)
+- [Install and launch ThetaIDE](guides/INSTALL.md) — setup, local state, and the developer reload button.
 - [Develop components from the GUI or terminal](guides/COMPONENT_DEVELOPMENT.md)
 - [Create editable objectives](guides/CUSTOM_OBJECTIVES.md)
 - [Use mechanistic monitors](guides/MECHANISTIC_MONITORS.md)
@@ -18,10 +18,11 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 - [Method execution contract v1](reference/EXECUTION_CONTRACT.md)
 - [Execution refactor implementation status](development/EXECUTION_ABSTRACTIONS_STATUS.md)
+- [Saved result layout](reference/RESULT_STORAGE.md) — experiment folders, unique runs, and legacy compatibility.
 - [Pipeline and component service API](reference/API.md)
 - [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md)
 - [Data loader ownership and selection](reference/DATA_LOADER_CONTRACT.md)
-- [Experiment monitor contract](reference/MONITOR_CONTRACT.md)
+- [Experiment monitor contract](reference/MONITOR_CONTRACT.md) — declarations, hover descriptions, nested chart sections, and stream selection.
 - [Configuration parameter form conventions](reference/CONFIG_PARAMETER_FORMS.md)
 - [Third-party libraries and licenses](reference/THIRD_PARTY_LIBRARIES.md)
 

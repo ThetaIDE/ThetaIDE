@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
 from ..charts import Chart
@@ -32,6 +32,7 @@ class ChartCard(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.chart = Chart(metric, chart_title(metric), zero_based=False)
+        self.chart.installEventFilter(self)
         self.chart.empty_text = "No data for the selected runs"
         self.chart.setMinimumHeight(220)
         layout.addWidget(self.chart)
@@ -54,6 +55,13 @@ class ChartCard(QFrame):
         self.hide_button.clicked.connect(lambda: self.hide_requested.emit(self.metric))
         corner_layout.addWidget(self.hide_button)
         self.chart.set_corner_widget(corner)  # top-right of the chart, like the Monitor's selector
+
+    def eventFilter(self, watched, event):
+        # Chart titles are painted rather than QLabel widgets. Limit their help
+        # to the title strip so it does not obscure the plot's point inspector.
+        if watched is self.chart and event.type() == QEvent.Type.ToolTip and event.pos().y() > 34:
+            return True
+        return super().eventFilter(watched, event)
 
     def set_value(self, text: str, color: str | None = None):
         """Show `text` (e.g. the latest value) beside the Hide button, or nothing when empty."""
@@ -106,6 +114,7 @@ class PlotGrid(QScrollArea):
         self._laid_lead: str | None = None  # the lead group of the current layout, if the lead is in it
         self._toolbar_row: QWidget | None = None
         self.compact_hide = False
+        self.descriptions: dict[str, str] = {}
 
     def configure(self, columns=COLUMNS, collapsible=False, hero=None, focus=None, header=None, flat=False,
                   lead=None, toolbar=None, group_columns=None, compact_hide=False):
@@ -134,6 +143,12 @@ class PlotGrid(QScrollArea):
             card.setProperty("flat", self.flat)
             card.hide_requested.connect(self.hide_requested)
             card.chart.point_hovered.connect(self.point_hovered)
+        tooltip = metric + "\n\n" + (
+            self.descriptions.get(metric) or describe(metric).description
+            or "This component has not provided a description for this metric."
+        )
+        if card.chart.toolTip() != tooltip:
+            card.chart.setToolTip(tooltip)
         return card
 
     def show_metrics(self, metrics: list[str], empty_text: str = ""):
@@ -177,15 +192,18 @@ class PlotGrid(QScrollArea):
         widget.show()
 
     def _heading(self, group: str, count: int, folded: bool, first: bool) -> QWidget:
+        depth = group.count("/")
+        title = group.rsplit("/", 1)[-1].upper()
         if self.collapsible:
             heading = QToolButton()
             heading.setObjectName("resultsSection")
-            heading.setText(f"{'▸' if folded else '▾'}  {group.upper()}   {count}")
+            heading.setText(f"{'    ' * depth}{'▸' if folded else '▾'}  {title}   {count}")
             heading.setToolTip(f"{'Show' if folded else 'Fold away'} the {group} plots")
             heading.setCursor(Qt.CursorShape.PointingHandCursor)
             heading.clicked.connect(lambda _=False, g=group: self.toggle_group(g))
         else:
-            heading = label(group.upper(), "eyebrow")
+            heading = label(title, "eyebrow")
+        heading.setProperty("metricGroup", group)
         if not first or self.toolbar is None:
             return heading
         row = QWidget()  # the first heading carries the toolbar at its right
@@ -239,16 +257,44 @@ class PlotGrid(QScrollArea):
         groups = group_metrics(rest)
         if lead is not None and lead not in groups:  # its section shows even with no other metric in it
             groups = {g: groups.get(g, []) for g in sorted([*groups, lead], key=group_sort_key)}
+        # Each namespace owns its direct metrics and child namespaces. Store full
+        # paths as collapse keys so equally named children remain independent.
+        if self.collapsible:
+            tree = {}
+            for group in groups:
+                tree[group] = []
+            for metric in rest:
+                path = metric.rsplit("/", 1)[0] if "/" in metric else "other"
+                parts = path.split("/")
+                for end in range(1, len(parts) + 1):
+                    tree.setdefault("/".join(parts[:end]), [])
+                tree[path].append(metric)
+            groups = {}
+
+            def visit(path):
+                groups[path] = tree[path]
+                for child in sorted(p for p in tree if p.rpartition("/")[0] == path):
+                    visit(child)
+
+            for root in sorted((p for p in tree if "/" not in p), key=group_sort_key):
+                visit(root)
         for index, (group, names) in enumerate(groups.items()):
+            ancestors = group.split("/")
+            if any("/".join(ancestors[:i]) in self.collapsed for i in range(1, len(ancestors))):
+                continue
             cells: list[QWidget] = [self.cards[m] for m in names]
             if group == lead:
                 cells.insert(0, self.lead[1])
             folded = self.collapsible and group in self.collapsed
-            self._place(self._heading(group, len(cells), folded, index == 0), row, 0, 1, columns)
+            count = sum(1 for m in rest if m.startswith(group + "/") or
+                        (group == "other" and "/" not in m)) if self.collapsible else len(cells)
+            if group == lead:
+                count += 1
+            self._place(self._heading(group, count, folded, index == 0), row, 0, 1, columns)
             row += 1
             if folded:
                 continue
-            per_row = self.group_columns.get(group, self.columns)
+            per_row = self.group_columns.get(group, self.group_columns.get(group.split("/")[0], self.columns))
             span = columns // per_row
             alone = len(cells) == 1 and group == lead  # the lead chart alone in its section: full width
             for i, cell in enumerate(cells):

@@ -36,26 +36,15 @@ def build_reload_command(
 ) -> list[str]:
     """Construct the replacement command-line arguments for :func:`os.execv`.
 
-    Correctly handles:
-      - Module executions like ``python -m frontend`` (where ``argv[0]`` points
-        to ``.../frontend/__main__.py``).
-      - Direct script executions like ``python frontend/app.py``.
-      - Custom CLI flags (e.g. ``--data-dir``, ``--install-desktop-entry``).
+    Use the absolute, directly executable entry point: macOS app bundles can
+    start with a working directory outside the checkout, where ``-m frontend``
+    cannot find the package. Preserve custom CLI flags and the interpreter.
     """
     exe = executable or sys.executable
     args = argv if argv is not None else list(sys.argv)
 
-    cmd = [exe]
-    if args:
-        first_arg = Path(args[0]).name
-        if first_arg == "__main__.py":
-            cmd.extend(["-m", "frontend"])
-            cmd.extend(args[1:])
-        else:
-            cmd.extend(args)
-    else:
-        cmd.extend(["-m", "frontend"])
-    return cmd
+    entry_point = Path(__file__).resolve().with_name("__main__.py")
+    return [exe, str(entry_point), *args[1:]]
 
 
 def _stdin_fd() -> int:
@@ -264,22 +253,48 @@ def reload_frontend(
     argv: Optional[list[str]] = None,
 ) -> None:
     """Perform a clean shutdown of the current frontend and re-exec the process."""
+    if window is not None:
+        if getattr(window, "_frontend_reload_pending", False) is True:
+            return
+        window._frontend_reload_pending = True
+
     try:
         sys.stdout.write("\r\n\033[36m[Theta-IDE] Reloading frontend (Ctrl+R)...\033[0m\r\n")
         sys.stdout.flush()
     except Exception:
         pass
 
-    if reloader is not None:
-        reloader.stop()
-
     if window is not None:
+        was_quitting = getattr(window, "_quitting", False)
         try:
             if hasattr(window, "_quitting"):
                 window._quitting = True  # a reload closes for real rather than hiding to the tray
-            window.close()
+            if not window.close():
+                window._quitting = was_quitting
+                window._frontend_reload_pending = False
+                if reloader is not None:
+                    reloader._reloading = False
+                return
         except Exception as exc:
-            logger.debug("Error while closing window for reload: %s", exc)
+            window._quitting = was_quitting
+            window._frontend_reload_pending = False
+            if reloader is not None:
+                reloader._reloading = False
+            logger.exception("Error while closing window for reload: %s", exc)
+            return
+
+    if reloader is not None:
+        reloader.stop()
+
+    # QWidget.close() normally only hides the widget. In particular, hiding a
+    # fullscreen Cocoa window leaves its dedicated desktop alive. execv skips
+    # Qt's destructors, so explicitly release the native window before replacing
+    # the process. Do this after close accepts (and saves fullscreen geometry),
+    # without deleting the widget while its restart action is still on the stack.
+    if window is not None:
+        native_window = window.windowHandle()
+        if native_window is not None:
+            native_window.destroy()
 
     if app is not None:
         try:

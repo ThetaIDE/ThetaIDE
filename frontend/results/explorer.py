@@ -7,7 +7,6 @@ with a rule under them, and folders for experiments. Runs, agents and versions c
 
 from __future__ import annotations
 
-import re
 from pathlib import PurePosixPath
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -16,12 +15,12 @@ from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QMenu, QTreeWidget, QT
 from ..tree_tools import (DraggableToolButton, GroupItemDelegate, TreeHeaderActions, TreeHeaderWidget,
                           TreeToolbarPersistence, folder_icon, refresh_tool_icons, style_tool_button)
 from .data import Manifest, Source
+from src.app.pipeline.result_paths import RUN_SUFFIX, SAVED_RUN_NAME, result_experiment_id
 
 _KIND, _DATA, _TIME = Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 1, Qt.ItemDataRole.UserRole + 2
 _CHECKABLE = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 _PARENT = _CHECKABLE
 _HEADING = _CHECKABLE
-_RUN_SUFFIX = re.compile(r"_\d{8}-\d{6}(?:-\d+)?$")
 
 
 class _RunGroupDelegate(GroupItemDelegate):
@@ -130,7 +129,8 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 agents = [""]  # A run can fail before any agent writes metrics.
             if group not in groups:
                 groups[group] = self._item(self.tree.invisibleRootItem(), group, "group", group, _HEADING)
-            name = _RUN_SUFFIX.sub("", exp)
+            name = (PurePosixPath(exp).parent.as_posix() if (entry.get("config") or {}).get("saved_run")
+                    else result_experiment_id(exp))
             key = (group, name)
             if key not in experiments:
                 exp_item = self._item(groups[group], PurePosixPath(name).name, "experiment", key,
@@ -140,8 +140,11 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 experiments[key] = exp_item
             run_item = self._item(experiments[key], PurePosixPath(exp).name, "run", f"{group}/{exp}", _PARENT)
             times = [a.get("started") for a in entry.get("agents") or [] if isinstance(a.get("started"), str)]
-            suffix = _RUN_SUFFIX.search(exp)
-            run_item.setData(0, _TIME, max(times, default=suffix.group()[1:16].replace("-", "T") if suffix else ""))
+            suffix = RUN_SUFFIX.search(exp)
+            stamp = SAVED_RUN_NAME.fullmatch(PurePosixPath(exp).name)
+            fallback_time = (stamp.group()[:15].replace("-", "T") if stamp else
+                             suffix.group()[1:16].replace("-", "T") if suffix else "")
+            run_item.setData(0, _TIME, max(times, default=fallback_time))
             note = f"results/logs/{group}/{exp}"
             if entry.get('incomplete_results'):
                 run_item.setText(0, run_item.text(0) + ' · incomplete results')

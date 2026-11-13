@@ -39,6 +39,28 @@ def routing_output_names(types, *, agreement=True):
     return names
 
 
+def metric_description(name):
+    leaf = name.rsplit("/", 1)[-1]
+    descriptions = {
+        "entropy": "Mean entropy of the routing weights in nats. Larger values mean routing is spread across more experts.",
+        "entropy_normalized": "Routing entropy divided by log(number of experts): 0 selects one expert, 1 weights all experts equally. Zero for a single expert.",
+        "mixed_share": "Fraction of sampled observations where no expert receives at least 90% of the routing weight.",
+        "weight_mean": "Mean routing weight assigned to this expert across sampled observations.",
+        "weight_std": "Population standard deviation of this expert's routing weight across sampled observations.",
+        "dominant_share": "Fraction of sampled observations where this expert has the largest routing weight. Ties select the first expert.",
+        "exclusive_share": "Fraction of sampled observations where this expert receives at least 90% of the routing weight.",
+        "top_action": "Fraction of sampled observations where the two experts choose the same highest-probability action.",
+        "js_divergence": "Mean Jensen-Shannon divergence between the two experts' action distributions, in nats. Zero means identical distributions.",
+        "coverage": "Fraction of sampled observations where this logic expert produces an active action output.",
+    }
+    text = descriptions[leaf]
+    if name.removeprefix("soft_gate/") in ("neural/weight_mean", "logic/weight_mean"):
+        text = "Mean total routing weight assigned to all experts of this type across sampled observations."
+    if name.startswith("soft_gate/"):
+        text = "Computed from the soft routing probabilities before hard Gumbel selection. " + text
+    return text
+
+
 def describe(config, context):
     types = module_types(config)
     names = routing_output_names(types)
@@ -46,5 +68,6 @@ def describe(config, context):
     if config.get("blend_function") == "gumbel_softmax" and config.get("actor_mode", "hybrid") == "hybrid":
         names += ["soft_gate/" + name for name in routing_output_names(types, agreement=False)]
     return [{"name": f"blend/{phase}/{name}", "label": name.replace("/", " · ").replace("_", " "),
+             "description": f"{'Training' if phase == 'train' else 'Evaluation'} observations. " + metric_description(name),
              "group": f"Routing · {phase.title()}", "requires": ["model_observations.v1"]}
             for phase in ("train", "eval") for name in names]

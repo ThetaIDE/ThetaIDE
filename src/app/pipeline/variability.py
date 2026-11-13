@@ -19,6 +19,7 @@ from omegaconf import OmegaConf, open_dict
 from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.config import normalize_agent_name
+from src.app.pipeline.result_paths import saved_run_id, result_experiment_id as experiment_folder
 
 
 def make_plan(cfg, context):
@@ -94,8 +95,11 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     from src.app.pipeline.local_runner import _run_methods_sequential, _setup_output_dirs, run_plotting_phase
 
     execution_id = uuid.uuid4().hex
-    result_experiment_id = (str(cfg.experiment_id) if parent else
-                            f"{cfg.experiment_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_{execution_id[:8]}")
+    identity = str(cfg.experiment_id)
+    # IDE and cluster launches already own a unique folder. Keep seed output
+    # there so cluster publication includes every replicate.
+    result_experiment_id = (identity if parent or experiment_folder(identity) != identity else
+                            saved_run_id(identity, f"_{datetime.now():%Y%m%d-%H%M%S}_{execution_id[:8]}"))
     root = Path("results/executions") / str(cfg.group) / str(cfg.experiment_id) / execution_id
     root.mkdir(parents=True, exist_ok=False)
     runs = []

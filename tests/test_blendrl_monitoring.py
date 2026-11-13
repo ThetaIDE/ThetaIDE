@@ -9,6 +9,17 @@ _package = get_catalog().package("blendrl-dev")
 monitoring = load_module(_package, "monitoring.py")
 
 
+def test_routing_catalog_explains_dynamic_experts_pairs_and_soft_gates():
+    catalog = load_module(_package, "monitor_catalog.py")
+    rows = catalog.describe({"modules": [{"type": "neural"}, {"type": "nsfr"}, {"type": "nsfr"}],
+                             "blend_function": "gumbel_softmax"}, {})
+    descriptions = {row["name"]: row["description"] for row in rows}
+    assert all(descriptions.values())
+    assert "Jensen-Shannon" in descriptions["blend/eval/agreement/logic_1__logic_2/js_divergence"]
+    assert "all experts of this type" in descriptions["blend/train/soft_gate/logic/weight_mean"]
+    assert "90%" in descriptions["blend/train/logic_2/exclusive_share"]
+
+
 def test_multi_expert_weights_and_agreement():
     w = torch.tensor([[1., 0., 0.], [0., .5, .5]])
     p = torch.tensor([[[1., 0.], [1., 0.], [0., 1.]], [[0., 1.], [1., 0.], [1., 0.]]])

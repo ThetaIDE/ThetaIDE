@@ -109,6 +109,6 @@ def test_slurm_nested_results_use_valid_script_names(tmp_path, monkeypatch, cons
     directory = tmp_path / "results/slurm" / record["execution_id"]
     assert (directory / "job.sbatch").is_file()
     assert len(submitted) == 1
-    assert record["result_experiment_id"].startswith("path/dir/run__")
+    assert record["result_experiment_id"] == "path/dir/run/" + record["execution_id"]
     assert "#SBATCH --job-name=theta_" in submitted[0]
     assert not (tmp_path / "results/plots/group/path/dir/run").exists()

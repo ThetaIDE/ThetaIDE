@@ -185,6 +185,7 @@ DEFAULT_MENU_SHORTCUTS = [
     ("reset_zoom", "Reset zoom (default text size)", "Ctrl+0"),
     ("open_launcher", "Open launcher (panels, plugins, settings, commands)", "Ctrl+Space"),
     ("open_docs", "Open the documentation", "F1"),
+    ("restart_app", "Restart ThetaIDE", ""),
     ("quit", "Quit", "Ctrl+Q"),
 ]
 
@@ -927,9 +928,29 @@ class SettingsView(QWidget):
 
         layout.addWidget(exp_card)
 
+        layout.addWidget(self._build_developer_card())
+
         layout.addStretch()
         return container
 
+    def _build_developer_card(self) -> QFrame:
+        developer_card = QFrame()
+        developer_card.setObjectName("card")
+        developer_layout = QVBoxLayout(developer_card)
+        developer_layout.setContentsMargins(16, 14, 16, 14)
+        developer_layout.setSpacing(8)
+        developer_layout.addWidget(label("Developer", "cardTitle"))
+        reload_row = QHBoxLayout()
+        reload_row.addWidget(label("Show Reload button in footer", "muted"), 1)
+        self.reload_button_toggle = ToggleSlider(checked=self.window.settings_manager.show_reload_button)
+        self.reload_button_toggle.setAccessibleName("Show Reload button in footer")
+        self.reload_button_toggle.setToolTip("Show a button at the bottom right to restart ThetaIDE and load code changes.")
+        self.reload_button_toggle.toggled.connect(
+            lambda enabled: self.window.settings_manager.set("appearance", "show_reload_button", bool(enabled))
+        )
+        reload_row.addWidget(self.reload_button_toggle)
+        developer_layout.addLayout(reload_row)
+        return developer_card
 
     def rebuild_pane_switches(self):
         """One visibility switch per sidebar tab: the built-in panes first, then any a plugin added."""
@@ -1855,6 +1876,11 @@ class SettingsView(QWidget):
             self.window.settings_button_logo_toggle.blockSignals(True)
             self.window.settings_button_logo_toggle.setChecked(sm.settings_button_logo)
             self.window.settings_button_logo_toggle.blockSignals(False)
+
+        if hasattr(self, "reload_button_toggle"):
+            self.reload_button_toggle.blockSignals(True)
+            self.reload_button_toggle.setChecked(sm.show_reload_button)
+            self.reload_button_toggle.blockSignals(False)
 
         # 7. Experiment panel resolved defaults toggle
         if hasattr(self, "defaults_toggle") and self.defaults_toggle:

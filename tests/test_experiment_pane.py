@@ -802,7 +802,7 @@ class TestConfigViewer(unittest.TestCase):
         self.assertEqual(self.viewer.raw_data["tuning"]["options"]["optuna"]["seed"], "bad")
 
     def test_parameter_sweep_range_edit_and_remove(self):
-        from PyQt6.QtWidgets import QComboBox, QLineEdit, QToolButton
+        from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox, QLineEdit, QToolButton
 
         self.viewer.add_block("tuning")
         button = self.viewer.findChild(QToolButton, "sweepToggle_ppo_agent.lr")
@@ -819,22 +819,22 @@ class TestConfigViewer(unittest.TestCase):
         hover = remove_sweep.findChild(_RowHoverReveal)
         self.assertIn(picker, [ref() for ref in hover._targets])
         self.assertTrue(self.viewer.findChildren(IndentedHierarchyBlock))
-        lower = self.viewer.findChild(QLineEdit, "sweep_low_ppo_agent.lr")
+        lower = self.viewer.findChild(QAbstractSpinBox, "sweep_low_ppo_agent.lr")
         sweep_block = lower.parentWidget()
-        self.assertIsInstance(sweep_block, IndentedHierarchyBlock)
-        self.assertLess(sweep_block.mapTo(self.viewer, sweep_block.rect().topLeft()).x(),
-                        picker.mapTo(self.viewer, picker.rect().topLeft()).x())
+        self.assertNotIsInstance(sweep_block, IndentedHierarchyBlock)
+        self.assertGreater(lower.mapTo(self.viewer, lower.rect().topLeft()).x(),
+                           picker.mapTo(self.viewer, picker.rect().topLeft()).x())
         with patch("frontend.config_viewer.QCursor.pos", return_value=picker.mapToGlobal(picker.rect().center())):
             hover._update_visibility()
         self.assertTrue(remove_sweep.isVisible())
-        low = self.viewer.findChild(QLineEdit, "sweep_low_ppo_agent.lr")
-        high = self.viewer.findChild(QLineEdit, "sweep_high_ppo_agent.lr")
-        low.setText("0.0001")
-        high.setText("0.01")
+        low = self.viewer.findChild(QAbstractSpinBox, "sweep_low_ppo_agent.lr")
+        high = self.viewer.findChild(QAbstractSpinBox, "sweep_high_ppo_agent.lr")
+        low.setValue(0.0001)
+        high.setValue(0.01)
         spec = self.viewer.raw_data["methods"]["ppo"]
         self.assertEqual(spec["tune"]["agent.lr"], {"type": "float", "low": 0.0001, "high": 0.01})
         self.assertEqual(spec["lr"], 0.0005)
-        self.assertEqual(self.viewer.findChild(QLineEdit, "sweep_step_ppo_agent.lr").placeholderText(), "Leave blank for no step")
+        self.assertIsNone(self.viewer.findChild(QLineEdit, "sweep_step_ppo_agent.lr"))
         self.viewer.findChild(QToolButton, "sweepRemove_ppo_agent.lr").click()
         self.assertNotIn("tune", spec)
         self.assertEqual(spec["lr"], 0.0005)
@@ -869,13 +869,13 @@ class TestConfigViewer(unittest.TestCase):
             overrides = build_method_overrides(name, method, cfg=self.viewer.raw_data, is_sweep=True)
             self.assertIn("batch_size=range(64, 64, 1)", overrides)
 
-    def test_sweep_setup_cancel_and_list_entries(self):
+    def test_sweep_toggle_and_list_entries(self):
         from PyQt6.QtWidgets import QComboBox, QLineEdit, QToolButton
 
         self.viewer.add_block("tuning")
         self.viewer.findChild(QToolButton, "sweepToggle_ppo_agent.lr").click()
-        self.assertNotIn("tune", self.viewer.raw_data["methods"]["ppo"])
-        self.viewer._cancel_sweep_setup("ppo", "agent.lr")
+        self.assertIn("agent.lr", self.viewer.raw_data["methods"]["ppo"]["tune"])
+        self.viewer._toggle_method_sweep("ppo", "agent.lr", 0.0005)
         self.assertEqual(self.viewer.raw_data["methods"]["ppo"]["lr"], 0.0005)
         self.viewer.findChild(QToolButton, "sweepToggle_ppo_agent.lr").click()
         picker = self.viewer.findChild(QComboBox, "sweepType_ppo_agent.lr")

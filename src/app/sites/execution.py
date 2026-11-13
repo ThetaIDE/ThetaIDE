@@ -15,6 +15,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.app.pipeline.result_paths import saved_run_id
+
 from . import site_name
 from .snapshot import freeze, extract
 from .storage import digest, read_json, record_lock, safe_path, transfer_lock, write_json
@@ -155,7 +157,7 @@ def _submit(root, experiment, overrides, cfg):
             (snapshot / 'in').mkdir(exist_ok=True)
             if (root / 'in/datasets').exists():
                 (snapshot / 'in/datasets').symlink_to(root / 'in/datasets', target_is_directory=True)
-        result_id = f'{cfg.experiment_id}__{execution_id}'
+        result_id = saved_run_id(str(cfg.experiment_id), f'__{execution_id}')
         command_overrides = [arg for arg in overrides if not arg.lstrip('+').startswith(('experiment_id=', 'group='))]
         command_overrides += [f'++experiment_id={json.dumps(result_id)}', f'++group={json.dumps(str(cfg.group))}']
         # Each allocation owns its SQLite study, including its WAL/checkpoint lifecycle.

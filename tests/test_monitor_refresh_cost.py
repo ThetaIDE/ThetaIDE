@@ -15,6 +15,60 @@ from frontend.live_run import LiveRun
 from frontend.monitor.live_view import ChartsView, SystemView
 
 
+def test_nested_monitor_groups_preserve_independent_collapse_states():
+    from frontend.results.plot_grid import PlotGrid
+
+    grid = PlotGrid()
+    grid.configure(collapsible=True)
+    metrics = ["blend/train/entropy", "blend/train/logic_0/weight_mean",
+               "blend/eval/logic_0/weight_mean", "eval/reward"]
+    grid.show_metrics(metrics)
+    train = grid.cards[metrics[1]]
+    evaluation = grid.cards[metrics[2]]
+    grid.toggle_group("blend/train/logic_0")
+    assert grid.grid.indexOf(train) == -1
+    assert grid.grid.indexOf(evaluation) >= 0
+    grid.toggle_group("blend")
+    assert grid.grid.indexOf(evaluation) == -1
+    grid.show_metrics(metrics + ["blend/eval/logic_1/weight_mean"])
+    grid.toggle_group("blend")
+    assert grid.grid.indexOf(train) == -1
+    assert grid.grid.indexOf(evaluation) >= 0
+    grid.toggle_group("blend/train/logic_0")
+    assert grid.grid.indexOf(train) >= 0
+    assert len(grid.cards) == len(metrics) + 1
+    grid.close()
+
+
+def test_monitor_descriptions_follow_config_without_repeated_discovery(monkeypatch):
+    from src.app.telemetry import monitors
+
+    calls = []
+    def discover(config, **kwargs):
+        calls.append(config.copy())
+        return [monitors.MonitorSpec("custom/", "Custom", "Model", "Namespace help"),
+                monitors.MonitorSpec("custom/value", "Value", "Model", config["help"])]
+
+    monkeypatch.setattr(monitors, "available_monitors", discover)
+    run = LiveRun()
+    run.config = {"help": "Original meaning"}
+    run.rows = [{"step": 1, "custom/value": 2, "custom/other": 3, "unknown/value": 4,
+                 "eval/reward": 5}]
+    view = ChartsView()
+    view.show_lives({"a": run})
+    assert "Original meaning" in view.grid.cards["custom/value"].chart.toolTip()
+    assert "Namespace help" in view.grid.cards["custom/other"].chart.toolTip()
+    assert "not provided" in view.grid.cards["unknown/value"].chart.toolTip()
+    assert "Mean episode reward" in view.grid.cards["eval/reward"].chart.toolTip()
+    view.show_lives({"a": run})
+    assert len(calls) == 1
+    run.config["help"] = "Updated meaning"
+    view.show_lives({"a": run})
+    assert "Updated meaning" in view.grid.cards["custom/value"].chart.toolTip()
+    assert len(calls) == 2
+    view.close()
+
+
 def test_chart_history_reused_until_append_or_reset():
     run = LiveRun()
     run.rows = [{"step": 2, "loss": 3}, {"step": 1, "loss": 4}]

@@ -28,6 +28,30 @@ def settings(tmp_path, monkeypatch):
     app.processEvents()
 
 
+def test_developer_reload_preference_persists_and_footer_button_invokes_reload(settings):
+    from frontend.app import Window
+
+    reload_action = Mock()
+    host = SimpleNamespace(settings_manager=settings, reload_frontend=lambda: reload_action())
+    view = SimpleNamespace(window=host)
+    card = SettingsView._build_developer_card(view)
+    hidden_button = Window._make_reload_button(host)
+    assert not settings.show_reload_button
+    assert hidden_button.isHidden()
+    view.reload_button_toggle.setChecked(True)
+    assert settings.show_reload_button
+    assert _parse_toml_file(settings.workspace_settings_path)["appearance"]["show_reload_button"] is True
+    visible_button = Window._make_reload_button(host)
+    assert not visible_button.isHidden()
+    visible_button.click()
+    reload_action.assert_called_once_with()
+    view.reload_button_toggle.setChecked(False)
+    assert not settings.show_reload_button
+    card.deleteLater()
+    hidden_button.deleteLater()
+    visible_button.deleteLater()
+
+
 def test_batch_persists_once_and_notifies_complete_state(settings, monkeypatch):
     import frontend.settings as module
     writer = Mock(wraps=_write_toml_file)

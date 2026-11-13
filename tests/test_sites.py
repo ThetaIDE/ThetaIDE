@@ -165,7 +165,7 @@ def test_unknown_submission_is_not_retried(tmp_path, monkeypatch):
     assert len(calls) == 1
     receipt = read_json(next((root / 'results/slurm').glob('*/submission.json')))
     assert receipt['state'] == 'submission_unknown'
-    assert '__' + receipt['execution_id'] in receipt['result_experiment_id']
+    assert receipt['result_experiment_id'] == 'test/' + receipt['execution_id']
     script = next((root / 'results/slurm').glob('*/job.sbatch')).read_text()
     assert 'unset THETA_RESOURCE_POOL' in script
     assert '_run' in script

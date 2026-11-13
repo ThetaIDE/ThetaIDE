@@ -189,6 +189,7 @@ QSlider::handle:horizontal:hover { background: #fabd2f; }
 QStatusBar { color: #a89984; border-top: 1px solid #504945; }
 QToolTip { background: #3c3836; color: #ebdbb2; border: 1px solid #665c54; padding: 5px; }
 QStatusBar QLabel { background: transparent; }
+QToolButton#footerReload { background: transparent; border: 0; padding: 0 6px; max-height: 1em; }
 QLabel#swatch { border: 1px solid #504945; border-radius: 4px; min-width: 28px; min-height: 24px; }
 QLabel#themeError { color: #d79921; }
 QWidget#sideTabs { background: #282828; border-right: 1px solid #504945; min-width: 70px; max-width: 70px; }

@@ -7,6 +7,8 @@ none of them reads files or knows where the records came from.
 from __future__ import annotations
 
 import bisect
+from copy import deepcopy
+import logging
 import re
 import time
 from datetime import datetime
@@ -334,6 +336,19 @@ class ChartsView(QWidget):
         x-axis fixed to its budget, a y-axis that only grows, and each curve's newest point marked.
         """
         self._lives, self._colors, self._live = lives, colors, live
+        configs = [each.config for each in lives.values()]
+        if configs != getattr(self, "_description_configs", None):
+            from src.app.telemetry.monitors import available_monitors
+
+            self._description_configs = deepcopy(configs)
+            self._description_specs = []
+            for config in configs:
+                if not config:
+                    continue
+                try:
+                    self._description_specs.extend(available_monitors(config, errors=[]))
+                except (ValueError, KeyError, OSError) as exc:
+                    logging.getLogger(__name__).warning("Cannot load metric descriptions: %s", exc)
         self._comparing = colors is not None if comparing is None else comparing
         rows = {name: live.rows for name, live in lives.items()}
         # Retain each source list: ordinary appends inspect only the new rows.
@@ -400,7 +415,16 @@ class ChartsView(QWidget):
             empty = "Every plot is hidden."
         else:
             empty = ""  # the rest are drawn by the lead chart
+        descriptions = {}
+        for metric in visible:
+            matches = [spec for spec in self._description_specs if spec.description and
+                       (spec.name == metric or (spec.name.endswith("/") and metric.startswith(spec.name)))]
+            if matches:
+                descriptions[metric] = max(matches, key=lambda spec: len(spec.name)).description
+        self.grid.descriptions = descriptions
         self.grid.show_metrics(visible, empty)
+        for metric in visible:
+            self.grid.card(metric)  # refresh help even when only the run configuration changed
         names = ", ".join(lives) or "no agents yet"
         self.caption.setText(f"{len(metrics)} metrics  ·  x-axis: {self.axis_name}  ·  {names}")
         xmax = budget_extent(lives, axis)

@@ -1718,3 +1718,230 @@ def test_external_dataset_browse_and_save_use_project_relative_path(viewer, tmp_
     assert widget.save_to_disk()
     assert yaml.safe_load(widget.current_path.read_text())['dataset_path'] == expected
     box.close()
+
+
+def test_sweep_bounds_are_inline_with_type_below_caption(viewer):
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001,
+        "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}}}})
+    picker = widget.findChild(QComboBox, "sweepType_m_agent.lr")
+    low = widget.findChild(QAbstractSpinBox, "sweep_low_m_agent.lr")
+    high = widget.findChild(QAbstractSpinBox, "sweep_high_m_agent.lr")
+    inline = widget.findChild(QWidget, "sweepInline_m_agent.lr")
+    assert picker.isVisible() and low.isVisible() and high.isVisible()
+    caption = picker.parentWidget().findChild(QLabel)
+    assert caption is not None
+    assert picker.mapTo(widget, QPoint()).y() > caption.mapTo(widget, QPoint()).y()
+    assert low.parentWidget() is high.parentWidget()
+    assert inline.isAncestorOf(low)
+    assert [w.text() for w in low.parentWidget().findChildren(QLabel)] == ["(", ",", ")"]
+    assert abs(low.mapTo(widget, QPoint()).y() - caption.mapTo(widget, QPoint()).y()) < 16
+    low.setValue(0.0002)
+    assert widget.raw_data["methods"]["m"]["tune"]["agent.lr"]["low"] == 0.0002
+    assert widget.raw_data["methods"]["m"]["lr"] == 0.001
+    widget.findChild(QToolButton, "sweepAddStep_m_agent.lr").click()
+    widget.findChild(QLineEdit, "sweep_step_m_agent.lr").setText("0.0001")
+    assert widget.raw_data["methods"]["m"]["tune"]["agent.lr"]["step"] == 0.0001
+    remove = next(w for w in widget.findChildren(QToolButton) if w.toolTip() == "Remove step parameter")
+    remove.click()
+    assert "step" not in widget.raw_data["methods"]["m"]["tune"]["agent.lr"]
+    widget.findChild(QToolButton, "sweepRemove_m_agent.lr").click()
+    assert "tune" not in widget.raw_data["methods"]["m"]
+
+
+def test_sweep_lists_resize_wrap_and_add_remove_values(viewer):
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"model.hidden_sizes.0": {"type": "choice", "values": [32, 64, 128, 256]}}}}})
+    target = "model.hidden_sizes.0"
+    inline = widget.findChild(QWidget, f"sweepInline_m_{target}")
+    edit = widget.findChild(QLineEdit, f"sweep_choice_m_{target}_0")
+    width = edit.width()
+    edit.setText("a longer choice")
+    app.processEvents()
+    assert edit.width() > width
+    assert inline.layout().heightForWidth(150) > inline.layout().heightForWidth(800)
+    assert [w.text() for w in inline.findChildren(QLabel)] == [",", ",", ","]
+    add = widget.findChild(QToolButton, f"sweepAddChoice_m_{target}")
+    assert inline.layout().itemAt(inline.layout().count() - 1).widget() is add
+    add.click()
+    values = widget.raw_data["methods"]["m"]["tune"][target]["values"]
+    assert values == ["a longer choice", 64, 128, 256, ""]
+    edit = widget.findChild(QLineEdit, f"sweep_choice_m_{target}_1")
+    next(w for w in edit.parentWidget().findChildren(QToolButton) if w.toolTip() == "Remove value").click()
+    assert values == ["a longer choice", 128, 256, ""]
+
+
+def test_sweep_choices_reuse_parameter_dropdown_options(viewer):
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn"}}})
+    widget.raw_data["methods"]["m"]["tune"] = {"model.activation": {"type": "choice", "values": ["relu", "tanh"]}}
+    row = QHBoxLayout()
+    original = QComboBox()
+    original.addItems(["relu", "tanh", "sigmoid"])
+    row.addWidget(original)
+    form = QFormLayout()
+    form.addRow("Activation", row)
+    widget.container.layout().addLayout(form)
+    widget._add_sweep_toggle(row, "m", "model.activation", "relu")
+    widget._place_sweep_subtitles()
+    choice = widget.findChild(QComboBox, "sweep_choice_m_model.activation_0")
+    assert [choice.itemText(i) for i in range(choice.count())] == ["relu", "tanh", "sigmoid"]
+    choice.setCurrentText("sigmoid")
+    assert widget.raw_data["methods"]["m"]["tune"]["model.activation"]["values"][0] == "sigmoid"
+
+
+@pytest.mark.parametrize("kind,low,high", [
+    ("int", 2**63, 2**63 + 100),
+    ("float", -0.5, 0.5),
+    ("log_float", 1e-20, 1e-5),
+])
+def test_inline_sweep_numbers_preserve_precision_and_validate_edits(viewer, kind, low, high):
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtCore import Qt
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"agent.custom": {"type": kind, "low": low, "high": high}}}}})
+    inline = widget.findChild(QWidget, "sweepInline_m_agent.custom")
+    edit = next(w for w in inline.findChildren(QWidget) if w.objectName() == "sweep_low_m_agent.custom")
+    assert edit.value() == low
+    assert widget.raw_data["methods"]["m"]["tune"]["agent.custom"]["low"] == low
+    value = 2**63 + 1 if kind == "int" else 2e-20
+    edit.setFocus()
+    if isinstance(edit, QAbstractSpinBox):
+        edit.lineEdit().selectAll()
+    else:
+        edit.selectAll()
+    QTest.keyClicks(edit, str(value))
+    QTest.keyClick(edit, Qt.Key.Key_Return)
+    assert edit.value() == value
+    dimension = widget.raw_data["methods"]["m"]["tune"]["agent.custom"]
+    assert dimension["low"] == value
+    widget._edit_sweep_dimension("m", "agent.custom", "low", "not a number")
+    assert dimension["low"] == value
+    widget._edit_sweep_dimension("m", "agent.custom", "low", "nan")
+    assert dimension["low"] == value
+
+
+def test_sweep_list_removal_collapses_until_hover(viewer):
+    from PyQt6.QtCore import QEvent
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"agent.custom": {"type": "choice", "values": ["one", "two"]}}}}})
+    edit = widget.findChild(QLineEdit, "sweep_choice_m_agent.custom_0")
+    entry = edit.parentWidget()
+    remove = next(w for w in entry.findChildren(QToolButton) if w.toolTip() == "Remove value")
+    hover = remove.findChild(_RowHoverReveal)
+    assert not remove.sizePolicy().retainSizeWhenHidden()
+    with patch("frontend.config_viewer.QCursor.pos", return_value=entry.mapToGlobal(QPoint(-100, -100))):
+        hover._update_visibility()
+    app.processEvents()
+    assert remove.isHidden()
+    collapsed_width = entry.sizeHint().width()
+    with patch("frontend.config_viewer.QCursor.pos", return_value=edit.mapToGlobal(edit.rect().center())):
+        hover.eventFilter(edit, QEvent(QEvent.Type.Enter))
+        app.processEvents()
+    assert remove.isVisible()
+    assert entry.sizeHint().width() >= collapsed_width + remove.width()
+    with patch("frontend.config_viewer.QCursor.pos", return_value=entry.mapToGlobal(QPoint(-100, -100))):
+        hover.eventFilter(edit, QEvent(QEvent.Type.Leave))
+        app.processEvents()
+    assert remove.isHidden()
+    assert entry.sizeHint().width() == collapsed_width
+
+
+@pytest.mark.parametrize("width", [850, 1050])
+def test_sweep_additions_stay_in_their_wrapping_row(viewer, width):
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001, "gamma": 0.99,
+        "tune": {"agent.lr": {"type": "float", "low": 0.0000001, "high": 0.1234567},
+                 "agent.gamma": {"type": "choice", "values": ["long choice", "another choice", "third choice"]}}},
+        "other": {"agent": "ppo", "model": "dnn"}}})
+    widget.resize(width, 1000)
+    app.processEvents()
+    add_step = widget.findChild(QToolButton, "sweepAddStep_m_agent.lr")
+    low = widget.findChild(QAbstractSpinBox, "sweep_low_m_agent.lr")
+    assert abs(add_step.mapTo(widget, add_step.rect().center()).y() -
+               low.mapTo(widget, low.rect().center()).y()) <= 1
+    add_step.click()
+    app.processEvents()
+    for _ in range(3):
+        widget.findChild(QToolButton, "sweepAddChoice_m_agent.gamma").click()
+        app.processEvents()
+    step = widget.findChild(QLineEdit, "sweep_step_m_agent.lr")
+    bounds = widget.findChild(QWidget, "sweepInline_m_agent.lr")
+    choices = widget.findChild(QWidget, "sweepInline_m_agent.gamma")
+    assert bounds.isAncestorOf(step)
+    assert bounds.rect().contains(QRect(step.mapTo(bounds, QPoint()), step.size()))
+    assert bounds.mapTo(widget, bounds.rect().bottomLeft()).y() < choices.mapTo(widget, QPoint()).y()
+    assert choices.height() >= choices.heightForWidth(choices.width())
+    for index in range(6):
+        edit = widget.findChild(QLineEdit, f"sweep_choice_m_agent.gamma_{index}")
+        assert choices.isAncestorOf(edit)
+        assert choices.rect().contains(QRect(edit.mapTo(choices, QPoint()), edit.size()))
+    add = widget.findChild(QToolButton, "sweepAddChoice_m_agent.gamma")
+    last = widget.findChild(QLineEdit, "sweep_choice_m_agent.gamma_5")
+    assert abs(add.mapTo(widget, add.rect().center()).y() -
+               last.mapTo(widget, last.rect().center()).y()) <= 1
+    assert widget.raw_data["methods"]["m"]["tune"]["agent.lr"]["step"] is None
+    assert "tune" not in widget.raw_data["methods"]["other"]
+    subtitle = widget.findChild(QComboBox, "sweepType_m_agent.lr")
+    assert "background: transparent" in subtitle.styleSheet()
+    assert "border: none" in subtitle.styleSheet()
+
+
+@pytest.mark.parametrize("kind,text", [("int", "10000"), ("float", ".00001"),
+                                      ("float", ".00000000000000000000000000000000000000000000000001")])
+@pytest.mark.parametrize("key", ["low", "high", "step"])
+def test_sweep_numeric_fields_fit_the_text_while_typing(viewer, kind, text, key):
+    from PyQt6.QtTest import QTest
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"agent.custom": {"type": kind, "low": 1, "high": 2, "step": 1}}}}})
+    inline = widget.findChild(QWidget, "sweepInline_m_agent.custom")
+    control = next(w for w in inline.findChildren(QWidget) if w.objectName() == f"sweep_{key}_m_agent.custom")
+    editor = control.lineEdit() if isinstance(control, QAbstractSpinBox) else control
+    initial_width = control.width()
+    control.setFocus()
+    app.processEvents()
+    editor.selectAll()
+    QTest.keyClicks(control, text)
+    app.processEvents()
+    app.processEvents()
+    assert control.value() == (int(text) if kind == "int" else float(text))
+    displayed = editor.displayText()
+    assert control.width() > initial_width
+    assert editor.fontMetrics().horizontalAdvance(displayed) + 4 <= editor.width()
+    assert editor.cursorPositionAt(QPoint(0, editor.height() // 2)) == 0
+
+
+def test_sweep_list_numbers_fit_as_they_grow(viewer):
+    from PyQt6.QtTest import QTest
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"agent.custom": {"type": "choice", "values": [1, 2]}}}}})
+    edit = widget.findChild(QLineEdit, "sweep_choice_m_agent.custom_0")
+    width = edit.width()
+    edit.selectAll()
+    QTest.keyClicks(edit, "10000000000000000000000000000000000000000")
+    app.processEvents()
+    assert edit.width() > max(width, 220)
+    assert edit.fontMetrics().horizontalAdvance(edit.text()) + 14 <= edit.width()
+
+
+def test_sweep_hover_only_reveals_actions_for_the_live_row(viewer):
+    from PyQt6.QtCore import QEvent
+    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001, "gamma": 0.99,
+        "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01},
+                 "agent.gamma": {"type": "choice", "values": [0.9, 0.99]}}}}})
+    low = widget.findChild(QAbstractSpinBox, "sweep_low_m_agent.lr")
+    choice = widget.findChild(QLineEdit, "sweep_choice_m_agent.gamma_0")
+    remove = widget.findChild(QToolButton, "sweepRemove_m_agent.lr")
+    hover = remove.findChild(_RowHoverReveal)
+    with patch("frontend.config_viewer.QCursor.pos", return_value=low.mapToGlobal(low.rect().center())):
+        hover._update_visibility()
+    assert remove.isVisible()
+    with patch("frontend.config_viewer.QCursor.pos", return_value=choice.mapToGlobal(choice.rect().center())):
+        hover._update_visibility()
+    assert remove.isHidden()
+    hover.eventFilter(choice, QEvent(QEvent.Type.FocusIn))
+    assert remove.isHidden()
+    entry_remove = next(w for w in choice.parentWidget().findChildren(QToolButton) if w.toolTip() == "Remove value")
+    entry_hover = entry_remove.findChild(_RowHoverReveal)
+    with patch("frontend.config_viewer.QCursor.pos", return_value=choice.mapToGlobal(choice.rect().center())):
+        entry_hover._update_visibility()
+    assert entry_remove.isVisible()
+    # Reveal must lay the collapsing button out immediately, before painting.
+    assert entry_remove.x() >= choice.x() + choice.width()

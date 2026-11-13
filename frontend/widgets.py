@@ -1,7 +1,7 @@
 import math
 import re
-from PyQt6.QtCore import Qt, QRect, QRectF, QSize, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QSyntaxHighlighter, QTextCharFormat, QTextOption
+from PyQt6.QtCore import Qt, QEvent, QRect, QRectF, QSize, pyqtSignal
+from PyQt6.QtGui import QColor, QDoubleValidator, QPainter, QPen, QSyntaxHighlighter, QTextCharFormat, QTextOption
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QAbstractButton,
     QComboBox, QDoubleSpinBox, QSpinBox, QTableWidgetItem, QScrollArea,
@@ -93,12 +93,40 @@ class DoubleSpinBox(_WheelNeedsFocus, QDoubleSpinBox):
         self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
 
+class ScientificDoubleSpinBox(DoubleSpinBox):
+    """Compact, round-trip float editing, including scientific notation."""
+
+    def __init__(self, value=0.0, parent=None):
+        super().__init__(parent)
+        self.setDecimals(323)
+        limit = float.fromhex("0x1.fffffffffffffp+1023")
+        self.setRange(-limit, limit)
+        self._validator = QDoubleValidator(self)
+        self._validator.setNotation(QDoubleValidator.Notation.ScientificNotation)
+        self.setValue(value)
+
+    def textFromValue(self, value):
+        return str(value)
+
+    def valueFromText(self, text):
+        try:
+            return float(text)
+        except ValueError:
+            return self.value()
+
+    def validate(self, text, position):
+        if not hasattr(self, "_validator"):
+            return super().validate(text, position)
+        return self._validator.validate(text, position)
+
+
 class FlowLayout(QLayout):
     """Keep compact controls together, wrapping complete controls as width changes."""
 
-    def __init__(self, parent=None, *, spacing=12):
+    def __init__(self, parent=None, *, spacing=12, vertical_alignment=Qt.AlignmentFlag.AlignTop):
         super().__init__(parent)
         self._items = []
+        self._vertical_alignment = vertical_alignment
         self.setContentsMargins(0, 0, 0, 0)
         self.setSpacing(spacing)
 
@@ -146,17 +174,59 @@ class FlowLayout(QLayout):
         margins = self.contentsMargins()
         area = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
         x, y, height = area.x(), area.y(), 0
+        line = []
+
+        def place_line():
+            if not apply:
+                return
+            for item, left, size in line:
+                offset = (height - size.height()) // 2 if self._vertical_alignment == Qt.AlignmentFlag.AlignVCenter else 0
+                item.setGeometry(QRect(left, y + offset, size.width(), size.height()))
+
         for item in self._items:
+            if item.isEmpty():
+                continue
             size = item.sizeHint()
             if x > area.x() and x + size.width() > area.x() + area.width():
+                place_line()
+                line = []
                 x = area.x()
                 y += height + self.spacing()
                 height = 0
-            if apply:
-                item.setGeometry(QRect(x, y, size.width(), size.height()))
+            line.append((item, x, size))
             x += size.width() + self.spacing()
             height = max(height, size.height())
+        place_line()
         return y + height - rect.y() + margins.bottom()
+
+
+class WrappingFlowWidget(QWidget):
+    """A flow row that reserves enough height inside nested forms and grids."""
+
+    def __init__(self, parent=None, *, spacing=12, vertical_alignment=Qt.AlignmentFlag.AlignTop):
+        super().__init__(parent)
+        FlowLayout(self, spacing=spacing, vertical_alignment=vertical_alignment)
+        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+
+    def _update_height(self):
+        layout = self.layout()
+        if layout is not None:
+            height = layout.heightForWidth(self.width())
+            if self.minimumHeight() != height:
+                self.setMinimumHeight(height)
+                self.updateGeometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_height()
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.Type.LayoutRequest:
+            self._update_height()
+        return result
 
 
 class ComboBox(_WheelNeedsFocus, QComboBox):

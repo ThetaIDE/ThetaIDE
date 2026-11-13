@@ -367,6 +367,8 @@ class Window(QMainWindow):
         self.theme_changed()
         self.statusBar().addPermanentWidget(self.state_label)
         self.statusBar().addPermanentWidget(self.backend_label)
+        self.reload_button = self._make_reload_button()
+        self.statusBar().addPermanentWidget(self.reload_button)
         step("Loading runs…", 0.79)
         self.refresh_runs()
         self.update_config()
@@ -789,6 +791,9 @@ class Window(QMainWindow):
         """
         if not hasattr(self, "settings_manager"):
             return
+
+        if hasattr(self, "reload_button"):
+            self.reload_button.setVisible(self.settings_manager.show_reload_button)
 
         if hasattr(self, "tabs"):
             self.tabs.set_settings_button_logo(self.settings_manager.settings_button_logo)
@@ -1394,6 +1399,7 @@ class Window(QMainWindow):
             ("export_config", "Save As / Export YAML…", "Ctrl+Shift+S", lambda: self._editor_action("save_as", self.export_config)),
             ("save_config", "Save", "Ctrl+S", lambda: self._editor_action("save", self.save_current_config)),
             ("close_tab", "Close tab", "Ctrl+W", lambda: self._editor_action("close", self.close_active_tab)),
+            ("restart_app", "Restart ThetaIDE", "", self.reload_frontend),
             ("quit", "Quit", "Ctrl+Q", self.quit_app),
         ):
             action = QAction(title, self)
@@ -2470,25 +2476,19 @@ class Window(QMainWindow):
     # ── Job queue ────────────────────────────────────────────────────────────
 
     def unique_experiment_id(self, name, is_recover=False):
-        """<name>_<date>-<time>, with a counter if several jobs are created within the same second.
+        """<name>/<date>-<time>, with a counter for jobs in the same second.
         When recovering a checkpoint (is_recover=True), preserves the exact experiment name."""
         if is_recover:
             return name
+        from src.app.pipeline.result_paths import saved_run_id
+        from src.app.services import LOGS_DIR
         group = getattr(self, "current_experiment", "").split("/")[0] if getattr(self, "current_experiment", None) else None
-        exists_on_disk = False
-        if group:
-            from src.app.services import LOGS_DIR
-            if (LOGS_DIR / group / name).exists():
-                exists_on_disk = True
-        if name in self.issued_ids or exists_on_disk:
-            base = f"{name}_{datetime.now():%Y%m%d-%H%M%S}"
-            experiment_id, n = base, 2
-            while experiment_id in self.issued_ids or (group and (LOGS_DIR / group / experiment_id).exists()):
-                experiment_id, n = f"{base}-{n}", n + 1
-            self.issued_ids.add(experiment_id)
-            return experiment_id
-        self.issued_ids.add(name)
-        return name
+        base = saved_run_id(name, f"_{datetime.now():%Y%m%d-%H%M%S}")
+        experiment_id, n = base, 2
+        while experiment_id in self.issued_ids or (group and (LOGS_DIR / group / experiment_id).exists()):
+            experiment_id, n = f"{base}-{n}", n + 1
+        self.issued_ids.add(experiment_id)
+        return experiment_id
 
     def add_to_queue(self, *, start=False):
         Window.queue_current(self, start=start)
@@ -3103,11 +3103,21 @@ class Window(QMainWindow):
         # native macOS termination before this close event returns, leaving
         # deferred WebEngine widget deletion to run during native exit cleanup.
 
+    def _make_reload_button(self):
+        button = QToolButton()
+        button.setObjectName("footerReload")
+        button.setText("Reload")
+        button.setAccessibleName("Reload ThetaIDE")
+        button.setToolTip("Restart ThetaIDE to load code changes. Background training continues.")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(self.reload_frontend)
+        button.setVisible(self.settings_manager.show_reload_button)
+        return button
 
     def reload_frontend(self):
         """Reload the frontend process cleanly."""
         from .terminal_reloader import reload_frontend
-        reload_frontend(window=self, app=QApplication.instance())
+        reload_frontend(window=self, app=QApplication.instance(), reloader=getattr(self, "reloader", None))
 
 
 def main():

@@ -45,7 +45,8 @@ from .sidetabs import svg_icon
 from .theme import theme_color
 from .widgets import (
     ComboBox as BaseComboBox, DoubleSpinBox, SpinBox, label, SmoothScrollArea, ToggleSlider,
-    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit, FlowLayout, integer_field,
+    TagCloudWidget, LayerStackWidget, HierarchicalComboBox, ExpandingTextEdit, FlowLayout, WrappingFlowWidget, integer_field,
+    ScientificDoubleSpinBox,
 )
 from .metric_picker import MetricPicker, logged_metrics
 from .parameter_reorder import ColumnRows, FlowRows, FormRows, GridRows, ListRows, ParameterReorder, form_groups
@@ -171,16 +172,17 @@ def _make_subtle_tool_button(icon_name: str, tooltip: str, size: int = 24, icon_
 class _RowHoverReveal(QObject):
     """Reveal a control when the pointer is over its parameter row."""
 
-    def __init__(self, button: QToolButton, row_layout: QHBoxLayout):
+    def __init__(self, button: QToolButton, row_layout: QHBoxLayout, *, reserve_space=True):
         super().__init__(button)
         self._button = weakref.ref(button)
+        self._row = weakref.ref(row_layout)
         self._targets = [weakref.ref(item.widget()) for item in
                          (row_layout.itemAt(i) for i in range(row_layout.count()))
                          if item is not None and item.widget() is not None
                          and not isinstance(item.widget(), QToolButton)]
         self._parent = None
         policy = button.sizePolicy()
-        policy.setRetainSizeWhenHidden(True)
+        policy.setRetainSizeWhenHidden(reserve_space)
         button.setSizePolicy(policy)
         button.hide()
         for ref in self._targets:
@@ -208,30 +210,51 @@ class _RowHoverReveal(QObject):
         parent = self._parent() if self._parent else None
         button = self._button()
         targets = [ref() for ref in self._targets]
-        targets = [w for w in targets if w is not None and not sip.isdeleted(w)]
-        if parent is None or sip.isdeleted(parent) or button is None or sip.isdeleted(button) or not targets:
+        targets = [w for w in targets if w is not None and not sip.isdeleted(w)
+                   and parent is not None and not sip.isdeleted(parent) and w.isVisibleTo(parent)]
+        if parent is None or sip.isdeleted(parent) or button is None or sip.isdeleted(button):
+            return
+        if not targets:
+            self._set_visible(False)
             return
         pos = parent.mapFromGlobal(QCursor.pos())
         row_top = min(widget.mapTo(parent, widget.rect().topLeft()).y() for widget in targets)
         row_bottom = max(widget.mapTo(parent, widget.rect().bottomRight()).y() for widget in targets)
-        button.setVisible(parent.rect().contains(pos) and row_top <= pos.y() <= row_bottom)
+        self._set_visible(parent.rect().contains(pos) and row_top <= pos.y() <= row_bottom)
+
+    def _set_visible(self, visible):
+        button = self._button()
+        row = self._row()
+        if button is None or sip.isdeleted(button):
+            return
+        if row is None or sip.isdeleted(row) or row.indexOf(button) < 0:
+            button.hide()
+            return
+        if button.isHidden() == (not visible):
+            return
+        button.setVisible(visible)
+        # Collapsing list actions have no geometry until they are shown.
+        # Place them beside their editor before the next paint, never at (0, 0).
+        row.invalidate()
+        row.activate()
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.FocusIn:
-            button = self._button()
-            if button is not None and not sip.isdeleted(button):
-                button.show()
+            targets = [ref() for ref in self._targets]
+            if any(w is not None and not sip.isdeleted(w) and w.isVisible()
+                   and (w is watched or w.isAncestorOf(watched)) for w in targets):
+                self._set_visible(True)
         if event.type() in (QEvent.Type.Enter, QEvent.Type.Leave, QEvent.Type.MouseMove):
             self._update_visibility()
         return False
 
 
-def _reveal_remove_on_row_hover(row_layout: QHBoxLayout, button: QToolButton) -> None:
+def _reveal_remove_on_row_hover(row_layout: QHBoxLayout, button: QToolButton, *, reserve_space=True) -> None:
     """Keep parameter rows tidy until a row control is hovered."""
     if button.property("parameterHoverBound"):
         return
     button.setProperty("parameterHoverBound", True)
-    _RowHoverReveal(button, row_layout)
+    _RowHoverReveal(button, row_layout, reserve_space=reserve_space)
 
 
 def _parameter_row(widget, *, add=None, remove=None, expand=False):
@@ -373,6 +396,55 @@ def _two_column_parameter_layout(form, *, align_rows=False):
     grid._parameter_rows = ColumnRows(grid, columns, groups)
     grid._parameter_rows.apply()
     return grid
+
+
+def _fit_inline_control(control):
+    """Size compact editors from the displayed text, including uncommitted digits."""
+    control.setProperty("parameterCompact", True)
+    editor = control.lineEdit() if isinstance(control, QAbstractSpinBox) else control
+    if isinstance(control, QAbstractSpinBox):
+        # The spin box already supplies its frame and padding. Its internal
+        # line edit must not inherit another padded input box from the theme.
+        editor.setStyleSheet("QLineEdit { background: transparent; border: none; padding: 0px; min-height: 0px; }")
+
+    control.ensurePolished()
+    editor.ensurePolished()
+
+    def resize(*_):
+        text = control.currentText() if isinstance(control, QComboBox) else editor.displayText()
+        padding = 38 if isinstance(control, QComboBox) else 24
+        width = max(48, editor.fontMetrics().horizontalAdvance(text or "Value") + padding)
+        if control.minimumWidth() == width and control.maximumWidth() == width:
+            return
+        if isinstance(control, QAbstractSpinBox):
+            # Qt reformats numeric text on resize. Preserve exactly what the
+            # user is typing, including leading decimal zeros and the caret.
+            cursor = editor.cursorPosition()
+            selection = editor.selectionStart()
+            selected = editor.selectedText()
+            blocked = editor.blockSignals(True)
+            try:
+                control.setFixedWidth(width)
+                editor.setText(text)
+                if selection >= 0:
+                    editor.setSelection(selection, len(selected))
+                else:
+                    editor.setCursorPosition(cursor)
+            finally:
+                editor.blockSignals(blocked)
+        else:
+            control.setFixedWidth(width)
+        control.updateGeometry()
+    if isinstance(control, QComboBox):
+        control.currentTextChanged.connect(resize)
+    else:
+        # Numeric line edits emit while Qt is still updating their value.
+        # Reflow on the next event turn, after that edit has completed.
+        timer = QTimer(control)
+        timer.setSingleShot(True)
+        timer.timeout.connect(resize)
+        editor.textChanged.connect(lambda *_: timer.start(0))
+    resize()
 
 
 class _SweepTypePicker(ComboBox):
@@ -871,6 +943,8 @@ class ConfigBox(QFrame):
         field_width = NUMBER_FIELD_WIDTH if compact else PARAM_FIELD_WIDTH
         label_width = 120 if compact else PARAM_LABEL_WIDTH
         for field in self.findChildren(QWidget):
+            if field.property("parameterCompact"):
+                continue
             if isinstance(field, (QComboBox, QAbstractSpinBox, QLineEdit)):
                 if isinstance(field.parentWidget(), (QComboBox, QAbstractSpinBox)):
                     continue
@@ -1846,6 +1920,7 @@ class ConfigViewer(QWidget):
         else:
             self._render_generic_boxes()
 
+        self._place_sweep_subtitles()
         self._cap_form_fields()
         self._size_method_card_fields()
         for i in range(self.boxes_layout.count()):
@@ -2157,6 +2232,8 @@ class ConfigViewer(QWidget):
         for row_layout in self.container.findChildren(QHBoxLayout):
             for index in range(row_layout.count()):
                 widget = row_layout.itemAt(index).widget()
+                if widget is not None and widget.property("parameterCompact"):
+                    continue
                 if isinstance(widget, QAbstractSpinBox):
                     widget.setMaximumWidth(NUMBER_FIELD_WIDTH)
         for form in self.container.findChildren(QFormLayout):
@@ -2179,6 +2256,8 @@ class ConfigViewer(QWidget):
         for container in self.container.findChildren(MethodCardsContainer):
             for _, card in container._cards:
                 for widget in card.findChildren(QWidget):
+                    if widget.property("parameterCompact"):
+                        continue
                     if isinstance(widget, (QAbstractSpinBox, QComboBox)):
                         widget.setFixedWidth(width)
                     elif isinstance(widget, QLineEdit) and not isinstance(widget, InlineTitleEditor):
@@ -6192,12 +6271,14 @@ class ConfigViewer(QWidget):
                 delete.setToolTip("Remove sweep")
                 delete.setObjectName(f"sweepRemove_{method}_{target}")
                 delete.clicked.connect(lambda _, m=method, t=target, v=value: self._cancel_sweep_setup(m, t) if pending else self._toggle_method_sweep(m, t, v))
-                row.setAlignment(delete, Qt.AlignmentFlag.AlignTop)
+                row.setAlignment(delete, Qt.AlignmentFlag.AlignVCenter)
                 break
+        original = None
         # Replace the value widget in this row, preserving its underlying config value.
         for index in range(row.count()):
             widget = row.itemAt(index).widget()
             if widget is not None and not isinstance(widget, (QLabel, QToolButton)):
+                original = widget
                 row.removeWidget(widget)
                 # Hover handlers already reference this control; keep it alive
                 # until the row's parent is destroyed on the next render.
@@ -6205,16 +6286,16 @@ class ConfigViewer(QWidget):
                 break
         else:
             return
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
         combo = _SweepTypePicker()
         combo.setObjectName("sweepType_" + method + "_" + target)
+        combo.setProperty("parameterCompact", True)
+        combo.setToolTip("Sweep type")
         combo.addItem("Select sweep type…", None)
         for title, key in (("List", "choice"), ("Integer range", "int"), ("Numeric range", "float"), ("Log numeric range", "log_float")):
             combo.addItem(title, key)
         combo.setCurrentIndex(max(0, combo.findData(dimension.get("type") if isinstance(dimension, dict) else None)))
         combo.activated.connect(lambda _, m=method, t=target, v=value, c=combo: self._select_sweep_type(m, t, v, c.currentData()))
+        row._sweep_subtitle = combo
         if pending:
             combo.cancelled.connect(lambda m=method, t=target: self._cancel_sweep_setup(m, t))
             def open_picker(c=combo):
@@ -6222,66 +6303,160 @@ class ConfigViewer(QWidget):
                     c.setFocus()
                     c.showPopup()
             QTimer.singleShot(0, open_picker)
-        type_row = QHBoxLayout()
-        type_row.setContentsMargins(0, 0, 0, 0)
-        type_row.addWidget(combo, 1)
+
+        content = WrappingFlowWidget(spacing=4, vertical_alignment=Qt.AlignmentFlag.AlignVCenter)
+        content.setObjectName(f"sweepInline_{method}_{target}")
+        content.setProperty("parameterInline", True)
+        content.setStyleSheet('QWidget[parameterInline="true"] { background: transparent; }')
+        if original is not None:
+            original.setParent(content)
+            original.hide()
+        flow = content.layout()
         kind = dimension.get("type") if isinstance(dimension, dict) else None
-        if kind in ("int", "float") and not (isinstance(dimension, dict) and "step" in dimension):
-            add_step = _make_subtle_tool_button("plus", "Add step parameter", size=20, icon_size=12)
-            add_step.setObjectName(f"sweepAddStep_{method}_{target}")
-            add_step.clicked.connect(lambda _, m=method, t=target: self._add_sweep_dimension(m, t, "step"))
-            type_row.addWidget(add_step)
-        layout.addLayout(type_row)
-        if delete is not None:
-            for hover in delete.findChildren(_RowHoverReveal):
-                hover._targets = [weakref.ref(combo)]
-                combo.setMouseTracking(True)
-                combo.installEventFilter(hover)
-        if isinstance(dimension, dict):
-            kind = dimension.get("type")
-            block = IndentedHierarchyBlock(level=1)
-            if kind == "choice":
-                values = dimension.get("values", [])
-                if isinstance(values, list):
-                    for i, item in enumerate(values):
-                        line = QHBoxLayout()
+        if kind == "choice":
+            values = dimension.get("values", [])
+            if isinstance(values, list):
+                for i, item in enumerate(values):
+                    entry = QWidget()
+                    entry.setProperty("parameterInline", True)
+                    line = QHBoxLayout(entry)
+                    line.setContentsMargins(0, 0, 0, 0)
+                    line.setSpacing(2)
+                    if isinstance(original, QComboBox):
+                        edit = ComboBox()
+                        for n in range(original.count()):
+                            edit.addItem(original.itemText(n), original.itemData(n))
+                        if edit.findText(str(item)) < 0:
+                            edit.addItem(str(item))
+                        edit.setCurrentText(str(item))
+                        edit.currentTextChanged.connect(lambda text, m=method, t=target, n=i: self._edit_sweep_choice(m, t, n, text))
+                    else:
                         edit = QLineEdit(yaml.safe_dump(item, default_flow_style=True).strip().removesuffix("\n...") if item != "" else "")
                         edit.setPlaceholderText("Value")
-                        edit.setObjectName(f"sweep_choice_{method}_{target}_{i}")
                         edit.textChanged.connect(lambda text, m=method, t=target, n=i: self._edit_sweep_choice(m, t, n, text))
-                        line.addWidget(edit)
-                        remove = _make_subtle_tool_button("close", "Remove value", size=20, icon_size=14)
-                        remove.clicked.connect(lambda _, m=method, t=target, n=i: self._remove_sweep_choice(m, t, n))
-                        line.addWidget(remove)
-                        _reveal_remove_on_row_hover(line, remove)
-                        block.addRow(f"Value {i + 1}", line)
-                    add = _make_subtle_tool_button("plus", "Add value", size=20, icon_size=14)
-                    add.setObjectName(f"sweepAddChoice_{method}_{target}")
-                    add.clicked.connect(lambda _, m=method, t=target: self._add_sweep_choice(m, t))
-                    block.addRow("", add)
-            else:
-                fields = [("low", "Lower bound"), ("high", "Upper bound")]
-                if kind != "log_float" and "step" in dimension:
-                    fields.append(("step", "Step"))
-                for key, title in fields:
-                    edit = QLineEdit()
-                    edit.setObjectName(f"sweep_{key}_{method}_{target}")
-                    if dimension.get(key) is not None:
-                        edit.setText(str(dimension[key]))
-                    edit.textChanged.connect(lambda text, m=method, t=target, k=key: self._edit_sweep_dimension(m, t, k, text))
-                    if key == "step":
-                        step_row = QHBoxLayout()
-                        step_row.addWidget(edit)
-                        remove_step = _make_subtle_tool_button("close", "Remove step parameter", size=20, icon_size=12)
-                        remove_step.clicked.connect(lambda _, m=method, t=target: self._remove_sweep_dimension(m, t, "step"))
-                        step_row.addWidget(remove_step)
-                        _reveal_remove_on_row_hover(step_row, remove_step)
-                        block.addRow(title, step_row)
-                    else:
-                        block.addRow(title, edit)
-            row._sweep_block = block
-        row.insertLayout(index, layout)
+                    edit.setObjectName(f"sweep_choice_{method}_{target}_{i}")
+                    edit.setAccessibleName(f"{target} value {i + 1}")
+                    _fit_inline_control(edit)
+                    line.addWidget(edit)
+                    remove = _make_subtle_tool_button("close", "Remove value", size=20, icon_size=12)
+                    remove.clicked.connect(lambda _, m=method, t=target, n=i: self._remove_sweep_choice(m, t, n))
+                    line.addWidget(remove)
+                    _reveal_remove_on_row_hover(line, remove, reserve_space=False)
+                    if i < len(values) - 1:
+                        line.insertWidget(1, label(","))
+                    flow.addWidget(entry)
+            add = _make_subtle_tool_button("plus", "Add value", size=20, icon_size=14)
+            add.setObjectName(f"sweepAddChoice_{method}_{target}")
+            add.clicked.connect(lambda _, m=method, t=target: self._add_sweep_choice(m, t))
+            flow.addWidget(add)
+        elif isinstance(dimension, dict):
+            bounds = QWidget()
+            bounds.setProperty("parameterInline", True)
+            line = QHBoxLayout(bounds)
+            line.setContentsMargins(0, 0, 0, 0)
+            line.setSpacing(4)
+            line.addWidget(label("("))
+            for key, title in (("low", "Lower bound"), ("high", "Upper bound")):
+                edit = self._sweep_dimension_field(method, target, key, dimension)
+                edit.setObjectName(f"sweep_{key}_{method}_{target}")
+                edit.setAccessibleName(f"{target} {title.lower()}")
+                edit.setToolTip(title)
+                _fit_inline_control(edit)
+                line.addWidget(edit)
+                if key == "low":
+                    line.addWidget(label(","))
+            line.addWidget(label(")"))
+            flow.addWidget(bounds)
+            if kind in ("int", "float"):
+                if "step" in dimension:
+                    step = QWidget()
+                    step.setProperty("parameterInline", True)
+                    line = QHBoxLayout(step)
+                    line.setContentsMargins(0, 0, 0, 0)
+                    line.setSpacing(4)
+                    line.addWidget(label("Step", "muted"))
+                    edit = self._sweep_dimension_field(method, target, "step", dimension)
+                    edit.setObjectName(f"sweep_step_{method}_{target}")
+                    edit.setAccessibleName(f"{target} step")
+                    _fit_inline_control(edit)
+                    line.addWidget(edit)
+                    remove_step = _make_subtle_tool_button("close", "Remove step parameter", size=20, icon_size=12)
+                    remove_step.clicked.connect(lambda _, m=method, t=target: self._remove_sweep_dimension(m, t, "step"))
+                    line.addWidget(remove_step)
+                    _reveal_remove_on_row_hover(line, remove_step)
+                    flow.addWidget(step)
+                else:
+                    add_step = _make_subtle_tool_button("plus", "Add step parameter", size=20, icon_size=12)
+                    add_step.setObjectName(f"sweepAddStep_{method}_{target}")
+                    add_step.clicked.connect(lambda _, m=method, t=target: self._add_sweep_dimension(m, t, "step"))
+                    flow.addWidget(add_step)
+        row.insertWidget(index, content, 1)
+        if delete is not None:
+            for hover in delete.findChildren(_RowHoverReveal):
+                targets = [combo, content]
+                hover._targets = [weakref.ref(w) for w in targets]
+                for control in targets:
+                    control.setMouseTracking(True)
+                    control.installEventFilter(hover)
         self._rendered_sweeps.add((method, target))
+
+    def _sweep_dimension_field(self, method, target, key, dimension):
+        value = dimension.get(key)
+        if dimension.get("type") == "int" and type(value) is int:
+            edit = integer_field(value)
+        elif type(value) in (int, float) and dimension.get("type") != "int":
+            edit = ScientificDoubleSpinBox(float(value))
+        else:
+            # Keep incomplete or expression-based configurations visible.
+            edit = QLineEdit(str(value) if value is not None else "")
+        if hasattr(edit, "valueChanged"):
+            edit.valueChanged.connect(lambda v: self._edit_sweep_dimension(method, target, key, str(v)))
+        else:
+            edit.textChanged.connect(lambda text: self._edit_sweep_dimension(method, target, key, text))
+        return edit
+
+    def _place_sweep_subtitles(self):
+        """Attach the type selector below the caption in forms, grids and shared rows."""
+        for row in self.container.findChildren(QHBoxLayout):
+            subtitle = getattr(row, "_sweep_subtitle", None)
+            if subtitle is None:
+                continue
+            caption = next((row.itemAt(i).widget() for i in range(row.count())
+                            if isinstance(row.itemAt(i).widget(), QLabel)), None)
+            owner = row if caption is not None else row.parent()
+            if caption is None and isinstance(owner, QFormLayout):
+                caption = owner.labelForField(row)
+            if caption is None and isinstance(owner, QGridLayout):
+                r, c, _, _ = owner.getItemPosition(owner.indexOf(row))
+                item = owner.itemAtPosition(r, c - 1)
+                caption = item.widget() if item else None
+            if not isinstance(caption, QLabel):
+                continue
+            group = QWidget()
+            group.setProperty("parameterLabel", True)
+            group.setStyleSheet('QWidget[parameterLabel="true"] { background: transparent; }')
+            layout = QVBoxLayout(group)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(2)
+            if isinstance(owner, QFormLayout):
+                r, role = owner.getWidgetPosition(caption)
+                owner.removeWidget(caption)
+                owner.setWidget(r, role, group)
+            elif isinstance(owner, QGridLayout):
+                r, c, rs, cs = owner.getItemPosition(owner.indexOf(caption))
+                owner.removeWidget(caption)
+                owner.addWidget(group, r, c, rs, cs)
+            else:
+                i = row.indexOf(caption)
+                row.removeWidget(caption)
+                row.insertWidget(i, group)
+            layout.addWidget(caption)
+            layout.addWidget(subtitle)
+            subtitle.setStyleSheet(
+                f"QComboBox {{ background: transparent; border: none; color: {theme_color('muted')}; "
+                "font-size: 11px; padding: 0px; } "
+                "QComboBox::drop-down { background: transparent; border: none; }")
+            subtitle.setMaximumWidth(180)
 
     def _toggle_method_sweep(self, method, target, value):
         spec = self.raw_data.get("methods", {}).get(method, {})
@@ -6368,9 +6543,12 @@ class ConfigViewer(QWidget):
             dimension.pop(key, None)
         else:
             try:
-                dimension[key] = yaml.safe_load(text) if text.strip() else ""
-            except yaml.YAMLError:
-                dimension[key] = text
+                value = int(text.strip()) if dimension.get("type") == "int" else float(text)
+            except (ValueError, OverflowError):
+                return
+            if isinstance(value, float) and not math.isfinite(value):
+                return
+            dimension[key] = value
         self._mark_dirty()
 
     def _add_sweep_dimension(self, method, target, key):

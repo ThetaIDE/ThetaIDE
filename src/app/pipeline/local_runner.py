@@ -41,18 +41,26 @@ def _setup_output_dirs(cfg) -> None:
     if cfg.get("recover", False) or tuning_enabled(cfg):
         return
 
-    ckpt_dir = Path("results/checkpoints") / cfg.group / cfg.experiment_id
-    fast_purge_dir(ckpt_dir)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    from src.app.pipeline.result_paths import nested_run_names
+    saved = nested_run_names(Path("results/logs") / cfg.group / cfg.experiment_id)
 
-    exp_log_dir = Path("results/logs") / cfg.group / cfg.experiment_id
-    fast_purge_dir(exp_log_dir)
-    exp_log_dir.mkdir(parents=True, exist_ok=True)
+    def prepare(path):
+        if saved and path.is_dir():
+            for child in path.iterdir():
+                if child.name in saved:
+                    continue
+                if child.is_dir() and not child.is_symlink():
+                    fast_purge_dir(child)
+                else:
+                    child.unlink()
+        else:
+            fast_purge_dir(path)
+        path.mkdir(parents=True, exist_ok=True)
 
+    prepare(Path("results/checkpoints") / cfg.group / cfg.experiment_id)
+    prepare(Path("results/logs") / cfg.group / cfg.experiment_id)
     if should_run_plotting(cfg):
-        exp_plot_dir = Path("results/plots") / cfg.group / cfg.experiment_id
-        fast_purge_dir(exp_plot_dir)
-        exp_plot_dir.mkdir(parents=True, exist_ok=True)
+        prepare(Path("results/plots") / cfg.group / cfg.experiment_id)
 
 
 # ---------------------------------------------------------------------------

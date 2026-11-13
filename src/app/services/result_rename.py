@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path, PurePosixPath
 
-from src.app.pipeline.result_paths import check_result_path, iter_run_dirs
+from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, result_experiment_id
 
 from . import catalog
 
-_RUN_SUFFIX = re.compile(r"_\d{8}-\d{6}(?:-\d+)?$")
 
 
 def rename_results(kind: str, group: str, experiment_id: str, new_name: str) -> dict:
@@ -30,13 +28,18 @@ def rename_results(kind: str, group: str, experiment_id: str, new_name: str) -> 
         folders = [(Path(group), Path(new_group))]
     elif kind == "run":
         renamed = PurePosixPath(experiment_id).with_name(new_name).as_posix()
-        identities = {experiment_id: renamed}
+        identities = {run: renamed + run[len(experiment_id):] for run in known
+                      if run == experiment_id or run.startswith(experiment_id + "/")}
+        identities.setdefault(experiment_id, renamed)
         folders = [(Path(group) / experiment_id, Path(group) / renamed)]
     else:
         renamed = PurePosixPath(experiment_id).with_name(new_name).as_posix()
         identities = {run: renamed + run[len(experiment_id):] for run in known
-                      if _RUN_SUFFIX.sub("", run) == experiment_id}
-        folders = [(Path(group) / run, Path(group) / replacement) for run, replacement in identities.items()]
+                      if result_experiment_id(run) == experiment_id or run.startswith(experiment_id + "/")}
+        identities.setdefault(experiment_id, renamed)
+        folders = [(Path(group) / experiment_id, Path(group) / renamed)]
+        folders.extend((Path(group) / run, Path(group) / replacement) for run, replacement in identities.items()
+                       if run != experiment_id and not run.startswith(experiment_id + "/"))
     result = {"runs": {f"{group}/{old}": f"{new_group}/{new}" for old, new in identities.items()}}
     if (kind == "group" and new_name == group) or (kind != "group" and renamed == experiment_id):
         return result

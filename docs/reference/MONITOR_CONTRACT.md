@@ -111,6 +111,22 @@ Model, evaluator, tuner or nested model capability:
 
 Each `provides` entry has a stable metric name or namespace prefix, optional
 label/description, and nonempty `requires` hook list (default `scalars.v1`).
+The live monitor shows `description` when hovering over a chart title. Include
+what is measured, units, sampling scope, and how to interpret the value in each
+component's declarations or catalog. Exact-name descriptions take precedence
+over namespace-prefix descriptions; the longest matching prefix wins. Older
+metrics use the shared display catalog when available, otherwise the tooltip
+states that the component has not supplied a description. Discovery is cached
+until the displayed run configurations change.
+
+Live chart sections follow the complete metric namespace: for example,
+`blend/train/logic_0/weight_mean` appears under **blend → train → logic_0**.
+Each section can be collapsed independently. Folding a parent preserves child
+collapse choices, and new metrics respect those choices. Counts include all
+descendant plots. Collapsing only changes display; collection and recording
+continue. Components should keep stable slash-separated metric names so their
+hierarchy stays consistent across runs.
+
 Every required hook must be supported by the actual runner. A custom script
 override takes precedence over the selected algorithm's runner. Nested model
 selectors are discovered through `parameter_schema` fields whose
