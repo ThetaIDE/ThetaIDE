@@ -16,7 +16,7 @@ startup_mark("app_import_start")
 if sys.platform == "darwin" and "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
 
-from PyQt6.QtCore import QByteArray, Qt, QTimer, QUrl
+from PyQt6.QtCore import QByteArray, QSize, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices, QFont, QIcon, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -344,6 +344,9 @@ class Window(QMainWindow):
         self.make_center()
         step("Starting plugins…", 0.56)
         self.plugin_manager.initialize_plugins()
+        # The Settings plugin lists were built before any plugin started, when none could offer a settings
+        # page; rebuild them so running plugins get their settings button.
+        self.refresh_plugins_ui()
         self.tabs.tabOrderChanged.connect(lambda _: self.save_layout())
         step("Restoring layout…", 0.66)
         self.load_layout()
@@ -991,23 +994,25 @@ class Window(QMainWindow):
             btn_settings = QToolButton()
             btn_settings.setIcon(svg_icon("settings", {(QIcon.Mode.Normal, QIcon.State.Off): "text"}))
             btn_settings.setToolTip(f"{manifest.name} Settings")
-            btn_settings.setFixedSize(30, 30)
+            btn_settings.setFixedSize(28, 28)
+            btn_settings.setIconSize(QSize(16, 16))
+            # The app style pads buttons 7px 12px, which leaves a 28px button ~4px for its icon.
+            btn_settings.setStyleSheet("QToolButton { padding: 0; }")
             btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_settings.clicked.connect(lambda _, p=pid: self.open_plugin_settings(p))
             row.addWidget(btn_settings)
 
         if not is_core:
             btn_trash = QToolButton()
-            trash_icon_path = Path(__file__).parent / "icons" / "trash.svg"
-            if trash_icon_path.exists():
-                btn_trash.setIcon(QIcon(str(trash_icon_path)))
-            else:
-                btn_trash.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+            # Themed like the settings button: loaded plainly, its currentColor strokes draw black on dark themes.
+            trash = svg_icon("trash", {(QIcon.Mode.Normal, QIcon.State.Off): "text"})
+            btn_trash.setIcon(trash if not trash.isNull() else self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
             btn_trash.setToolTip(f"Uninstall {manifest.name}")
             btn_trash.setFixedSize(28, 28)
+            btn_trash.setIconSize(QSize(16, 16))
             btn_trash.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_trash.setStyleSheet(
-                "QToolButton { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; background: rgba(255, 255, 255, 0.04); } "
+                "QToolButton { padding: 0; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; background: rgba(255, 255, 255, 0.04); } "
                 "QToolButton:hover { background: rgba(251, 73, 52, 0.2); border-color: #fb4934; }"
             )
             btn_trash.clicked.connect(lambda _, p=pid: self.uninstall_plugin_from_settings(p))

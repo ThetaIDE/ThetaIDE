@@ -34,6 +34,26 @@ class TestSettingsViewStructureAndNavigation(unittest.TestCase):
         self.window.close()
         self.temp_dir.cleanup()
 
+    def test_running_plugins_get_a_settings_button_at_startup(self):
+        """The plugin lists are built before plugins start; they must be rebuilt once they run."""
+        from PyQt6.QtWidgets import QToolButton
+
+        def tips(layout):
+            found = []
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item.layout():
+                    found += tips(item.layout())
+                elif isinstance(item.widget(), QToolButton):
+                    found.append(item.widget().toolTip())
+            return found
+
+        running = [self.window.plugin_manager.manifests[pid].name for pid in self.window.plugin_manager.instances]
+        self.assertTrue(running)
+        shown = tips(self.window.core_plugins_grid) + tips(self.window.plugins_grid)
+        for name in running:
+            self.assertIn(f"{name} Settings", shown)
+
     def test_settings_structure_and_window_bindings(self):
         """All expected tabs, attributes, and window bindings exist."""
         self.assertIsInstance(self.settings, SettingsView)
