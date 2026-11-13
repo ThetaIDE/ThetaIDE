@@ -339,6 +339,11 @@ class PlotViewer(QWidget):
     def data_for(self, run_id):
         for run in self.runs:
             if run["id"] == run_id:
+                from .model import load_run_metrics
+                try:
+                    load_run_metrics(run)
+                except (OSError, ValueError):
+                    return None
                 source = "simulated" if run.get("simulated", True) else "trained"
                 return f"{run['config']['name']} [{run['id']}] · {source}", {
                     field: [m.get(field) for m in run["metrics"]]

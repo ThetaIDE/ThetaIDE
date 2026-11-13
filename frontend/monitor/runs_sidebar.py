@@ -56,6 +56,8 @@ def run_label(run) -> str:
 
 def reward_trend(run) -> list[float]:
     """The run's evaluation rewards, thinned to at most TREND_POINTS for drawing."""
+    if run.get("_metrics_deferred"):
+        return list(run["_metric_summary"].get("trend", []))
     values = [m["reward"] for m in run.get("metrics") or [] if isinstance(m.get("reward"), (int, float))]
     if len(values) > TREND_POINTS:
         stride = len(values) / TREND_POINTS
@@ -68,7 +70,7 @@ def run_detail(run) -> str:
     status = run.get("status", "")
     if status in LIVE_STATUSES:
         budget = (run.get("backend") or {}).get("effective_timesteps")
-        step = max((m.get("step") or 0 for m in run.get("metrics") or []), default=0)
+        step = (run.get("_metric_summary") or {}).get("step") if run.get("_metrics_deferred") else max((m.get("step") or 0 for m in run.get("metrics") or []), default=0)
         return f"training · {min(100, round(100 * step / budget))}%" if budget and step else "starting"
     return {"completed": "done"}.get(status, status)
 

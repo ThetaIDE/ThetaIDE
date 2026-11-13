@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 
 
@@ -50,6 +51,21 @@ def read_metrics_table(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
+def _read_batch(stream, max_records=None, max_bytes=None):
+    """A bounded number of complete lines; always allow one oversized record."""
+    if max_records is None and max_bytes is None:
+        return stream.read(), False
+    lines, size = [], 0
+    while True:
+        line = stream.readline()
+        if not line or not line.endswith(b"\n"):
+            return b"".join(lines), False
+        lines.append(line)
+        size += len(line)
+        if (max_records is not None and len(lines) >= max_records) or (max_bytes is not None and size >= max_bytes):
+            return b"".join(lines), stream.tell() < os.fstat(stream.fileno()).st_size
+
+
 class MetricsTail:
     """Reads only the rows appended to one metrics CSV since the previous read.
 
@@ -69,9 +85,11 @@ class MetricsTail:
         self.path = Path(path)
         self.offset = 0
         self.header: list[str] = []
+        self.pending = False
 
-    def read(self) -> tuple[list[dict[str, float]], bool]:
+    def read(self, *, max_records=None, max_bytes=None) -> tuple[list[dict[str, float]], bool]:
         """(new rows, reset). Rows are only returned once their line is complete."""
+        self.pending = False
         try:
             size = self.path.stat().st_size
         except OSError:
@@ -93,7 +111,7 @@ class MetricsTail:
                 elif not self.offset:
                     self.offset = f.tell()
                 f.seek(self.offset)
-                raw = f.read()
+                raw, self.pending = _read_batch(f, max_records, max_bytes)
         except OSError:
             return [], reset
         last_newline = raw.rfind(b"\n")
@@ -122,10 +140,12 @@ class StreamTail:
     def __init__(self, path: Path):
         self.path = Path(path)
         self.offset = 0
+        self.pending = False
 
-    def read(self) -> tuple[list[dict], bool]:
+    def read(self, *, max_records=None, max_bytes=None) -> tuple[list[dict], bool]:
         from src.app.telemetry.records import decode
 
+        self.pending = False
         try:
             size = self.path.stat().st_size
         except OSError:
@@ -136,7 +156,7 @@ class StreamTail:
         try:
             with open(self.path, "rb") as f:
                 f.seek(self.offset)
-                raw = f.read()
+                raw, self.pending = _read_batch(f, max_records, max_bytes)
         except OSError:
             return [], reset
         last_newline = raw.rfind(b"\n")
@@ -169,6 +189,7 @@ class AgentFeed:
         self._tail = None
         self._monitor_stamp = None
         self._monitor_selection = None
+        self._pending = False
 
     def newest_version(self) -> Path | None:
         if self.version is not None:
@@ -179,7 +200,12 @@ class AgentFeed:
         ]
         return max(candidates, key=_version_number) if candidates else None
 
-    def read(self) -> tuple[list[dict], bool]:
+    @property
+    def pending(self):
+        return self._pending
+
+    def read(self, *, max_records=None, max_bytes=None) -> tuple[list[dict], bool]:
+        self._pending = False
         version_dir = self.newest_version()
         if version_dir is None:
             return [], False
@@ -194,9 +220,9 @@ class AgentFeed:
                 else MetricsTail(version_dir / "metrics.csv")
             )
         if kind == "stream":
-            records, rewritten = self._tail.read()
+            records, rewritten = self._tail.read(max_records=max_records, max_bytes=max_bytes)
         else:
-            rows, rewritten = self._tail.read()
+            rows, rewritten = self._tail.read(max_records=max_records, max_bytes=max_bytes)
             records = [_csv_record(row) for row in rows]
             # CSV is an archival source. Apply live exclusions when it is used
             # as a fallback so hidden metrics cannot reappear in the monitor.
@@ -212,6 +238,7 @@ class AgentFeed:
                     self._monitor_selection = monitors_from_config({})
                 self._monitor_stamp = stamp
             records = [filtered for rec in records if (filtered := self._monitor_selection.filter_record(rec)) is not None]
+        self._pending = self._tail.pending
         return records, reset or rewritten
 
 

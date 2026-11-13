@@ -642,7 +642,7 @@ class MenuShortcutEdit(QLineEdit):
 class SettingsView(QWidget):
     """Complete, organized settings view: category side-tabs on the left, the chosen page beside them."""
 
-    def __init__(self, window: Window, parent=None):
+    def __init__(self, window: Window, parent=None, *, lazy=False):
         super().__init__(parent)
         self.window = window
         self.active_tab_id: str | None = None
@@ -690,7 +690,18 @@ class SettingsView(QWidget):
 
         # ── 3. Build Pages inside the Settings Window ─────────────────────────
         self.page_widgets: Dict[str, QWidget] = {}
-        self.build_pages()
+        self._page_builders = {
+            "appearance": self._build_appearance_page,
+            "core_plugins": self._build_core_plugins_page,
+            "community_plugins": self._build_community_plugins_page,
+            "hotkeys": self._build_hotkeys_page,
+            "backend": self._build_backend_page,
+            "terminal": self._build_terminal_page,
+            "editor": self._build_editor_page,
+            "storage": self._build_storage_page,
+        }
+        if not lazy:
+            self.build_pages()
 
         # Apply initial styling
         self.refresh_styles()
@@ -703,47 +714,14 @@ class SettingsView(QWidget):
 
     def build_pages(self):
         """Construct the settings pages inside the settings window stack."""
-        stack = self.settings_window.pages_stack
+        for tab_id in self._page_builders:
+            self._ensure_page(tab_id)
 
-        # Page 0: Appearance
-        p_appearance = self._build_appearance_page()
-        stack.addWidget(p_appearance)
-        self.page_widgets["appearance"] = p_appearance
-
-        # Page 1: Core Plugins
-        p_core = self._build_core_plugins_page()
-        stack.addWidget(p_core)
-        self.page_widgets["core_plugins"] = p_core
-
-        # Page 2: Community Plugins
-        p_comm = self._build_community_plugins_page()
-        stack.addWidget(p_comm)
-        self.page_widgets["community_plugins"] = p_comm
-
-        # Page 3: Hotkeys
-        p_hotkeys = self._build_hotkeys_page()
-        stack.addWidget(p_hotkeys)
-        self.page_widgets["hotkeys"] = p_hotkeys
-
-        # Page 4: Training pipeline
-        p_backend = self._build_backend_page()
-        stack.addWidget(p_backend)
-        self.page_widgets["backend"] = p_backend
-
-        # Page 5: Terminal
-        p_terminal = self._build_terminal_page()
-        stack.addWidget(p_terminal)
-        self.page_widgets["terminal"] = p_terminal
-
-        p_editor = self._build_editor_page()
-        stack.addWidget(p_editor)
-        self.page_widgets["editor"] = p_editor
-
-        # Page 6: Workspace & Storage
-        p_storage = self._build_storage_page()
-        stack.addWidget(p_storage)
-        self.page_widgets["storage"] = p_storage
-
+    def _ensure_page(self, tab_id):
+        if tab_id not in self.page_widgets and tab_id in self._page_builders:
+            page = self._page_builders[tab_id]()
+            self.page_widgets[tab_id] = page
+            self.settings_window.pages_stack.addWidget(page)
 
     def _build_appearance_page(self) -> QWidget:
         container = QWidget()
@@ -951,6 +929,7 @@ class SettingsView(QWidget):
 
         layout.addStretch()
         return container
+
 
     def rebuild_pane_switches(self):
         """One visibility switch per sidebar tab: the built-in panes first, then any a plugin added."""
@@ -2083,7 +2062,7 @@ class SettingsView(QWidget):
         # Status row
         status_box = QHBoxLayout()
         status_box.setSpacing(10)
-        self.window.settings_backend_status = label("Status: Checking the training pipeline…", "muted")
+        self.window.settings_backend_status = label("Use Check pipeline to validate the training environment.", "muted")
         self.window.settings_backend_status.setStyleSheet("font-size: 12px; font-weight: 600;")
         status_box.addWidget(self.window.settings_backend_status, 1)
 
@@ -2205,8 +2184,9 @@ class SettingsView(QWidget):
         for control in self.resource_controls.values():
             control.valueChanged.connect(refresh)
         from PyQt6.QtCore import QTimer
+        self._refresh_resource_budget = refresh
         self.resource_budget_timer = QTimer(card)
-        self.resource_budget_timer.timeout.connect(refresh)
+        self.resource_budget_timer.timeout.connect(lambda: self.isVisible() and self.active_tab_id == "backend" and refresh())
         self.resource_budget_timer.start(2000)
         refresh()
         actions = QHBoxLayout()
@@ -2421,10 +2401,15 @@ class SettingsView(QWidget):
 
     def show_tab(self, tab_id: str):
         """Activate the given category and show its page."""
+        self._ensure_page(tab_id)
         if tab_id not in self.page_widgets:
             return
+        self.sync_from_settings()
+        self.refresh_styles()
 
         self.active_tab_id = tab_id
+        if tab_id == "backend" and hasattr(self, "_refresh_resource_budget"):
+            self._refresh_resource_budget()
         for tid, btn in self.tab_buttons.items():
             btn.setChecked(tid == tab_id)
 

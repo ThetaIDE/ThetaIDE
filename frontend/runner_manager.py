@@ -685,7 +685,8 @@ class JobManager(QObject):
             if feed is None:
                 feed_path = run_dir / agent_dir
                 self._feeds[(job_id, label)] = feed = AgentFeed(feed_path, version=version or None)
-            records, reset = feed.read()
+            limits = getattr(self, "_telemetry_read_limits", None)
+            records, reset = feed.read(**limits) if limits else feed.read()
             if not records and not reset:
                 continue
             # A telemetry run owns its resource policy, even when it deliberately

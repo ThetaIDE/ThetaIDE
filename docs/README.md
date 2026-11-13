@@ -27,6 +27,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Development
 
+- [Measure startup and understand deferred services](development/STARTUP_PERFORMANCE.md)
 - [Author component plugins](development/COMPONENT_PLUGIN_GUIDE.md)
 - [Run native provider integration checks](development/PLUGIN_NATIVE_INTEGRATION.md)
 - [Release components to Theta Hub](development/THETA_HUB_RELEASE_WORKFLOW.md)
@@ -48,6 +49,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Desktop startup investigation](reports/STARTUP_PERFORMANCE_20261112.md)
 - [Monitor responsiveness investigation](reports/MONITOR_PERFORMANCE_20261112.md)
 - [Frontend performance diagnosis](reports/FRONTEND_PERFORMANCE_DIAGNOSIS_20261111.md)
 - [Slurm integration and NCShare operational review](reports/SLURM_NCSHARE_REVIEW_20261110.md)

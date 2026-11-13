@@ -26,6 +26,7 @@ class TestSettingsViewStructureAndNavigation(unittest.TestCase):
         self.data_dir = Path(self.temp_dir.name)
         self.window = Window(self.data_dir)
         self.settings = self.window.settings_view
+        self.settings.build_pages()  # These tests exercise controls from every category.
         self.window.show()
         self.window.tabs.setCurrentWidget(self.settings)
 
@@ -137,6 +138,7 @@ class TestLogoAndF1OpenTheDocs(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.window = Window(Path(self.temp_dir.name))
+        self.window.settings_view.build_pages()
         self.window.show()
         self.tabs = self.window.tabs
 
@@ -207,7 +209,9 @@ class TestSettingsViewPages(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.window = Window(Path(self.temp_dir.name))
+        self.window.settings_view.build_pages()
         self.settings = self.window.settings_view
+        self.settings.build_pages()  # These tests exercise controls from every category.
         self.window.show()
         self.window.tabs.setCurrentWidget(self.settings)
 
@@ -235,6 +239,7 @@ class TestHotkeysSettingsPage(unittest.TestCase):
         self.data_dir = Path(self.temp_dir.name)
         self.window = Window(self.data_dir)
         self.settings = self.window.settings_view
+        self.settings.build_pages()  # These tests exercise controls from every category.
         self.window.show()
         self.window.tabs.setCurrentWidget(self.settings)
         # Open hotkeys tab
@@ -262,7 +267,7 @@ class TestHotkeysSettingsPage(unittest.TestCase):
         self.assertFalse(self.settings.conflict_banner.isVisible())
 
         # All canonical panes tracked in Hotkey Menu
-        expected_panes = ["components", "config", "monitor", "results", "plots", "tensorboard", "queue", "terminal", "console", "settings"]
+        expected_panes = ["components", "config", "monitor", "results", "plots", "tensorboard", "terminal", "console", "settings"]
         for pid in expected_panes:
             self.assertIn(pid, self.settings.pane_hotkey_edits)
             self.assertIn(pid, self.settings.pane_conflict_labels)

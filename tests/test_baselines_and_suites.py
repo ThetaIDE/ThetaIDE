@@ -227,12 +227,27 @@ def test_component_run_guard_uses_composed_inherited_environment(tmp_path, monke
 
     win = MagicMock()
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     config_root = tmp_path / "in" / "config"
     for group in ("agent", "model", "env"):
         (config_root / group).mkdir(parents=True)
     (config_root / "agent" / "fixture_agent.yaml").write_text("algorithm: fixture_agent\n", encoding="utf-8")
     (config_root / "model" / "fixture_model.yaml").write_text("architecture: fixture_model\n", encoding="utf-8")
     (config_root / "env" / "fixture_env.yaml").write_text("env_id: CartPole-v1\n", encoding="utf-8")
+    # Profiles alone do not establish provider availability. Declare native
+    # providers without relying on imports or the developer's installed Hub.
+    provider = tmp_path / "src/usr/models/fixture"
+    provider.mkdir(parents=True)
+    (provider / "provider.py").write_text("raise AssertionError('UI executed provider')\n")
+    (provider / ".theta_component.json").write_text(json.dumps({
+        "id": "fixture", "name": "Fixture", "version": "1.0.0", "kind": "model",
+        "storage_version": 2, "api_version": 1,
+        "capabilities": [{"id": name, "kind": kind, "entry_point": "provider.py:Provider"}
+                         for kind, name in [("env", "fixture_env"), ("algorithm", "fixture_agent"),
+                                            ("model", "fixture_model")]],
+        "payload": {"implementations": ["provider.py"], "resources": [], "configs": {}},
+    }))
 
     win.current_experiment = "fixtures/online_smoke"
     win.compose_error = ""

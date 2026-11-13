@@ -11,7 +11,7 @@ requires only a new YAML file — no changes to this module.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -535,9 +535,24 @@ def _env_exists(env_name: str) -> bool:
 def find_missing_components(cfg_or_dict: Any) -> list[str]:
     """Inspect an experiment configuration and return a list of all missing components.
 
-    Checks environment, agents, models, and composite submodels against installed plugins,
-    code registries, and in/config/ YAML files.
+    Checks environment, agent and model references against executable declared
+    providers, and checks required static datasets.
     """
+    return _find_missing_components(cfg_or_dict, _provider_exists)
+
+
+def find_unavailable_components(cfg_or_dict: Any, *, paths=None) -> list[str]:
+    """Editor availability check. Runtime validation still loads executable providers."""
+    from src.app.core.provider_discovery import provider_discovery_snapshot
+    from src.app.core.provider_loader import find_provider
+
+    with provider_discovery_snapshot():
+        return _find_missing_components(
+            cfg_or_dict, lambda kind, selector: bool(selector) and find_provider(kind, str(selector), paths) is not None
+        )
+
+
+def _find_missing_components(cfg_or_dict: Any, provider_exists: Callable[[str, str], bool]) -> list[str]:
     if not cfg_or_dict or "MagicMock" in type(cfg_or_dict).__name__:
         return []
     missing: list[str] = []
@@ -587,7 +602,7 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
         else (cfg_or_dict.get("paradigm") if isinstance(cfg_or_dict, dict) else None)
     )
 
-    if env_val and env_val != "unknown" and not _env_exists(str(env_val)):
+    if env_val and env_val != "unknown" and not provider_exists("env", str(env_val)):
         missing.append(f"environment: {env_val}")
     elif not env_val and paradigm_uses_live_environment(str(paradigm) if paradigm else None):
         missing.append("environment: (none configured)")
@@ -638,7 +653,7 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
                 ag_str = str(ag)
             else:
                 ag_str = None
-            if ag_str and not _agent_exists(ag_str):
+            if ag_str and not provider_exists("algorithm", ag_str):
                 missing.append(f"agent: {ag_str}")
 
             # Check model
@@ -652,13 +667,13 @@ def find_missing_components(cfg_or_dict: Any) -> list[str]:
                     first_k = next(iter(mo))
                     mo_str = first_k
                     val = mo[first_k]
-            if mo_str and not _model_exists(mo_str):
+            if mo_str and not provider_exists("model", mo_str):
                 missing.append(f"model: {mo_str}")
 
     effective_model = cfg_or_dict.get('model') if hasattr(cfg_or_dict,'get') else getattr(cfg_or_dict,'model',None)
     if hasattr(effective_model,'get'):
         selected = effective_model.get('architecture') or effective_model.get('type') or effective_model.get('name')
-        if isinstance(selected,str) and not _model_exists(selected): missing.append(f'model: {selected}')
+        if isinstance(selected,str) and not provider_exists("model", selected): missing.append(f'model: {selected}')
     return list(dict.fromkeys(missing))
 
 

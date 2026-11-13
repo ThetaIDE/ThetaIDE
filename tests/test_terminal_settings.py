@@ -77,6 +77,7 @@ class TestTerminalSettings(unittest.TestCase):
         self.window = Window(Path(self.temp_dir.name))
         self.sm = self.window.settings_manager
         self.view = self.window.settings_view
+        self.view.show_tab("terminal")
 
     def tearDown(self):
         self.window.close()

@@ -31,7 +31,7 @@ class ComponentsPanel(QWidget):
     """
     component_saved = pyqtSignal(str)  # rel_path
 
-    def __init__(self, hub_client=None, log_fn=None, parent=None):
+    def __init__(self, hub_client=None, log_fn=None, parent=None, *, lazy=False):
         super().__init__(parent)
         self.hub_client = hub_client
         self.log_fn = log_fn or (lambda msg: None)
@@ -40,7 +40,19 @@ class ComponentsPanel(QWidget):
         self.hub_view = None
         self.is_hub_active = False
         self._init_ui()
-        self.init_default_component()
+        self._default_pending = lazy
+        if not lazy:
+            self.init_default_component()
+
+    def activate(self):
+        if self._default_pending:
+            self._default_pending = False
+            if self.active_path is None and not self.is_hub_active:
+                self.init_default_component()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.activate()
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)

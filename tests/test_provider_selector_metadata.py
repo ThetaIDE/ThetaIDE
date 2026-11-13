@@ -178,7 +178,7 @@ from PyQt6.QtWidgets import QApplication
 from frontend.config_viewer import ConfigViewer
 app = QApplication([])
 widget = ConfigViewer()
-widget.load_file(Path('src/usr/packages/themes-dev/configs/experiment/AL/themes_synthetic.yaml'), 'experiment/AL/themes_synthetic.yaml')
+widget.load_file(Path('src/usr/packages/themes-dev/configs/experiment/AL/codex/themes_synthetic.yaml'), 'experiment/AL/codex/themes_synthetic.yaml')
 assert 'ticc_em_edm' in widget.raw_data.get('methods', {}), widget.raw_data
 assert widget._inherited_paradigm() == 'apprenticeship'
 assert widget.field_widgets, 'form failed to render'

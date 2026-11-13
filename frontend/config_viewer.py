@@ -1698,6 +1698,7 @@ class ConfigViewer(QWidget):
     @provider_discovery_snapshot()
     def load_file(self, file_path: Path, rel_path: str):
         """Parse YAML file and render visual boxes."""
+        self._deferred_load = False
         if getattr(self, "auto_save", False) and self.is_dirty:
             self.save_to_disk()
 
@@ -1735,6 +1736,8 @@ class ConfigViewer(QWidget):
     @provider_discovery_snapshot()
     def _render_boxes(self):
         """Rebuild structural changes safely, retaining the current viewport."""
+        if getattr(self, "_deferred_load", False):
+            return
         if getattr(self, "_rendering_boxes", False):
             self._render_timer.start(0)
             return

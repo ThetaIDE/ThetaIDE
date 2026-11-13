@@ -60,6 +60,8 @@ class EditorBridge(QObject):
     @pyqtSlot()
     def ready(self):
         self.panel._ready = True
+        from frontend.startup import mark
+        mark("editor_renderer_ready")
         self.panel.apply_theme()
         self.panel._show_current()
 
@@ -79,7 +81,7 @@ class EditorBridge(QObject):
 
 
 class TextEditorPanel(QWidget):
-    def __init__(self, context, parent=None):
+    def __init__(self, context, parent=None, *, lazy=False):
         super().__init__(parent)
         self.context = context
         self.documents: list[Document] = []
@@ -158,6 +160,34 @@ class TextEditorPanel(QWidget):
         empty_layout.addWidget(subtitle)
         empty_layout.addStretch()
         self.stack.addWidget(empty)
+        self.web_view = None
+        editor_layout.addWidget(self.stack, 1)
+        self.editor_splitter = QSplitter()
+        self.editor_splitter.addWidget(self.file_explorer)
+        self.editor_splitter.addWidget(self.editor_pane)
+        self.editor_splitter.setStretchFactor(0, 0)
+        self.editor_splitter.setStretchFactor(1, 1)
+        self.editor_splitter.setCollapsible(1, False)
+        self.editor_splitter.setCollapsible(0, False)
+        layout.addWidget(self.editor_splitter, 1)
+        self.editor_splitter.setSizes([260, 640])
+
+        self.watcher = QFileSystemWatcher(self)
+        self.watcher.fileChanged.connect(self.check_external_changes)
+        self.watcher.directoryChanged.connect(self.check_external_changes)
+        context.window.theme_manager.changed.connect(self.apply_theme)
+        context.window.settings_manager.changed.connect(self.apply_theme)
+        if not lazy:
+            self._ensure_renderer()
+        self.apply_theme()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._ensure_renderer()
+
+    def _ensure_renderer(self):
+        if self.web_view is not None:
+            return
         self.web_view = QWebEngineView()
         self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         page = EditorPage(self.web_view)
@@ -176,22 +206,6 @@ class TextEditorPanel(QWidget):
         page.renderProcessTerminated.connect(self._renderer_failed)
         page.loadFinished.connect(lambda ok: None if ok else self._renderer_failed())
         self.stack.addWidget(self.web_view)
-        editor_layout.addWidget(self.stack, 1)
-        self.editor_splitter = QSplitter()
-        self.editor_splitter.addWidget(self.file_explorer)
-        self.editor_splitter.addWidget(self.editor_pane)
-        self.editor_splitter.setStretchFactor(0, 0)
-        self.editor_splitter.setStretchFactor(1, 1)
-        self.editor_splitter.setCollapsible(1, False)
-        self.editor_splitter.setCollapsible(0, False)
-        layout.addWidget(self.editor_splitter, 1)
-        self.editor_splitter.setSizes([260, 640])
-
-        self.watcher = QFileSystemWatcher(self)
-        self.watcher.fileChanged.connect(self.check_external_changes)
-        self.watcher.directoryChanged.connect(self.check_external_changes)
-        context.window.theme_manager.changed.connect(self.apply_theme)
-        context.window.settings_manager.changed.connect(self.apply_theme)
         self.web_view.load(QUrl.fromLocalFile(str((WEB_ROOT / "index.html").resolve())))
         self.apply_theme()
 
@@ -308,6 +322,8 @@ class TextEditorPanel(QWidget):
 
     def _show_current(self):
         doc = self.current_document
+        if doc:
+            self._ensure_renderer()
         self.stack.setCurrentIndex(1 if doc else 0)
         self.file_explorer.reveal(doc.path if doc else None)
         self.banner.hide()
@@ -509,8 +525,9 @@ class TextEditorPanel(QWidget):
             button = self.tab_bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
             if button is not None:
                 button.setIcon(svg_icon("close", {(QIcon.Mode.Normal, QIcon.State.Off): "muted"}, size=14))
-        self.web_view.page().setBackgroundColor(QColor(palette["base"]))
-        self.web_view.setZoomFactor(self.context.window.settings_manager.zoom)
+        if self.web_view is not None:
+            self.web_view.page().setBackgroundColor(QColor(palette["base"]))
+            self.web_view.setZoomFactor(self.context.window.settings_manager.zoom)
         wrap = bool(self.context.window.settings_manager.get("editor", "wrap_lines", default=False))
         self.wrap_button.blockSignals(True)
         self.wrap_button.setChecked(wrap)
@@ -547,7 +564,8 @@ class TextEditorPanel(QWidget):
         self.context.window.settings_manager.changed.disconnect(self.apply_theme)
         self.watcher.blockSignals(True)
         self._ready = False
-        self.web_view.stop()
+        if self.web_view is not None:
+            self.web_view.stop()
 
     def toggle_file_tree(self):
         self.set_file_tree_visible(self.file_explorer.isHidden())

@@ -169,11 +169,15 @@ def metric_points_from_api(rows):
 
 def available_metrics(run):
     """Metric keys with at least one value in the run (demo runs only have reward and loss)."""
+    if run.get("_metrics_deferred"):
+        return set(run["_metric_summary"]["latest"]) - {"step"}
     return {key for m in run["metrics"] for key, value in m.items() if key != "step" and value is not None}
 
 
 def latest(run, key):
     """The most recent non-missing value of a metric, or None."""
+    if run.get("_metrics_deferred"):
+        return run["_metric_summary"]["latest"].get(key)
     return next((m[key] for m in reversed(run["metrics"]) if m.get(key) is not None), None)
 
 
@@ -319,6 +323,11 @@ def result_row(run, disk=None):
     best = max(rewards) if rewards else primary.get("best_reward")
     last = rewards[-1] if rewards else primary.get("latest_reward")
     steps = max((m["step"] for m in run["metrics"]), default=None) or primary.get("timesteps")
+    summary = run.get("_metric_summary") or {}
+    if run.get("_metrics_deferred"):
+        best = summary.get("best_reward", best)
+        last = summary.get("latest", {}).get("reward", last)
+        steps = summary.get("step") or steps
     source = run_source(run)
     started = primary.get("started") if source == "cli" else run.get("created")
     duration = primary.get("training_time_seconds")
@@ -357,33 +366,120 @@ def matches_filters(run, source="all", status="all", show_examples=True):
     return status == "all" or run["status"] in STATUS_GROUPS[status]
 
 
+def load_run_metrics(run):
+    """Materialize a saved history only when a consumer needs its points."""
+    path = run.get("_metrics_deferred")
+    if path:
+        record = json.loads(Path(path).read_text(encoding="utf-8"))
+        if record.get("id") != run["id"] or not isinstance(record.get("metrics"), list):
+            raise ValueError("Invalid run metric history")
+        run["metrics"] = record["metrics"]
+        run.pop("_metrics_deferred", None)
+        run.pop("_metric_summary", None)
+    return run["metrics"]
+
+
+def _metric_summary(metrics):
+    last = {}
+    rewards = []
+    step = 0
+    for point in metrics:
+        last.update({key: value for key, value in point.items() if value is not None})
+        step = max(step, point.get("step") or 0)
+        if isinstance(point.get("reward"), (int, float)):
+            rewards.append(point["reward"])
+    stride = max(1, len(rewards) / 31)
+    trend = [rewards[int(i * stride)] for i in range(min(31, len(rewards)))]
+    if rewards:
+        trend.append(rewards[-1])
+    return {"count": len(metrics), "latest": last, "step": step,
+            "best_reward": max(rewards) if rewards else None, "trend": trend}
+
+
 class Store:
     def __init__(self, root):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 
     def save(self, run):
+        load_run_metrics(run)  # Never overwrite a deferred history with an empty list.
+        record = {key: value for key, value in run.items() if key not in ("_metrics_deferred", "_metric_summary")}
         folder = self.root / run["id"]
         folder.mkdir(exist_ok=True)
         temporary = folder / "record.tmp"
-        temporary.write_text(json.dumps(run, indent=2), encoding="utf-8")
+        temporary.write_text(json.dumps(record, indent=2), encoding="utf-8")
         temporary.replace(folder / "record.json")
+        try:
+            self._save_summary(folder / "record.json", record)
+        except OSError:
+            pass  # The authoritative record remains usable without this derived cache.
         (folder / "config.yaml").write_text(Config(**run["config"]).recipe_yaml(), encoding="utf-8")
         columns = ["step"] + [key for key in METRIC_COLUMNS if any(key in m for m in run["metrics"])]
         cell = lambda value: "" if value is None else value
         rows = [",".join(columns)] + [",".join(str(cell(m.get(key))) for key in columns) for m in run["metrics"]]
         (folder / "metrics.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
 
-    def load(self):
+    def _save_summary(self, path, run, stamp=None):
+        stamp = stamp or self._stamp(path)
+        summary = {key: value for key, value in run.items() if key not in ("metrics", "_metrics_deferred", "_metric_summary")}
+        summary["metrics"] = []
+        summary["_metric_summary"] = _metric_summary(run["metrics"])
+        payload = {"version": 1, "stamp": stamp, "run": summary}
+        temporary = path.with_name(f"summary-{uuid4().hex}.tmp")
+        try:
+            temporary.write_text(json.dumps(payload), encoding="utf-8")
+            temporary.replace(path.with_name("summary.json"))
+        finally:
+            temporary.unlink(missing_ok=True)
+        return summary
+
+    @staticmethod
+    def _stamp(path):
+        stat = path.stat()
+        return [stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino]
+
+    def _cached_summary(self, path, stamp):
+        try:
+            cached = json.loads(path.with_name("summary.json").read_text(encoding="utf-8"))
+            if not isinstance(cached, dict) or cached.get("version") != 1 or cached.get("stamp") != stamp:
+                return None
+            run = cached["run"]
+            if not isinstance(run, dict) or run.get("id") != path.parent.name or run.get("metrics") != []:
+                return None
+            Config(**run["config"])
+            for key in ("status", "notes", "created", "simulated"):
+                run[key]
+            summary = run["_metric_summary"]
+            if not isinstance(summary.get("latest"), dict) or not isinstance(summary.get("trend"), list):
+                return None
+            return cached
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+
+    def load_summaries(self):
+        return self.load(summaries_only=True)
+
+    def load(self, *, summaries_only=False):
         runs, errors = [], []
         for path in self.root.glob("*/record.json"):
             try:
-                run = json.loads(path.read_text(encoding="utf-8"))
+                stamp = self._stamp(path)
+                cached = self._cached_summary(path, stamp) if summaries_only else None
+                run = cached["run"] if cached else json.loads(path.read_text(encoding="utf-8"))
                 Config(**run["config"])
                 if run["id"] != path.parent.name or not isinstance(run["metrics"], list):
                     raise ValueError("Invalid run record")
                 for key in ("status", "notes", "created", "simulated"):
                     run[key]
+                if summaries_only:
+                    if not cached:
+                        try:
+                            summary = self._save_summary(path, run, stamp)
+                        except OSError:
+                            summary = {key: value for key, value in run.items() if key != "metrics"}
+                            summary.update(metrics=[], _metric_summary=_metric_summary(run["metrics"]))
+                        run = summary
+                    run["_metrics_deferred"] = str(path)
                 if run["status"] == "running" and run["simulated"]:
                     run["status"] = "interrupted"  # live runs are reconnected to the backend instead
                 runs.append(run)

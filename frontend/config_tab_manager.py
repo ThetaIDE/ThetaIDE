@@ -88,6 +88,8 @@ class ConfigTabManager(QTabWidget):
         self.tabBar().setVisible(False)
 
         self._tabs: dict[str, ConfigViewer] = {}  # normalized rel_path -> ConfigViewer
+        self._deferred_viewers: set[ConfigViewer] = set()
+        self._restoring_tabs = False
         self._preview_rel_path: Optional[str] = None
         self._pinned_paths: set[str] = set()
         self._disk_contents: dict[str, bytes] = {}
@@ -144,6 +146,7 @@ class ConfigTabManager(QTabWidget):
         """Return the active tab's ConfigViewer, or the fallback viewer if no tabs are open."""
         w = self.currentWidget()
         if isinstance(w, ConfigViewer):
+            self._materialize(w)
             return w
         return self._fallback_viewer
 
@@ -151,7 +154,7 @@ class ConfigTabManager(QTabWidget):
         """Refresh open config forms after installed component files change."""
         viewers = [self.widget(i) for i in range(self.count())] + [self._fallback_viewer]
         for viewer in viewers:
-            if viewer.current_path or viewer.raw_data:
+            if viewer not in self._deferred_viewers and (viewer.current_path or viewer.raw_data):
                 viewer._render_boxes()
 
     def reload_open_files(self) -> None:
@@ -160,7 +163,7 @@ class ConfigTabManager(QTabWidget):
         invalidate_config_tree()
         viewers = [self.widget(i) for i in range(self.count())] + [self._fallback_viewer]
         for viewer in viewers:
-            if not isinstance(viewer, ConfigViewer) or not (viewer.current_path or viewer.raw_data):
+            if viewer in self._deferred_viewers or not isinstance(viewer, ConfigViewer) or not (viewer.current_path or viewer.raw_data):
                 continue
             viewer.reload_data(force_tree_refresh=False)
             if not viewer.is_dirty and viewer.current_path and viewer.current_path.is_file():
@@ -173,7 +176,7 @@ class ConfigTabManager(QTabWidget):
 
     def _sync_file_watches(self):
         viewers = [self.widget(i) for i in range(self.count())]
-        files = {str(v.current_path) for v in viewers if isinstance(v, ConfigViewer) and v.current_path}
+        files = {str(v.current_path) for v in viewers if isinstance(v, ConfigViewer) and v not in self._deferred_viewers and v.current_path}
         desired = {p for p in files if Path(p).is_file()} | {str(Path(p).parent) for p in files if Path(p).parent.is_dir()}
         watched = set(self._file_watcher.files()) | set(self._file_watcher.directories())
         if watched - desired:
@@ -195,7 +198,7 @@ class ConfigTabManager(QTabWidget):
 
     def _reload_external_changes(self):
         viewers = [self.widget(i) for i in range(self.count())]
-        paths = {str(v.current_path) for v in viewers if isinstance(v, ConfigViewer) and v.current_path}
+        paths = {str(v.current_path) for v in viewers if isinstance(v, ConfigViewer) and v not in self._deferred_viewers and v.current_path}
         for path in paths:
             try:
                 contents = Path(path).read_bytes()
@@ -245,7 +248,9 @@ class ConfigTabManager(QTabWidget):
         # 1. Already open in an existing tab?
         if norm_rel in self._tabs:
             viewer = self._tabs[norm_rel]
-            if not viewer.is_dirty and hasattr(viewer, "reload_data"):
+            if viewer in self._deferred_viewers:
+                self._materialize(viewer)
+            elif not viewer.is_dirty and hasattr(viewer, "reload_data"):
                 from .config_viewer import invalidate_config_tree
                 invalidate_config_tree()
                 viewer.reload_data(force_tree_refresh=True)
@@ -275,20 +280,7 @@ class ConfigTabManager(QTabWidget):
                 return old_preview_viewer
 
         # 3. Create a new viewer in a new tab
-        viewer = ConfigViewer(
-            settings_manager=self.settings_manager, parent=self, plugin_manager=self.plugin_manager
-        )
-        viewer.auto_save = self.auto_save
-        viewer.btn_save = self.btn_save
-
-        viewer.config_changed.connect(self.config_changed.emit)
-        viewer.save_requested.connect(lambda v=viewer: self._remember_saved_file(v))
-        viewer.save_requested.connect(self.save_requested.emit)
-        viewer.dirty_state_changed.connect(lambda p, d, v=viewer: self._on_viewer_dirty_state_changed(v, d))
-        viewer.dirty_changed.connect(lambda d, v=viewer: self._on_viewer_dirty_changed(v, d))
-        viewer.file_renamed.connect(self._on_viewer_file_renamed)
-        if hasattr(viewer, "dir_renamed"):
-            viewer.dir_renamed.connect(self.on_dir_renamed)
+        viewer = self._create_viewer()
 
         viewer.load_file(file_path, rel_path)
 
@@ -305,6 +297,58 @@ class ConfigTabManager(QTabWidget):
         self.setCurrentIndex(idx)
         self._sync_file_watches()
         return viewer
+
+    def _create_viewer(self):
+        viewer = ConfigViewer(
+            settings_manager=self.settings_manager, parent=self, plugin_manager=self.plugin_manager
+        )
+        viewer.auto_save = self.auto_save
+        viewer.btn_save = self.btn_save
+
+        viewer.config_changed.connect(self.config_changed.emit)
+        viewer.save_requested.connect(lambda v=viewer: self._remember_saved_file(v))
+        viewer.save_requested.connect(self.save_requested.emit)
+        viewer.dirty_state_changed.connect(lambda p, d, v=viewer: self._on_viewer_dirty_state_changed(v, d))
+        viewer.dirty_changed.connect(lambda d, v=viewer: self._on_viewer_dirty_changed(v, d))
+        viewer.file_renamed.connect(self._on_viewer_file_renamed)
+        if hasattr(viewer, "dir_renamed"):
+            viewer.dir_renamed.connect(self.on_dir_renamed)
+
+        return viewer
+
+    def _materialize(self, viewer):
+        if viewer not in self._deferred_viewers:
+            return
+        self._deferred_viewers.remove(viewer)
+        viewer.load_file(viewer.current_path, viewer.current_rel_path)
+        # Loading already discovers the current config generation.
+        from .config_model import config_fingerprint
+        viewer._config_fingerprint = config_fingerprint(self._restored_config_root)
+        self._sync_file_watches()
+
+    def restore_files(self, config_root, rel_paths, active):
+        """Restore pinned tab identities, loading only the final selected form."""
+        if self.count():
+            raise ValueError("Restore requires an empty config tab manager")
+        self._restored_config_root = Path(config_root)
+        self._restoring_tabs = True
+        try:
+            for rel_path in dict.fromkeys(Path(p).as_posix() for p in rel_paths):
+                viewer = self._create_viewer()
+                viewer._deferred_load = True
+                viewer.current_path = Path(config_root) / rel_path
+                viewer.current_rel_path = rel_path
+                self._deferred_viewers.add(viewer)
+                self._tabs[rel_path] = viewer
+                self._pinned_paths.add(rel_path)
+                index = self.addTab(viewer, self._tab_label(rel_path))
+                self._update_tab_display(index, rel_path, is_preview=False, is_dirty=False)
+            selected = self._tabs.get(Path(active).as_posix()) if isinstance(active, str) else None
+            if selected is not None:
+                self.setCurrentWidget(selected)
+        finally:
+            self._restoring_tabs = False
+        self._on_current_changed(self.currentIndex())
 
     def pin_tab(self, rel_path: str):
         """Pin the tracked tab for a relative path."""
@@ -391,9 +435,12 @@ class ConfigTabManager(QTabWidget):
 
     def _on_current_changed(self, index: int):
         """Notify listeners when the active tab switches."""
+        if self._restoring_tabs:
+            return
         if index >= 0:
             w = self.widget(index)
             if isinstance(w, ConfigViewer):
+                self._materialize(w)
                 rel = w.current_rel_path or ""
                 self.current_tab_changed.emit(rel, w)
                 self.dirty_changed.emit(w.is_dirty)
@@ -450,6 +497,7 @@ class ConfigTabManager(QTabWidget):
         return True
 
     def _forget_viewer(self, viewer: ConfigViewer, norm_rel: str):
+        self._deferred_viewers.discard(viewer)
         if self._tabs.get(norm_rel) is viewer:
             replacement = next((self.widget(i) for i in range(self.count())
                                 if self.widget(i) is not viewer and

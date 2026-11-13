@@ -147,14 +147,10 @@ def invalidate(paths=None, package_root=None, package_id=None):
     importlib.invalidate_caches()
 
 
-def resolve_provider(kind, selector, paths=None):
-    global _ACTIVE_WORKSPACE
+def find_provider(kind, selector, paths=None):
+    """Resolve declared metadata, including algorithm variants, without executing code."""
     from src.app.core.provider_catalog import get_catalog
     paths = paths or WorkspacePaths.for_process()
-    if _ACTIVE_WORKSPACE and _ACTIVE_WORKSPACE != paths:
-        invalidate(_ACTIVE_WORKSPACE)
-    _ACTIVE_WORKSPACE = paths
-    install_namespace_finder()
     catalog = get_catalog(paths)
     resolved = catalog.resolve(kind, selector)
     if resolved is None and kind == "algorithm":
@@ -162,6 +158,17 @@ def resolve_provider(kind, selector, paths=None):
                 if selector == key or selector.startswith(key + "_")]
         if keys:
             resolved = catalog.resolve(kind, max(keys, key=len))
+    return resolved
+
+
+def resolve_provider(kind, selector, paths=None):
+    global _ACTIVE_WORKSPACE
+    paths = paths or WorkspacePaths.for_process()
+    if _ACTIVE_WORKSPACE and _ACTIVE_WORKSPACE != paths:
+        invalidate(_ACTIVE_WORKSPACE)
+    _ACTIVE_WORKSPACE = paths
+    install_namespace_finder()
+    resolved = find_provider(kind, selector, paths)
     return load_capability(*resolved, paths=paths) if resolved else None
 
 

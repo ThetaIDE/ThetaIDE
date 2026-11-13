@@ -122,6 +122,7 @@ pip install -e ".[gui]"</code></pre>
 <pre><code>source venv/bin/activate          # Windows: .\venv\Scripts\Activate.ps1
 python -m frontend</code></pre>
 <p>That is the only command. The app composes configs in-process and runs training itself; there is no server to start first. The status bar shows <b>Pipeline ready</b> once the pipeline has loaded.</p>
+<p>The active experiment opens first; other saved config tabs load their forms when selected. You can edit while the active experiment validates. <b>Run</b> stays disabled until that experiment passes validation and the local runner connects. Run summaries load in the background; Settings categories, terminal shells, and the text editor renderer initialize when opened.</p>
 
 <h3>3. Install Components</h3>
 <p>The base IDE does not include research algorithms, experiment recipes, trained results, or domain environments. Open the <b>Theta Hub</b> from the <a href="ide://components">Components</a> tab and install the components required by your experiment. Components are installed into the workspace and can provide their own runners, environments, hooks, dependencies, and configuration.</p>

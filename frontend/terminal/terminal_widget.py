@@ -432,6 +432,8 @@ class TerminalWidget(QWidget):
         if self._closed:
             return
         self._is_ready = True
+        from frontend.startup import mark
+        mark("terminal_renderer_ready", terminal_id=hex(id(self)))
         if self._output_only:
             if not self._output_finished:
                 self.session_started.emit()
@@ -716,7 +718,7 @@ class TerminalPanel(QWidget):
     shells_changed = pyqtSignal()
 
     def __init__(self, cwd: Optional[str] = None, parent: Optional[QWidget] = None,
-                 command: Optional[list[str]] = None, env: Optional[dict[str, str]] = None):
+                 command: Optional[list[str]] = None, env: Optional[dict[str, str]] = None, *, lazy=False):
         super().__init__(parent)
         self.cwd = cwd or str(Path.cwd())
         self._command = command
@@ -726,6 +728,8 @@ class TerminalPanel(QWidget):
         self._colors: dict = dict(current_theme().get("colors", {}))
         self._next_number = 1
         self.terminals: list[TerminalWidget] = []
+        self._shell_creations = 0
+        self._closed = False
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -797,7 +801,8 @@ class TerminalPanel(QWidget):
 
         root_layout.addLayout(body, 1)
 
-        self.new_shell()
+        if not lazy:
+            self.new_shell()
 
         self.status_timer = QTimer(self)
         self.status_timer.setInterval(2000)
@@ -807,13 +812,20 @@ class TerminalPanel(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._closed = False
+        QTimer.singleShot(0, self._ensure_initial_shell)
         self._update_status()  # the poll skips while hidden, so catch up as soon as it's seen
 
     # ── Shells ───────────────────────────────────────────────────────────────
 
+    def _ensure_initial_shell(self):
+        if not self._closed and not self.terminals and not self._shell_creations:
+            self.new_shell()
+
     @property
     def terminal(self) -> "TerminalWidget":
         """The active shell."""
+        self._ensure_initial_shell()
         return self.stack.currentWidget()
 
     def shell_count(self) -> int:
@@ -824,26 +836,30 @@ class TerminalPanel(QWidget):
                   title: Optional[str] = None) -> "TerminalWidget":
         """Open another shell and switch to it: `command` if given (chosen from the menu),
         otherwise the default shell from Settings."""
-        term = TerminalWidget(cwd=cwd or self.cwd, parent=self, command=command or self._command,
-                              env=self._env, output_only=output_only)
-        term.session_title = title
-        term.chosen_shell = command is not None  # keeps its program when the Settings default changes
-        term.shell_number = self._next_number
-        self._next_number += 1
-        if self._theme:
-            term.apply_theme(self._theme)
-        if self._font_size:
-            term.set_font_size(self._font_size)
-        term.session_started.connect(lambda t=term: self._on_session_changed(t))
-        term.session_exited.connect(lambda code, t=term: self._on_session_changed(t, code))
-        self.terminals.append(term)
-        self.stack.addWidget(term)
+        self._shell_creations += 1
+        try:
+            term = TerminalWidget(cwd=cwd or self.cwd, parent=self, command=command or self._command,
+                                  env=self._env, output_only=output_only)
+            term.session_title = title
+            term.chosen_shell = command is not None  # keeps its program when the Settings default changes
+            term.shell_number = self._next_number
+            self._next_number += 1
+            if self._theme:
+                term.apply_theme(self._theme)
+            if self._font_size:
+                term.set_font_size(self._font_size)
+            term.session_started.connect(lambda t=term: self._on_session_changed(t))
+            term.session_exited.connect(lambda code, t=term: self._on_session_changed(t, code))
+            self.terminals.append(term)
+            self.stack.addWidget(term)
 
-        item = QListWidgetItem(self._shell_label(term))
-        self.shell_list.addItem(item)
-        self.set_current_shell(len(self.terminals) - 1)
-        self.shells_changed.emit()
-        return term
+            item = QListWidgetItem(self._shell_label(term))
+            self.shell_list.addItem(item)
+            self.set_current_shell(len(self.terminals) - 1)
+            self.shells_changed.emit()
+            return term
+        finally:
+            self._shell_creations -= 1
 
     def close_shell(self, index: Optional[int] = None):
         """End a shell (the active one by default). The pane always keeps at least one."""
@@ -930,6 +946,8 @@ class TerminalPanel(QWidget):
             self._update_status(exit_code)
 
     def _update_status(self, exit_code: Optional[int] = None):
+        if not self.terminals:
+            return
         term = self.terminal
         if term is None:
             return
@@ -960,10 +978,14 @@ class TerminalPanel(QWidget):
             term.configure(command=own, cwd=cwd, env=env)
 
     def _restart_shell(self):
-        self.terminal.restart_session()
+        term = self.terminal
+        if term is not None:
+            term.restart_session()
 
     def _clear_terminal(self):
-        self.terminal.clear()
+        term = self.terminal
+        if term is not None:
+            term.clear()
 
     def set_font_size(self, size: int):
         """Update font size of every shell."""
@@ -1056,6 +1078,7 @@ class TerminalPanel(QWidget):
         self._update_status()
 
     def closeEvent(self, event):
+        self._closed = True
         for term in self.terminals:
             term.close()
         super().closeEvent(event)

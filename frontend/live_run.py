@@ -96,8 +96,10 @@ class LiveRun:
                 self._progress.popleft()
         derived = []
         for key, value in row.items():
+            if not key.startswith(BEST_PREFIXES):
+                continue
             higher = describe(key).higher_is_better
-            if higher is None or not key.startswith(BEST_PREFIXES):
+            if higher is None:
                 continue
             previous = self.best.get(key)
             if previous is None or (value > previous[0] if higher else value < previous[0]):

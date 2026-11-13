@@ -15,7 +15,7 @@ class TextEditorPlugin(Plugin):
         from .panel import TextEditorPanel
 
         self.context = context
-        self.panel = TextEditorPanel(context)
+        self.panel = TextEditorPanel(context, lazy=True)
         context.add_sidebar_tab("text_editor", self.panel, "Text Editor", "editor", "Editor")
 
         def open_file(path, line=None, column=None):

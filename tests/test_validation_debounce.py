@@ -33,7 +33,8 @@ def test_preview_submits_yaml_draft_instead_of_reconstructed_overrides():
     viewer = SimpleNamespace(is_dirty=True, _preamble="# @package _global_\n",
                              raw_data={"methods": {"m": {"model": "example", "hidden_sizes": [17, 29]}}})
     window = SimpleNamespace(compose_serial=0, config=lambda: None, current_experiment="g/e",
-                             config_viewer=viewer, update_launch_state=lambda: None, backend=Backend())
+                             config_viewer=viewer, update_launch_state=lambda: None, backend=Backend(),
+                             compose_timer=Mock())
     Window.request_compose(window)
     assert captured["overrides"] == []
     assert "hidden_sizes" in captured["draft"] and "17" in captured["draft"]

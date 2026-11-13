@@ -120,11 +120,11 @@ class TestSideTabsDraggableAndVisibility(unittest.TestCase):
 # too, but it comes from the core plugin rather than the window, so it has no pane
 # slider and is not part of the built-in set.
 BUILTIN_PANES = [
-    "components", "config", "workflows", "monitor", "results", "plots", "queue", "terminal", "console",
+    "components", "config", "workflows", "monitor", "results", "plots", "terminal", "console",
 ]
 DEFAULT_TAB_ORDER = [
     "components", "config", "workflows", "monitor", "results", "plots", "tensorboard",
-    "queue", "terminal", "console",
+    "terminal", "console",
     # Registered after the panes settings.toml lists, so load_layout leaves it
     # at the end rather than in the position app.py adds it.
     "figures",
@@ -177,6 +177,7 @@ class TestWindowLayoutAndSliders(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)
         self.window = Window(self.data_dir)
+        self.window.settings_view.show_tab("appearance")
 
     def tearDown(self):
         self.window.close()
@@ -262,7 +263,7 @@ class TestWindowLayoutAndSliders(unittest.TestCase):
         self.window.reset_sidebar_layout()
         self.assertEqual(self.window.tabs.tab_order[:len(DEFAULT_TAB_ORDER)], DEFAULT_TAB_ORDER)
         for p in BUILTIN_PANES:
-            shown = p != "workflows"  # Workflows can't run pipelines yet, so it stays hidden
+            shown = p not in {"workflows", "monitor"}  # The monitor appears when jobs need it.
             self.assertEqual(self.window.tabs.is_tab_visible(p), shown)
             self.assertEqual(self.window.pane_sliders[p].isChecked(), shown)
 
@@ -282,6 +283,7 @@ class TestWindowLayoutAndSliders(unittest.TestCase):
 
         # Create a new Window pointing to the same data directory
         window2 = Window(self.data_dir)
+        window2.settings_view.show_tab("appearance")
         try:
             self.assertEqual(window2.tabs.tab_order[0], "terminal")
             self.assertFalse(window2.tabs.is_tab_visible("console"))

@@ -1,8 +1,20 @@
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
+
+os.environ["THETAIDE_STARTUP_EPOCH"] = str(time.perf_counter())
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+if "--startup-diagnostics" in sys.argv:
+    index = sys.argv.index("--startup-diagnostics")
+    if index + 1 < len(sys.argv):
+        from frontend.startup_diagnostics import begin
+        begin(sys.argv[index + 1], profile="--startup-latency-only" not in sys.argv)
+from frontend.startup import mark
+mark("process_entry")
 
 def _relaunch_through_macos_app_bundle() -> bool:
     """Open the local .app bundle so macOS gives the GUI a real ThetaIDE identity."""

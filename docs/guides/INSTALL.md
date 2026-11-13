@@ -103,6 +103,12 @@ There is no server to start first. The status bar shows **Pipeline ready** once 
 loaded. On macOS, the command automatically launches the local app bundle so the Dock and Mission Control
 associate the window with ThetaIDE instead of the Python interpreter.
 
+Startup restores the active experiment first. Other saved config tabs load their
+forms when selected. You can edit while the active experiment validates; Run stays
+disabled until that experiment passes validation and the local runner connects.
+Saved run summaries load in the background. Settings categories and the terminal
+and text editor web views initialize when opened.
+
 ThetaIDE stores local IDE state under `.thetaide/` by default: settings in `.thetaide/settings.toml`,
 run records and the job queue under `.thetaide/runs/`, Hub cache in `.thetaide/cache/hub/`, and retained
 component packages/context under `.thetaide/components/`. Active component source, YAMLs, datasets, and
@@ -112,6 +118,9 @@ See [Component development](COMPONENT_DEVELOPMENT.md) for the storage map.
 The existing `--data-dir` option selects application data paths; it does not migrate existing research files
 or establish an independent research-workspace lifecycle. User-global preferences live in
 `~/.config/thetaide/settings.toml`.
+
+See [Startup performance](../development/STARTUP_PERFORMANCE.md) for optional
+launch/reload timings and the deferred-service lifecycle.
 
 ---
 

@@ -9,6 +9,10 @@ from pathlib import Path
 
 import yaml
 
+from .startup import mark as startup_mark
+
+startup_mark("app_import_start")
+
 if sys.platform == "darwin" and "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
 
@@ -82,6 +86,8 @@ from .theme_builder import ThemeBuilder
 from .titlebar import apply_title_bar
 from .widgets import ToggleSlider, YamlHighlighter, label
 from .workflows import WorkflowsPanel
+
+startup_mark("imports_complete")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # holds venv/, in/, results/
 PERSIST_SECONDS = 5.0  # how often a training run's growing record is saved to the run store
@@ -211,8 +217,14 @@ def activate_macos_window(window):
 class Window(QMainWindow):
     def __init__(self, data_dir, progress=None, workspace=None):
         """`progress(message, fraction)` reports startup steps (the splash screen shows them)."""
-        step = progress or (lambda message, fraction: None)
+        def step(message, fraction):
+            startup_mark("phase", message=message)
+            if progress is not None:
+                progress(message, fraction)
+        startup_mark("window_construct_start")
         super().__init__()
+        self._initializing = True
+        self._startup_validation_pending = True
         self.setWindowTitle("ThetaIDE")
         self.resize(1480, 940)
         self.setMinimumSize(1080, 720)
@@ -261,8 +273,11 @@ class Window(QMainWindow):
             settings_manager=self.settings_manager,
         )
         step("Loading run history…", 0.06)
-        saved, errors = self.store.load()
-        self.runs = saved
+        from .run_history import RunHistoryLoader
+        self.history_loader = RunHistoryLoader(self.store, self)
+        self.history_loader.loaded.connect(self._history_loaded)
+        errors = []
+        self.runs = []
         # catalog.list_runs() entries by (group, experiment_id): every results/logs folder, however it was launched.
         self.disk_entries = {}
         self.backend_connected = False  # True once the training pipeline imports and composes in-process
@@ -274,15 +289,18 @@ class Window(QMainWindow):
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.tick)
         # Configs compose in-process and training runs as a QProcess: no server to start.
-        self.backend = LocalBackend(self)
+        self.backend = LocalBackend(self, isolate_validation=True)
         self.jobs = JobManager(
             project_root=workspace_dir,
             logs_dir=WorkspacePaths(workspace_dir, ide_data_dir).results / "logs",
             store_path=Path(data_dir) / "jobs" / "jobs.db",
             settings_path=self.settings_manager.workspace_settings_path,
             enabled_plugins_provider=lambda: list(self.plugin_manager.instances),
+            defer_telemetry=True,
             parent=self,
         )
+        if hasattr(self.jobs, "readiness_changed"):
+            self.jobs.readiness_changed.connect(self._on_runner_readiness)
         self.jobs.job_changed.connect(self.on_job_changed)
         self.jobs.job_output.connect(self.on_job_output)
         self.jobs.job_metrics.connect(self.on_job_metrics)
@@ -326,12 +344,13 @@ class Window(QMainWindow):
         self.make_center()
         step("Starting plugins…", 0.56)
         self.plugin_manager.initialize_plugins()
-        step("Loading the default experiment…", 0.58)
-        self.init_default_experiment()
         self.tabs.tabOrderChanged.connect(lambda _: self.save_layout())
         step("Restoring layout…", 0.66)
         self.load_layout()
         self.restore_session()
+        if not self.config_tab_manager.count():
+            step("Loading the default experiment…", 0.66)
+            self.init_default_experiment()
         self._queue_has_active_jobs = None
         self.on_queue_changed(self.jobs.queue_state())
         if hasattr(self, "settings_manager"):
@@ -352,7 +371,6 @@ class Window(QMainWindow):
             self.select_run(self.runs[0])
         self.log("ThetaIDE ready. Launch trains on this machine with run_pipeline.py; "
                  "Queue → Start simulated demo needs no training environment.")
-        self.request_schema(apply_defaults=True)
         self.reconnect_live_run()
         for error in errors:
             self.log(error)
@@ -365,6 +383,14 @@ class Window(QMainWindow):
         # --- Hotkey and Action-key Navigation Manager ---
         from .hotkeys import HotkeyManager
         self.hotkey_manager = HotkeyManager(self, self.settings_manager)
+        # The form already reflects this generation. Do not reload it merely
+        # because the Experiment pane is selected for the first time.
+        fingerprint = config_fingerprint(self.config_tree.root_dir)
+        self._config_fingerprint = fingerprint
+        self.config_tab_manager.current_viewer()._config_fingerprint = fingerprint
+        self._initializing = False
+        self._history_complete = False
+        startup_mark("window_constructed")
 
     def button(self, text, callback, primary=False):
         button = QPushButton(text)
@@ -378,7 +404,7 @@ class Window(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         # 1. Components Panel
-        self.components_panel = ComponentsPanel(hub_client=self.hub_client, log_fn=self.log, parent=self)
+        self.components_panel = ComponentsPanel(hub_client=self.hub_client, log_fn=self.log, parent=self, lazy=True)
         self.tabs.addTab(self.components_panel, "Components", "components", "Components", tab_id="components")
 
         # 2. Experiment (Config) Panel
@@ -520,7 +546,7 @@ class Window(QMainWindow):
 
         # 8. Terminal Panel
         command, cwd, env = self.terminal_config()
-        self.terminal_panel = TerminalPanel(cwd=cwd, parent=self, command=command, env=env)
+        self.terminal_panel = TerminalPanel(cwd=cwd, parent=self, command=command, env=env, lazy=True)
         self.tabs.addTab(self.terminal_panel, "Terminal", "terminal", "Terminal", tab_id="terminal")
 
         # 9. Console Panel
@@ -726,7 +752,7 @@ class Window(QMainWindow):
 
     def make_settings(self):
         from .settings_view import SettingsView
-        self.settings_view = SettingsView(self)
+        self.settings_view = SettingsView(self, lazy=True)
         return self.settings_view
 
 
@@ -1299,17 +1325,11 @@ class Window(QMainWindow):
             manager = self.config_tab_manager
             saved_configs = sm.get("session", "open_configs", default=[])
             if isinstance(saved_configs, list):
-                # init_default_experiment opens a fallback tab; replace it when a saved
-                # session has valid files, while gracefully skipping files that moved.
                 paths = [str(p) for p in saved_configs if isinstance(p, str)]
                 valid = [p for p in paths if (self.config_tree.root_dir / p).is_file()]
                 if valid:
-                    manager.close_tabs_matching(lambda _path: True)
-                    for rel_path in valid:
-                        manager.open_file(self.config_tree.root_dir / rel_path, rel_path, pinned=True, new_tab=True)
                     active = sm.get("session", "active_config", default="")
-                    if active in manager._tabs:
-                        manager.setCurrentWidget(manager._tabs[active])
+                    manager.restore_files(self.config_tree.root_dir, valid, active)
 
             config_sizes = sm.get("session", "config_splitter", default=[])
             if isinstance(config_sizes, list) and len(config_sizes) == 2:
@@ -1583,6 +1603,8 @@ class Window(QMainWindow):
             self.tabs.setCurrentWidget(self.tabs.tabs["tensorboard"]["widget"])
 
     def tab_changed(self, index):
+        if getattr(self, "_initializing", False):
+            return
         if not getattr(self, "_restoring_session", False) and index >= 0:
             pane_id = next(
                 (pid for pid, entry in self.tabs.tabs.items()
@@ -1621,12 +1643,13 @@ class Window(QMainWindow):
                 viewer.reload_data(force_tree_refresh=True)
 
         if hasattr(self, "terminal_panel") and self.tabs.widget(index) is self.terminal_panel:
-            self.terminal_panel.terminal.focus_terminal()
-            self.terminal_panel.terminal.fit_terminal()
+            term = self.terminal_panel.terminal
+            if term is not None:
+                term.focus_terminal()
+                term.fit_terminal()
         if hasattr(self, "console_panel") and self.tabs.widget(index) is self.console_panel:
             self.command.setFocus()
         if hasattr(self, "settings_panel") and self.tabs.widget(index) is self.settings_panel:
-            self.test_backend_connection()
             if hasattr(self, "settings_view"):
                 # Theme changes restyle it immediately; only a zoom made while it was hidden is pending.
                 if getattr(self, "_settings_styles_stale", False):
@@ -1687,6 +1710,72 @@ class Window(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         apply_title_bar(self, self.theme_manager.active["colors"])  # the native window exists once shown
+        startup_mark("window_shown")
+        if getattr(self, "_startup_validation_pending", False):
+            QTimer.singleShot(0, self._start_initial_validation)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not getattr(self, "_first_paint_recorded", False):
+            self._first_paint_recorded = True
+            startup_mark("first_paint")
+            if self.config_panel.isVisible():
+                startup_mark("active_editor_first_paint")
+
+    def _mark_services_ready(self):
+        if self._history_complete and getattr(self.jobs, "ready", True) and not getattr(self, "_services_ready_recorded", False):
+            self._services_ready_recorded = True
+            startup_mark("deferred_services_ready")
+
+    def _start_initial_validation(self):
+        if not self._startup_validation_pending or self._shutting_down:
+            return
+        self._startup_validation_pending = False
+        self.history_loader.start()
+        start_streaming = getattr(self.jobs, "start_streaming", None)
+        if callable(start_streaming):
+            start_streaming()
+        self.reconnect_live_run()
+        self.update_config()
+
+    def _history_loaded(self, runs, errors):
+        if self._shutting_down:
+            return
+        self._history_complete = True
+        startup_mark("history_ready", records=len(runs), errors=len(errors))
+        self._mark_services_ready()
+        known = {run["id"] for run in self.runs}
+        restored = [run for run in runs if run["id"] not in known]
+        linked = {((run.get("backend") or {}).get("group"), (run.get("backend") or {}).get("experiment_id"))
+                  for run in restored if not run.get("simulated")}
+        removed = [run for run in self.runs if run.get("transient") and
+                   ((run.get("backend") or {}).get("group"), (run.get("backend") or {}).get("experiment_id")) in linked]
+        self.runs = [run for run in self.runs if not any(run is item for item in removed)]
+        if any(self.selected is item for item in removed):
+            self.selected = None
+        self.runs.extend(restored)
+        self.runs.sort(key=lambda run: run.get("created", ""), reverse=True)
+        replay = getattr(self.jobs, "replay_history", None)
+        if callable(replay):
+            replay((run.get("backend") or {}).get("job_id") for run in restored)
+        for error in errors:
+            self.log(error)
+        self.refresh_runs()
+        self.reconnect_live_run()
+        if self.selected is None and self.runs:
+            self.selected = self.runs[0]
+            if self.monitor.isVisible() or self.plot_viewer.isVisible():
+                self.select_run(self.selected)
+
+    def _on_runner_readiness(self, ready, error):
+        if self._initializing or self._shutting_down:
+            return
+        if ready:
+            self.reconnect_live_run()
+            self._mark_services_ready()
+        else:
+            self.log(error)
+        self.update_launch_state()
 
     def populate_themes_menu(self):
         self.themes_menu.clear()
@@ -1737,12 +1826,21 @@ class Window(QMainWindow):
         # The previous validation describes the old YAML. Do not allow Run or
         # Queue during the debounce window before the new preview is requested.
         self.compose_serial += 1
+        backend = getattr(self, "backend", None)
+        cancel = getattr(backend, "cancel_compose", None)
+        if callable(cancel):
+            cancel()
         self.compose_valid = False
         self.composed_config = None
         self.update_launch_state()
+        if getattr(self, "_initializing", False) or getattr(self, "_startup_validation_pending", False):
+            return
         self.compose_timer.start()
 
     def request_compose(self):
+        if getattr(self, "_initializing", False) or getattr(self, "_startup_validation_pending", False):
+            return
+        self.compose_timer.stop()
         self.compose_serial += 1
         serial, config = self.compose_serial, self.config()
         exp_target = getattr(self, "current_experiment", None)
@@ -1767,12 +1865,14 @@ class Window(QMainWindow):
         self.compose_error = None
         self.composed_config = None
         self.update_launch_state()
+        startup_mark("validation_requested", experiment=exp_target)
         self.backend.compose(exp_target, overrides,
                              lambda data, error: self.compose_finished(serial, config, data, error), draft_yaml=draft)
 
     def compose_finished(self, serial, config, data, error):
         if serial != self.compose_serial:
             return  # superseded by a newer edit
+        startup_mark("validation_ready", valid=bool(isinstance(data, dict) and data.get("valid") and not error))
         if error or not isinstance(data, dict):
             self.compose_error = str(error or "Invalid pipeline response")
             self.compose_valid = False
@@ -1789,8 +1889,6 @@ class Window(QMainWindow):
             self.preview.setPlainText(config.recipe_yaml())
             return
         self.set_backend_state(True)
-        if self.schema is None and not self.schema_pending:
-            self.request_schema(apply_defaults=False)
         header = ["# Resolved exactly as the command line would:",
                   "#   " + " ".join(data.get("argv", []))]
         header += [f"# Notice: {notice}" for notice in data.get("notices", [])]
@@ -2014,8 +2112,11 @@ class Window(QMainWindow):
         component_config = composed_config if isinstance(composed_config, dict) else data
         if component_config:
             try:
-                from src.app.pipeline.validation import find_missing_components
-                missing.extend(find_missing_components(component_config))
+                from src.app.pipeline.validation import find_unavailable_components
+                from src.app.workspace import WorkspacePaths
+                paths = getattr(self, "workspace_paths", None)
+                missing.extend(find_unavailable_components(
+                    component_config, paths=paths if isinstance(paths, WorkspacePaths) else None))
             except Exception:
                 pass
 
@@ -2047,7 +2148,8 @@ class Window(QMainWindow):
             self.experiment_site_sync.set_config(
                 getattr(self, "composed_config", None) if has_experiment else None,
                 experiment=getattr(self, "current_experiment", None))
-        ready = self.compose_valid and has_experiment and not missing_components
+        runner_ready = getattr(getattr(self, "jobs", None), "ready", True)
+        ready = self.compose_valid and has_experiment and not missing_components and (runner_ready or remote_site)
         for button in launch_buttons(self):
             button.setEnabled(ready)
         if not has_experiment:
@@ -2068,6 +2170,9 @@ class Window(QMainWindow):
         elif remote_site:
             tip = "Upload project in a new shell in the Terminal pane, then connect to SSH. Paste and Enter to submit."
             btn_text = "Open cluster terminal"
+        elif not runner_ready:
+            tip = getattr(self.jobs, "readiness_error", "Training runner is connecting")
+            btn_text = "Connecting runner…"
         elif not self.compose_valid:
             err = getattr(self, "compose_error", None) or "This configuration has not passed pipeline validation."
             tip = f"Cannot run: {err}"
@@ -2156,6 +2261,8 @@ class Window(QMainWindow):
 
     def reconnect_live_run(self):
         """Restore desktop run records from the independent runner."""
+        if not getattr(self.jobs, "ready", True):
+            return
         changed = False
         for run in self.runs:
             if run["simulated"] or run["status"] not in (*LIVE_STATUSES, "queued"):
@@ -2212,7 +2319,12 @@ class Window(QMainWindow):
                     self.render_run()
             return
         if reset:
+            run.pop("_metrics_deferred", None)
+            run.pop("_metric_summary", None)
             run["metrics"] = []
+        elif run.get("_metrics_deferred"):
+            from .model import load_run_metrics
+            load_run_metrics(run)
         if rows:
             run["metrics"].extend(metric_points(rows))
         if self.selected is run:
@@ -2627,6 +2739,11 @@ class Window(QMainWindow):
         QTimer.singleShot(0, lambda: self._open_last_run_results(run))
 
     def select_run(self, run):
+        from .model import load_run_metrics
+        try:
+            load_run_metrics(run)
+        except (OSError, ValueError) as exc:
+            self.log(f"Could not load run metrics: {exc}")
         self.selected = run
         if hasattr(self, "monitor"):
             self.monitor.show_selected(run)
@@ -2645,8 +2762,8 @@ class Window(QMainWindow):
         """Fetch the full metrics of a finished trained run recorded before all metrics were kept."""
         if run["simulated"] or run["status"] not in FINAL_STATUSES or run.get("metrics_backfilled"):
             return
-        if not run["metrics"] or any("entropy" in m for m in run["metrics"]):
-            return
+        # A job may have finished while the desktop was closed. Fetch its
+        # complete archival metrics only when selected, on the backend worker.
         backend = run["backend"]
         agents = backend.get("agents") or []
         if not agents:
@@ -2661,6 +2778,8 @@ class Window(QMainWindow):
             return
         points = metric_points_from_api(data["metrics"])
         if points:
+            run.pop("_metrics_deferred", None)
+            run.pop("_metric_summary", None)
             run["metrics"] = points
             self.persist(run)
             if self.selected is run:
@@ -2739,6 +2858,8 @@ class Window(QMainWindow):
             run["metrics_requested"] = False  # allow a retry on the next selection
             self.log(f"Could not load metrics for {run['backend']['experiment_id']}: {error}")
             return
+        run.pop("_metrics_deferred", None)
+        run.pop("_metric_summary", None)
         run["metrics"] = metric_points_from_api(data["metrics"])
         if not run.get("transient"):
             self.persist(run)
@@ -2913,6 +3034,12 @@ class Window(QMainWindow):
             event.ignore()
             return
         self._shutting_down = True
+        history = getattr(self, "history_loader", None)
+        if history is not None:
+            history.shutdown()
+        shutdown_backend = getattr(getattr(self, "backend", None), "shutdown", None)
+        if callable(shutdown_backend):
+            shutdown_backend()
         self.save_session()
         for viewer in self.findChildren(ConfigViewer):
             viewer.flush_pending_save()  # edits typed in the last moment before closing
@@ -2943,6 +3070,7 @@ class Window(QMainWindow):
         # native macOS termination before this close event returns, leaving
         # deferred WebEngine widget deletion to run during native exit cleanup.
 
+
     def reload_frontend(self):
         """Reload the frontend process cleanly."""
         from .terminal_reloader import reload_frontend
@@ -2954,6 +3082,9 @@ def main():
     from src.app.workspace import WorkspacePaths
     parser.add_argument("--workspace", type=Path, default=WorkspacePaths.for_process().root)
     parser.add_argument("--data-dir", type=Path)
+    parser.add_argument("--startup-diagnostics", type=Path, help="Write startup profiles and UI latency diagnostics")
+    parser.add_argument("--startup-latency-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--diagnostics-exit-after", type=float, default=0, help=argparse.SUPPRESS)
     parser.add_argument("--install-desktop-entry", action="store_true",
                         help="Linux: add ThetaIDE (with its icon) to the application menu and exit")
     args = parser.parse_args()
@@ -3011,6 +3142,9 @@ def main():
     window.setWindowIcon(app_icon())
     window.show()
     splash.finish(window)
+    if args.startup_diagnostics:
+        from .startup_diagnostics import attach
+        attach(app, window, args.diagnostics_exit_after)
     if sys.platform == "darwin":
         # QApplication.setWindowIcon alone does not reliably supply the Dock icon
         # for a Python-launched Qt app; set it on the native top-level window too.
@@ -3026,6 +3160,8 @@ def main():
     window.tray = TrayController(window)
     app.setQuitOnLastWindowClosed(True)  # jobs live in the independent runner
     app.aboutToQuit.connect(window.jobs.shutdown)  # disconnect; background training continues
+    app.aboutToQuit.connect(window.backend.shutdown)
+    app.aboutToQuit.connect(window.history_loader.shutdown)
 
     from .terminal_reloader import TerminalReloader
 
