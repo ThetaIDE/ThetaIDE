@@ -425,6 +425,8 @@ class JobManager(QObject):
                               *request.get("overrides", [])])
         process.setWorkingDirectory(str(self.project_root))
         env = QProcessEnvironment.systemEnvironment()
+        for name in ("THETA_MCP_URL", "THETA_MCP_TOKEN"):  # runs get no access to an MCP server's tools
+            env.remove(name)
         from src.app.workspace import WorkspacePaths
         for key, value in WorkspacePaths(self.project_root).process_environment().items():
             env.insert(key, value)

@@ -61,6 +61,9 @@ class JobManager(RunnerManager):
         config_path = self.ipc_dir / (uuid.uuid4().hex + '.config')
         write_json(config_path, config)
         env = os.environ.copy()
+        # Runs execute experiment and Hub component code: they get no access to an MCP server's tools.
+        for name in ('THETA_MCP_URL', 'THETA_MCP_TOKEN'):
+            env.pop(name, None)
         source_root = str(Path(__file__).resolve().parent.parent)
         env['PYTHONPATH'] = source_root + os.pathsep + env.get('PYTHONPATH', '')
         options = {'start_new_session': True} if os.name != 'nt' else {
