@@ -340,3 +340,31 @@ def test_pause_is_shared_with_trial_and_method_admission(tmp_path, monkeypatch):
     token, reason = worker.acquire(spec, capacity=(8,32*GIB,24*GIB))
     assert token and not reason
     worker.release(token)
+
+
+def test_runs_do_not_inherit_the_mcp_servers_token(runner, monkeypatch):
+    import frontend.runner_manager as runner_module
+
+    monkeypatch.setenv('THETA_MCP_URL', 'http://127.0.0.1:1/mcp')
+    monkeypatch.setenv('THETA_MCP_TOKEN', 'secret')
+    seen = []
+
+    class Recording(runner_module.QProcess):
+        def setProcessEnvironment(self, env):  # noqa: N802
+            seen.append(env)
+
+        def start(self, *args):  # nothing is launched: only the environment matters here
+            pass
+
+        def waitForStarted(self, *args):  # noqa: N802
+            return True
+
+    monkeypatch.setattr(runner_module, 'QProcess', Recording)
+    runner.python = 'true'
+    runner._start({'job_id': 'mcp-env', 'experiment': 'x', 'group': 'g', 'experiment_id': 'x', 'request': {'local': False}})
+    runner._processes.pop('mcp-env', None)
+    for files in [runner._log_files.pop('mcp-env', None), *runner._stream_files.pop('mcp-env', {}).values()]:
+        if files is not None:
+            files.close()
+    assert seen and not seen[0].contains('THETA_MCP_TOKEN') and not seen[0].contains('THETA_MCP_URL')
+    assert seen[0].contains('PYTHONUNBUFFERED')
