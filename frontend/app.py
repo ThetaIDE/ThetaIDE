@@ -2486,18 +2486,34 @@ class Window(QMainWindow):
         return name
 
     def add_to_queue(self, *, start=False):
+        Window.queue_current(self, start=start)
+
+    def queue_current(self, *, start=False, extra_overrides=(), label="", strict=False):
+        """Queue the selected experiment and return its run record, or None when it was refused.
+
+        The Queue and Run buttons call this with no options. Agents comparing variants (the AI Assistant,
+        and agents connected through it) pass `extra_overrides`, appended to the command line and recorded on
+        the run, and a `label`, which gives the variant its own results folder (<experiment id>-<label>), so
+        variants never overwrite each other or earlier results. A refusal is shown in the status bar, or with
+        `strict` raised as LaunchError so the caller can report it."""
+
+        def refuse(message, timeout=5000):
+            if strict:
+                raise LaunchError(message)
+            self.statusBar().showMessage(message, timeout)
+
         if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm":
-            return
+            if strict:
+                raise LaunchError("Slurm experiments are launched from the Run button, not queued.")
+            return None
         missing = self.check_missing_components()
         if missing:
-            self.statusBar().showMessage(f"Cannot queue: Missing component ({', '.join(missing)})", 6000)
-            return
+            return refuse(f"Cannot queue: Missing component ({', '.join(missing)})", 6000)
         if not self.compose_valid:
-            self.statusBar().showMessage("Fix config errors before queueing.", 5000)
-            return
+            return refuse(f"Fix config errors before queueing{': ' + self.compose_error if self.compose_error else '.'}")
         if hasattr(self, "config_viewer") and self.config_viewer.is_dirty:
             if not self.config_viewer.save_to_disk(show_error=True):
-                return
+                return refuse("The experiment has unsaved changes that could not be saved.")
 
         config = self.config()
         exp_target = getattr(self, "current_experiment", None)
@@ -2505,8 +2521,7 @@ class Window(QMainWindow):
             if hasattr(self, "config_tree") and (self.config_tree.root_dir / f"experiment/{BASE_EXPERIMENT}.yaml").exists():
                 exp_target = BASE_EXPERIMENT
             else:
-                self.statusBar().showMessage("Please select or create an experiment to queue.", 5000)
-                return
+                return refuse("Please select or create an experiment to queue.")
         is_recover = False
         if hasattr(self, "config_viewer") and getattr(self.config_viewer, "raw_data", None):
             is_recover = bool(self.config_viewer.raw_data.get("recover", False))
@@ -2514,22 +2529,35 @@ class Window(QMainWindow):
                          and self.config_viewer.chk_timestamp_experiment.isChecked())
         from src.app.pipeline.result_paths import result_identity
         _, result_id = result_identity(exp_target, experiment_id=config.name)
-        experiment_id = self.unique_experiment_id(result_id, is_recover=is_recover) if timestamp else result_id
+        label = str(label or "").strip()
+        if label:
+            slug = "".join(c if c.isalnum() or c in "-_." else "-" for c in label).strip("-.") or "variant"
+            experiment_id = self.unique_experiment_id(f"{result_id}-{slug}")
+        else:
+            experiment_id = self.unique_experiment_id(result_id, is_recover=is_recover) if timestamp else result_id
+        extra = [str(o) for o in extra_overrides or ()]
         overrides = [] if hasattr(self, "config_viewer") else config.overrides()
-        overrides = [o for o in overrides if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
+        overrides = [o for o in [*overrides, *extra] if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
         self.log(f"Queuing {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
         try:
-            job = self.jobs.launch(exp_target, overrides, queue=True, overwrite=not timestamp)
+            job = self.jobs.launch(exp_target, overrides, queue=True, overwrite=not (timestamp or label))
         except LaunchError as exc:
+            if strict:
+                raise
             self.queued(config, None, str(exc))
-            return
+            return None
         run = self.queued(config, job, None)
+        if run is not None and (extra or label):
+            run["overrides"] = extra
+            run["label"] = label or None
+            self.persist(run)
         if start and run is not None:
             self.open_job(job["job_id"])
             try:
                 self.set_queue_running(True)
             except LaunchError as exc:
                 self.queue_toggled("start", None, str(exc))
+        return run
 
     def queued(self, config, job, error):
         if error:

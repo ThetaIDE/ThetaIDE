@@ -503,6 +503,35 @@ def test_play_queues_before_starting_and_opens_the_queued_monitor():
     assert calls == [("launch", {"queue": True, "overwrite": True}), ("record",), ("monitor",), ("start", True)]
 
 
+def test_agents_queue_labelled_variants_with_extra_overrides(monkeypatch):
+    """A variant gets its own results folder and records its overrides; a refusal is raised when strict."""
+    from unittest.mock import Mock
+
+    from src.app.services.config_service import LaunchError
+
+    launches, persisted = [], []
+    def host(valid=True):
+        return SimpleNamespace(
+            check_missing_components=lambda: [], compose_valid=valid, compose_error=None if valid else "[compose] bad key",
+            config=lambda: SimpleNamespace(name="default_exp", overrides=lambda: []), current_experiment="g/cartpole",
+            jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: launches.append((a, kw)) or {"job_id": "j"})),
+            log=lambda *a: None, queued=lambda *a: {"id": "r1"}, persist=lambda run: persisted.append(dict(run)) or True,
+            open_job=lambda *a: None, set_queue_running=lambda value: None,
+            unique_experiment_id=lambda name, is_recover=False: name)
+
+    run = Window.queue_current(host(), start=True, extra_overrides=["++model.use_edit=true"], label="edit on", strict=True)
+    (experiment, overrides), options = launches[0]
+    assert experiment == "g/cartpole"
+    assert overrides == ["++model.use_edit=true", "++experiment_id='cartpole-edit-on'"]
+    assert options == {"queue": True, "overwrite": False}  # never replaces earlier results
+    assert run["overrides"] == ["++model.use_edit=true"] and run["label"] == "edit on"
+    assert persisted[-1]["label"] == "edit on"
+
+    with pytest.raises(LaunchError, match="bad key"):
+        Window.queue_current(host(valid=False), extra_overrides=["x=1"], label="off", strict=True)
+    assert len(launches) == 1
+
+
 def test_play_stays_enabled_when_training_capacity_is_full(monkeypatch):
     from unittest.mock import Mock
     from PyQt6.QtWidgets import QPushButton
