@@ -6,8 +6,7 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
-from frontend.theme import theme_color
-from frontend.widgets import label
+from src.app.api.desktop import label, theme_color
 
 from .server import TensorBoardServer
 

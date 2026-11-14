@@ -22,14 +22,14 @@ try:  # QFileSystemModel moved to QtGui in newer Qt 6 releases.
 except ImportError:
     from PyQt6.QtWidgets import QFileSystemModel
 
-from frontend.sidetabs import svg_icon
-from frontend.theme import current_theme
-from frontend.tree_tools import (
+from src.app.api.desktop import (
     DraggableToolButton,
     TreeHeaderWidget,
     TreeToolbarPersistence,
+    current_theme,
     refresh_tool_icons,
     style_tool_button,
+    svg_icon,
 )
 
 _GENERATED_DIRECTORIES = {"__pycache__", ".git", ".venv", "venv", "node_modules", ".pytest_cache", ".mypy_cache", ".ruff_cache"}

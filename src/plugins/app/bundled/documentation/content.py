@@ -683,10 +683,10 @@ symbolic:
 <h3>Site Profiles (<code>site</code>)</h3>
 <ul>
   <li><code>site=local</code> (default): Interactive local execution inside subprocesses.</li>
-  <li><code>site=ncshare</code> / <code>site=arc</code>: Automatically generates and dispatches Slurm batch scripts (<code>sbatch</code>).</li>
-  <li><code>site=ncshare_gpu</code> / <code>site=ncshare_common</code>: NCShare's GPU partition (all methods in one job), or its CPU common partition (one job per method).</li>
+  <li><code>site=ncshare</code> / <code>site=arc</code>: Slurm batch submission. These profiles ship with the optional Slurm scheduler component and are available only once it is installed in the workspace.</li>
+  <li><code>site=ncshare/gpu</code> / <code>site=ncshare/common</code> (aliases <code>ncshare_gpu</code> / <code>ncshare_common</code>): NCShare's GPU partition (all methods in one job), or its CPU common partition (one job per method).</li>
 </ul>
-<p>Profiles live in <code>in/config/site/</code>. Add <code>consolidate=true</code> to put every method into one GPU job.</p>
+<p>Every non-local site profile names its scheduler with <code>site.scheduler</code>. Edit a component's site template through Components; Theta saves the edit as your own copy under <code>src/usr/config/site/</code>. Add <code>consolidate=true</code> to ask the scheduler to put every method into one allocation.</p>
 
 <div style="background-color: rgba(251, 73, 52, 0.12); border-left: 4px solid #fb4934; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
   <b>Cluster Push Mandate:</b> Always commit and push all code changes to GitHub before submitting cluster jobs, as remote compute nodes sync directly from the repository.
@@ -754,6 +754,7 @@ symbolic:
   <li><code>plugin.json</code>: Metadata manifest (<code>id</code>, <code>name</code>, <code>description</code>, <code>version</code>, <code>author</code>, <code>icon</code>, <code>entry_point</code>, <code>default_enabled</code>, and <code>core</code> for built-ins). <code>dependencies</code> lists the pip packages it needs; Theta-IDE reports any that are missing instead of failing to load.</li>
   <li><code>__init__.py</code>: Exports a class subclassing <code>Plugin</code>.</li>
 </ol>
+<p>Import host functionality only from the Theta SDK, <code>src.app.api</code>: <code>src.app.api.desktop</code> provides <code>Plugin</code>, <code>PluginManifest</code>, <code>PluginContext</code> and the shared widgets, and the headless modules (<code>workspace</code>, <code>config</code>, <code>execution</code>, <code>tuning</code>, <code>sites</code>, <code>errors</code>) cover everything else. Other <code>src.app</code> and <code>frontend</code> modules are private and may change. Declare the SDK range you wrote against in <code>plugin.json</code>, for example <code>"sdk": "&gt;=1.0,&lt;2"</code>; Theta refuses to activate a plugin whose range it cannot satisfy.</p>
 
 <h3>The Plugin Context</h3>
 <p><code>activate()</code> receives a <code>PluginContext</code>, the plugin's whole interface to the IDE:</p>
@@ -769,7 +770,12 @@ symbolic:
   <tr><td><code>spawn_process</code> / <code>track_process</code></td><td>Run a child process that is stopped when the plugin is switched off or the IDE closes</td></tr>
   <tr><td><code>get_current_experiment</code>, <code>get_active_config_path</code>, <code>add_experiment_change_listener</code></td><td>Follow the experiment open in the Experiment tab</td></tr>
   <tr><td><code>open_settings</code>, <code>open_component_hub</code>, <code>log</code>, <code>show_status_message</code></td><td>Open IDE pages and report to the user</td></tr>
-  <tr><td><code>get_workspace_dir</code>, <code>get_data_dir</code></td><td>The repository, and the IDE's run-record folder (<code>.thetaide/runs/</code> unless <code>--data-dir</code> moved it)</td></tr>
+  <tr><td><code>workspace_paths</code>, <code>get_workspace_dir</code>, <code>get_data_dir</code></td><td>The selected workspace and the IDE's state folder (<code>.thetaide/</code> unless <code>--data-dir</code> moved it)</td></tr>
+  <tr><td><code>register_editor</code> / <code>unregister_editor</code>, <code>activated_explicitly</code></td><td>Offer a text editor for host file actions; select it as default only when the user just enabled the plugin</td></tr>
+  <tr><td><code>editor_preference</code> / <code>set_editor_preference</code>, <code>ui_zoom</code>, <code>add_appearance_listener</code></td><td>Follow the user's editor, zoom and theme settings</td></tr>
+  <tr><td><code>config_catalog</code>, <code>notify_config_files_changed</code>, <code>is_managed_file</code></td><td>Read the parsed configuration catalog, report edited config files, and avoid editing installed package files</td></tr>
+  <tr><td><code>hub_components</code>, <code>add_hub_index_listener</code></td><td>Read the Component Hub index and follow its updates</td></tr>
+  <tr><td><code>parent_widget</code>, <code>tree_toolbar_store</code>, <code>mark_startup</code></td><td>Parent dialogs, persist shared tree toolbars and record startup-trace events</td></tr>
 </table>
 <p>Whatever a plugin registers through the context is cleaned up when it is switched off.</p>
 
@@ -781,8 +787,7 @@ wandb = "thetaide_wandb:create_logger"</code></pre>
 <p>Configure a provider in an experiment with <code>logging.backends.&lt;id&gt;.enabled</code> and provider-specific keys. For example, a W&amp;B integration can use <code>logging.backends.wandb.project</code> and <code>logging.backends.wandb.entity</code>. Provider code and dependencies must be installed in the environment used to run training. Provider logging settings are separate from optional viewer panes; hiding a pane does not change a run's logger configuration. TensorBoard's existing top-level <code>tensorboard: true</code> setting remains supported for older experiments while the TensorBoard plugin is enabled.</p>
 
 <h3>Plugin Lifecycle Hooks</h3>
-<pre><code>from frontend.plugins.base import Plugin, PluginManifest
-from frontend.plugins.context import PluginContext
+<pre><code>from src.app.api.desktop import Plugin, PluginContext, PluginManifest
 
 class MyPlugin(Plugin):
     def activate(self, context: PluginContext) -> None:
@@ -916,8 +921,7 @@ python run_pipeline.py component config --help</code></pre>
 
 <h4>Python Implementation (<code>__init__.py</code>)</h4>
 <pre><code>from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
-from frontend.plugins.base import Plugin, PluginManifest
-from frontend.plugins.context import PluginContext
+from src.app.api.desktop import Plugin, PluginContext, PluginManifest
 
 class MyToolPlugin(Plugin):
     def activate(self, context: PluginContext) -> None:
@@ -1202,7 +1206,7 @@ python plot/manager.py &lt;group&gt;/&lt;experiment_id&gt; --wipe</code></pre>
 python run_pipeline.py export &lt;group&gt;/&lt;experiment&gt; --include-weights --out results/exports/my_exp.zip</code></pre>
 
 <h3>Optuna Hyperparameter Sweeps</h3>
-<p>Install the optional tuner from the project directory with <code>pip install -e ".[optuna]"</code>.</p>
+<p>Sweeps use the optional Optuna tuner component. Install it into the workspace (for example <code>python run_pipeline.py component install optuna-1.0.0.zip</code>, built with <code>scripts/package_optional_components.py</code>) and install its declared Python dependencies. Without an installed tuner the editor shows no sweep controls.</p>
 <p>Add a Hyperparameter Sweep block in the experiment editor, choose an objective metric and direction, and mark the method parameters to search. The Enabled switch preserves tuning settings when off; methods with search spaces cannot run until tuning is enabled or their search spaces are removed. Each tuning trial writes its own checkpoint, and the winning checkpoint and parameters are saved in the method's checkpoint folder.</p>
 <p>The Optuna tuner offers TPE, random, or scrambled Sobol QMC sampling, a sampler seed, trial count, batch size and storage. QMC samples categorical parameters independently. A batch runs concurrently only with a parallel Hydra launcher. Select <b>new</b> to create a study or <b>resume</b> and enter its exact name to add more trials. For multiple methods, include <code>{method}</code> in a custom study name so each method has its own study.</p>
 <p>Median early stopping reports the selected objective after each Lightning validation epoch and can prune underperforming trials. Configure how many trials finish first and how many validation epochs to wait. The objective must be logged during validation; SB3 pruning and multi-process Lightning are not yet supported. A time budget prevents new batches after it expires, while allowing an active batch to finish.</p>

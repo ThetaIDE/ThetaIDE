@@ -16,16 +16,14 @@ from PyQt6.QtWidgets import (QApplication, QComboBox, QStyle, QStyledItemDelegat
                              QListWidget, QListWidgetItem, QPushButton, QSplitter, QTextBrowser, QTreeWidget,
                              QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from frontend.theme import theme_color
-from frontend.widgets import label
+from src.app.api.desktop import label, theme_color
 
 from .catalog import KIND_TITLES, build_catalog, normalize_tags, tag_counts, tag_phrase
 from .search import ACKNOWLEDGEMENT, ArxivSearcher, SearchError, build_query
 
 if TYPE_CHECKING:
-    from frontend.plugins.context import PluginContext
+    from src.app.api.desktop import PluginContext
 
-PROJECT_CONFIG = __import__("src.app.workspace", fromlist=["WorkspacePaths"]).WorkspacePaths.for_process().config
 ROLE_KEY = Qt.ItemDataRole.UserRole
 ROLE_META = Qt.ItemDataRole.UserRole + 1
 
@@ -109,9 +107,15 @@ class ArxivPanel(QWidget):
         super().__init__(parent)
         self.setObjectName("arxivPanel")
         self.context = context
-        window = getattr(context, "_window", None)
-        self.hub_client = hub_client if hub_client is not None else getattr(window, "hub_client", None)
-        self.config_root = Path(config_root) if config_root else __import__("src.app.workspace", fromlist=["WorkspacePaths"]).WorkspacePaths.for_process().config
+        # An explicit client (tests, embedding) wins; otherwise the host's Hub service.
+        self.hub_client = hub_client
+        if config_root:
+            self.config_root = Path(config_root)
+        elif context is not None:
+            self.config_root = context.workspace_paths().config
+        else:
+            from src.app.api.workspace import WorkspacePaths
+            self.config_root = WorkspacePaths.for_process().config
         if searcher is None:
             cache = context.get_data_dir() / "plugins" / "arxiv_cache.json" if context else None
             searcher = ArxivSearcher(cache_path=cache)
@@ -130,8 +134,15 @@ class ArxivPanel(QWidget):
             # A bound method, not a lambda: Qt drops the connection when the panel is destroyed, so a Hub
             # index that finishes loading later never calls into a deleted panel (PyQt aborts on that).
             self.hub_client.indexLoaded.connect(self._on_hub_index)
+        elif self.hub_client is None and context is not None:
+            context.add_hub_index_listener(self._on_hub_index)  # removed in cleanup()
 
-    def _on_hub_index(self, _components):
+    def _hub_source(self):
+        if self.hub_client is not None:
+            return self.hub_client
+        return self.context.hub_components() if self.context is not None else None
+
+    def _on_hub_index(self, _components=None):
         self.reload_components()
 
     # ── UI ───────────────────────────────────────────────────────────────────
@@ -279,7 +290,7 @@ class ArxivPanel(QWidget):
         checked = set(self.selected_tags())
         current = self.component_tree.currentItem()
         current_key = current.data(0, ROLE_KEY) if current else None
-        self.components = build_catalog(self.config_root, self.hub_client, self._overrides())
+        self.components = build_catalog(self.config_root, self._hub_source(), self._overrides())
         self._building = True
         self.component_tree.clear()
         groups = {}
@@ -500,3 +511,5 @@ class ArxivPanel(QWidget):
                 self.hub_client.indexLoaded.disconnect(self._on_hub_index)
             except TypeError:
                 pass
+        elif self.context is not None:
+            self.context.remove_hub_index_listener(self._on_hub_index)

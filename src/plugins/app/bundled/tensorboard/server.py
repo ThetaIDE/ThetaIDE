@@ -10,8 +10,7 @@ from typing import Optional
 
 from PyQt6.QtCore import QObject, QProcess, pyqtSignal
 
-from src.app.services import PROJECT_ROOT, TENSORBOARD_DIR
-from src.app.services.processes import kill_process_tree
+from src.app.api.execution import kill_process_tree
 
 READY_LINE = re.compile(r"TensorBoard \S+ at (http://\S+)")
 
@@ -35,10 +34,17 @@ class TensorBoardServer(QObject):
     ready = pyqtSignal(str)  # url
     stopped = pyqtSignal(str)  # error text, or "" when stopped intentionally
 
-    def __init__(self, python: Optional[str] = None, logdir: Optional[Path] = None, parent: Optional[QObject] = None):
+    def __init__(self, python: Optional[str] = None, logdir: Optional[Path] = None, parent: Optional[QObject] = None,
+                 working_dir: Optional[Path] = None):
         super().__init__(parent)
         self.python = python or sys.executable
-        self.logdir = logdir or TENSORBOARD_DIR
+        if logdir is None or working_dir is None:
+            from src.app.api.workspace import WorkspacePaths
+            paths = WorkspacePaths.for_process()
+            logdir = logdir or paths.results / "tensorboard"
+            working_dir = working_dir or paths.root
+        self.logdir = Path(logdir)
+        self.working_dir = Path(working_dir)
         self.process: Optional[QProcess] = None
         self.url: Optional[str] = None
         self._output = ""
@@ -76,7 +82,7 @@ class TensorBoardServer(QObject):
             "--port", str(_free_port()),
             "--reload_interval", "5",
         ])
-        self.process.setWorkingDirectory(str(PROJECT_ROOT))
+        self.process.setWorkingDirectory(str(self.working_dir))
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._on_output)
         self.process.finished.connect(self._on_finished)

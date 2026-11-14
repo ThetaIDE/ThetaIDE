@@ -402,6 +402,8 @@ Entry-point declarations alone do not guarantee GUI discovery or runtime availab
 | `theta.evaluators`, `theta.plugins` | Names are recognized by the discovery helper, but there is no automatic evaluator/GUI activation adapter for them |
 
 GUI plugins are discovered through `plugin.json` by `frontend/plugins/manager.py`.
+They import host code only from the [Theta SDK](../reference/SDK.md) (`src.app.api.desktop` for
+`Plugin`, `PluginContext` and shared widgets) and declare `"sdk": ">=1.0,<2"` in `plugin.json`.
 For the complete current install/config/discovery workflow, distribute a Hub package
 with the appropriate source, manifests, and YAML profiles; a `pip install` by itself
 does not create those workspace profiles.

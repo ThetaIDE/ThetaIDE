@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from frontend.plugins.base import Plugin
+from src.app.api.desktop import Plugin
 
 
 class TextEditorPlugin(Plugin):
@@ -26,11 +26,10 @@ class TextEditorPlugin(Plugin):
             context.select_sidebar_tab("text_editor")
             return self.panel.open_folder(root, **kwargs)
 
-        context.window.editor_service.register(self.manifest.id, "Theta Text Editor", open_file, open_folder, self.panel.can_close)
         # Explicit enabling selects the editor; restoring an enabled plugin at startup
         # preserves a user's subsequent choice of another default provider.
-        if not context.window.plugin_manager.is_plugin_enabled(self.manifest.id):
-            context.window.settings_manager.default_text_editor = self.manifest.id
+        context.register_editor("Theta Text Editor", open_file, open_folder, self.panel.can_close,
+                                make_default=context.activated_explicitly)
         for command_id, title, callback in (
             ("text_editor.open", "View: Text Editor", lambda: context.select_sidebar_tab("text_editor")),
             ("text_editor.new", "Editor: New document", lambda: self._action("new")),
@@ -51,7 +50,7 @@ class TextEditorPlugin(Plugin):
 
     def deactivate(self):
         if self.context:
-            self.context.window.editor_service.unregister(self.manifest.id)
+            self.context.unregister_editor()
         if self.panel:
             self.panel.cleanup()
             self.panel.deleteLater()

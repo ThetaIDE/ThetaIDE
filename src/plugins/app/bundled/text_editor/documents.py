@@ -86,8 +86,7 @@ class Document:
         if target is None:
             raise ValueError("Choose a path before saving.")
         target = target.expanduser().resolve()
-        from src.app.components.transactions import implementation_edit
-        from src.app.workspace import WorkspacePaths
+        from src.app.api.workspace import WorkspacePaths, implementation_edit
         with implementation_edit(WorkspacePaths.for_process(), target):
             current = fingerprint(target)
             expected = self.disk_fingerprint if target == self.path else None

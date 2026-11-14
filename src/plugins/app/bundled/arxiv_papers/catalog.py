@@ -106,7 +106,13 @@ def local_components(config_root: Path) -> list[Component]:
 
 
 def hub_components(hub_client) -> list[Component]:
-    """Community Hub components with their tags: the loaded index, else the cached copy on disk."""
+    """Community Hub components with their tags: the loaded index, else the cached copy on disk.
+
+    ``hub_client`` is either a list of index records (``PluginContext.hub_components()``)
+    or a client exposing ``components``/``cache_file``.
+    """
+    if isinstance(hub_client, list):
+        return _hub_records(hub_client)
     raw = []
     for comp in getattr(hub_client, "components", None) or []:
         raw.append({"id": comp.id, "name": comp.name, "kind": comp.kind, "tags": comp.tags,
@@ -118,6 +124,10 @@ def hub_components(hub_client) -> list[Component]:
             raw = data.get("components", []) if isinstance(data, dict) else []
         except (OSError, ValueError):
             raw = []
+    return _hub_records(raw)
+
+
+def _hub_records(raw) -> list[Component]:
     out = []
     for item in raw:
         if not isinstance(item, dict) or not item.get("id"):

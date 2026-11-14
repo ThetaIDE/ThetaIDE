@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from PyQt6.QtWidgets import QDialog, QPushButton
 
-from frontend.plugins.base import Plugin
+from src.app.api.desktop import Plugin
 
 SLOT_ID = "experiment.method.model_row"
 ACTION_ID = "design_model"
@@ -60,8 +60,8 @@ class ModelBuilderPlugin(Plugin):
     def _open(self, row: dict) -> None:
         from .dialog import ModelBuilderDialog
 
-        window = self.context.window if self.context else None
-        tree = _config_tree()
+        window = self.context.parent_widget() if self.context else None
+        tree = self.context.config_catalog() if self.context else None
         if tree is None:
             if self.context:
                 self.context.show_status_message("The config tree is not loaded yet.")
@@ -92,10 +92,3 @@ class ModelBuilderPlugin(Plugin):
         apply: Optional[Any] = row.get("apply")
         if callable(apply):
             apply(dialog.saved_name)
-
-
-def _config_tree():
-    """The parsed in/config tree, or None outside a checkout."""
-    from frontend.config_viewer import config_tree
-
-    return config_tree()

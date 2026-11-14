@@ -211,6 +211,13 @@ class PluginManager(QObject):
         manifest = self.manifests[plugin_id]
         plugin_dir = manifest.plugin_dir
 
+        # Verify the declared SDK range before importing any plugin code.
+        from src.app.api import sdk_requirement_error
+        sdk_error = sdk_requirement_error(manifest.extra.get("sdk") if isinstance(manifest.extra, dict) else None)
+        if sdk_error:
+            self.window.log(f"Cannot activate plugin '{manifest.name}' ({plugin_id}): it {sdk_error}.")
+            return False
+
         # Verify declared dependencies before loading Python module
         declared_deps = []
         if isinstance(manifest.extra, dict):
@@ -247,7 +254,8 @@ class PluginManager(QObject):
                 getattr(store, "root", getattr(store, "data_dir", ".")) if store else "."
             )
             storage_file = Path(root_dir) / "plugins" / f"{plugin_id}.json"
-            context = PluginContext(plugin_id, self.window, storage_file)
+            context = PluginContext(plugin_id, self.window, storage_file,
+                                    activated_explicitly=not self.enabled_states.get(plugin_id, False))
 
             instance.activate(context)
 

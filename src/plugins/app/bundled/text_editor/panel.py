@@ -25,10 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from frontend.sidetabs import svg_icon
-from frontend.theme import current_theme
-from frontend.tree_tools import refresh_tool_icons, style_tool_button
-from src.app.workspace import WorkspacePaths
+from src.app.api.desktop import current_theme, refresh_tool_icons, style_tool_button, svg_icon
 
 from .documents import Document, FileConflictError
 from .explorer import FileExplorer
@@ -60,8 +57,7 @@ class EditorBridge(QObject):
     @pyqtSlot()
     def ready(self):
         self.panel._ready = True
-        from frontend.startup import mark
-        mark("editor_renderer_ready")
+        self.panel.context.mark_startup("editor_renderer_ready")
         self.panel.apply_theme()
         self.panel._show_current()
 
@@ -96,9 +92,8 @@ class TextEditorPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 10)
         layout.setSpacing(8)
 
-        self.file_explorer = FileExplorer(settings_manager=context.window.settings_manager)
-        client = getattr(context.window, "hub_client", None)
-        workspace = WorkspacePaths(client.workspace_dir) if client else WorkspacePaths()
+        self.file_explorer = FileExplorer(settings_manager=context.tree_toolbar_store())
+        workspace = context.workspace_paths()
         if workspace.research.is_dir():
             self.file_explorer.open_root(workspace.research)
         self.component_tree = self.file_explorer.source_tree
@@ -108,7 +103,7 @@ class TextEditorPanel(QWidget):
         self.file_explorer.toggleRequested.connect(self.toggle_file_tree)
         self._explorer_width = 260
         self.wrap_button = self.file_explorer.action_buttons["wrap"]
-        self.wrap_button.setChecked(bool(context.window.settings_manager.get("editor", "wrap_lines", default=False)))
+        self.wrap_button.setChecked(bool(context.editor_preference("wrap_lines", False)))
         self.wrap_button.toggled.connect(self._set_wrap)
         self.recover_button = self.file_explorer.action_buttons["recover"]
         self.recover_button.clicked.connect(self.recover_renderer)
@@ -175,8 +170,7 @@ class TextEditorPanel(QWidget):
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self.check_external_changes)
         self.watcher.directoryChanged.connect(self.check_external_changes)
-        context.window.theme_manager.changed.connect(self.apply_theme)
-        context.window.settings_manager.changed.connect(self.apply_theme)
+        context.add_appearance_listener(self.apply_theme)
         if not lazy:
             self._ensure_renderer()
         self.apply_theme()
@@ -223,8 +217,7 @@ class TextEditorPanel(QWidget):
                 "readOnly": bool(doc.path and self._hub_read_only(doc.path))}
 
     def _hub_read_only(self, path):
-        client = getattr(self.context.window, "hub_client", None)
-        return bool(client and client.installer.is_installed_file(path))
+        return self.context.is_managed_file(path)
 
     def _accept_change(self, document_id, text, revision):
         # Ignore bridge messages sent before a synchronous snapshot or an explicit reload.
@@ -383,8 +376,7 @@ class TextEditorPanel(QWidget):
             self._error("Cannot save file", str(exc))
             return False
         if doc.path and doc.path.suffix.lower() in (".yaml", ".yml", ".json"):
-            from frontend.config_viewer import invalidate_config_tree
-            invalidate_config_tree()
+            self.context.notify_config_files_changed()
         self._update_tab(self.documents.index(doc))
         self._watch_files()
         self._show_current()  # updates language after Save As, preserving history
@@ -486,8 +478,7 @@ class TextEditorPanel(QWidget):
             changed = True
         self.banner.setVisible(bool(changed))
         if changed:
-            from frontend.config_viewer import invalidate_config_tree
-            invalidate_config_tree()
+            self.context.notify_config_files_changed()
             self.banner_label.setText(
                 "This file changed on disk or was deleted. Reload it, or keep editing and review before saving."
             )
@@ -508,7 +499,7 @@ class TextEditorPanel(QWidget):
         self._js("action", action)
 
     def _set_wrap(self, value):
-        self.context.window.settings_manager.set("editor", "wrap_lines", value)
+        self.context.set_editor_preference("wrap_lines", value)
 
     def apply_theme(self):
         self.file_explorer.apply_theme()
@@ -527,8 +518,8 @@ class TextEditorPanel(QWidget):
                 button.setIcon(svg_icon("close", {(QIcon.Mode.Normal, QIcon.State.Off): "muted"}, size=14))
         if self.web_view is not None:
             self.web_view.page().setBackgroundColor(QColor(palette["base"]))
-            self.web_view.setZoomFactor(self.context.window.settings_manager.zoom)
-        wrap = bool(self.context.window.settings_manager.get("editor", "wrap_lines", default=False))
+            self.web_view.setZoomFactor(self.context.ui_zoom())
+        wrap = bool(self.context.editor_preference("wrap_lines", False))
         self.wrap_button.blockSignals(True)
         self.wrap_button.setChecked(wrap)
         self.wrap_button.blockSignals(False)
@@ -560,8 +551,7 @@ class TextEditorPanel(QWidget):
         QMessageBox.warning(self, title, message)
 
     def cleanup(self):
-        self.context.window.theme_manager.changed.disconnect(self.apply_theme)
-        self.context.window.settings_manager.changed.disconnect(self.apply_theme)
+        self.context.remove_appearance_listener(self.apply_theme)
         self.watcher.blockSignals(True)
         self._ready = False
         if self.web_view is not None:

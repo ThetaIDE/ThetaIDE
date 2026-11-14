@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.plugins.components.bundled.sequential_spec.sequential_spec import LAYER_KINDS
-from frontend.theme import theme_color
+from src.app.api.desktop import theme_color
 from .graph import INPUT_KIND, GraphNode, ModelGraph
 
 NODE_W = 208.0

@@ -120,6 +120,7 @@ class TestDocumentationPlugin(unittest.TestCase):
 
     def test_settings_core_plugins_page_display(self):
         """Settings UI displays Documentation under Core Plugins without an uninstall button."""
+        self.window.settings_view.build_pages()  # settings pages are built on first open
         self.window.refresh_plugins_ui()
         self.assertTrue(hasattr(self.window, "core_plugins_grid"))
         self.assertIn("documentation", self.window.plugin_sliders)

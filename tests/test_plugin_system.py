@@ -21,29 +21,19 @@ except ImportError:
     HAS_PYQT6 = False
 
 
-@unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
-class TestPluginSystem(unittest.TestCase):
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp(prefix="theta_test_plugins_")
-        
-        # Create a dynamic fixture plugin in the test data_dir to test plugin lifecycle
-        self.plugin_id = "sample_plugin"
-        self.workspace = Path(self.temp_dir) / "workspace"
-        self.plugin_dir = self.workspace / "src/plugins/app/installed" / self.plugin_id
-        self.plugin_dir.mkdir(parents=True, exist_ok=True)
-        (self.plugin_dir / "plugin.json").write_text(json.dumps({
-            "id": self.plugin_id,
-            "name": "Sample Plugin",
-            "version": "0.1.0",
-            "description": "Dynamic fixture plugin for testing ThetaIDE plugin system.",
-            "author": "ThetaIDE Test",
-            "default_enabled": False,
-            "entry_point": "SamplePlugin",
-        }), encoding="utf-8")
-        
-        (self.plugin_dir / "__init__.py").write_text("""
+SAMPLE_PLUGIN_JSON = {
+    "id": "sample_plugin",
+    "name": "Sample Plugin",
+    "version": "0.1.0",
+    "description": "Dynamic fixture plugin for testing ThetaIDE plugin system.",
+    "author": "ThetaIDE Test",
+    "default_enabled": False,
+    "entry_point": "SamplePlugin",
+}
+
+SAMPLE_PLUGIN_SOURCE = """
 from PyQt6.QtWidgets import QLabel
-from frontend.plugins.base import Plugin
+from src.app.api.desktop import Plugin
 
 class SamplePlugin(Plugin):
     def activate(self, context):
@@ -60,9 +50,41 @@ class SamplePlugin(Plugin):
         if self.context:
             self.context.remove_sidebar_tab("sample_plugin")
             self.context = None
-""")
+"""
+
+
+@unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
+class TestPluginSystem(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp(prefix="theta_test_plugins_")
+
+        # Install a dynamic fixture plugin as a native package, as the Hub would.
+        self.plugin_id = "sample_plugin"
+        self.workspace = Path(self.temp_dir) / "workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self._install_sample()
 
         self.window = Window(data_dir=self.temp_dir, workspace=self.workspace)
+
+    def _install_sample(self):
+        from zipfile import ZipFile
+        from src.app.components.installer import HubInstaller
+        from src.app.components.models import HubComponent, ReleaseInfo
+        from src.app.workspace import WorkspacePaths
+        meta = {"id": self.plugin_id, "name": "Sample Plugin", "kind": "plugin", "version": "0.1.0",
+                "storage_version": 2, "api_version": 1,
+                "payload": {"implementations": ["__init__.py"], "resources": [], "configs": {}},
+                "capabilities": [{"id": self.plugin_id, "kind": "plugin", "entry_point": "__init__.py:SamplePlugin"}]}
+        archive = Path(self.temp_dir) / f"{self.plugin_id}-0.1.0.zip"
+        with ZipFile(archive, "w") as bundle:
+            bundle.writestr(".theta_component.json", json.dumps(meta))
+            bundle.writestr("plugin.json", json.dumps(SAMPLE_PLUGIN_JSON))
+            bundle.writestr("__init__.py", SAMPLE_PLUGIN_SOURCE)
+        component = HubComponent.from_dict(meta)
+        component.releases = {"0.1.0": ReleaseInfo("0.1.0", archive.as_uri(), "")}
+        installer = HubInstaller(self.workspace, WorkspacePaths(self.workspace).data_dir)
+        installer.install(component, install_dependencies=False)
+        self.plugin_dir = installer.resolve_target_dir(component)
 
     def tearDown(self):
         if hasattr(self, "window"):
@@ -147,6 +169,7 @@ class SamplePlugin(Plugin):
 
     def test_settings_toggle_slider_interaction(self):
         """Toggling the slider in the Settings card enables/disables the plugin."""
+        self.window.settings_view.build_pages()  # settings pages are built on first open
         self.assertIn("sample_plugin", self.window.plugin_sliders)
         slider = self.window.plugin_sliders["sample_plugin"]
         self.assertFalse(slider.isChecked())
@@ -165,6 +188,7 @@ class SamplePlugin(Plugin):
 
     def test_uninstalled_plugin_lifecycle_and_disappearance(self):
         """Uninstalling a plugin removes its directory from disk and from Settings UI."""
+        self.window.settings_view.build_pages()  # settings pages are built on first open
         manager = self.window.plugin_manager
         self.assertIn("sample_plugin", manager.manifests)
         self.assertIn("sample_plugin", self.window.plugin_sliders)
@@ -182,17 +206,8 @@ class SamplePlugin(Plugin):
         manager.discover()
         self.assertNotIn("sample_plugin", manager.manifests)
 
-        # Simulate re-installing plugin archive into data_dir (e.g. from Hub)
-        self.plugin_dir.mkdir(parents=True, exist_ok=True)
-        (self.plugin_dir / "plugin.json").write_text(json.dumps({
-            "id": self.plugin_id,
-            "name": "Sample Plugin",
-            "version": "0.1.0",
-            "description": "Dynamic fixture plugin for testing ThetaIDE plugin system.",
-            "author": "ThetaIDE Test",
-            "default_enabled": False,
-            "entry_point": "SamplePlugin",
-        }), encoding="utf-8")
+        # Simulate re-installing the plugin archive (e.g. from Hub)
+        self._install_sample()
 
         # Re-discovery naturally restores it without needing blacklist manipulation
         manager.discover()

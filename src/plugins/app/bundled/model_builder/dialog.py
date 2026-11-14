@@ -27,8 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.plugins.components.bundled.sequential_spec.sequential_spec import LAYER_KINDS
-from frontend.theme import theme_color
-from frontend.widgets import SpinBox as QSpinBox, DoubleSpinBox as QDoubleSpinBox
+from src.app.api.desktop import DoubleSpinBox as QDoubleSpinBox, SpinBox as QSpinBox, theme_color
 from .canvas import GraphCanvas, LayerPalette
 from .graph import GraphNode, ModelGraph, model_config_yaml
 

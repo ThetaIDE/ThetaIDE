@@ -4,8 +4,7 @@ from typing import Optional
 
 from PyQt6.QtWidgets import QPushButton
 
-from frontend.plugins.base import Plugin, PluginManifest
-from frontend.plugins.context import PluginContext
+from src.app.api.desktop import Plugin, PluginContext, PluginManifest
 
 from .panel import TensorBoardPanel
 from .server import TensorBoardServer
@@ -23,7 +22,9 @@ class TensorBoardPlugin(Plugin):
     def activate(self, context: PluginContext) -> None:
         """Mount TensorBoard sidebar tab, extension slot button, and hotkeys."""
         self.context = context
-        self.server = TensorBoardServer(parent=context.window)
+        paths = context.workspace_paths()
+        self.server = TensorBoardServer(parent=context.parent_widget(), logdir=paths.results / "tensorboard",
+                                        working_dir=paths.root)
         # Register tracker callback so context supervises and terminates server process on shutdown
         self.server.set_tracker_callback(context.track_process)
 

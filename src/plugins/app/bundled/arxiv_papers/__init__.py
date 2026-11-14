@@ -1,8 +1,7 @@
 """arXiv Papers core plugin: search arXiv for the papers behind ThetaIDE's components, by tag."""
 from __future__ import annotations
 
-from frontend.plugins.base import Plugin, PluginManifest
-from frontend.plugins.context import PluginContext
+from src.app.api.desktop import Plugin, PluginContext, PluginManifest
 
 from .panel import ArxivPanel
 

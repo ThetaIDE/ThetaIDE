@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from frontend.plugins.base import Plugin, PluginManifest
-from frontend.plugins.context import PluginContext
+from src.app.api.desktop import Plugin, PluginContext, PluginManifest
 
 from .panel import DocumentationPanel
 

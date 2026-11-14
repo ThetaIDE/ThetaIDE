@@ -19,6 +19,7 @@ from frontend.editor_service import EditorService
 from frontend.plugins.core.text_editor.documents import Document, FileConflictError
 from frontend.plugins.core.text_editor.panel import TextEditorPanel
 from frontend.settings import SettingsManager
+from src.app.workspace import WorkspacePaths
 from frontend.theme import ThemeManager
 
 _app = None
@@ -47,8 +48,9 @@ def qapp():
 def panel(qapp, tmp_path):
     settings = SettingsManager(tmp_path)
     theme = ThemeManager(tmp_path / ".appearance.json")
-    window = SimpleNamespace(settings_manager=settings, theme_manager=theme)
-    instance = TextEditorPanel(SimpleNamespace(window=window))
+    from frontend.plugins.context import PluginContext
+    window = SimpleNamespace(settings_manager=settings, theme_manager=theme, workspace_paths=WorkspacePaths(tmp_path))
+    instance = TextEditorPanel(PluginContext("text_editor", window, tmp_path / "plugin.json"))
     instance.resize(1100, 680)
     instance.show()
     errors = []
@@ -293,6 +295,10 @@ def host(qapp, tmp_path):
         patch.object(Window, "init_default_experiment", lambda self: None),
     ):
         window = Window(tmp_path)
+    # The editor starts its renderer when first shown, and settings pages build on
+    # first open; a visible host with built pages matches what the user interacts with.
+    window.show()
+    window.settings_view.build_pages()
     yield window
     window.close()
 
@@ -306,8 +312,8 @@ def test_host_enable_default_settings_and_disable_cancel(host, tmp_path):
     assert host.settings_manager.default_text_editor == "text_editor"
     assert host.settings_view.default_editor_combo.currentData() == "text_editor"
     instance = manager.instances["text_editor"]
+    host.tabs.setCurrentWidget(instance.panel)  # the renderer starts when the editor is first shown
     pump_until(lambda: instance.panel._ready)
-    host.tabs.setCurrentWidget(instance.panel)
     host.menu_actions["new_experiment"].trigger()
     evaluate(
         instance.panel,
@@ -335,9 +341,9 @@ def test_host_enable_default_settings_and_disable_cancel(host, tmp_path):
 def test_host_settings_file_routing_menu_save_and_restart_preference(host):
     assert host.plugin_manager.enable_plugin("text_editor")
     panel = host.plugin_manager.instances["text_editor"].panel
-    pump_until(lambda: panel._ready)
-    host.open_settings_file()
+    host.open_settings_file()  # routing a file shows the editor, which starts its renderer
     assert host.tabs.currentWidget() is panel
+    pump_until(lambda: panel._ready)
     assert panel.current_document.path == host.settings_manager.workspace_settings_path
     evaluate(
         panel,

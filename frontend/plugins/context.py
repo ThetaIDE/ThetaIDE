@@ -1,6 +1,7 @@
 """PluginContext host API facade providing controlled IDE access to plugins."""
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -15,13 +16,42 @@ if TYPE_CHECKING:
     from ..app import Window
 
 
-class PluginContext:
-    """The host execution context passed to a Plugin when it is activated."""
+class _SectionStore:
+    """``get``/``set`` access to one section of the host settings."""
 
-    def __init__(self, plugin_id: str, window: Window, storage_file: Path):
+    def __init__(self, settings, section: str):
+        self._settings = settings
+        self._section = section
+
+    def _check(self, section: str) -> None:
+        if section != self._section:
+            raise PermissionError(f"Plugin settings access is limited to the {self._section!r} section")
+
+    def get(self, section: str, *keys: str, default: Any = None) -> Any:
+        self._check(section)
+        return self._settings.get(section, *keys, default=default)
+
+    def set(self, section: str, *keys_and_value: Any) -> None:
+        self._check(section)
+        self._settings.set(section, *keys_and_value)
+
+
+class PluginContext:
+    """The host execution context passed to a Plugin when it is activated.
+
+    This is the supported host facade of Theta SDK 1.0 (``src.app.api.desktop``).
+    Plugins use its services rather than attributes of the host window; every
+    registration made through it is undone by ``cleanup``.
+    """
+
+    def __init__(self, plugin_id: str, window: Window, storage_file: Path, *, activated_explicitly: bool = False):
         self.plugin_id = plugin_id
         self._window = window
         self._storage_file = storage_file
+        self._activated_explicitly = bool(activated_explicitly)
+        self._editor_registered = False
+        self._appearance_listeners: List[Callable[[], None]] = []
+        self._hub_listeners: Dict[Callable[[], None], Callable[..., None]] = {}
         self._registered_tabs: List[str] = []
         self._experiment_listeners: List[Callable[[Optional[str], Optional[str]], None]] = []
         self._storage_cache: Optional[Dict[str, Any]] = None  # lazy-loaded on first access
@@ -31,8 +61,21 @@ class PluginContext:
 
     @property
     def window(self) -> Window:
-        """The main IDE window instance."""
+        """The main IDE window instance.
+
+        Transitional and unsupported: window attributes are private host
+        implementation. Use the context services instead; bundled plugins do.
+        """
         return self._window
+
+    @property
+    def activated_explicitly(self) -> bool:
+        """True when the user enabled the plugin now, False when restoring saved state."""
+        return self._activated_explicitly
+
+    def parent_widget(self) -> Optional[QWidget]:
+        """Host widget to parent dialogs and Qt objects to. Treat it as an opaque QWidget."""
+        return self._window if isinstance(self._window, QWidget) else None
 
     # ── Sidebar & UI Contributions ──────────────────────────────────────────
 
@@ -207,21 +250,25 @@ class PluginContext:
 
     # ── Workspace & Environment ──────────────────────────────────────────────
 
+    def workspace_paths(self):
+        """The host's selected `WorkspacePaths` (workspace, state and application roots).
+
+        Plugins resolve research inputs, results and state from this object rather than
+        from the process CWD or application module constants.
+        """
+        paths = getattr(self._window, "workspace_paths", None)
+        if paths is None:
+            from src.app.workspace import WorkspacePaths
+            paths = WorkspacePaths.for_process()
+        return paths
+
     def get_workspace_dir(self) -> Path:
         """Return the root workspace directory."""
-        if hasattr(self._window, "store"):
-            root = getattr(self._window.store, "root", getattr(self._window.store, "data_dir", None))
-            if root:
-                return Path(root).resolve().parent
-        return Path.cwd()
+        return self.workspace_paths().root
 
     def get_data_dir(self) -> Path:
         """Return the ThetaIDE internal data/storage directory."""
-        if hasattr(self._window, "store"):
-            root = getattr(self._window.store, "root", getattr(self._window.store, "data_dir", None))
-            if root:
-                return Path(root)
-        return Path.cwd() / ".thetaide"
+        return self.workspace_paths().data_dir
 
     def log(self, message: str) -> None:
         """Log a message to the IDE console / status log."""
@@ -237,6 +284,148 @@ class PluginContext:
             status_bar = self._window.statusBar()
             if status_bar:
                 status_bar.showMessage(message, timeout_ms)
+
+    def mark_startup(self, event: str, **details: Any) -> None:
+        """Record a startup-trace event (a no-op unless startup tracing is enabled)."""
+        from ..startup import mark
+        mark(event, plugin=self.plugin_id, **details)
+
+    # ── Editors, Appearance & Configuration ──────────────────────────────────
+
+    def register_editor(
+        self,
+        name: str,
+        open_file: Callable[..., bool],
+        open_folder: Optional[Callable[..., bool]] = None,
+        prepare_copy: Optional[Callable[[], bool]] = None,
+        *,
+        make_default: bool = False,
+    ) -> None:
+        """Offer this plugin as a text-editor provider for host file actions.
+
+        ``open_file(path, line=None, column=None)`` opens one file; ``open_folder(root, **kw)``
+        opens a component folder; ``prepare_copy()`` may refuse a component copy while
+        unsaved buffers exist. ``make_default`` selects this provider as the user's
+        default editor (do so only when the user enabled the plugin explicitly).
+        """
+        service = getattr(self._window, "editor_service", None)
+        if service is None:
+            return
+        service.register(self.plugin_id, name, open_file, open_folder, prepare_copy)
+        self._editor_registered = True
+        settings = getattr(self._window, "settings_manager", None)
+        if make_default and settings is not None:
+            settings.default_text_editor = self.plugin_id
+
+    def unregister_editor(self) -> None:
+        """Withdraw this plugin's editor provider."""
+        service = getattr(self._window, "editor_service", None)
+        if service is not None and self._editor_registered:
+            service.unregister(self.plugin_id)
+        self._editor_registered = False
+
+    def editor_preference(self, key: str, default: Any = None) -> Any:
+        """A user preference from the host's editor settings page (e.g. ``wrap_lines``)."""
+        settings = getattr(self._window, "settings_manager", None)
+        return default if settings is None else settings.get("editor", key, default=default)
+
+    def set_editor_preference(self, key: str, value: Any) -> None:
+        """Update a host editor preference; the host settings page shows the change."""
+        settings = getattr(self._window, "settings_manager", None)
+        if settings is not None:
+            settings.set("editor", key, value)
+
+    def ui_zoom(self) -> float:
+        """The user's interface zoom factor."""
+        settings = getattr(self._window, "settings_manager", None)
+        return float(getattr(settings, "zoom", 1.0) or 1.0)
+
+    def add_appearance_listener(self, callback: Callable[[], None]) -> None:
+        """Call ``callback()`` after the theme or appearance settings change."""
+        if callback in self._appearance_listeners:
+            return
+        for source in self._appearance_sources():
+            source.changed.connect(callback)
+        self._appearance_listeners.append(callback)
+
+    def remove_appearance_listener(self, callback: Callable[[], None]) -> None:
+        """Stop calling a listener added with ``add_appearance_listener``."""
+        if callback not in self._appearance_listeners:
+            return
+        self._appearance_listeners.remove(callback)
+        for source in self._appearance_sources():
+            try:
+                source.changed.disconnect(callback)
+            except (TypeError, RuntimeError):
+                pass
+
+    def _appearance_sources(self):
+        return [source for source in (getattr(self._window, "theme_manager", None),
+                                      getattr(self._window, "settings_manager", None))
+                if source is not None and hasattr(source, "changed")]
+
+    def tree_toolbar_store(self):
+        """Settings store for shared tree toolbars (pass as ``settings_manager`` to
+        ``TreeToolbarPersistence`` widgets), or None when the host keeps no settings.
+        Access is limited to the host's tree-toolbar section."""
+        settings = getattr(self._window, "settings_manager", None)
+        return None if settings is None else _SectionStore(settings, "filetree")
+
+    # ── Component Hub ────────────────────────────────────────────────────────
+
+    def hub_components(self) -> List[Dict[str, Any]]:
+        """Hub index entries (``id``, ``name``, ``kind``, ``tags``, ``description``).
+
+        Uses the loaded index, else the last cached copy; empty when neither exists.
+        """
+        client = getattr(self._window, "hub_client", None)
+        if client is None:
+            return []
+        records = [{"id": c.id, "name": c.name, "kind": c.kind, "tags": list(c.tags or []),
+                    "description": c.description} for c in (getattr(client, "components", None) or [])]
+        cache_file = getattr(client, "cache_file", None)
+        if not records and cache_file and Path(cache_file).is_file():
+            try:
+                data = json.loads(Path(cache_file).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            records = [dict(item) for item in (data.get("components", []) if isinstance(data, dict) else [])
+                       if isinstance(item, dict) and item.get("id")]
+        return records
+
+    def add_hub_index_listener(self, callback: Callable[[], None]) -> None:
+        """Call ``callback()`` whenever the Hub index finishes loading."""
+        client = getattr(self._window, "hub_client", None)
+        if client is None or not hasattr(client, "indexLoaded") or callback in self._hub_listeners:
+            return
+        relay = lambda *_args: callback()  # noqa: E731 - disconnected in remove/cleanup
+        client.indexLoaded.connect(relay)
+        self._hub_listeners[callback] = relay
+
+    def remove_hub_index_listener(self, callback: Callable[[], None]) -> None:
+        """Stop calling a listener added with ``add_hub_index_listener``."""
+        relay = self._hub_listeners.pop(callback, None)
+        client = getattr(self._window, "hub_client", None)
+        if relay is not None and client is not None:
+            try:
+                client.indexLoaded.disconnect(relay)
+            except (TypeError, RuntimeError):
+                pass
+
+    def is_managed_file(self, path: Union[str, Path]) -> bool:
+        """True for files of an installed (non-user) package; edit a user override instead."""
+        client = getattr(self._window, "hub_client", None)
+        return bool(client is not None and client.installer.is_installed_file(path))
+
+    def config_catalog(self, force_reload: bool = False):
+        """The host's parsed configuration catalog for the selected workspace, or None."""
+        from ..config_panel.catalogs import config_tree
+        return config_tree(force_reload)
+
+    def notify_config_files_changed(self) -> None:
+        """Tell the host that configuration files changed on disk, so catalogs reload."""
+        from ..config_panel.catalogs import invalidate_config_tree
+        invalidate_config_tree()
 
     # ── Experiment State & Event Subscriptions ───────────────────────────────
 
@@ -362,6 +551,13 @@ class PluginContext:
         for cmd_id in list(self._registered_commands):
             self.unregister_command(cmd_id)
 
-        # 5. Clear listeners and caches
+        # 5. Withdraw editor providers and appearance listeners
+        self.unregister_editor()
+        for callback in list(self._appearance_listeners):
+            self.remove_appearance_listener(callback)
+        for callback in list(self._hub_listeners):
+            self.remove_hub_index_listener(callback)
+
+        # 6. Clear listeners and caches
         self._experiment_listeners.clear()
         self._storage_cache = None

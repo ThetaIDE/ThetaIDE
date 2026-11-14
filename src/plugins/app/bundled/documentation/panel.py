@@ -33,14 +33,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from frontend.sidetabs import svg_icon
-from frontend.theme import current_theme, theme_color
-from frontend.widgets import label
+from src.app.api.desktop import current_theme, label, svg_icon, theme_color
 
 from .content import ARTICLES, DocArticle, search_articles
 
 if TYPE_CHECKING:
-    from frontend.plugins.context import PluginContext
+    from src.app.api.desktop import PluginContext
 
 _BUTTON_ICON_COLORS = {(QIcon.Mode.Normal, QIcon.State.Off): "text"}
 _SEARCH_ICON_COLORS = {(QIcon.Mode.Normal, QIcon.State.Off): "muted"}
