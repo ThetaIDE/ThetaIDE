@@ -34,9 +34,21 @@ def test_dev_backend_and_python_are_explicit():
     assert execution_backend({"agent": "sb3-dev/ppo"})[0] == "sb3"
 
 
-def test_old_selected_hub_profile_fails():
-    with pytest.raises((ValueError, ConfigurationError), match="Removed execution fields|future compatible release"):
-        resolve_engine({"agent": "sb3/ppo"})
+def test_a_selected_package_profile_with_a_script_entrypoint_fails(tmp_path):
+    """A package profile written for the removed script contract is rejected, naming its owner."""
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(tmp_path, application=tmp_path / "empty-app")
+    package = paths.user("package") / "legacy-runner"
+    (package / "configs/agent/legacy").mkdir(parents=True)
+    (package / "runner.py").write_text("def execute(cfg, context):\n    raise AssertionError\n")
+    (package / "configs/agent/legacy/ppo.yaml").write_text("algorithm: legacy/ppo\nentrypoint: package://legacy-runner/runner.py\n")
+    (package / ".theta_component.json").write_text(json.dumps({
+        "id": "legacy-runner", "name": "Legacy", "kind": "method", "version": "1.0.0", "storage_version": 3, "api_version": 1,
+        "capabilities": [{"id": "legacy/ppo", "kind": "algorithm", "entry_point": "runner.py:execute", "execution_contract": 1,
+                          "backend": "legacy", "paradigms": ["online_rl"]}],
+        "payload": {"implementations": ["runner.py"], "resources": [], "configs": {"agent/legacy/ppo.yaml": "configs/agent/legacy/ppo.yaml"}}}))
+    with pytest.raises((ValueError, ConfigurationError), match=r"Removed execution fields: agent profile legacy/ppo \(legacy-runner@1.0.0\)\.entrypoint"):
+        resolve_engine({"agent": "legacy/ppo"}, paths=paths)
 
 
 def sentinel_workspace(tmp_path, runner="Sentinel"):
@@ -144,6 +156,9 @@ def test_configured_evaluator_runs_once():
 
 def test_pipeline_sweep_invokes_worker_once_per_trial(tmp_path):
     root = sentinel_workspace(tmp_path)
+    # Tuning is an optional component; install Optuna into this workspace like any package.
+    from component_fixtures import install_optional
+    install_optional(tmp_path, 'optuna', tmp_path / 'optional-archives')
     experiment = tmp_path / 'src/usr/config/experiment/probe.yaml'
     with experiment.open('a') as handle:
         handle.write('    tune:\n      model.lr: {type: choice, values: [0.001, 0.002]}\n')

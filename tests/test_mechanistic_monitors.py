@@ -235,7 +235,7 @@ def test_post_update_boundary_counts_optimizer_steps_and_restores_wrapper():
 
 def test_preflight_rejects_unsupported_runner_and_invalid_params():
     catalog = get_catalog()
-    cfg = {**monitor_cfg(), "agent": {"name": "sb3-dev/sac", "entrypoint": "package://sb3-dev/sb3_runner.py"}}
+    cfg = {**monitor_cfg(), "agent": {"name": "sb3-dev/sac"}}
     with pytest.raises(ValueError, match="lacks required hooks"):
         validate_context(cfg, catalog=catalog)
     cfg["agent"]["name"] = "sb3-dev/dqn"
