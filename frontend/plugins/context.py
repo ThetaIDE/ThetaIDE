@@ -5,8 +5,11 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
-from PyQt6.QtCore import QObject, QProcess
-from PyQt6.QtWidgets import QWidget
+import re
+
+from PyQt6.QtCore import QObject, QProcess, Qt
+from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtWidgets import QDockWidget, QMainWindow, QWidget
 
 from src.app.services.processes import kill_process_tree
 from .commands import Command
@@ -58,6 +61,10 @@ class PluginContext:
         self._tracked_processes: List[QProcess] = []
         self._contributed_actions: List[Tuple[str, str]] = []  # (slot_id, action_id)
         self._registered_commands: List[str] = []
+        self._command_hotkeys: Dict[str, Tuple[str, Callable[[], None]]] = {}  # id -> (default, callback)
+        self._hotkey_shortcuts: Dict[str, QShortcut] = {}
+        self._hotkeys_follow_settings = False
+        self._docks: Dict[str, QDockWidget] = {}
 
     @property
     def activated_explicitly(self) -> bool:
@@ -129,6 +136,41 @@ class PluginContext:
             if entry and "widget" in entry:
                 self._window.tabs.setCurrentWidget(entry["widget"])
 
+    def add_dock_widget(
+        self,
+        dock_id: str,
+        widget: QWidget,
+        title: str,
+        area: Qt.DockWidgetArea = Qt.DockWidgetArea.RightDockWidgetArea,
+    ) -> Optional[QDockWidget]:
+        """Dock `widget` beside the editor area (right side by default) and return the dock.
+
+        The plugin may show, hide, raise and resize the returned dock. Returns None when the
+        host has no main window. The dock is withdrawn by `remove_dock_widget` or on deactivation;
+        the plugin keeps ownership of `widget`.
+        """
+        if not isinstance(self._window, QMainWindow):
+            return None
+        self.remove_dock_widget(dock_id)
+        dock = QDockWidget(title, self._window)
+        dock.setObjectName(f"plugin.{self.plugin_id}.{dock_id}")
+        dock.setWidget(widget)
+        self._window.addDockWidget(area, dock)
+        self._docks[dock_id] = dock
+        return dock
+
+    def remove_dock_widget(self, dock_id: str) -> None:
+        """Withdraw a dock added by `add_dock_widget`; its widget is detached, not deleted."""
+        dock = self._docks.pop(dock_id, None)
+        if dock is None:
+            return
+        widget = dock.widget()
+        if widget is not None:
+            widget.setParent(None)
+        if isinstance(self._window, QMainWindow):
+            self._window.removeDockWidget(dock)
+        dock.deleteLater()
+
     def open_settings(self, page: Optional[str] = None) -> None:
         """Open Settings (not a sidebar tab, so select_sidebar_tab can't), on `page` (e.g. "hotkeys") if given."""
         if hasattr(self._window, "show_settings"):
@@ -182,7 +224,12 @@ class PluginContext:
         icon: Optional[str] = None,
         detail: str = "",
     ) -> Command:
-        """Register an executable command discoverable via launcher and hotkeys."""
+        """Register a command for the launcher, bound to an application-wide hotkey.
+
+        `default_hotkey` (for example "Ctrl+Shift+Space") applies until the user sets a
+        `[shortcuts] <command_id>` value in Settings; an empty value there disables it.
+        Rebinding follows settings changes; `command_hotkey` reports the effective hotkey.
+        """
         cmd = Command(
             command_id=command_id,
             title=title,
@@ -198,6 +245,8 @@ class PluginContext:
             self._window.command_registry.register_command(cmd)
             if command_id not in self._registered_commands:
                 self._registered_commands.append(command_id)
+        self._command_hotkeys[command_id] = (default_hotkey or "", callback)
+        self._bind_hotkey(command_id)
         return cmd
 
     def unregister_command(self, command_id: str) -> None:
@@ -206,6 +255,45 @@ class PluginContext:
             self._window.command_registry.unregister_command(command_id)
         if command_id in self._registered_commands:
             self._registered_commands.remove(command_id)
+        self._command_hotkeys.pop(command_id, None)
+        self._unbind_hotkey(command_id)
+
+    def command_hotkey(self, command_id: str) -> str:
+        """The hotkey a registered command currently answers to ('' when it has none).
+
+        This is the user's `[shortcuts] <command_id>` setting when present, else the default.
+        Settings nest a dotted ID: `orbit.toggle` is `[shortcuts.orbit] toggle`.
+        """
+        default = self._command_hotkeys.get(command_id, ("", None))[0]
+        settings = getattr(self._window, "settings_manager", None)
+        value = settings.get("shortcuts", *command_id.split("."), default=None) if settings is not None else None
+        return value if isinstance(value, str) else default
+
+    def _bind_hotkey(self, command_id: str) -> None:
+        self._unbind_hotkey(command_id)
+        entry = self._command_hotkeys.get(command_id)
+        # Same normalization as host menu shortcuts: "cmd"/"command" mean Ctrl.
+        sequence = re.sub(r"(?i)\b(cmd|command)\b", "Ctrl", self.command_hotkey(command_id).strip())
+        if entry is None or not sequence or not isinstance(self._window, QWidget):
+            return
+        shortcut = QShortcut(QKeySequence(sequence), self._window)
+        shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        shortcut.activated.connect(entry[1])
+        self._hotkey_shortcuts[command_id] = shortcut
+        settings = getattr(self._window, "settings_manager", None)
+        if not self._hotkeys_follow_settings and settings is not None and hasattr(settings, "changed"):
+            settings.changed.connect(self._rebind_hotkeys)
+            self._hotkeys_follow_settings = True
+
+    def _unbind_hotkey(self, command_id: str) -> None:
+        shortcut = self._hotkey_shortcuts.pop(command_id, None)
+        if shortcut is not None:
+            shortcut.setEnabled(False)
+            shortcut.deleteLater()
+
+    def _rebind_hotkeys(self) -> None:
+        for command_id in list(self._command_hotkeys):
+            self._bind_hotkey(command_id)
 
     # ── Process Management & Supervision ─────────────────────────────────────
 
@@ -538,9 +626,17 @@ class PluginContext:
         for slot_id, action_id in list(self._contributed_actions):
             self.remove_from_slot(slot_id, action_id)
 
-        # 4. Remove registered commands
-        for cmd_id in list(self._registered_commands):
+        # 4. Remove registered commands, their hotkeys and docks
+        for cmd_id in list(self._registered_commands) + list(self._command_hotkeys):
             self.unregister_command(cmd_id)
+        if self._hotkeys_follow_settings:
+            try:
+                self._window.settings_manager.changed.disconnect(self._rebind_hotkeys)
+            except (TypeError, RuntimeError):
+                pass
+            self._hotkeys_follow_settings = False
+        for dock_id in list(self._docks):
+            self.remove_dock_widget(dock_id)
 
         # 5. Withdraw editor providers and appearance listeners
         self.unregister_editor()

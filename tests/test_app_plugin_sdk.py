@@ -209,3 +209,57 @@ def test_bundled_plugins_declare_the_sdk_range_they_use():
     for manifest in manifests:
         spec = json.loads(manifest.read_text()).get("sdk")
         assert spec and sdk_requirement_error(spec) is None, manifest
+
+
+def test_dock_and_hotkey_services_follow_settings_and_cleanup(qapp, tmp_path):
+    from PyQt6.QtWidgets import QMainWindow, QWidget
+
+    from frontend.plugins.commands import CommandRegistry
+    from frontend.plugins.context import PluginContext
+    from frontend.settings import SettingsManager
+
+    class Host(QMainWindow):
+        def __init__(self):
+            super().__init__()
+            self.settings_manager = SettingsManager(tmp_path / "state")
+            self.command_registry = CommandRegistry()
+
+        def log(self, message):
+            pass
+
+    window = Host()
+    context = PluginContext("orbit", window, tmp_path / "orbit.json")
+    panel = QWidget()
+    dock = context.add_dock_widget("side", panel, "Orbit")
+    assert dock is not None and dock.widget() is panel and window.dockWidgetArea(dock).name == "RightDockWidgetArea"
+    assert dock.objectName() == "plugin.orbit.side"
+
+    hits = []
+    context.register_command("orbit.toggle", "Orbit: toggle", lambda: hits.append(1), default_hotkey="Ctrl+Shift+Space")
+    assert context.command_hotkey("orbit.toggle") == "Ctrl+Shift+Space"
+    shortcut = context._hotkey_shortcuts["orbit.toggle"]
+    assert shortcut.key().toString() == "Ctrl+Shift+Space"
+    shortcut.activated.emit()
+    assert hits == [1]
+
+    # A Settings -> Hotkeys value replaces the default; an empty one disables the hotkey.
+    window.settings_manager.set("shortcuts", "orbit", "toggle", "Ctrl+Alt+O")
+    window.settings_manager.changed.emit()
+    assert context.command_hotkey("orbit.toggle") == "Ctrl+Alt+O"
+    assert context._hotkey_shortcuts["orbit.toggle"].key().toString() == "Ctrl+Alt+O"
+    window.settings_manager.set("shortcuts", "orbit", "toggle", "")
+    window.settings_manager.changed.emit()
+    assert "orbit.toggle" not in context._hotkey_shortcuts
+
+    context.cleanup()
+    assert window.command_registry.get_command("orbit.toggle") is None
+    assert context._docks == {} and panel.parent() is None  # the plugin keeps its widget
+    window.settings_manager.set("shortcuts", "orbit", "toggle", "Ctrl+Alt+P")
+    window.settings_manager.changed.emit()
+    assert context._hotkey_shortcuts == {}
+
+
+def test_sdk_2_1_requirements_are_satisfied():
+    from src.app.api import SDK_VERSION, sdk_requirement_error
+    assert SDK_VERSION == "2.1"
+    assert sdk_requirement_error(">=2.1,<3") is None

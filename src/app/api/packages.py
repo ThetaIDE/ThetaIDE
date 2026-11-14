@@ -4,11 +4,14 @@
                                            manifest ``exports``. The calling package must list
                                            ``package_id`` in ``dependencies.components``, and a
                                            declared version range must match the installed version.
+    ``environment_resource(environment, relative)``
+                                           a file under the ``resource_root`` an environment
+                                           capability declares, for packages that pair with it.
 
 See docs/reference/PLUGIN_STORAGE.md#cross-package-exports.
 """
 from ._exports import lazy_exports
 
-_EXPORTS = {"provider_export": "src.app.core.provider_loader:provider_export"}
+_EXPORTS = {name: f"src.app.core.provider_loader:{name}" for name in ("provider_export", "environment_resource")}
 __all__ = sorted(_EXPORTS)
 __getattr__, __dir__ = lazy_exports(__name__, _EXPORTS)

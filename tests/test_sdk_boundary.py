@@ -1,42 +1,18 @@
 """Optional components, bundled component packages and bundled app plugins use only the supported Theta SDK."""
-import ast
 import importlib
-import re
 import sys
 from pathlib import Path
 
 import pytest
 
+from src.app.components.sdk_boundary import private_references, violations, window_access
+
 ROOT = Path(__file__).resolve().parents[1]
 GUARDED = [ROOT / "optional_components", ROOT / "src/plugins/components/bundled", ROOT / "src/plugins/app/bundled"]
-HOST = re.compile(r"^(src\.app|frontend)(\.|$)")
-SDK = re.compile(r"^src\.app\.api(\.|$)")
-# A string naming a private host module, e.g. a `python -m src.app.x` argument.
-MODULE_STRING = re.compile(r"^(src\.app|frontend)(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 
 def guarded_files():
     return sorted(p for root in GUARDED for p in root.rglob("*.py") if "__pycache__" not in p.parts)
-
-
-def private_references(path):
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    found = []
-    for node in ast.walk(tree):
-        names = []
-        if isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names = [node.module]
-        elif isinstance(node, ast.Call):
-            func = node.func
-            called = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
-            if called in ("__import__", "import_module") and node.args and isinstance(node.args[0], ast.Constant):
-                names = [str(node.args[0].value)]
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and MODULE_STRING.match(node.value):
-            names = [node.value]
-        found += [(node.lineno, name) for name in names if HOST.match(name) and not SDK.match(name)]
-    return sorted(set(found))
 
 
 def test_guarded_trees_exist():
@@ -49,10 +25,17 @@ def test_imports_only_the_supported_sdk(path):
 
 
 def test_bundled_plugins_do_not_reach_into_the_host_window():
-    pattern = re.compile(r"\bcontext\.window\b|\bcontext\._window\b|\.context\.window\b")
-    offenders = [f"{p.relative_to(ROOT)}:{n}" for p in guarded_files()
-                 for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1) if pattern.search(line)]
+    offenders = [f"{p.relative_to(ROOT)}:{n}" for p in guarded_files() for n in window_access(p)]
     assert offenders == []
+
+
+def test_violations_report_private_imports_and_window_access(tmp_path):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "a.py").write_text("from src.app.api.models import register_model\n"
+                                            "from src.app.core.types import ActionResult\n")
+    (tmp_path / "pkg" / "b.py").write_text("def f(context):\n    return context.window\n")
+    assert violations(tmp_path) == ["pkg/a.py:2: imports private host module src.app.core.types",
+                                    "pkg/b.py:2: reaches into the host window"]
 
 
 def test_the_checker_rejects_private_imports(tmp_path):
@@ -79,7 +62,8 @@ def test_sdk_exports_are_canonical_host_objects():
     assert tuning.ObjectiveResult is objectives.ObjectiveResult
     assert models.register_model is model_registry.register_model
     assert execution.task_worker_command("py", "a", 1) == ["py", "-u", "-m", "src.app.pipeline.task_worker", "a", "1"]
-    for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "desktop"):
+    for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "agents", "plotting",
+                   "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "desktop"):
         sdk = importlib.import_module(f"src.app.api.{module}")
         for name in sdk.__all__:
             assert getattr(sdk, name) is not None, f"src.app.api.{module}.{name}"
@@ -89,8 +73,9 @@ def test_sdk_exports_are_canonical_host_objects():
 
 def test_headless_sdk_imports_without_qt_or_optional_libraries():
     import subprocess
-    code = ("import sys\nfrom src.app.api import workspace, errors, config, execution, tuning, sites\n"
-            "for m in (workspace, errors, config, execution, tuning, sites):\n"
+    code = ("import sys\nfrom src.app.api import workspace, errors, config, execution, tuning, sites, packages,"
+            " evaluation, rulesets, telemetry\n"
+            "for m in (workspace, errors, config, execution, tuning, sites, packages, evaluation, rulesets, telemetry):\n"
             "    [getattr(m, n) for n in m.__all__]\n"
             "bad = [k for k in sys.modules if k.split('.')[0] in ('PyQt6', 'optuna', 'sqlalchemy')]\n"
             "assert not bad, bad\n")

@@ -1,4 +1,4 @@
-# Theta SDK (version 2.0)
+# Theta SDK (version 2.1)
 
 Packages import host functionality only from `src.app.api`. That covers components, app plugins and authored user packages. Everything else under `src.app` or `frontend` is private host implementation and may change without notice. The SDK became the supported surface in phase 3 of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md). At consolidation it moves to `src.ide.api`, with forwarding modules.
 
@@ -10,12 +10,17 @@ Every export is the canonical host object, so identity checks and pickles behave
 | `src.app.api.errors` | Actionable configuration errors (`ValueError`) | `ConfigurationError` |
 | `src.app.api.config` | Recipes and editable profiles | `parse_methods_dict`, `ConfigurationFiles` |
 | `src.app.api.execution` | Engines, worker processes, interpreters, resource admission | `resolve_engine`, `provider_worker_command`, `PROVIDER_WORKER_MODULE`, `task_worker_main`, `task_worker_command`, `TASK_WORKER_MODULE`, `saved_run_id`, `get_python_executable`, `get_shell_python_cmd`, `get_shell_env_block`, `ProcessOutput`, `kill_process_tree`, `cancellation_requested`, `ResourcePool`, `host_capacity`, `workload_estimate`, `uses_accelerator` |
-| `src.app.api.tuning` | [Portable tuner execution](TUNER_EXECUTION_CONTRACT.md), objectives, trial artifacts | `ObjectiveResult`, `RunResult`, `TrialResults`, `TunerExecutionPlan`, `TunerArtifact`, `TunerLaunchBindings`, `prepare_plan`, `launch_bindings`, `apply_overrides`, `record_plan`, `record_config`, `record_overrides`, `sqlite_snapshot`, `check_artifact_admission`, `request_artifact_snapshot`, `commit_artifact`, `objective_metric`, `objective_value`, `get_sweep_direction`, `trial_log_version`, `trial_checkpoint_dir`, `finish_trial_runs` |
+| `src.app.api.tuning` | [Portable tuner execution](TUNER_EXECUTION_CONTRACT.md), objectives, trial artifacts | `ObjectiveResult`, `RunResult`, `TrialResults`, `TunerExecutionPlan`, `TunerArtifact`, `TunerLaunchBindings`, `prepare_plan`, `launch_bindings`, `apply_overrides`, `record_plan`, `record_config`, `record_overrides`, `sqlite_snapshot`, `check_artifact_admission`, `request_artifact_snapshot`, `commit_artifact`, `objective_metric`, `objective_value`, `get_sweep_direction`, `trial_log_version`, `trial_checkpoint_dir`, `trial_checkpoint_dir_from_config`, `finish_trial_runs`, `trial_monitor` |
+| `src.app.api.telemetry` | Metrics from training engines outside Lightning | `init`, `Run`, `settings_from_config`, `selection_from_config` |
 | `src.app.api.sites` | Remote sites for [scheduler components](SCHEDULER_CONTRACT.md) | `profiles`, `site_name`, `load_site`, `defaults_path`, `connection`, `push`, `ssh_arguments`, `rsync_shell`, `safe_path`, `digest`, `read_json`, `write_json`, `record_lock`, `transfer_lock`, `freeze`, `extract`, `receipt_path`, `close_unfinished_runs`, `TERMINAL`, `pin_continuation`, `restore_continuation`, `resolve_policy`, `stage_inputs`, `own_work_root`, `assert_local_scratch`, `Publisher`, `site_cli_command`, `SITE_CLI_MODULE` |
-| `src.app.api.models` | Model provider registration and construction (loads PyTorch) | `register_model`, `build_model`, `get_model_class` |
-| `src.app.api.agents` | Lightning agents of the base paradigms (loads Lightning) | `OnlineAgentBase`, `OfflineAgentBase`, `register_agent`, `get_agent_class` |
+| `src.app.api.models` | Model providers: registration, construction and the protocols the host detects (loads PyTorch) | `register_model`, `build_model`, `get_model_class`, `ActionResult`, `walk_model_modules`, `DynamicTopologyProtocol`, `ExtraStateProtocol`, `HasModelCallbacks` |
+| `src.app.api.agents` | Lightning agents and training components of the base paradigms (loads Lightning) | `OnlineAgentBase`, `OfflineAgentBase`, `register_agent`, `get_agent_class`, `list_registered_agents`, `register_component` |
+| `src.app.api.environments` | Environment providers (loads PyTorch) | `VectorizedBaseEnv`, `ActionCount` |
+| `src.app.api.data` | Data module providers and offline datasets | `BaseDataModule`, `register_datamodule`, `DatasetReader` |
+| `src.app.api.evaluation` | Evaluator providers | `register_evaluator` |
+| `src.app.api.rulesets` | Symbolic rulesets that model and environment packages own | `resolve_ruleset`, `available_rulesets`, `rules_folder_targets` |
 | `src.app.api.plotting` | Plotter capabilities and shared figure styling | `BasePlotter`, `PanelSpec`, `QUALITATIVE_PALETTE`, `clean_label`, `get_style`, `get_style_info`, `get_method_aliases`, `get_canonical_method_name`, `moving_average`, `deep_update` |
-| `src.app.api.packages` | [Declared cross-package exports](PLUGIN_STORAGE.md#cross-package-exports) | `provider_export` |
+| `src.app.api.packages` | [Declared cross-package exports](PLUGIN_STORAGE.md#cross-package-exports) and environment resources | `provider_export`, `environment_resource` |
 | `src.app.api.desktop` | App plugins and contributed Qt widgets (loads Qt) | `Plugin`, `PluginManifest`, `PluginContext`, `label`, `ComboBox`, `SpinBox`, `DoubleSpinBox`, `svg_icon`, `theme_color`, `current_theme`, `style_tool_button`, `refresh_tool_icons`, `TreeHeaderWidget`, `DraggableToolButton`, `TreeToolbarPersistence` |
 
 Scheduler components own submission, polling and cancellation. The host keeps transport, snapshots, receipts, publication and the user's resource and site policy. Start host processes with the command helpers (`provider_worker_command`, `task_worker_command`, `site_cli_command`) rather than writing host module paths. Use the `run_pipeline.py site ssh SITE` command for interactive login shortcuts.
@@ -29,7 +34,8 @@ Plotter constructors take the host's workspace and pass it on: `def __init__(sel
 | Services | Use |
 | --- | --- |
 | `add_sidebar_tab`, `remove_sidebar_tab`, `select_sidebar_tab`, `contribute_to_slot`, `remove_from_slot` | Contribute panels and slot actions |
-| `register_command`, `unregister_command` | Launcher commands and hotkeys |
+| `register_command`, `unregister_command`, `command_hotkey` | Launcher commands with an application-wide hotkey. `default_hotkey` applies until the user sets `[shortcuts] <command_id>` (a dotted ID nests); the binding follows settings changes, and an empty setting disables it |
+| `add_dock_widget`, `remove_dock_widget` | Dock a panel beside the editor area (right side by default). The plugin may show, hide and resize the returned `QDockWidget`; removing it detaches the plugin's widget without deleting it |
 | `get_setting`, `set_setting` | Plugin-scoped persistent values |
 | `spawn_process`, `track_process`, `parent_widget` | Supervised child processes; a parent for dialogs and Qt objects |
 | `workspace_paths`, `get_workspace_dir`, `get_data_dir` | The host's selected workspace and state directory |
@@ -42,7 +48,7 @@ Plotter constructors take the host's workspace and pass it on: `def __init__(sel
 
 ## Versioning and compatibility checks
 
-`src.app.api.SDK_VERSION` is `2.0`. Minor versions only add exports or context services; a major version may remove them. Every app plugin declares the range it was written for, such as `"sdk": ">=2.0,<3"`, in `plugin.json` or in its capability metadata. Before importing any plugin code, the host checks the range and refuses activation with a logged reason when it is missing, malformed or unsatisfied. All five bundled plugins declare `>=2.0,<3`.
+`src.app.api.SDK_VERSION` is `2.1`. Minor versions only add exports or context services; a major version may remove them. Version 2.1 added the environment, data, evaluation, ruleset and telemetry modules, the model protocols, `environment_resource`, the trial helpers, docks and bound command hotkeys. Every app plugin declares the range it was written for, such as `"sdk": ">=2.0,<3"` (or `">=2.1,<3"` when it uses a 2.1 service), in `plugin.json` or in its capability metadata. Before importing any plugin code, the host checks the range and refuses activation with a logged reason when it is missing, malformed or unsatisfied. All five bundled plugins declare `>=2.0,<3`.
 
 ## Enforcement
 
