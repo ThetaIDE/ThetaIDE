@@ -4,20 +4,31 @@ Branch: `implement/layer-boundaries`. The [implementation plan](../plans/LAYER_B
 
 ## Progress outline
 
-Snapshot as of 2026-11-14, after the phase 3 SDK delivery and the [desktop regression fixes](#desktop-regression-fixes--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
+Snapshot as of 2026-11-14, after the [pre-phase-4 cleanup](#pre-phase-4-cleanup--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
 
 | Phase (delivery) | State | Local gate | What is left |
 | --- | --- | --- | --- |
 | 0 — Contract and baseline (A) | Done | Met | — |
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
-| 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run; `THIRD_PARTY_LIBRARIES.md` regeneration. The extraction test debt is cleared ([phase 3 section](#phase-3-sdk-and-extraction-test-debt--2026-11-13-third-follow-up)) |
-| 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels; rebuilt-wheel distribution probe; SDK coverage of provider registration APIs (see phase 7) |
-| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists |
+| 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
+| 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
+| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists. Scope decided (below) |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
-| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled app plugins to every package; the exception register in [the contract](../reference/LAYER_BOUNDARIES.md) lists what retires |
+| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages; the exception register in [the contract](../reference/LAYER_BOUNDARIES.md) lists what retires |
 
 Phase 4 depends on the phase 3 consumers being ready, which they now are. The user decided its scope on 2026-11-14: hard cutover, no released-archive adapter (republish Hub components), backup plus manual restore, and historical results kept as records only (see the plan's [confirmed decisions](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+
+## Pre-phase-4 cleanup — 2026-11-14
+
+**Status:** the phase 2 and 3 items that could be finished locally are done. The branch's work is now committed in reviewable units.
+
+- **Commits.** The working tree was split by file into phases 0–1, 2 and 3, the desktop fixes, the config panel refactor and the documentation. Shared files went to one commit each, so intermediate commits are not individually tested; the final tree is the validated one.
+- **SDK 1.1.** `src.app.api.models` exports `register_model`, `build_model` and `get_model_class`. `src.app.api.tuning` adds `ObjectiveResult`, `RunResult` and `TrialResults`. The bundled `final_metric`, `learning_curve` and `sequential_spec` packages, the scaffolder templates, the documentation panel and the plugin-author guides use them. `tests/test_sdk_boundary.py` now also guards `src/plugins/components/bundled` (62 cases). Installed Hub packages and authored `src/usr` packages still import the private modules directly; the exception register records this.
+- **Third-party libraries.** `scripts/generate_third_party_libraries.py` regenerates `docs/reference/THIRD_PARTY_LIBRARIES.md` from `pyproject.toml`, the optional components' pip dependencies and installed metadata. Optuna and SQLAlchemy are listed under the Optuna component. `hydra-optuna-sweeper` is gone, because the component uses Theta's own sweeper. The `video` extra declares `pygame` (LGPL) and `vidmaker` (GPL-3.0), and no host code imports either.
+- **Installed distribution.** A fresh wheel and sdist (separate build base), installed into a clone of the baseline environment with its stale `src` removed, passed `verify_installed_distribution.py`. Headless imports stayed free of Qt, Optuna and SQLAlchemy, a clean workspace was unchanged, two workspaces agreed in GUI metadata, composition and a real worker (31 and 32), and a checkpoint reloaded after relocation. Bundled packages exclude Optuna and Slurm, and the wheel requires neither Optuna nor SQLAlchemy. The baseline environment still has Optuna and SQLAlchemy 2.1.8 installed from earlier, so rebuild it from scratch before the phase 6 gate.
+- **Tests.** The SDK, model-builder, sequential-spec, scaffolder, app-plugin, provider and documentation suites passed. Seven files with failures had identical failure sets with and without the change (38 failures from the categories recorded below). One `test_results_panel` case failed once and passed in three full reruns.
+- **Phase 4 input.** The probe writes a storage-v2 manifest with `in/config` destinations. Under the hard cutover it must move to the new destination representation in the same change.
 
 ## Desktop regression fixes — 2026-11-14
 
@@ -238,10 +249,9 @@ Delivery D explicit-selection validation: the final headless selection, portable
 
 ## Outstanding acceptance gates
 
-The isolated installed-distribution baseline, local representative continuation and override lifecycle gates now have direct evidence in the follow-up checklist above. Real cluster continuation remains external. Phase 1 retains the host-context and full desktop acceptance gaps listed there; legacy materialized profiles remain preserved rather than deduplicated.
+The [progress outline](#progress-outline) is the current summary; older dated sections above remain historical evidence.
 
-Phase 2's local extraction gate now has evidence (second follow-up above); its real-cluster acceptance and the components' dependency on private core modules remain. Phase 3 is ungated. Delivery C now supplies execution feature/resource contracts and removes the audited SB3/d3rlpy policy branches from execution/resource admission. Portable tuner artifact/continuation contracts and a non-Optuna remote fixture are now implemented. Contribution/readiness contracts, workspace enablement, tuner config-control gating and live tuner-monitor lifecycle integration are implemented. Optional Slurm/tuner components, site settings/commands/scheduler-monitor wiring, declared package exports and an independent scheduler fixture are now implemented. The versioned app host facade and an independent app-plugin fixture remain outstanding. Remaining Slurm-named core code is the registered API-1 adapters and the historical `results/slurm` receipt directory. Historical implicit tuner selection is now confined to the bounded pre-portable receipt adapter. The next dependent work is delivery E (app SDK and bundled-panel migration), which should also define the supported surface the optional components import.
-
-Phases 4–5 are pending: versioned config destinations, released archive adapter, locked journaled input/data migration with resume/rollback, reference/state rewriting, selected-provider execution bundles, old-job readers and real cluster smoke validation. Dataset bytes still use the legacy active root `in/datasets`; `src/usr/datasets` is the named migration destination. No migration command has been activated.
-
-Phases 6–7 are pending: `src/ide` consolidation, installed CLI entry points, checkpoint forwarding adapters, isolated wheel/sdist installation/desktop checks and strict whole-tree boundary enforcement. Existing aliases are retained. Lightning and the four base paradigms remain in core. No components were released to the Hub.
+- **External.** A real cluster smoke run (allocation, interruption, publication, synced monitor and continuation) and an interactive check of the installed desktop (editor, figures, export and the migrated panels) need the user's environment and authorization.
+- **Phase 4.** Versioned config destinations, the migration command (dry-run inventory and collisions, timestamped backup, idempotent rerun, workspace locks), config and dataset moves, reference and state rewriting, republished Hub archives and removal of `in/`. Dataset bytes still use `in/datasets`. No migration command exists.
+- **Phase 5.** Selected-provider execution bundles, versioned manifests and readers for existing jobs.
+- **Phases 6–7.** `src/ide` consolidation, installed CLI entry points, checkpoint forwarding adapters, installed desktop checks and boundary enforcement over every package. Existing aliases are retained. Lightning and the four base paradigms remain in core. No components have been released to the Hub.
