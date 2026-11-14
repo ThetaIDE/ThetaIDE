@@ -93,3 +93,11 @@ def test_configured_exports_must_use_the_export_scheme(workspace, reference):
     from src.app.api.packages import configured_export
     with pytest.raises(ValueError, match='export://<package>/<name>'):
         configured_export(reference, paths=workspace)
+
+
+def test_selected_capability_resolves_and_loads_a_configured_selector(workspace):
+    from src.app.api.packages import selected_capability
+    selected = selected_capability('component', 'LATTICE-LIB', paths=workspace)
+    assert (selected.package_id, selected.id, selected.kind) == ('lattice-lib', 'lattice-lib', 'component')
+    assert selected.load() == 1
+    assert selected_capability('component', 'absent', paths=workspace) is None

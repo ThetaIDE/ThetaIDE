@@ -1,5 +1,10 @@
 """Execution engines, worker processes, interpreters and resource admission.
 
+Algorithm adapters (execution contract v1, docs/reference/EXECUTION_CONTRACT.md)
+    ``RunResult``               what a runner's ``execute(cfg, context)`` returns. Not the
+                                objective input of the same name in ``src.app.api.tuning``.
+    ``TrainingCancelled``       raised when the coordinator cancels a run; let it propagate.
+
 Engines and workers
     ``resolve_engine``          the selected runner script and interpreter for a method.
     ``provider_worker_command`` shell command running an engine through the host worker.
@@ -24,6 +29,8 @@ PROVIDER_WORKER_MODULE = "src.app.pipeline.provider_worker"
 TASK_WORKER_MODULE = "src.app.pipeline.task_worker"
 
 _EXPORTS = {
+    "RunResult": "src.app.core.execution:RunResult",
+    "TrainingCancelled": "src.app.services.cancellation:TrainingCancelled",
     "resolve_engine": "src.app.pipeline.engine:resolve_engine",
     "task_worker_main": "src.app.pipeline.task_worker:main",
     "saved_run_id": "src.app.pipeline.result_paths:saved_run_id",

@@ -18,13 +18,11 @@ def execute(cfg, context):
     from d3rlpy.dataset import MDPDataset
     from d3rlpy.constants import ActionSpace
     from omegaconf import OmegaConf
-    from src.app import telemetry
-    from src.app.core.execution import RunResult
-    from src.app.core.provider_catalog import get_catalog
-    from src.app.core.provider_loader import load_capability
-    from src.app.dataset_utils import DatasetReader
-    from src.app.pipeline.trial_artifacts import trial_log_version
-    from src.app.services.cancellation import TrainingCancelled
+    from src.app.api import telemetry
+    from src.app.api.data import DatasetReader
+    from src.app.api.execution import RunResult, TrainingCancelled
+    from src.app.api.packages import selected_capability
+    from src.app.api.tuning import trial_log_version
 
     if cfg.get("resume") or cfg.get("recover") or context.checkpoint:
         raise ValueError("d3rlpy-dev supports inference reload of .d3 bundles; exact training resume is unsupported")
@@ -34,10 +32,10 @@ def execute(cfg, context):
     algorithm = str(agent.algorithm).rsplit('/', 1)[-1].lower()
     model = cfg.model
     selector = model.get('architecture')
-    selected = get_catalog(context.workspace).resolve('model', selector)
-    if selected is None or selected[1].metadata.get('backend') != 'd3rlpy':
+    selected = selected_capability('model', selector, paths=context.workspace)
+    if selected is None or selected.metadata.get('backend') != 'd3rlpy':
         raise ValueError("d3rlpy-dev requires an explicit d3rlpy encoder model, e.g. d3rlpy-dev/vector")
-    encoder = load_capability(*selected, paths=context.workspace)(model)
+    encoder = selected.load()(model)
     reader = DatasetReader(cfg.dataset_path)
     count = len(reader)
     if count < 2:

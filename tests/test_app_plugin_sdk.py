@@ -259,7 +259,7 @@ def test_dock_and_hotkey_services_follow_settings_and_cleanup(qapp, tmp_path):
     assert context._hotkey_shortcuts == {}
 
 
-def test_sdk_2_1_requirements_are_satisfied():
+def test_sdk_2_2_requirements_are_satisfied():
     from src.app.api import SDK_VERSION, sdk_requirement_error
-    assert SDK_VERSION == "2.1"
-    assert sdk_requirement_error(">=2.1,<3") is None
+    assert SDK_VERSION == "2.2"
+    assert sdk_requirement_error(">=2.1,<3") is None and sdk_requirement_error(">=2.2,<3") is None

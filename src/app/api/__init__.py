@@ -10,8 +10,14 @@ functionality from the modules of this package only:
 ``src.app.api.tuning``     portable tuner execution, objectives and trial artifacts
 ``src.app.api.models``     model provider registration and construction (loads PyTorch)
 ``src.app.api.agents``     Lightning agent base classes and registration (loads Lightning)
+``src.app.api.environments`` vectorized environment base class
+``src.app.api.data``       data modules, registration and transition datasets
+``src.app.api.evaluation`` evaluator registration
+``src.app.api.rulesets``   ruleset discovery and resolution
+``src.app.api.telemetry``  run telemetry for engines outside Lightning
+``src.app.api.monitoring`` mechanistic monitors for engines outside Lightning
 ``src.app.api.plotting``   plotter base class and shared figure styling
-``src.app.api.packages``   declared cross-package exports (``provider_export``)
+``src.app.api.packages``   declared cross-package exports and selected capabilities
 ``src.app.api.sites``      remote sites: profiles, transport, receipts, policy and publication
 ``src.app.api.desktop``    app-plugin base classes, host context and shared Qt widgets
 
@@ -28,7 +34,7 @@ it. This namespace becomes ``src.ide.api`` at consolidation, with forwarding.
 """
 from __future__ import annotations
 
-SDK_VERSION = "2.1"
+SDK_VERSION = "2.2"
 
 
 def sdk_requirement_error(spec) -> str | None:

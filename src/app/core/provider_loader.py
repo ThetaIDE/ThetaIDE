@@ -235,6 +235,34 @@ def _caller_paths(caller):
     return loaded or WorkspacePaths.for_process()
 
 
+class SelectedCapability:
+    """A provider capability a configuration selected; `load()` imports its entry point."""
+
+    def __init__(self, package, capability, paths):
+        self._package, self._capability, self._paths = package, capability, paths
+        self.package_id, self.id, self.kind = package.id, capability.id, capability.kind
+        self.metadata = dict(capability.metadata)
+
+    def load(self):
+        return load_capability(self._package, self._capability, paths=self._paths)
+
+    def __repr__(self):
+        return f"SelectedCapability({self.kind}:{self.id} from {self.package_id})"
+
+
+def selected_capability(kind, selector, *, paths=None):
+    """The capability that provides `selector` for `kind` in the workspace, or None.
+
+    This is the resolution the host uses for configured selectors, including explicit owner
+    overrides; ambiguous selectors raise DuplicateProvider.
+    """
+    from src.app.core.provider_catalog import get_catalog
+    if paths is None:
+        paths = _caller_paths(sys._getframe(1).f_globals.get("__name__"))
+    resolved = get_catalog(paths).resolve(kind, str(selector))
+    return SelectedCapability(*resolved, paths) if resolved else None
+
+
 def configured_export(reference, *, paths=None):
     """Load the declared export a configuration value names as `export://<package>/<name>`.
 

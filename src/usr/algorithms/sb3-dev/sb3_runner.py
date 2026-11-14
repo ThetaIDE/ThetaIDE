@@ -21,8 +21,8 @@ from pathlib import Path
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from src.app.workspace import WorkspacePaths
-from src.app import telemetry
+from src.app.api import telemetry
+from src.app.api.workspace import WorkspacePaths
 
 
 def resolve_algorithm(name, algorithms):
@@ -82,7 +82,7 @@ def evaluate_policy_modes(model, env, *, episodes, seed, callback=None):
     import copy
     from stable_baselines3.common.evaluation import evaluate_policy
     from stable_baselines3.common.utils import set_random_seed
-    from src.app.monitoring.api import preserve_rng
+    from src.app.api.monitoring import preserve_rng
 
     modes = [(module, module.training) for module in model.policy.modules()]
     action_space = model.action_space
@@ -167,7 +167,7 @@ class ThetaSB3Writer:
 
 
 def execute(cfg: DictConfig, context):
-    from src.app.core.execution import RunResult
+    from src.app.api.execution import RunResult
     if cfg.get("resume") or cfg.get("recover") or context.checkpoint:
         raise ValueError("sb3-dev supports inference reload of native .zip checkpoints; exact training resume is unsupported")
     context.check_cancelled()
@@ -177,10 +177,10 @@ def execute(cfg: DictConfig, context):
     import torch
     print(f"[Runtime] torch_threads={torch.get_num_threads()}, interop_threads={torch.get_num_interop_threads()}", flush=True)
     model_cfg = cfg.get("model", {})
-    from src.app.pipeline.tuners import trial_monitor
+    from src.app.api.tuning import trial_monitor
     monitor = trial_monitor(cfg)
     if monitor is not None:
-        from src.app.pipeline.objective import objective_metric
+        from src.app.api.tuning import objective_metric
         if objective_metric(cfg, "eval/reward") != "eval/reward":
             raise ValueError("SB3 pruning requires the eval/reward objective.")
     try:
@@ -224,7 +224,7 @@ def execute(cfg: DictConfig, context):
 
     # Telemetry: metrics.csv and the live feed by default; ++telemetry.sinks=[...] picks others
     sinks, system_interval = telemetry.settings_from_config(cfg)
-    from src.app.pipeline.trial_artifacts import trial_log_version
+    from src.app.api.tuning import trial_log_version
     logger = telemetry.init(
         group,
         exp_id,
@@ -246,7 +246,7 @@ def execute(cfg: DictConfig, context):
     if cfg.get("variability_run_id"):
         ckpt_dir = ckpt_dir / str(cfg.get("variability_version", "version_0"))
     if is_sweep:
-        from src.app.pipeline.trial_artifacts import trial_checkpoint_dir_from_config
+        from src.app.api.tuning import trial_checkpoint_dir_from_config
 
         ckpt_dir = trial_checkpoint_dir_from_config(ckpt_dir, cfg) or (
             ckpt_dir / "sweeps" / str(hydra_cfg.sweeper.study_name) / f"trial_{hydra_cfg.job.num}"
@@ -314,7 +314,7 @@ def execute(cfg: DictConfig, context):
             self.run.artifact(path, kind="model_monitoring_samples")
 
         def _evaluate(self):
-            from src.app.monitoring.api import preserve_rng
+            from src.app.api.monitoring import preserve_rng
             # Environment construction and optional observation diagnostics must
             # also leave the training random sequence untouched.
             with preserve_rng(), self.run.phase("testing", "Testing greedy and sampled policies",
@@ -380,7 +380,7 @@ def execute(cfg: DictConfig, context):
                          "deterministic_actions": mode == "greedy", "episode_outcomes": rewards}
                     stream.write(json.dumps(event, allow_nan=False) + "\n")
             if monitor is not None:
-                from src.app.pipeline.objective import objective_value
+                from src.app.api.tuning import objective_value
                 value = objective_value({"eval/reward": reward}, "eval/reward")
                 monitor.report(value, self.eval_index)
             if reward > self.best_eval_reward:
@@ -391,7 +391,7 @@ def execute(cfg: DictConfig, context):
             self.last_eval = step
 
         def _evaluation_enabled(self):
-            from src.app.telemetry.selection import selection_from_config
+            from src.app.api.telemetry import selection_from_config
             return bool(int(cfg.get("eval_episodes", 0) or 0) > 0
                         and selection_from_config(cfg).keeps_section("eval"))
 
@@ -535,12 +535,12 @@ def execute(cfg: DictConfig, context):
     objective = None
     logger.set_stage("starting", "Preparing diagnostics")
     try:
-        from src.app.monitoring.runtime import MonitorManager
-        from src.app.monitoring.sb3 import monitored_learn
+        from src.app.api.monitoring import MonitorManager
+        from .sb3_monitoring import monitored_learn
         monitor_manager = MonitorManager(cfg, logger, active_model, algo_name, make_environment)
         monitored_learn(model, monitor_manager, total_timesteps=total_timesteps, callback=cb)
         if is_sweep:
-            from src.app.pipeline.objective import objective_metric, objective_value
+            from src.app.api.tuning import objective_metric, objective_value
 
             metric = objective_metric(cfg, "eval/reward")
             if metric != "eval/reward":
@@ -556,7 +556,7 @@ def execute(cfg: DictConfig, context):
             status = "pruned"
             logger.event("stage", str(exc), stage="pruned")
         else:
-            from src.app.services.cancellation import TrainingCancelled
+            from src.app.api.execution import TrainingCancelled
             if isinstance(exc, (TrainingCancelled, KeyboardInterrupt)):
                 status = "cancelled"
             logger.event("error", f"{type(exc).__name__}: {exc}", level="error")

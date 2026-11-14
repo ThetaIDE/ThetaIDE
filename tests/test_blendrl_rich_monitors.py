@@ -163,13 +163,13 @@ def test_actual_blendrl_training_is_identical_with_and_without_rich_monitors(tmp
     import gymnasium as gym
     from src.app.core.provider_loader import load_module
     from src.app.monitoring.runtime import MonitorManager
-    from src.app.monitoring.sb3 import monitored_learn
     from src.app.pipeline.compose import compose_experiment
     from src.app.pipeline.config import parse_methods_dict
     from src.app.telemetry.run import Run
     method = parse_methods_dict(compose_experiment('newMonitors/onlineRL').cfg)['BlendRL']
     configuration = {'model': method['model'], 'symbolic_state_loader': method['symbolic_state_loader']}
     module = load_module(get_catalog().package('sb3-dev'), 'theta_sb3_policy.py')
+    monitored_learn = load_module(get_catalog().package('sb3-dev'), 'sb3_monitoring.py').monitored_learn
     results = []
     previous_threads = torch.get_num_threads()
     torch.set_num_threads(1)

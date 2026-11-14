@@ -446,10 +446,11 @@
   ],
   "payload": {
     "implementations": [
-      "sb3_runner.py",
-      "theta_sb3_policy.py",
+      "execution_hooks.py",
       "monitor_catalog.py",
-      "execution_hooks.py"
+      "sb3_monitoring.py",
+      "sb3_runner.py",
+      "theta_sb3_policy.py"
     ],
     "resources": [
       "requirements.txt"

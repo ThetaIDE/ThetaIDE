@@ -1,10 +1,11 @@
 """Paired evaluation protocol for the editable runner used by local experiments."""
 from src.app.core.execution import RunContext
+from src.app.core.provider_catalog import get_catalog
+from src.app.core.provider_loader import load_module
 from src.app.workspace import WorkspacePaths
 
 import copy
 import csv
-import importlib.util
 import json
 import random
 from pathlib import Path
@@ -21,11 +22,8 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 
-spec = importlib.util.spec_from_file_location(
-    "sb3_dev_evaluation", Path(__file__).resolve().parents[1] / "src/usr/algorithms/sb3-dev/sb3_runner.py"
-)
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
+# Loaded the way the worker loads it, so the runner's package-relative imports resolve.
+runner = load_module(get_catalog().package("sb3-dev"), "sb3_runner.py")
 
 
 @pytest.mark.parametrize("algorithm", ["ppo", "dqn"])

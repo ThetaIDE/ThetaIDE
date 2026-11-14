@@ -17,7 +17,6 @@ from src.app.monitoring.api import Context, ModelAccess, ProbeSet, load_snapshot
 from src.app.monitoring.config import instances, validate_context
 from src.app.monitoring.measurements import linear_cka
 from src.app.monitoring.runtime import MonitorManager
-from src.app.monitoring.sb3 import PostUpdateHook
 from src.app.telemetry.run import Run
 from src.app.telemetry.sinks import MemorySink
 
@@ -225,6 +224,7 @@ def test_post_update_boundary_counts_optimizer_steps_and_restores_wrapper():
             optimizer.step(); optimizer.step()
     calls = []
     algorithm = Algorithm()
+    PostUpdateHook = load_module(get_catalog().package("sb3-dev"), "sb3_monitoring.py").PostUpdateHook
     hook = PostUpdateHook(algorithm, SimpleNamespace(collect=lambda *args: calls.append(args)))
     algorithm.train()
     assert calls == [(8, 2)]
@@ -301,7 +301,7 @@ def test_real_sb3_training_is_identical_with_and_without_diagnostics(tmp_path, a
     module = load_module(get_catalog().package("sb3-dev"), "theta_sb3_policy.py")
     algorithm_class = module.ThetaPPO if algorithm == "ppo" else module.ThetaDQN
     policy = module.ThetaActorCriticPolicy if algorithm == "ppo" else module.ThetaDQNPolicy
-    from src.app.monitoring.sb3 import monitored_learn
+    monitored_learn = load_module(get_catalog().package("sb3-dev"), "sb3_monitoring.py").monitored_learn
     kwargs = {"seed": 13, "device": "cpu", "policy_kwargs": {
         "theta_config": {"model": {"hidden_sizes": [8], "dueling": False}},
         "theta_model": "dnn", "env_name": "cartpole"}}

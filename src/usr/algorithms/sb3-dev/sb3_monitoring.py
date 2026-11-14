@@ -1,4 +1,4 @@
-"""Install a synchronous, removable SB3 post-train-call boundary."""
+"""Install a synchronous, removable SB3 post-train-call boundary for mechanistic monitors."""
 from __future__ import annotations
 
 

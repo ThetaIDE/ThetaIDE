@@ -10,11 +10,15 @@
     ``environment_resource(environment, relative)``
                                            a file under the ``resource_root`` an environment
                                            capability declares, for packages that pair with it.
+    ``selected_capability(kind, selector)``
+                                           the provider capability a configured selector names
+                                           (``.metadata``, ``.load()``), or None, for runners that
+                                           accept an independently selected component.
 
 See docs/reference/PLUGIN_STORAGE.md#cross-package-exports.
 """
 from ._exports import lazy_exports
 
-_EXPORTS = {name: f"src.app.core.provider_loader:{name}" for name in ("provider_export", "configured_export", "environment_resource")}
+_EXPORTS = {name: f"src.app.core.provider_loader:{name}" for name in ("provider_export", "configured_export", "environment_resource", "selected_capability")}
 __all__ = sorted(_EXPORTS)
 __getattr__, __dir__ = lazy_exports(__name__, _EXPORTS)

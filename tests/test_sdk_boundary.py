@@ -61,9 +61,14 @@ def test_sdk_exports_are_canonical_host_objects():
     assert tuning.TunerExecutionPlan is tuner_execution.TunerExecutionPlan
     assert tuning.ObjectiveResult is objectives.ObjectiveResult
     assert models.register_model is model_registry.register_model
+    from src.app.core.execution import RunResult
+    from src.app.monitoring.runtime import MonitorManager
+    from src.app.api import monitoring
+    assert execution.RunResult is RunResult and execution.RunResult is not tuning.RunResult
+    assert monitoring.MonitorManager is MonitorManager
     assert execution.task_worker_command("py", "a", 1) == ["py", "-u", "-m", "src.app.pipeline.task_worker", "a", "1"]
     for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "agents", "plotting",
-                   "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "desktop"):
+                   "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "monitoring", "desktop"):
         sdk = importlib.import_module(f"src.app.api.{module}")
         for name in sdk.__all__:
             assert getattr(sdk, name) is not None, f"src.app.api.{module}.{name}"

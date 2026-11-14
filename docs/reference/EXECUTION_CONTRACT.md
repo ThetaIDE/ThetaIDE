@@ -22,8 +22,9 @@ The paradigm chooses the lifecycle runner. The selected algorithm capability own
 `backend` and integer `execution_contract` metadata. Metadata decides the backend;
 an explicit config `backend`, where supplied, must agree. Backend labels are provider-defined; core does not maintain an adapter allowlist.
 Lightning is the retained core executor. All other labels invoke the selected
-algorithm adapter. Current adapters include `sb3-dev`, `d3rlpy-dev` and the
-numerical THEMES adapter in `themes-dev`. Algorithm-free neural paradigms
+algorithm adapter. Current adapters are the Hub packages `sb3-suite` 2.0 (`sb3/*`) and
+`d3rlpy-suite` 2.0 (`d3rlpy/*`, encoder model `d3rlpy/vector`), their editable
+sources `sb3-dev` and `d3rlpy-dev`, and the numerical THEMES adapter in `themes-dev`. Algorithm-free neural paradigms
 use Lightning. Unknown algorithms, unresolved runners and incompatible selected
 algorithm capabilities fail before fitting. Unselected historical packages remain
 browsable. Capability `entry_point` is import metadata and remains supported.
@@ -37,7 +38,8 @@ can be opened for inspection but cannot rely on removed execution behavior.
 Both coordinator preflight and workers validate the composed method config. The
 preflight composes the same method override list, with representative sweep values;
 workers validate each actual sampled config. Profile selection does not redirect
-production IDs. Use `sb3-dev/*` or `d3rlpy-dev/*` explicitly.
+production IDs, and adapters declare no bare aliases such as `ppo` or `cql`: select
+`sb3/*`, `d3rlpy/*` or the editable `sb3-dev/*` and `d3rlpy-dev/*` explicitly.
 
 For migration, explicitly select files, review preview, then apply:
 
