@@ -366,7 +366,7 @@ def test_legacy_display_order_migrates_without_overwriting_old_preferences(viewe
 
 @pytest.fixture
 def viewer(tmp_path, optional_tuner_metadata):
-    root = tmp_path / "in/config"
+    root = tmp_path / "src/usr/config"
     from component_fixtures import install_optional
     install_optional(tmp_path, "optuna", tmp_path / "archives")
     install_optional(tmp_path, "slurm", tmp_path / "archives")
@@ -762,7 +762,7 @@ def test_workspace_objective_opens_source_and_preserves_params(viewer):
 
     from src.app.objectives.api import create_objective
     widget, tree, root = viewer
-    component = create_objective("editable_ui", workspace=tree.config_root.parent.parent)
+    component = create_objective("editable_ui", workspace=tree.workspace.root)
     widget = load(viewer, {"methods": {}, "objective": {"component": "editable_ui", "params": {"curve": {"half_life": 50}}}})
     opened = []
     widget.editor_service = SimpleNamespace(open_file=lambda path: opened.append(path) or True)
@@ -778,7 +778,7 @@ def test_objective_optional_children_add_remove_and_inherited_identity(viewer):
 
     from src.app.objectives.api import create_objective
     widget, tree, _ = viewer
-    component = create_objective("optional_ui", workspace=tree.config_root.parent.parent)
+    component = create_objective("optional_ui", workspace=tree.workspace.root)
     manifest_path = component.source.with_suffix(".json")
     metadata = json.loads(manifest_path.read_text())
     metadata["defaults"] = {"nested": {"keep": 1}}
@@ -832,11 +832,11 @@ def ruleset_menu_action(combo, *parts):
 def test_rules_control_browses_all_environments_and_opens_selected_folder(viewer, tmp_path):
     from types import SimpleNamespace
     widget, _, _ = viewer
-    config = tmp_path / "workspace/in/config"
+    config = tmp_path / "workspace/src/usr/config"
     profile = config / "env/gym/cartpole.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("env_id: CartPole-v1\n")
-    root = config.parent.parent
+    root = config.parents[2]
     for env in ["cartpole", "mountaincar"]:
         for name in ["default", "anticipatory_v1"]:
             folder = root / f"src/usr/rules/{env}/{name}"
@@ -1584,7 +1584,7 @@ def test_real_component_monitors_show_individual_toggles_before_a_run(tmp_path):
     from pathlib import Path
     from src.app.telemetry.monitors import available_monitors
 
-    tree = ConfigTree(Path(__file__).resolve().parents[1] / "in/config")
+    tree = ConfigTree(Path(__file__).resolve().parents[1] / "src/usr/config")
     set_config_tree(tree)
     data = {"telemetry": {"monitors": {"enabled": True, "disabled": []}},
             "methods": {"demo": {"agent": "sb3-dev/ppo", "model": {
@@ -1891,7 +1891,7 @@ def test_removing_invalid_monitor_instance_clears_warning_and_preserves_componen
     from pathlib import Path
     from src.app.telemetry.monitors import available_monitors
 
-    set_config_tree(ConfigTree(Path(__file__).resolve().parents[1] / "in/config"))
+    set_config_tree(ConfigTree(Path(__file__).resolve().parents[1] / "src/usr/config"))
     data = {"telemetry": {"monitors": {"enabled": True, "disabled": []}},
             "methods": {"demo": {"agent": "sb3-dev/ppo", "model": {
                 "name": "blendrl-dev", "neural": {"name": "dnn"}, "symbolic": {"type": "nsfr"}}}}}

@@ -32,22 +32,21 @@ def fork_package(paths, reference, new_id, name=None):
     aliases = {old: identities[c.id] for c in owner.capabilities for old in c.aliases}
     selectors = {**identities, **aliases}
     declared_configs = dict(owner.manifest.get('payload', {}).get('configs', {}))
-    declared_configs.update({dest:'profiles/'+dest.removeprefix('in/config/') for dest in owner.manifest.get('user_config_paths',[]) if dest not in declared_configs})
     destination_map = {}
     for dest in declared_configs:
         path = Path(dest)
-        peers = [Path(value) for value in declared_configs if Path(value).parts[:3] == path.parts[:3]]
+        peers = [Path(value) for value in declared_configs if Path(value).parts[:1] == path.parts[:1]]
         if len(peers)==1 and path.stem==owner.id:
-            destination_map[dest]=(Path(*path.parts[:3])/(new_id+path.suffix)).as_posix()
+            destination_map[dest]=(Path(path.parts[0])/(new_id+path.suffix)).as_posix()
         else:
             import os
             common=Path(os.path.commonpath([str(value.parent) for value in peers]))
-            destination_map[dest]=(Path(*path.parts[:3])/new_id/path.relative_to(common)).as_posix()
+            destination_map[dest]=(Path(path.parts[0])/new_id/path.relative_to(common)).as_posix()
     def map_profile(value):
         for old,new in destination_map.items():
             if value==old: return new
-            if value=='/'+old.removeprefix('in/config/').rsplit('.',1)[0]:
-                return '/'+new.removeprefix('in/config/').rsplit('.',1)[0]
+            if value=='/'+old.rsplit('.',1)[0]:
+                return '/'+new.rsplit('.',1)[0]
         return value
     def map_defaults(values):
         result=[]
@@ -57,9 +56,9 @@ def fork_package(paths, reference, new_id, name=None):
             mapped={}
             for key,profile in value.items():
                 group=key.removeprefix('override ').strip('/').split('@')[0]
-                old='in/config/'+group+'/'+str(profile)+'.yaml'
+                old=group+'/'+str(profile)+'.yaml'
                 if old not in destination_map: mapped[key]=profile;continue
-                new=Path(destination_map[old]).relative_to('in/config').with_suffix('')
+                new=Path(destination_map[old]).with_suffix('')
                 if '/' in group:
                     new_key=key.replace(group,new.parent.as_posix(),1)
                     mapped[new_key]=new.name
@@ -107,25 +106,20 @@ def fork_package(paths, reference, new_id, name=None):
             for field in ('source_hashes','authoring_hash','asset_hashes','config_hashes','config_backups','installed_from','installed_files','sha256','target_dir','aliases','provides','suite','hidden','source_manifest','saved_local_changes','user_config_paths'):
                 metadata.pop(field, None)
             config_map = dict(owner.manifest.get('payload', {}).get('configs', {}))
-            for dest in [*owner.manifest.get('config_paths', []), *owner.manifest.get('user_config_paths', [])]:
-                if dest not in config_map and paths.config_file(dest).is_file():
-                    config_map[dest] = 'profiles/' + dest.removeprefix('in/config/')
-                    saved = stage / config_map[dest]
-                    saved.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(paths.config_file(dest), saved)
             if not config_map and kind=='model' and len(primary)==1:
-                dest='in/config/model/'+new_id+'.yaml'
+                dest='model/'+new_id+'.yaml'
                 relative='configs/model/'+new_id+'.yaml'
                 (stage/relative).parent.mkdir(parents=True,exist_ok=True)
                 (stage/relative).write_text(yaml.safe_dump({'architecture':new_id}))
                 config_map[dest]=relative;destination_map[dest]=dest
             for dest, relative in config_map.items():
-                old = paths.config_file(dest)
+                # The copy starts from the effective profile, including a user override.
+                old = paths.resolve_config(dest)
                 relative = str(relative)
-                if old.is_file(): shutil.copy2(old, stage / relative)
+                if old.is_file() and old != stage / relative: shutil.copy2(old, stage / relative)
                 profile_text = (stage / relative).read_text()
                 data = yaml.safe_load(profile_text) or {}
-                if kind=='model' and dest.startswith('in/config/model/') and len(primary)==1 and not any(k in data for k in ('architecture','name','type')):
+                if kind=='model' and dest.startswith('model/') and len(primary)==1 and not any(k in data for k in ('architecture','name','type')):
                     data['architecture']=primary[0].id
                 def remap(value):
                     if isinstance(value, dict):
@@ -139,7 +133,7 @@ def fork_package(paths, reference, new_id, name=None):
                     if line.strip() and not line.lstrip().startswith('#'): break
                     leading.append(line)
                 new_dest=destination_map[dest]
-                selected='configs/'+new_dest.removeprefix('in/config/')
+                selected='configs/'+new_dest
                 (stage/selected).parent.mkdir(parents=True,exist_ok=True)
                 (stage/selected).write_text(''.join(leading) + yaml.safe_dump(remap(data), sort_keys=False))
                 profiles[new_dest]=selected
@@ -160,7 +154,7 @@ def fork_package(paths, reference, new_id, name=None):
                         if isinstance(domain.get('enum'),list): domain['enum'] = [selectors.get(v,v) if isinstance(v,str) else v for v in domain['enum']]
             metadata = remap(metadata) if config_map else metadata
             metadata.update(id=new_id, name=name or new_id, version='0.1.0', origin='user',
-                parent={'id':owner.id,'version':owner.version,'origin':owner.origin}, storage_version=2, api_version=1,
+                parent={'id':owner.id,'version':owner.version,'origin':owner.origin}, storage_version=3, api_version=1,
                 capabilities=[{**c.metadata,'id':identities[c.id],'kind':c.kind,'entry_point':c.entry_point,'aliases':[]} for c in owner.capabilities],
                 config_paths=list(profiles), config_path=next(iter(profiles), None),
                 payload={**metadata.get('payload',{}),'configs':profiles})
@@ -169,13 +163,13 @@ def fork_package(paths, reference, new_id, name=None):
             for original,cap in zip(owner.capabilities,metadata['capabilities']):
                 group=groups.get(original.kind)
                 for dest,relative in profiles.items():
-                    if not group or not dest.startswith('in/config/'+group+'/'): continue
+                    if not group or not dest.startswith(group+'/'): continue
                     data=yaml.safe_load((stage/relative).read_text()) or {}
                     selected=data.get('architecture') or data.get('type') or data.get('name') or data.get('algorithm')
                     if original.kind=='plotter':selected=Path(dest).stem
                     matches={cap['id'].lower(),original.id.lower(),*(a.lower() for a in original.aliases)}
                     if not isinstance(selected,str) or selected.lower() not in matches: continue
-                    alias=dest.removeprefix('in/config/'+group+'/').rsplit('.',1)[0]
+                    alias=dest.removeprefix(group+'/').rsplit('.',1)[0]
                     if alias.lower() != cap['id'].lower() and alias.lower() not in {v.lower() for v in cap['aliases']}:cap['aliases'].append(alias)
             if (stage / 'plugin.json').is_file():
                 plugin = json.loads((stage / 'plugin.json').read_text());plugin.update(id=new_id,name=name or new_id,default_enabled=False)
@@ -189,9 +183,7 @@ def fork_package(paths, reference, new_id, name=None):
             retained = local.root / 'packages' / new_id
             if retained.exists() or new_id in local.state()['records']: raise ValueError(f'Component ID already exists: {new_id}')
             with FileTransaction(paths,'editable-copy',new_id) as transaction:
-                destinations = [paths.config_file(dest) for dest in profiles]
-                if any(p.exists() for p in destinations): raise ValueError('An editable config destination already exists')
-                transaction.protect([target,*destinations,retained,local.state_path])
+                transaction.protect([target,retained,local.state_path])
                 target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copytree(stage,target)
                 retained.parent.mkdir(parents=True,exist_ok=True)
@@ -199,8 +191,7 @@ def fork_package(paths, reference, new_id, name=None):
                 state = local.state()
                 state["records"][new_id] = {"package":str(retained),"source":"local"}
                 local._write(state)
-                for dest,relative in profiles.items():
-                    active=paths.config_file(dest);active.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(stage/relative,active)
                 local._authoring_failure_point("copy",new_id)
             invalidate(paths,target)
-    return paths.config_file(next(iter(profiles))) if profiles else target / '.theta_component.json'
+    # The copy is an authored package: its profiles are edited in place.
+    return target / next(iter(profiles.values())) if profiles else target / '.theta_component.json'

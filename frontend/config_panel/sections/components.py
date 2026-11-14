@@ -46,7 +46,7 @@ def _render_sweep_objective(self, form, data, resolved):
     )
     spec = spec if not legacy else {"component": "final_metric", "params": {"metric": metric}}
     tree = self.tree
-    workspace = tree.config_root.parent.parent if tree else PROJECT_ROOT
+    workspace = tree.workspace.root if tree else PROJECT_ROOT
     params = spec.get("params") or {}
     selected = "Reported metric" if legacy else str(spec.get("component") or "final_metric")
     template = "final_metric" if legacy else selected

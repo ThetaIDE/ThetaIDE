@@ -15,7 +15,6 @@ from pathlib import Path
 import yaml
 
 from src.app.workspace import WorkspacePaths
-from src.app.services.rulesets import reject_legacy_rules_paths, require_canonical_rules_layout
 
 from .component_exporter import ComponentExporter, ComponentExportOptions, find_component_assets
 
@@ -118,46 +117,32 @@ class LocalComponents:
         return component_id in self.state()['hidden']
 
     def hidden_config_paths(self):
+        """Profile files supplied by hidden packages; user config files are never hidden."""
         hidden = set(self.state()['hidden'])
-        paths = set()
-        for manifest in self.paths.manifests():
-            try:
-                meta = json.loads(manifest.read_text())
-            except (OSError, ValueError):
-                continue
-            if meta.get('id') in hidden:
-                paths.update(meta.get('config_paths', []))
-                if meta.get('config_path'):
-                    paths.add(meta['config_path'])
-        return {(self.workspace / path).resolve() for path in paths}
+        from src.app.core.provider_catalog import get_catalog
+        return {package.resource(relative) for package in get_catalog(self.paths).packages if package.id in hidden
+                for relative in package.manifest.get('payload', {}).get('configs', {}).values()}
+
+    def hidden_selectors(self):
+        """Config selectors supplied by hidden packages."""
+        hidden = set(self.state()['hidden'])
+        from src.app.core.provider_catalog import get_catalog
+        return {selector for package in get_catalog(self.paths).packages if package.id in hidden
+                for selector in package.manifest.get('payload', {}).get('configs', {})}
 
     def installed_config(self, component, installer):
-        target = installer.resolve_target_dir(component)
-        manifest = target / '.theta_component.json'
-        if not manifest.is_file():
-            from src.app.core.provider_catalog import get_catalog
-            owner = get_catalog(self.paths).package(component.id)
-            if owner is None: raise ValueError(f'Component is not installed: {component.id}')
-            manifest = owner.root / '.theta_component.json'
-        meta = json.loads(manifest.read_text())
-        for relative in [meta.get('config_path'), *meta.get('config_paths', [])]:
-            if relative and (self.workspace / relative).is_file():
-                return self.workspace / relative
-        return manifest
-
-    def _shared_paths(self, component_id):
-        paths = set()
         from src.app.core.provider_catalog import get_catalog
-        for package in get_catalog(self.paths).packages:
-            if package.id == component_id: continue
-            paths.update((self.workspace / relative).resolve() for relative in package.manifest.get('config_paths',[]))
-        return paths
+        owner = get_catalog(self.paths).package(component.id)
+        if owner is None: raise ValueError(f'Component is not installed: {component.id}')
+        for selector in owner.manifest.get('payload', {}).get('configs', {}):
+            path = self.paths.resolve_config(selector)
+            if path.is_file():
+                return path
+        return owner.root / '.theta_component.json'
 
     def owned_paths(self, assets):
-        require_canonical_rules_layout(self.workspace)
         paths = set(Path(path).resolve() for path in assets['files_to_delete'])
         meta = assets.get('meta') or {}
-        reject_legacy_rules_paths(meta)
         for directory in list(paths):
             if directory.is_dir():
                 paths.update(path.resolve() for path in directory.rglob('*') if path.is_file() and '__pycache__' not in path.parts)
@@ -183,22 +168,14 @@ class LocalComponents:
             installed = assets.get('meta') or {}
             meta['saved_local_changes'] = HubInstaller(self.workspace, self.workspace / '.thetaide').has_local_changes(Path(assets['code_dir']), installed)
         meta['kind'] = normalize_kind(meta['kind'])
-        shared = self._shared_paths(meta['id'])
-        source_root = Path(assets['code_dir']).resolve() if assets.get('code_dir') else None
-        for path in shared:
-            if source_root and path.is_relative_to(source_root):
-                continue
-            packaged = package / path.relative_to(self.workspace)
-            if packaged.is_file():
-                packaged.unlink()
-        for key in ('asset_hashes', 'authoring_hash', 'source_hashes', 'config_hashes', 'config_backups', 'installed_files', 'installed_from', 'sha256'):
+        for key in ('asset_hashes', 'authoring_hash', 'source_hashes', 'installed_files', 'installed_from', 'sha256'):
             meta.pop(key, None)
         manifest.write_text(json.dumps(meta, indent=2) + '\n')
         # Keep packaged metadata independent of installation bookkeeping too.
         for nested in package.rglob('.theta_component.json'):
             if nested != manifest:
                 nested_meta = json.loads(nested.read_text())
-                for key in ('asset_hashes', 'authoring_hash', 'installed_files', 'config_backups', 'source_hashes', 'config_hashes', 'installed_from', 'sha256'):
+                for key in ('asset_hashes', 'authoring_hash', 'installed_files', 'source_hashes', 'installed_from', 'sha256'):
                     nested_meta.pop(key, None)
                 nested.write_text(json.dumps(nested_meta, indent=2) + '\n')
         return package
@@ -295,15 +272,10 @@ class LocalComponents:
         owner = get_catalog(self.paths).package(component.id)
         if owner is None or not owner.writable:
             raise ValueError("Only confirmed user-owned implementations can be archived")
-        profiles = [*owner.manifest.get('config_paths', []), *owner.manifest.get('user_config_paths', [])]
-        primary = next((self.workspace / p for p in profiles if (self.workspace / p).is_file()), owner.root / '.theta_component.json')
+        primary = self.installed_config(component, installer)
         self.snapshot(primary, source='local')
-        shared = self._shared_paths(component.id)
-        owned = [owner.root, *(self.paths.config_file(p) for p in profiles)]
-        owned = [p for p in owned if p.resolve() not in shared]
-        for path in owned:
-            if not (path.resolve().is_relative_to(self.paths.research) or path.resolve().is_relative_to(self.paths.config)):
-                raise ValueError(f'Authored archive requires normalization of external owned asset: {path}')
+        # Package profiles live inside the package; user config files are left alone.
+        owned = [owner.root]
         with workspace_lock(self.paths):
             assert_idle(self.paths)
             with FileTransaction(self.paths, 'archive-authored', component.id) as transaction:
@@ -323,16 +295,12 @@ class LocalComponents:
         kind = normalize_kind(meta['kind'])
         target = self.paths.user(kind if kind in ('model','algorithm','env','datamodule','evaluator','plotter','objective','monitor','tuner','plugin','rules') else 'package') / component.id
         if target.exists(): raise ValueError(f'Authoring destination already exists: {target}')
-        profiles = meta['payload']['configs']
         with workspace_lock(self.paths):
             assert_idle(self.paths)
             with FileTransaction(self.paths, 'restore-authored', component.id) as transaction:
-                transaction.protect([target, *[self.paths.config_file(dest) for dest in profiles]])
+                transaction.protect([target])
                 target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copytree(package,target)
-                for dest,relative in profiles.items():
-                    active=self.paths.config_file(dest);active.parent.mkdir(parents=True,exist_ok=True)
-                    if not active.exists(): shutil.copy2(package/relative,active)
                 self._authoring_failure_point('restore', component.id)
         from src.app.core.provider_loader import invalidate
         invalidate(self.paths,target)
@@ -343,28 +311,13 @@ class LocalComponents:
         if not record or record['source'] != 'local':
             raise ValueError('Only private local components can be deleted.')
         paths = [Path(record['package'])]
-        retained = installer._retained_config_dir(component.id)
-        if retained.exists():
-            paths.append(retained)
         from src.app.core.provider_catalog import get_catalog
         owner = get_catalog(self.paths).package(component.id)
         target = owner.root if owner and owner.writable else installer.resolve_target_dir(component)
-        manifest = target / '.theta_component.json'
-        if manifest.exists():
-            meta = json.loads(manifest.read_text())
+        if (target / '.theta_component.json').exists():
             paths.append(target)
-            for relative in [*meta.get('config_paths', []),*meta.get('user_config_paths', [])]:
-                path = (self.workspace / relative).resolve()
-                if not path.is_relative_to(self.workspace):
-                    raise ValueError(f'Owned path escapes workspace: {path}')
-                if path.exists() and not path.is_relative_to(target):
-                    paths.append(path)
-        shared = self._shared_paths(component.id)
-        if any(path.is_relative_to(target) for path in shared):
-            raise ValueError(f'Another installed component owns files inside {target}; resolve ownership before deleting.')
-        paths = [path for path in paths if path.resolve() not in shared]
         references = []
-        for experiment in (self.workspace / 'in/config/experiment').rglob('*.yaml'):
+        for experiment in (self.paths.config / 'experiment').rglob('*.yaml'):
             if component.id in experiment.read_text():
                 references.append(experiment)
         return list(dict.fromkeys(paths)), references
@@ -418,6 +371,10 @@ class LocalComponents:
         root = Path(assets['code_dir'])
         meta = assets.get('meta') or {}
         paths = [p for p in self.owned_paths(assets) if p.is_file() and not p.is_relative_to(root)]
+        # The effective profile of each declared selector: a user override or the package file.
+        resolver = self.paths.config_resolver()
+        profiles = [resolved.file for selector in (meta.get('payload') or {}).get('configs', {})
+                    if (resolved := resolver.resolve(selector)) is not None]
         kind = normalize_kind(assets['kind'])
         registration = []
         for path in root.rglob('*.py'):
@@ -447,7 +404,7 @@ class LocalComponents:
             revision = 'unknown revision'
 
         profile_lines = []
-        for profile in paths:
+        for profile in profiles:
             if profile.suffix not in ('.yaml', '.yml'):
                 continue
             try:

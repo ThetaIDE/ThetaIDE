@@ -18,7 +18,7 @@ from src.app.services.component_exporter import (
 @pytest.fixture
 def sample_component_workspace(tmp_path):
     ws = tmp_path / "workspace"
-    cfg_dir = ws / "in" / "config" / "model"
+    cfg_dir = ws / "src/usr/config" / "model"
     cfg_dir.mkdir(parents=True)
     cfg_file = cfg_dir / "dueling_resnet.yaml"
     cfg_file.write_text("name: dueling_resnet\ntype: dueling_resnet\n", encoding="utf-8")
@@ -32,11 +32,11 @@ def sample_component_workspace(tmp_path):
             "name": "Dueling ResNet",
             "kind": "model",
             "version": "1.0.0",
-            "storage_version":2,"api_version":1,
+            "storage_version":3,"api_version":1,
             "capabilities":[{"id":"dueling_resnet","kind":"model","entry_point":"model.py:Model"}],
-            "payload":{"implementations":["model.py"],"resources":[],"configs":{"in/config/model/dueling_resnet.yaml":"profiles/default.yaml"}},
-            "config_paths":["in/config/model/dueling_resnet.yaml"],
-            "config_path": "in/config/model/dueling_resnet.yaml",
+            "payload":{"implementations":["model.py"],"resources":[],"configs":{"model/dueling_resnet.yaml":"profiles/default.yaml"}},
+            "config_paths":["model/dueling_resnet.yaml"],
+            "config_path": "model/dueling_resnet.yaml",
         }),
         encoding="utf-8",
     )
@@ -113,7 +113,7 @@ def test_export_component_folder(tmp_path, sample_component_workspace):
 def test_export_nonexistent_component(tmp_path, sample_component_workspace):
     ws, _ = sample_component_workspace
     exporter = ComponentExporter(workspace_root=ws)
-    res = exporter.export("in/config/model/nonexistent_xyz.yaml", options=ComponentExportOptions(output_path=tmp_path / "dummy.zip"))
+    res = exporter.export("src/usr/config/model/nonexistent_xyz.yaml", options=ComponentExportOptions(output_path=tmp_path / "dummy.zip"))
     assert res.success is False
     assert "not found" in res.error.lower()
 
@@ -135,7 +135,7 @@ def test_hub_installer_can_install_exported_component(tmp_path, sample_component
 
     # Setup isolated target workspace
     target_ws = tmp_path / "client_workspace"
-    (target_ws / "in" / "config").mkdir(parents=True)
+    target_ws.mkdir()
     installer = HubInstaller(workspace_dir=target_ws, data_dir=tmp_path / ".thetaide")
 
     # Install the exported archive
@@ -153,7 +153,8 @@ def test_hub_installer_can_install_exported_component(tmp_path, sample_component
     assert installed is True
 
     # Check installed assets
-    assert any((target_ws / "in" / "config").rglob("dueling_resnet.yaml"))
+    profile = installer.paths.resolve_config("model/dueling_resnet.yaml")
+    assert profile == target_ws / "src/plugins/components/installed/dueling_resnet/configs/model/dueling_resnet.yaml"
     assert (target_ws / "src/plugins/components/installed/dueling_resnet").is_dir()
     assert (target_ws / "src/plugins/components/installed/dueling_resnet" / ".theta_component.json").is_file()
 
@@ -162,7 +163,7 @@ def test_export_plotter_component_zip(tmp_path):
     ws = tmp_path / "workspace"
     plot_dir = ws / "src/usr/plotters/pareto"
     plot_dir.mkdir(parents=True)
-    cfg_dir = ws / "in" / "config" / "plot"
+    cfg_dir = ws / "src/usr/config" / "plot"
     cfg_dir.mkdir(parents=True)
     cfg_file = cfg_dir / "pareto.yaml"
     cfg_file.write_text("metrics: ['eval/reward']\n", encoding="utf-8")
@@ -173,11 +174,11 @@ def test_export_plotter_component_zip(tmp_path):
             "name": "ParetoPlotter",
             "kind": "plotter",
             "version": "1.0.0",
-            "storage_version":2,"api_version":1,
+            "storage_version":3,"api_version":1,
             "capabilities":[{"id":"pareto","kind":"plotter","entry_point":"pareto_plotter.py:Plotter"}],
-            "payload":{"implementations":["pareto_plotter.py"],"resources":[],"configs":{"in/config/plot/pareto.yaml":"profiles/default.yaml"}},
-            "config_paths":["in/config/plot/pareto.yaml"],
-            "config_path": "in/config/plot/pareto.yaml",
+            "payload":{"implementations":["pareto_plotter.py"],"resources":[],"configs":{"plot/pareto.yaml":"profiles/default.yaml"}},
+            "config_paths":["plot/pareto.yaml"],
+            "config_path": "plot/pareto.yaml",
         }),
         encoding="utf-8",
     )
@@ -209,7 +210,7 @@ def test_export_plotter_component_zip(tmp_path):
 
 def test_export_namespaced_component(tmp_path):
     ws = tmp_path / "workspace"
-    cfg_dir = ws / "in" / "config" / "model" / "basics"
+    cfg_dir = ws / "src/usr/config" / "model" / "basics"
     cfg_dir.mkdir(parents=True)
     cfg_file = cfg_dir / "mlp.yaml"
     cfg_file.write_text("name: mlp\ntype: mlp\n", encoding="utf-8")
@@ -219,10 +220,10 @@ def test_export_namespaced_component(tmp_path):
     (code_dir / "mlp_model.py").write_text("class MLP: pass\n", encoding="utf-8")
     (code_dir/'profiles').mkdir()
     (code_dir/'profiles/default.yaml').write_bytes(cfg_file.read_bytes())
-    (code_dir/'.theta_component.json').write_text(json.dumps({'id':'mlp','name':'MLP','kind':'model','version':'1.0.0','storage_version':2,'api_version':1,
+    (code_dir/'.theta_component.json').write_text(json.dumps({'id':'mlp','name':'MLP','kind':'model','version':'1.0.0','storage_version':3,'api_version':1,
         'capabilities':[{'id':'mlp','kind':'model','entry_point':'mlp_model.py:MLP'}],
-        'payload':{'implementations':['mlp_model.py'],'resources':[],'configs':{'in/config/model/basics/mlp.yaml':'profiles/default.yaml'}},
-        'config_paths':['in/config/model/basics/mlp.yaml']}))
+        'payload':{'implementations':['mlp_model.py'],'resources':[],'configs':{'model/basics/mlp.yaml':'profiles/default.yaml'}},
+        'config_paths':['model/basics/mlp.yaml']}))
 
     exporter = ComponentExporter(workspace_root=ws)
     out_zip = tmp_path / "mlp_export.zip"
@@ -241,7 +242,7 @@ def test_export_namespaced_component(tmp_path):
         namelist = zf.namelist()
         assert ".theta_component.json" in namelist
         assert any(n.startswith("configs/") and n.endswith(".yaml") for n in namelist)
-        assert json.loads(zf.read(".theta_component.json"))["payload"]["configs"]["in/config/model/basics/mlp.yaml"] == "configs/model/basics/mlp.yaml"
+        assert json.loads(zf.read(".theta_component.json"))["payload"]["configs"]["model/basics/mlp.yaml"] == "configs/model/basics/mlp.yaml"
         assert any("mlp_model.py" in n for n in namelist)
 
 

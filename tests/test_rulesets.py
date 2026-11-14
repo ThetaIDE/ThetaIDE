@@ -13,8 +13,8 @@ from src.app.services.rulesets import (
 )
 
 
-def resource(root, env="cartpole", name="default", *, legacy=False):
-    path = root / ("in/rules" if legacy else "src/usr/rules") / env / name
+def resource(root, env="cartpole", name="default"):
+    path = root / "src/usr/rules" / env / name
     path.mkdir(parents=True, exist_ok=True)
     (path / "clauses.txt").write_text("left(X):-leaning_left(X).\n")
     return path
@@ -24,11 +24,11 @@ def test_catalog_resolves_profiles_overrides_and_qualified_selectors(tmp_path):
     folder = resource(tmp_path)
     resource(tmp_path, "mountaincar")
     resource(tmp_path, name="anticipatory_v1")
-    profile = tmp_path / "in/config/env/gym_classic_control/cartpole.yaml"
+    profile = tmp_path / "src/usr/config/env/gym_classic_control/cartpole.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("symbolic_name: cartpole\n")
     from frontend.config_model import ConfigTree
-    tree = ConfigTree(tmp_path / "in/config")
+    tree = ConfigTree(tmp_path / "src/usr/config")
     assert tree.ruleset_names("gym_classic_control/cartpole") == ["anticipatory_v1", "default"]
     assert tree.ruleset_names() == ["cartpole/anticipatory_v1", "cartpole/default", "mountaincar/default"]
     assert resolve_ruleset(tmp_path, None, "cartpole/default").directory == folder
@@ -54,7 +54,7 @@ def test_editor_opens_exact_folder_or_catalog_without_basename_search(tmp_path):
 
 def test_qualified_ruleset_keeps_catalog_identity_even_when_a_profile_overrides_it(tmp_path):
     folder = resource(tmp_path)
-    profile = tmp_path / "in/config/env/cartpole.yaml"
+    profile = tmp_path / "src/usr/config/env/cartpole.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("symbolic_name: mountaincar\n")
     # New selections use catalog paths; only legacy bare names consult profiles.
@@ -78,55 +78,6 @@ def test_ruleset_owns_valuation_and_rejects_path_escape(tmp_path):
             resolve_ruleset(tmp_path, "cartpole", name)
 
 
-@pytest.mark.parametrize("legacy_kind", ["directory", "alias", "broken_alias"])
-def test_legacy_locations_are_errors_even_with_valid_canonical_rules(tmp_path, legacy_kind):
-    resource(tmp_path)
-    old = tmp_path / "in/rules"
-    old.parent.mkdir()
-    if legacy_kind == "directory":
-        resource(tmp_path, legacy=True)
-    else:
-        old.symlink_to(tmp_path / ("src/usr/rules" if legacy_kind == "alias" else "missing"), target_is_directory=True)
-    with pytest.raises(ValueError, match="Unsupported legacy rules location"):
-        available_rulesets(tmp_path, "cartpole")
-    with pytest.raises(ValueError, match="Unsupported legacy rules location"):
-        rules_folder_targets(value="default", context={"workspace_root": str(tmp_path), "config": {}})
-    assert old.exists() or old.is_symlink()
-    assert (tmp_path / "src/usr/rules/cartpole/default/clauses.txt").exists()
-
-
-@pytest.mark.parametrize("legacy_reference", ["asset", "metadata"])
-def test_legacy_package_is_rejected_before_existing_installation_changes(tmp_path, legacy_reference):
-    from src.app.components.installer import HubInstaller
-    from src.app.components.models import HubComponent, ReleaseInfo
-    installer = HubInstaller(tmp_path, tmp_path / ".thetaide")
-    target = tmp_path / "src/usr/models/example"
-    target.mkdir(parents=True)
-    marker = target / "model.py"
-    marker.write_text("# existing model\n")
-    marker.chmod(0o444)
-    manifest = {"id": "example", "name": "Example", "kind": "model", "version": "1.0.0", "installed_from": "https://example.test/old.zip"}
-    (target / ".theta_component.json").write_text(json.dumps(manifest))
-    archive = tmp_path / "legacy.zip"
-    with ZipFile(archive, "w") as z:
-        incoming = {**manifest, "version": "2.0.0"}
-        if legacy_reference == "metadata":
-            incoming["asset_paths"] = ["in/rules/cartpole/default"]
-        z.writestr(".theta_component.json", json.dumps(incoming))
-        z.writestr("model.py", "# replacement model\n")
-        if legacy_reference == "asset":
-            z.writestr("in/rules/cartpole/default/clauses.txt", "rules")
-    component = HubComponent(id="example", name="Example", kind="model", version="2.0.0",
-        releases={"2.0.0": ReleaseInfo(tag="v2.0.0", url=archive.as_uri(), sha256="")})
-    with pytest.raises(ValueError, match="Unsupported"):
-        installer.install(component, install_dependencies=False)
-    assert marker.read_text() == "# existing model\n"
-    assert not marker.stat().st_mode & 0o222
-    assert json.loads((target / ".theta_component.json").read_text())["version"] == "1.0.0"
-    assert not (tmp_path / "in/rules").exists()
-    assert not (tmp_path / "src/usr/rules").exists()
-
-
 def test_canonical_package_lifecycle_preserves_shared_and_user_rules(tmp_path):
     from src.app.components.installer import HubInstaller
     from src.app.components.models import HubComponent, ReleaseInfo
@@ -134,7 +85,7 @@ def test_canonical_package_lifecycle_preserves_shared_and_user_rules(tmp_path):
     for name in ["nsfr", "neumann"]:
         archive = tmp_path / f"{name}.zip"
         with ZipFile(archive, "w") as z:
-            z.writestr(".theta_component.json", json.dumps({"id":name,"name":name,"kind":"model","version":"1.0.0","storage_version":2,"api_version":1,"capabilities":[],"rules_root":"resources/rules","payload":{"implementations":["common.py"],"resources":["resources/rules"],"configs":{f"in/config/model/{name}.yaml":f"configs/model/{name}.yaml"}}}))
+            z.writestr(".theta_component.json", json.dumps({"id":name,"name":name,"kind":"model","version":"1.0.0","storage_version":3,"api_version":1,"capabilities":[],"rules_root":"resources/rules","payload":{"implementations":["common.py"],"resources":["resources/rules"],"configs":{f"model/{name}.yaml":f"configs/model/{name}.yaml"}}}))
             z.writestr("resources/rules/cartpole/default/clauses.txt", "left(X):-leaning_left(X).\n")
             z.writestr(f"configs/model/{name}.yaml", "rules: default\n")
             z.writestr("common.py", "# source\n")
@@ -144,7 +95,7 @@ def test_canonical_package_lifecycle_preserves_shared_and_user_rules(tmp_path):
     from src.app.services.rulesets import resolve_ruleset
     shared = resolve_ruleset(tmp_path, "cartpole", "default").directory / "clauses.txt"
     user = resource(tmp_path, name="my_rules")
-    assert shared.is_file() and not (tmp_path / "in/rules").exists()
+    assert shared.is_file()
     assert shared.is_relative_to(installer.paths.installed_components)
     assert not (tmp_path / "src/usr/rules/cartpole/default").exists()
     owner = installer.find_component_for_path(shared)
@@ -156,7 +107,6 @@ def test_canonical_package_lifecycle_preserves_shared_and_user_rules(tmp_path):
     assert resolve_ruleset(tmp_path, "cartpole", "default").directory.is_dir() and user.is_dir()
     assert installer.uninstall(component)
     assert not any(r.name == "default" for r in available_rulesets(tmp_path, "cartpole")) and user.is_dir()
-    assert not (tmp_path / "in/rules").exists()
 
 
 def test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process(tmp_path):
@@ -204,7 +154,7 @@ def test_experiment_export_keeps_ruleset_owned_valuations_and_symbolic_environme
     folder = resource(tmp_path, name="anticipatory_v1")
     (folder / "ruleset.yaml").write_text("valuation: valuation.py\n")
     (folder / "valuation.py").write_text("# user-owned predicates\n")
-    config = tmp_path / "in/config"
+    config = tmp_path / "src/usr/config"
     profile = config / "env/gym/cartpole.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("symbolic_name: cartpole\nenv_id: CartPole-v1\n")
@@ -212,7 +162,7 @@ def test_experiment_export_keeps_ruleset_owned_valuations_and_symbolic_environme
     environment.mkdir(parents=True)
     (environment / "valuation.py").write_text("# observation builder\n")
     (environment / 'env_vectorized.py').write_text('class Env: pass\n')
-    (environment / '.theta_component.json').write_text(json.dumps({'id':'cartpole','name':'CartPole','kind':'env','version':'1.0.0','storage_version':2,'api_version':1,
+    (environment / '.theta_component.json').write_text(json.dumps({'id':'cartpole','name':'CartPole','kind':'env','version':'1.0.0','storage_version':3,'api_version':1,
         'capabilities':[{'id':'cartpole','aliases':['gym/cartpole'],'kind':'env','entry_point':'env_vectorized.py:Env','resource_root':'.'}],
         'payload':{'implementations':['env_vectorized.py'],'resources':['valuation.py'],'configs':{}}}))
     recipe = config / "experiment/demo/check.yaml"
@@ -225,4 +175,3 @@ def test_experiment_export_keeps_ruleset_owned_valuations_and_symbolic_environme
         assert "resources/rules/cartpole/anticipatory_v1/ruleset.yaml" in z.namelist()
         assert "cartpole" in [d["id"] for d in json.loads(z.read(".theta_component.json"))["dependencies"]["components"]]
         assert not any(name.startswith("providers/") for name in z.namelist())
-        assert not any(name.startswith("in/rules/") for name in z.namelist())

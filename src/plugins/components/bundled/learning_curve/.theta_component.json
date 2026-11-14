@@ -10,7 +10,7 @@
   "id": "learning_curve",
   "name": "learning_curve",
   "version": "1.0.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "payload": {
     "implementations": [

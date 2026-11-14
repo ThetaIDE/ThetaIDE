@@ -22,7 +22,7 @@ def provider(tmp_path, *, features=None, hints=None, hooks=False):
                   'resource_hints': hints if hints is not None else {'base_memory_gib': .4, 'cpu': .5, 'accelerator': False}}
     if hooks:
         capability.update(execution_preflight='hooks.py:validate', resource_hint_hook='hooks.py:resources')
-    manifest = {'id': 'independent', 'name': 'Independent', 'version': '1.0.0', 'storage_version': 2,
+    manifest = {'id': 'independent', 'name': 'Independent', 'version': '1.0.0', 'storage_version': 3,
                 'api_version': 1, 'kind': 'suite', 'capabilities': [capability],
                 'payload': {'implementations': ['adapter.py', 'hooks.py'], 'resources': [], 'configs': {}}}
     (root / '.theta_component.json').write_text(json.dumps(manifest))

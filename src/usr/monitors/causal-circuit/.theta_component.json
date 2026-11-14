@@ -3,7 +3,7 @@
   "name": "Causal Circuit",
   "kind": "monitor",
   "version": "0.1.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "description": "Measures neuron ablations and donor patching with held-out candidate-circuit evaluation.",
   "author": {
@@ -85,7 +85,7 @@
       }
     },
     "x-theta-config-schemas": {
-      "in/config/monitor/causal-circuit.yaml": {
+      "monitor/causal-circuit.yaml": {
         "type": "object",
         "required": [
           "component"
@@ -181,9 +181,9 @@
       }
     }
   ],
-  "config_path": "in/config/monitor/causal-circuit.yaml",
+  "config_path": "monitor/causal-circuit.yaml",
   "config_paths": [
-    "in/config/monitor/causal-circuit.yaml"
+    "monitor/causal-circuit.yaml"
   ],
   "payload": {
     "implementations": [
@@ -194,7 +194,7 @@
       "README.md"
     ],
     "configs": {
-      "in/config/monitor/causal-circuit.yaml": "configs/monitor/causal-circuit.yaml"
+      "monitor/causal-circuit.yaml": "configs/monitor/causal-circuit.yaml"
     }
   }
 }

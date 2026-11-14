@@ -28,8 +28,8 @@ REPO = Path(__file__).resolve().parents[1]
 def project(root, pipeline):
     (root / 'src').mkdir(parents=True)
     (root / 'src/worker.py').write_text('# fixture\n')
-    (root / 'in/config').mkdir(parents=True)
-    (root / 'in/config/config.yaml').write_text('defaults: [{site: local}]\n')
+    (root / 'src/usr/config').mkdir(parents=True)
+    (root / 'src/usr/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text(pipeline)
     workspace_id(root)
     from component_fixtures import install_optional

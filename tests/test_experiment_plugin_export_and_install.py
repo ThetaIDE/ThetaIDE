@@ -30,12 +30,11 @@ def mock_isolated_workspace():
     """Create a temporary isolated workspace for testing experiment plugin install/uninstall."""
     temp_dir = tempfile.mkdtemp(prefix="theta_exp_ws_")
     ws = Path(temp_dir)
-    (ws / "in" / "config" / "experiment").mkdir(parents=True)
-    (ws / "in" / "config" / "env").mkdir(parents=True)
-    (ws / "in" / "config" / "data").mkdir(parents=True)
-    (ws / "in" / "config" / "eval").mkdir(parents=True)
-    (ws / "in" / "config" / "plot").mkdir(parents=True)
-    (ws / "in" / "envs").mkdir(parents=True)
+    (ws / "src/usr/config" / "experiment").mkdir(parents=True)
+    (ws / "src/usr/config" / "env").mkdir(parents=True)
+    (ws / "src/usr/config" / "data").mkdir(parents=True)
+    (ws / "src/usr/config" / "eval").mkdir(parents=True)
+    (ws / "src/usr/config" / "plot").mkdir(parents=True)
     (ws / "plot").mkdir(parents=True)
     (ws / "src" / "usr" / "data").mkdir(parents=True)
     (ws / "src" / "usr" / "eval").mkdir(parents=True)
@@ -51,7 +50,7 @@ def native_export_workspace(fixture_workspace):
     for kind,name,aliases in [('model','mlp_classifier',[]),('model','dnn',[]),('algorithm','ppo',[]),('env','cartpole',['gym_classic_control/cartpole'])]:
         root=paths.user(kind)/name;root.mkdir(parents=True,exist_ok=True)
         (root/'provider.py').write_text('class Provider: pass\n')
-        (root/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':2,'api_version':1,
+        (root/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
             'capabilities':[{'id':name,'aliases':aliases,'kind':kind,'entry_point':'provider.py:Provider','resource_root':'.'}],
             'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}))
     return fixture_workspace
@@ -80,8 +79,8 @@ def test_experiment_exporter_export_group(native_export_workspace):
     assert res.manifest is not None
     assert res.manifest["id"] == "tabular_classification"
     assert res.manifest["kind"] == "experiment"
-    assert "in/config/experiment/tabular_classification/_base.yaml" in res.manifest["config_paths"]
-    assert "in/config/experiment/tabular_classification/quick_test.yaml" in res.manifest["config_paths"]
+    assert "experiment/tabular_classification/_base.yaml" in res.manifest["config_paths"]
+    assert "experiment/tabular_classification/quick_test.yaml" in res.manifest["config_paths"]
 
     # Clean up exported test zip
     if res.archive_path.exists():
@@ -106,8 +105,8 @@ def test_experiment_exporter_export_thetaide_group(native_export_workspace):
     assert res.success, f"Failed to export thetaide group: {res.error}"
     assert res.manifest["id"] == "thetaide"
     assert res.manifest["kind"] == "experiment"
-    assert "in/config/experiment/thetaide/_base.yaml" in res.manifest["config_paths"]
-    assert "in/config/experiment/thetaide/cartpole_ppo_reference.yaml" in res.manifest["config_paths"]
+    assert "experiment/thetaide/_base.yaml" in res.manifest["config_paths"]
+    assert "experiment/thetaide/cartpole_ppo_reference.yaml" in res.manifest["config_paths"]
 
     if res.archive_path.exists():
         res.archive_path.unlink()
@@ -171,7 +170,7 @@ def test_experiment_plugin_mock_install_and_clean_uninstall(mock_isolated_worksp
 
     comp.releases["1.0.0"].url = f"file://{dist_pkg.resolve()}"
 
-    # This historical archive contains in/rules, which the rules contract explicitly rejects.
+    # This historical archive predates package format v3, so it is unsupported.
     with pytest.raises(ValueError, match="Unsupported"):
         installer.install(comp)
     assert not installer.resolve_target_dir(comp).exists()
@@ -183,8 +182,8 @@ def test_canonical_experiment_bundle_manages_one_owned_payload(tmp_path):
     from src.app.components.models import ReleaseInfo
     workspace = tmp_path / 'workspace'
     installer = HubInstaller(workspace, tmp_path / 'state')
-    configs = ['in/config/experiment/demo/_base.yaml', 'in/config/experiment/demo/final.yaml', 'in/config/env/demo.yaml']
-    meta = {'id':'demo-suite','name':'Demo','kind':'experiment','version':'1.0.0','storage_version':2,'api_version':1,
+    configs = ['experiment/demo/_base.yaml', 'experiment/demo/final.yaml', 'env/demo.yaml']
+    meta = {'id':'demo-suite','name':'Demo','kind':'experiment','version':'1.0.0','storage_version':3,'api_version':1,
             'payload':{'configs':{path:path for path in configs}, 'implementations':['env/valuation.py','evaluation.py','plotter.py'], 'resources':['rules/clauses.txt']},
             'capabilities':[{'id':'demo_eval','kind':'evaluator','entry_point':'evaluation.py:Evaluator'}]}
     archive = tmp_path / 'demo.zip'
@@ -200,7 +199,8 @@ def test_canonical_experiment_bundle_manages_one_owned_payload(tmp_path):
     installer.install(component,install_dependencies=False)
     target=installer.resolve_target_dir(component)
     assert (target/'env/valuation.py').is_file() and (target/'evaluation.py').is_file()
-    assert not (workspace/'src/usr').exists() and not (workspace/'in/envs').exists()
-    owner=installer.find_component_for_path(workspace/configs[1]);assert owner['id']=='demo-suite'
+    assert not (workspace/'src/usr').exists()
+    profile=installer.paths.resolve_config(configs[1]);assert profile==target/'configs'/configs[1]
+    owner=installer.find_component_for_path(profile);assert owner['id']=='demo-suite'
     installer.uninstall_by_metadata(owner)
-    assert not target.exists() and not (workspace/configs[1]).exists()
+    assert not target.exists() and installer.paths.config_resolver().resolve(configs[1]) is None

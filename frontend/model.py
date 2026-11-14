@@ -8,7 +8,7 @@ import random
 import re
 from uuid import uuid4
 
-# Backend experiment every builder config is composed from (in/config/experiment/thetaide/_base.yaml).
+# Backend experiment every builder config is composed from (src/usr/config/experiment/thetaide/_base.yaml).
 BASE_EXPERIMENT = "thetaide/_base"
 METHOD = "method"
 
@@ -55,7 +55,7 @@ class Config:
         """A standalone experiment recipe equivalent to BASE_EXPERIMENT + overrides()."""
         return (
             "# @package _global_\n"
-            "# Exported from ThetaIDE. Save under in/config/experiment/thetaide/ and run:\n"
+            "# Exported from ThetaIDE. Save under src/usr/config/experiment/thetaide/ and run:\n"
             "#   python run_pipeline.py thetaide/<file name without .yaml>\n"
             f"defaults:\n- {BASE_EXPERIMENT}\n\n"
             f"experiment_id: {json.dumps(self.name)}\n"

@@ -3,7 +3,7 @@
   "name": "Activation Evolution",
   "kind": "monitor",
   "version": "0.1.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "description": "Tracks activation distributions, effective rank and representation similarity on fixed probes.",
   "author": {
@@ -45,7 +45,7 @@
       }
     },
     "x-theta-config-schemas": {
-      "in/config/monitor/activation-evolution.yaml": {
+      "monitor/activation-evolution.yaml": {
         "type": "object",
         "required": [
           "component"
@@ -100,9 +100,9 @@
       }
     }
   ],
-  "config_path": "in/config/monitor/activation-evolution.yaml",
+  "config_path": "monitor/activation-evolution.yaml",
   "config_paths": [
-    "in/config/monitor/activation-evolution.yaml"
+    "monitor/activation-evolution.yaml"
   ],
   "payload": {
     "implementations": [
@@ -113,7 +113,7 @@
       "README.md"
     ],
     "configs": {
-      "in/config/monitor/activation-evolution.yaml": "configs/monitor/activation-evolution.yaml"
+      "monitor/activation-evolution.yaml": "configs/monitor/activation-evolution.yaml"
     }
   }
 }

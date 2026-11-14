@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from src.app.workspace import WorkspacePaths
 import yaml
 
 from frontend.hub.client import HubClient
@@ -23,19 +25,22 @@ def model_workspace(tmp_path):
     (source / '__init__.py').write_text('from .model import Example\n')
     (source / 'model.py').write_text('from src.app.core.model_registry import register_model\n@register_model("parent", "legacy_parent")\nclass Example:\n    def __init__(self, **kwargs): pass\n    def forward(self): return 1\n')
     (source / 'rules.txt').write_text('owned asset')
-    profiles = ['in/config/model/parent/default.yaml', 'in/config/model/parent/wide.yaml']
+    profiles = ['model/parent/default.yaml', 'model/parent/wide.yaml']
+    cfg(root).mkdir(parents=True)
     for profile in profiles:
-        path = root / profile
+        path = source / 'configs' / profile
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('architecture: parent\nchild:\n  name: external_child\n')
     meta = dict(id='parent', name='Parent', kind='model', version='1.0.0', target_path='src/usr/models/parent', config_path=profiles[0], config_paths=profiles, aliases=['legacy_parent'], parameter_schema={'type': 'object', 'properties': {}, 'x-theta-config-schemas': {p: {'properties': {'width': {'type': 'integer'}}} for p in profiles}})
     meta.pop('target_path')
-    meta.update(storage_version=2,api_version=1,capabilities=[{'id':'parent','kind':'model','entry_point':'model.py:Example','aliases':['legacy_parent']}],
-        payload={'implementations':['__init__.py','model.py'],'resources':['rules.txt'],'configs':{v:'configs/'+v.removeprefix('in/config/') for v in profiles}})
-    for dest,relative in meta['payload']['configs'].items():
-        packaged=source/relative;packaged.parent.mkdir(parents=True,exist_ok=True);packaged.write_bytes((root/dest).read_bytes())
+    meta.update(storage_version=3,api_version=1,capabilities=[{'id':'parent','kind':'model','entry_point':'model.py:Example','aliases':['legacy_parent']}],
+        payload={'implementations':['__init__.py','model.py'],'resources':['rules.txt'],'configs':{v:'configs/'+v for v in profiles}})
     (source / '.theta_component.json').write_text(json.dumps(meta))
-    return root, root / profiles[0]
+    return root, source / 'configs' / profiles[0]
+
+
+def cfg(workspace):
+    return WorkspacePaths(workspace).config
 
 
 def runtime(workspace, component):
@@ -52,17 +57,15 @@ def test_independent_identity_direct_save_profiles_context_and_hide(model_worksp
     ws, config = model_workspace
     service = LocalComponents(ws)
     copied = service.deep_copy(config, 'fork', 'My fork')
-    assert copied == ws / 'in/config/model/fork/default.yaml'
+    assert copied == ws / 'src/usr/models/fork/configs/model/fork/default.yaml'
     meta = json.loads((ws / 'src/usr/models/fork/.theta_component.json').read_text())
-    assert set(meta['config_paths']) == {'in/config/model/fork/default.yaml', 'in/config/model/fork/wide.yaml'}
+    assert set(meta['config_paths']) == {'model/fork/default.yaml', 'model/fork/wide.yaml'}
     assert set(meta['parameter_schema']['x-theta-config-schemas']) == set(meta['config_paths'])
     assert 'aliases' not in meta
     assert meta['parent']['id'] == 'parent'
-    from src.app.workspace import WorkspacePaths
-    copied.unlink()
-    assert WorkspacePaths(ws).resolve_config('model/fork/default.yaml') == ws/'src/usr/models/fork/configs/model/fork/default.yaml'
+    assert WorkspacePaths(ws).resolve_config('model/fork/default.yaml') == copied
     assert not (ws/'src/usr/models/fork/configs/model/parent/default.yaml').exists()
-    copied.write_bytes(WorkspacePaths(ws).resolve_config('model/fork/default.yaml').read_bytes())
+    assert not (cfg(ws) / 'model/fork').exists()
     assert (ws / 'src/usr/models/fork/rules.txt').read_text() == 'owned asset'
     assert yaml.safe_load(copied.read_text())['child']['name'] == 'external_child'
     assert runtime(ws, 'parent') == runtime(ws, 'fork') == '1'
@@ -81,11 +84,11 @@ def test_independent_identity_direct_save_profiles_context_and_hide(model_worksp
     assert copied in service.hidden_config_paths()
     assert runtime(ws, 'fork') == '77'
     from frontend.config_model import ConfigTree
-    tree = ConfigTree(ws / 'in/config')
+    tree = ConfigTree(cfg(ws))
     assert 'fork/default' in tree.models
     assert 'fork/default' not in tree.model_names
     service.set_hidden('fork', False)
-    assert 'fork/default' in ConfigTree(ws / 'in/config').model_names
+    assert 'fork/default' in ConfigTree(cfg(ws)).model_names
 
 
 def test_uninstall_reinstall_retains_saved_source_and_offline_catalog(model_workspace):
@@ -100,7 +103,7 @@ def test_uninstall_reinstall_retains_saved_source_and_offline_catalog(model_work
         service.install(component, installer)
     service.archive_authored(component, installer)
     assert not implementation.exists()
-    assert not (ws / 'in/config/model/fork/default.yaml').exists()
+    assert WorkspacePaths(ws).config_resolver().resolve('model/fork/default.yaml') is None
     assert Path(service.state()['records']['fork']['package']).is_dir()
     assert (ws / 'src/usr/models/parent/model.py').exists()
     service.restore_authored(component)
@@ -146,7 +149,7 @@ def test_delete_moves_only_owned_paths_to_trash(model_workspace, monkeypatch, tm
     service.deep_copy(config, 'fork')
     component = service.entries()[0]
     installer = HubInstaller(ws, ws / '.thetaide')
-    experiment = ws / 'in/config/experiment/uses_fork.yaml'
+    experiment = cfg(ws) / 'experiment/uses_fork.yaml'
     experiment.parent.mkdir(parents=True)
     experiment.write_text('model: fork/default\n')
     shared = ws / 'src/usr/rules/shared.txt'
@@ -216,8 +219,8 @@ def test_hub_hide_controls_and_current_hidden_selector(model_workspace, monkeypa
     assert view.cards['fork'].isHidden()
     view.show_hidden.setChecked(True)
     assert not view.cards['fork'].isHidden()
-    monkeypatch.setattr(viewer_module, 'config_tree', lambda *args, **kwargs: ConfigTree(ws / 'in/config'))
-    experiment = ws / 'in/config/experiment/current.yaml'
+    monkeypatch.setattr(viewer_module, 'config_tree', lambda *args, **kwargs: ConfigTree(cfg(ws)))
+    experiment = cfg(ws) / 'experiment/current.yaml'
     experiment.parent.mkdir(parents=True)
     experiment.write_text('methods:\n  trial:\n    agent: missing_agent\n    model: fork/default\n')
     viewer = ConfigViewer()
@@ -300,7 +303,7 @@ def test_saved_experiment_profile_runs_its_declared_identity_after_restart(model
     local.deep_copy(config, 'fork')
     model_file = ws / 'src/usr/models/fork/model.py'
     model_file.write_text(model_file.read_text().replace('return 1', 'return 81'))
-    config_root = ws / 'in/config'
+    config_root = cfg(ws)
     (config_root / 'config.yaml').write_text('defaults:\n  - _self_\n  - model: null\n  - agent: null\n  - paradigm: null\n')
     for kind in ('agent', 'paradigm', 'experiment'):
         (config_root / kind).mkdir(exist_ok=True)
@@ -317,11 +320,13 @@ from src.app.pipeline.config import parse_methods_dict
 from src.app.pipeline.commands import build_method_overrides
 from hydra import initialize_config_dir, compose
 from omegaconf import OmegaConf
+from src.app.config_resolution import configuration_context
+from src.app.workspace import WorkspacePaths
 experiment = OmegaConf.load({str(experiment)!r})
 results = {{}}
 for name, method in parse_methods_dict(experiment).items():
     overrides = build_method_overrides(name, method, cfg={{'paradigm': 'online_rl', 'experiment_name': 'check'}})
-    with initialize_config_dir(version_base=None, config_dir={str(config_root)!r}):
+    with configuration_context(WorkspacePaths({str(ws)!r})), initialize_config_dir(version_base=None, config_dir={str(config_root)!r}):
         composed = compose(config_name='config', overrides=overrides)
     assert composed.model.architecture in ('parent', 'fork'), composed.model
     results[name] = model_registry.build_model(composed.model).forward()
@@ -375,7 +380,7 @@ def test_hub_inline_deep_copy_and_edit(model_workspace):
     assert client.get_component('private_fork').is_installed
     view.cards['private_fork'].btn_edit.click()
     assert opened[0][0] == ws / 'src/usr/models/private_fork'
-    assert ws / 'in/config/model/private_fork/default.yaml' in opened[0][1]['owned_paths']
+    assert ws / 'src/usr/models/private_fork/configs/model/private_fork/default.yaml' in opened[0][1]['owned_paths']
     client.local_components.archive_authored(client.get_component('private_fork'), client.installer)
     assert not view.cards['private_fork'].btn_edit.isEnabled()
     host.deleteLater()
@@ -390,14 +395,13 @@ def test_failed_reinstall_rolls_back_and_retains_package(model_workspace, monkey
     installer = HubInstaller(ws, ws / '.thetaide')
     local.archive_authored(component, installer)
     package = Path(local.state()['records']['fork']['package'])
-    config = ws / 'in/config/model/fork/default.yaml'
+    config = cfg(ws) / 'model/fork/default.yaml'
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text('preexisting: keep me\n')
     def fail(boundary, identity):
         target = ws / 'src/usr/models/fork'
         target.mkdir(parents=True, exist_ok=True)
         (target / 'model.py').write_text('partial')
-        config.write_text('overwritten')
         raise OSError('interrupted reinstall')
     monkeypatch.setattr(local, '_authoring_failure_point', fail)
     with pytest.raises(OSError, match='interrupted reinstall'):
@@ -426,16 +430,16 @@ def test_trash_failure_restores_all_owned_locations(model_workspace, monkeypatch
 def test_external_schema_and_visibility_changes_refresh_config_fingerprint(model_workspace):
     from frontend.config_model import ConfigTree, config_fingerprint
     ws, config = model_workspace
-    before = config_fingerprint(ws / 'in/config')
+    before = config_fingerprint(cfg(ws))
     manifest = ws / 'src/usr/models/parent/.theta_component.json'
     meta = json.loads(manifest.read_text())
-    meta['parameter_schema']['x-theta-config-schemas']['in/config/model/parent/default.yaml']['properties']['width']['maximum'] = 31
+    meta['parameter_schema']['x-theta-config-schemas']['model/parent/default.yaml']['properties']['width']['maximum'] = 31
     manifest.write_text(json.dumps(meta))
-    changed = config_fingerprint(ws / 'in/config')
+    changed = config_fingerprint(cfg(ws))
     assert changed != before
-    assert ConfigTree(ws / 'in/config').model_parameter_schema('parent/default')['properties']['width']['maximum'] == 31
+    assert ConfigTree(cfg(ws)).model_parameter_schema('parent/default')['properties']['width']['maximum'] == 31
     LocalComponents(ws).set_hidden('parent')
-    assert config_fingerprint(ws / 'in/config') != changed
+    assert config_fingerprint(cfg(ws)) != changed
 
 
 def test_retained_edits_remain_protected_after_reinstall(model_workspace):
@@ -481,7 +485,7 @@ def test_install_release_then_copy_saved_implementation(model_workspace, tmp_pat
     parent.write_text(parent.read_text().replace('return 1', 'return 91'))
     assert runtime(ws, 'parent') == '91'
     local = LocalComponents(ws)
-    local.deep_copy(ws / 'in/config/model/parent/default.yaml', 'fork')
+    local.deep_copy(installer.paths.resolve_config('model/parent/default.yaml'), 'fork')
     cloned_package, cloned_capability = ProviderCatalog(installer.paths).resolve('model', 'fork')
     fork = cloned_package.resource(cloned_capability.entry_point.split(':')[0])
     fork.write_text(fork.read_text().replace('return 91', 'return 92'))
@@ -503,7 +507,7 @@ def test_declared_asset_directory_keeps_its_new_ownership(model_workspace):
     copied=json.loads((ws/'src/usr/models/fork/.theta_component.json').read_text())
     assert 'resources/rules' in copied['payload']['resources']
     assert (ws/'src/usr/models/fork/resources/rules/one.txt').read_text()=='one'
-    local.snapshot(ws/'in/config/model/fork/default.yaml',source='local')
+    local.snapshot(ws/'src/usr/models/fork/configs/model/fork/default.yaml',source='local')
     package=Path(local.state()['records']['fork']['package'])
     assert (package/'resources/rules/two.txt').read_text()=='two'
     assert not (package/'src/usr').exists()
@@ -531,7 +535,7 @@ def test_code_only_model_can_edit_copy_uninstall_and_reinstall(model_workspace):
     manifest = source / '.theta_component.json'
     meta = json.loads(manifest.read_text())
     for relative in meta['config_paths']:
-        (ws / relative).unlink()
+        (source / 'configs' / relative).unlink()
     meta.pop('config_path')
     meta['config_paths'] = []
     meta['payload']['configs'] = {}
@@ -557,11 +561,11 @@ def test_copy_remaps_owned_hydra_defaults_but_keeps_external_defaults(model_work
     ws, config = model_workspace
     config.write_text('architecture: parent\ndefaults:\n  - /model/parent/wide\n  - /model: parent/wide\n  - /model/parent: wide\n  - /model: external/shared\n')
     source = ws / 'src/usr/models/parent/model.py'
-    source.write_text(source.read_text() + "\nPROFILE = 'in/config/model/parent/wide.yaml'\n")
+    source.write_text(source.read_text() + "\nPROFILE = 'model/parent/wide.yaml'\n")
     copied = LocalComponents(ws).deep_copy(config, 'fork')
     data = yaml.safe_load(copied.read_text())
     assert data['defaults'] == ['/model/fork/wide', {'/model': 'fork/wide'}, {'/model/fork': 'wide'}, {'/model': 'external/shared'}]
-    assert "PROFILE = 'in/config/model/fork/wide.yaml'" in (ws / 'src/usr/models/fork/model.py').read_text()
+    assert "PROFILE = 'model/fork/wide.yaml'" in (ws / 'src/usr/models/fork/model.py').read_text()
     assert '/model/parent/wide' in config.read_text()
 
 
@@ -569,13 +573,13 @@ def test_copy_updates_selector_schema_without_changing_child_schema(model_worksp
     ws, config = model_workspace
     manifest = ws / 'src/usr/models/parent/.theta_component.json'
     meta = json.loads(manifest.read_text())
-    schema = meta['parameter_schema']['x-theta-config-schemas']['in/config/model/parent/default.yaml']
+    schema = meta['parameter_schema']['x-theta-config-schemas']['model/parent/default.yaml']
     schema['properties']['architecture'] = {'type': 'string', 'const': 'parent', 'default': 'parent', 'enum': ['parent', 'external']}
     schema['properties']['child'] = {'properties': {'name': {'const': 'parent'}}}
     manifest.write_text(json.dumps(meta))
     LocalComponents(ws).deep_copy(config, 'fork')
     copied = json.loads((ws / 'src/usr/models/fork/.theta_component.json').read_text())
-    schema = copied['parameter_schema']['x-theta-config-schemas']['in/config/model/fork/default.yaml']
+    schema = copied['parameter_schema']['x-theta-config-schemas']['model/fork/default.yaml']
     assert schema['properties']['architecture'] == {'type': 'string', 'const': 'fork', 'default': 'fork', 'enum': ['fork', 'external']}
     assert schema['properties']['child']['properties']['name']['const'] == 'parent'
 
@@ -587,26 +591,24 @@ def test_copy_model_with_owned_plot_package_and_plot_profile(model_workspace):
     (auxiliary/'__init__.py').write_text('from .routing import render\n')
     (auxiliary/'routing.py').write_text('def render(): return "routing"\n')
     code=source/'model.py';code.write_text(code.read_text()+'\ndef plot_module():\n    from .plotters import routing\n    return routing\n')
-    flat=ws/'in/config/model/parent.yaml';flat.write_text('architecture: parent\nneural: {type: dnn}\nsymbolic: {type: nsfr}\n')
-    plot=ws/'in/config/plot/parent/routing.yaml';plot.parent.mkdir(parents=True);plot.write_text('figsize: [8, 5]\n')
-    for dest in (flat,plot):
-        packaged=source/'configs'/dest.relative_to(ws/'in/config');packaged.parent.mkdir(parents=True,exist_ok=True);packaged.write_bytes(dest.read_bytes())
+    flat=source/'configs/model/parent.yaml';flat.write_text('architecture: parent\nneural: {type: dnn}\nsymbolic: {type: nsfr}\n')
+    plot=source/'configs/plot/parent/routing.yaml';plot.parent.mkdir(parents=True);plot.write_text('figsize: [8, 5]\n')
     manifest=source/'.theta_component.json';meta=json.loads(manifest.read_text())
-    paths=[str(v.relative_to(ws)) for v in (flat,plot)]
+    paths=[v.relative_to(source/'configs').as_posix() for v in (flat,plot)]
     meta.update(config_path=paths[0],config_paths=paths)
-    meta['payload']['configs']={v:'configs/'+v.removeprefix('in/config/') for v in paths}
+    meta['payload']['configs']={v:'configs/'+v for v in paths}
     meta['payload']['implementations'].append('plotters')
     meta['capabilities'].append({'id':'routing','kind':'plotter','entry_point':'plotters/routing.py:render'})
     schema={'type':'object','properties':{'figsize':{'type':'array'}}}
     meta['parameter_schema']['x-theta-config-schemas']={paths[1]:schema};manifest.write_text(json.dumps(meta))
     copied=LocalComponents(ws).deep_copy(flat,'fork')
-    assert copied==ws/'in/config/model/fork.yaml'
+    assert copied==ws/'src/usr/models/fork/configs/model/fork.yaml'
     data=yaml.safe_load(copied.read_text());assert data['architecture']=='fork' and data['neural']['type']=='dnn' and data['symbolic']['type']=='nsfr'
-    new_plot=ws/'in/config/plot/fork/routing.yaml';assert yaml.safe_load(new_plot.read_text())==yaml.safe_load(plot.read_text())
+    new_plot=ws/'src/usr/models/fork/configs/plot/fork/routing.yaml';assert yaml.safe_load(new_plot.read_text())==yaml.safe_load(plot.read_text())
     assert 'from .routing import render' in (ws/'src/usr/models/fork/plotters/__init__.py').read_text()
     assert 'from .plotters import routing' in (ws/'src/usr/models/fork/model.py').read_text()
     fork=json.loads((ws/'src/usr/models/fork/.theta_component.json').read_text())
-    assert fork['parameter_schema']['x-theta-config-schemas']['in/config/plot/fork/routing.yaml']==schema
+    assert fork['parameter_schema']['x-theta-config-schemas']['plot/fork/routing.yaml']==schema
     assert (auxiliary/'routing.py').read_text()=='def render(): return "routing"\n'
 
 
@@ -619,7 +621,7 @@ def test_component_tree_copy_names_inline_and_opens_new_parameters(model_workspa
     app = QApplication.instance() or QApplication([])
     ws, config = model_workspace
     panel = ComponentsPanel()
-    panel.components_tree.root_dir = ws / 'in/config'
+    panel.components_tree.root_dir = cfg(ws)
     panel.components_tree.populate()
     panel.on_component_selected(config, 'model/parent/default.yaml')
     panel.resize(1100, 700)
@@ -636,7 +638,7 @@ def test_component_tree_copy_names_inline_and_opens_new_parameters(model_workspa
     assert not (ws / 'src/usr/models/fork').exists()
     QTest.keyClicks(editor, 'fork')
     QTest.keyClick(editor, Qt.Key.Key_Return)
-    assert panel.active_path == ws / 'in/config/model/fork/default.yaml'
+    assert panel.active_path == ws / 'src/usr/models/fork/configs/model/fork/default.yaml'
     assert panel.viewer.raw_data['architecture'] == 'fork'
     assert panel.components_tree.current_rel_path == 'model/fork/default.yaml'
     assert config.exists()
@@ -652,7 +654,7 @@ def test_inline_copy_conflict_and_escape_do_not_create_files(model_workspace):
     from frontend.config_tree import ConfigTreeWidget
     app = QApplication.instance() or QApplication([])
     ws, config = model_workspace
-    tree = ConfigTreeWidget(root_dir=ws / 'in/config', mode='components')
+    tree = ConfigTreeWidget(root_dir=cfg(ws), mode='components')
     tree.show()
     app.processEvents()
     tree.prompt_deep_copy_component('model/parent/default.yaml')
@@ -674,7 +676,7 @@ def test_legacy_downloaded_copy_requires_native_source_declarations(tmp_path):
     """Native BlendRL positive coverage lives with its maintained package sources."""
     source=tmp_path/'src/usr/models/blendrl';source.mkdir(parents=True)
     manifest=source/'.theta_component.json';manifest.write_text(json.dumps({'id':'blendrl','name':'BlendRL','kind':'model','version':'1.0.0'}))
-    config=tmp_path/'in/config/model/blendrl.yaml';config.parent.mkdir(parents=True);config.write_text('architecture: blendrl\n')
+    config=cfg(tmp_path)/'model/blendrl.yaml';config.parent.mkdir(parents=True);config.write_text('architecture: blendrl\n')
     before=manifest.read_bytes()
     with pytest.raises(ValueError,match='declared native package'):
         LocalComponents(tmp_path).deep_copy(config,'blendrl_fork')

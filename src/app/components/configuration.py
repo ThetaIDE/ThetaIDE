@@ -30,7 +30,7 @@ class ConfigurationFiles:
                     raise ValueError(f"Not an effective workspace profile: {candidate}")
                 path = candidate
         else:
-            value = candidate.as_posix().removeprefix("in/config/").removeprefix("src/usr/config/")
+            value = candidate.as_posix().removeprefix("src/usr/config/")
             path = self.paths.resolve_config(value)
         text = path.read_text(encoding="utf-8")
         data = yaml.safe_load(text)
@@ -39,9 +39,14 @@ class ConfigurationFiles:
         return path, text, data
 
     def write(self, path, text, *, create=False, allow_external=False):
-        # The GUI has historically supported editing explicitly opened YAMLs
-        # outside in/config (e.g. exported recipes). CLI paths stay scoped.
-        path = Path(path).resolve() if allow_external and not create else self.paths.config_file(path)
+        # The GUI supports editing explicitly opened YAMLs outside the config
+        # root (e.g. exported recipes). CLI paths stay scoped.
+        if allow_external and not create:
+            path = Path(path).resolve()
+        elif not create and self._authored_profile(path) is not None:
+            path = self._authored_profile(path)
+        else:
+            path = self.paths.config_file(path)
         if path.suffix not in (".yaml", ".yml"):
             raise ValueError("Configuration must be a YAML file.")
         if not isinstance(yaml.safe_load(text), dict):
@@ -72,13 +77,23 @@ class ConfigurationFiles:
                 temporary.unlink(missing_ok=True)
         return path
 
+    def _authored_profile(self, path):
+        """A declared profile inside a writable (authored) package, edited in place."""
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            return None
+        candidate = candidate.resolve()
+        from src.app.core.provider_catalog import get_catalog
+        for package in get_catalog(self.paths).packages:
+            if package.writable and candidate.is_relative_to(package.root.resolve()):
+                declared = {package.resource(source).resolve() for source in
+                            (package.manifest.get("payload") or {}).get("configs", {}).values()}
+                return candidate if candidate in declared else None
+        return None
+
     def copy(self, source, destination):
         source, text, _ = self.read(source)
-        target = self.write(destination, text, create=True)
-        owner = self.installer.find_component_for_path(source)
-        if owner:
-            self.installer.track_user_config(owner, target)
-        return target
+        return self.write(destination, text, create=True)
 
     def create_override(self, selector):
         """Explicitly copy an effective profile to usr without changing its owner.
@@ -92,12 +107,12 @@ class ConfigurationFiles:
         from .transactions import FileTransaction, workspace_lock, write_json
 
         relative = selector_path(selector)
-        target = self.paths.user_config / relative
+        target = self.paths.config / relative
         record_file = self.paths.data_dir / "config_overrides.json"
         with workspace_lock(self.paths):
             resolved = self.paths.config_resolver().resolve(relative, required=True)
             # Reject symlinked destinations that would make this a package edit.
-            if self.paths.user_config.resolve() != self.paths.user_config.absolute() or target.resolve() != target.absolute():
+            if self.paths.config.resolve() != self.paths.config.absolute() or target.resolve() != target.absolute():
                 raise ValueError("User override destinations cannot use symbolic links")
             if target.is_file():
                 return target

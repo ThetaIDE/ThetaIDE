@@ -151,7 +151,7 @@ def test_tuner_telemetry_does_not_infer_an_owner(tmp_path):
     root.mkdir(parents=True)
     (root / 'provider.py').write_text('raise AssertionError("metadata inspection imported a tuner")')
     manifest = {'id': 'provider', 'name': 'Provider', 'kind': 'tuner', 'version': '1.0.0',
-        'storage_version': 2, 'api_version': 1,
+        'storage_version': 3, 'api_version': 1,
         'capabilities': [{'id': 'optuna', 'kind': 'tuner', 'entry_point': 'provider.py:Tuner',
                           'monitoring': {'provides': [{'name': 'tuner/probe', 'label': 'Probe'}]}}],
         'payload': {'implementations': ['provider.py'], 'resources': [], 'configs': {}}}

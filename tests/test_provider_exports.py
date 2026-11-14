@@ -15,7 +15,7 @@ def package(paths, package_id, files, *, version='1.0.0', exports=None, componen
     for name, source in files.items():
         (root / name).write_text(source)
     manifest = {'id': package_id, 'name': package_id, 'version': version, 'kind': 'package',
-                'storage_version': 2, 'api_version': 1,
+                'storage_version': 3, 'api_version': 1,
                 'capabilities': [{'id': package_id, 'kind': 'component', 'entry_point': f'{next(iter(files))}:VALUE'}],
                 'payload': {'implementations': list(files), 'resources': [], 'configs': {}},
                 'dependencies': {'components': components or [], 'pip': []}}
@@ -70,7 +70,7 @@ def test_host_code_loads_declared_exports_without_a_requester(workspace):
 
 
 def test_exports_must_name_payload_implementations():
-    manifest = {'id': 'bad', 'name': 'bad', 'version': '1.0.0', 'kind': 'package', 'storage_version': 2,
+    manifest = {'id': 'bad', 'name': 'bad', 'version': '1.0.0', 'kind': 'package', 'storage_version': 3,
                 'api_version': 1, 'capabilities': [],
                 'payload': {'implementations': ['a.py'], 'resources': [], 'configs': {}}}
     for exports, message in [({'x': 'b.py:f'}, 'declared payload implementation'), ({'x': 'a.py'}, "file.py:attribute"),

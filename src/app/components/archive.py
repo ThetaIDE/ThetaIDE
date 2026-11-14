@@ -7,8 +7,6 @@ import stat
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
-from src.app.services.rulesets import reject_legacy_rules_paths
-
 
 def safe_relative(value):
     value = str(value)
@@ -26,14 +24,14 @@ def extract(archive, destination):
             if not (destination / str(rel)).resolve().is_relative_to(destination.resolve()): raise ValueError(str(rel))
         zf.extractall(destination)
     items = list(destination.iterdir())
-    return items[0] if len(items) == 1 and items[0].is_dir() and items[0].name not in ("src", "in", "config", "plot") else destination
+    return items[0] if len(items) == 1 and items[0].is_dir() and items[0].name not in ("src", "configs") else destination
 
 
 def validate_native_package(meta, source):
     """Validate declarations and containment without importing provider code."""
     from src.app.core.manifest_schema import validate_manifest_data
-    if meta.get("storage_version") != 2 or meta.get("api_version") != 1:
-        raise ValueError("Unsupported or missing native contract: packages require explicit storage_version: 2 and api_version: 1; rebuild the maintained source package")
+    if meta.get("storage_version") != 3 or meta.get("api_version") != 1:
+        raise ValueError("Unsupported or missing native contract: packages require explicit storage_version: 3 and api_version: 1")
     valid, error = validate_manifest_data({k: v for k, v in meta.items() if v is not None})
     if not valid: raise ValueError(f"Invalid package manifest: {error}")
     for field in ("legacy_paths", "module_aliases", "legacy_archive", "target_path"):
@@ -42,7 +40,6 @@ def validate_native_package(meta, source):
     payload = meta.get("payload")
     if not isinstance(payload, dict) or not all(k in payload for k in ("implementations", "resources", "configs")):
         raise ValueError("Declare payload.implementations, payload.resources and payload.configs explicitly")
-    reject_legacy_rules_paths(meta)
     source = Path(source).resolve()
     def resource(value):
         rel = safe_relative(value)
@@ -54,10 +51,9 @@ def validate_native_package(meta, source):
         if not isinstance(payload[section], list): raise ValueError(f"payload.{section} must be a list")
         declared.extend(resource(v) for v in payload[section])
     if not isinstance(payload["configs"], dict): raise ValueError("payload.configs must be an object")
+    from src.app.core.manifest_schema import config_selector
     for dest, rel in payload["configs"].items():
-        safe_relative(dest)
-        if not dest.startswith("in/config/") or Path(dest).suffix not in (".yaml", ".yml"):
-            raise ValueError(f"Invalid materialized config destination {dest}")
+        config_selector(dest)
         file = resource(rel)
         if not file.is_file(): raise ValueError(f"Missing config payload {rel}")
         import yaml
@@ -133,8 +129,7 @@ def validate_native_package(meta, source):
         if path.is_symlink(): raise ValueError(f"Package contains symlink: {path}")
         if not path.is_file(): continue
         relative = path.relative_to(source).as_posix()
-        reject_legacy_rules_paths(relative)
-        if relative.startswith(('src/app/','frontend/','results/')) or (path.is_file() and relative.startswith('in/') and not relative.startswith('in/config/')):
+        if relative.startswith(('src/app/', 'frontend/', 'results/')):
             raise ValueError(f"Protected workspace payload: {relative}; use package-owned resources")
     for key in ('rules_root',):
         if key in meta and not resource(meta[key]).is_dir(): raise ValueError(f'{key} must name a package directory')
@@ -142,7 +137,7 @@ def validate_native_package(meta, source):
         if 'resource_root' in cap and not resource(cap['resource_root']).is_dir():
             raise ValueError('resource_root must name a package directory')
     aliases = meta.get("compatibility_selectors", [])
-    if not isinstance(aliases, list) or any(not isinstance(key, str) or "in/config/" + key not in payload["configs"] for key in aliases):
+    if not isinstance(aliases, list) or any(not isinstance(key, str) or key not in payload["configs"] for key in aliases):
         raise ValueError("compatibility_selectors must name explicitly packaged config profiles")
     return dict(payload["configs"])
 
@@ -164,7 +159,7 @@ def adapt(source, component, staged, *, version=None):
     # This is a direct mapping, with no directory search or config-name inference.
     canonical = {}
     for dest,relative in configs.items():
-        selected = 'configs/' + dest.removeprefix('in/config/')
+        selected = 'configs/' + dest
         target = staged / selected
         if target.exists() and target.read_bytes() != (source/relative).read_bytes():
             raise ValueError(f'Conflicting canonical packaged config: {selected}')

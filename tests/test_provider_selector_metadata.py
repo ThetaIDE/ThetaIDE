@@ -29,7 +29,7 @@ def selector_workspace(tmp_path, monkeypatch):
     state_profile.write_text("name: selector/state\nfeature_count: 4\n")
     meta = {
         "id": "selector-package", "name": "Selectors", "kind": "suite", "version": "1.0.0",
-        "storage_version": 2, "api_version": 1, "paradigms": ["supervised"],
+        "storage_version": 3, "api_version": 1, "paradigms": ["supervised"],
         "capabilities": [
             {"id": "selector/train", "kind": "datamodule", "aliases": ["TrainAlias"],
              "entry_point": "provider.py:Train", "role": "training",
@@ -44,8 +44,8 @@ def selector_workspace(tmp_path, monkeypatch):
              "entry_point": "provider.py:Plotter", "paradigms": ["online_rl"]},
         ],
         "payload": {"implementations": ["provider.py"], "resources": [], "configs": {
-            "in/config/data/selector_train.yaml": "configs/data/selector_train.yaml",
-            "in/config/data/selector_state.yaml": "configs/data/selector_state.yaml",
+            "data/selector_train.yaml": "configs/data/selector_train.yaml",
+            "data/selector_state.yaml": "configs/data/selector_state.yaml",
         }},
     }
     (root / ".theta_component.json").write_text(json.dumps(meta))

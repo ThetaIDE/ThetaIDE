@@ -34,7 +34,7 @@ def test_invalidate_config_tree_reloads():
 def test_dynamic_model_dropdown_population(qapp, tmp_path, monkeypatch):
     """Verify that adding/removing a model YAML dynamically reflects in experiment method dropdowns."""
     workspace_root = Path(__file__).resolve().parents[1]
-    model_cfg_dir = workspace_root / "in" / "config" / "model"
+    model_cfg_dir = workspace_root / "src/usr/config" / "model"
     test_model_yaml = model_cfg_dir / "testtempmodel.yaml"
 
     try:

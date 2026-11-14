@@ -64,8 +64,7 @@ optuna.db
 .agents/
 scratch/
 
-# Local datasets
-in/datasets/
+# Local datasets (src/usr/datasets and results/datasets); add a shared file with git add -f
 datasets/
 
 # Packaging / Distribution
@@ -97,29 +96,24 @@ temp/
 .src/
 
 # Component and plugin runtime directories (managed via Hub / local authoring)
-/in/envs/*
-!/in/envs/.gitkeep
-/in/rules/*
-!/in/rules/.gitkeep
-# Old rules location is unsupported; component payloads use the research tree below.
-/in/rules
 /src/usr/rules/*
 !/src/usr/rules/.gitkeep
-/in/config/agent/*
-!/in/config/agent/.gitkeep
-/in/config/experiment/*
-!/in/config/experiment/.gitkeep
-/in/config/model/*
-!/in/config/model/.gitkeep
-/in/config/env/*
-!/in/config/env/.gitkeep
-/in/config/data/*
-!/in/config/data/.gitkeep
-/in/config/plot/*
-!/in/config/plot/.gitkeep
-!/in/config/plot/thetalib/
-/in/config/plot/thetalib/*
-!/in/config/plot/thetalib/tuning.yaml
+# Personal profiles and recipes in the workspace config root stay local.
+/src/usr/config/agent/*
+!/src/usr/config/agent/.gitkeep
+/src/usr/config/experiment/*
+!/src/usr/config/experiment/.gitkeep
+/src/usr/config/model/*
+!/src/usr/config/model/.gitkeep
+/src/usr/config/env/*
+!/src/usr/config/env/.gitkeep
+/src/usr/config/data/*
+!/src/usr/config/data/.gitkeep
+/src/usr/config/plot/*
+!/src/usr/config/plot/.gitkeep
+!/src/usr/config/plot/thetalib/
+/src/usr/config/plot/thetalib/*
+!/src/usr/config/plot/thetalib/tuning.yaml
 /src/usr/methods/*
 !/src/usr/methods/.gitkeep
 /src/usr/models/*

@@ -111,13 +111,13 @@ class PluginScaffolder:
     def _native_metadata(self, meta, target_dir, code_file, class_name, cfg_file):
         import shutil
         from src.app.core.provider_catalog import kind_name
-        relative = 'configs/' + cfg_file.relative_to(self.paths.user_config).as_posix()
+        relative = 'configs/' + cfg_file.relative_to(self.paths.config).as_posix()
         packaged = target_dir / relative
         packaged.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cfg_file, packaged)
         kind = kind_name(meta['kind'])
         meta.pop('target_path', None)
-        meta.update(storage_version=2, api_version=1,
+        meta.update(storage_version=3, api_version=1,
                     capabilities=[{'id':meta['id'], 'kind':kind, 'entry_point':code_file.name+':'+class_name}],
                     config_paths=[meta['config_path']],
                     payload={'implementations':[code_file.name, '__init__.py'], 'resources':[],
@@ -184,10 +184,10 @@ from . import {name}_model  # noqa: F401
         init_file.write_text(init_content, encoding="utf-8")
         created.append(init_file)
 
-        # 3. Base config in in/config/model/<name>.yaml
+        # 3. Editable base config in src/usr/config/model/<name>.yaml
         paradigms = opts.paradigms or ["online_rl", "offline_rl", "supervised"]
         paradigms_yaml = "\n".join(f"  - {p}" for p in paradigms)
-        cfg_file = self.paths.user_config / "model" / f"{name}.yaml"
+        cfg_file = self.paths.config / "model" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 type: {name}
@@ -208,7 +208,7 @@ hidden_sizes: [64, 64]
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_path": f"src/usr/models/{name}",
-            "config_path": f"in/config/model/{name}.yaml",
+            "config_path": f"model/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
@@ -308,8 +308,8 @@ class {class_name}(L.LightningModule):
         init_file.write_text(f"from . import {name}_agent  # noqa: F401\n", encoding="utf-8")
         created.append(init_file)
 
-        # 3. Base config in in/config/agent/<name>.yaml
-        cfg_file = self.paths.user_config / "agent" / f"{name}.yaml"
+        # 3. Editable base config in src/usr/config/agent/<name>.yaml
+        cfg_file = self.paths.config / "agent" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default algorithm hyperparameters for {name}
 algorithm: {name}
@@ -334,7 +334,7 @@ epochs: 10
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_path": f"src/usr/algorithms/{name}",
-            "config_path": f"in/config/agent/{name}.yaml",
+            "config_path": f"agent/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
@@ -447,8 +447,8 @@ class VectorizedEnv(VectorizedBaseEnv):
         )
         created.append(init_file)
 
-        # 3. Base config in in/config/env/<name>.yaml
-        cfg_file = self.paths.user_config / "env" / f"{name}.yaml"
+        # 3. Editable base config in src/usr/config/env/<name>.yaml
+        cfg_file = self.paths.config / "env" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# @package _global_
 env:
@@ -485,7 +485,7 @@ env:
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_path": f"src/usr/environments/{name}",
-            "config_path": f"in/config/env/{name}.yaml",
+            "config_path": f"env/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
@@ -561,8 +561,8 @@ class {class_name}(L.LightningDataModule, DataModulePluginProtocol, TrajectorySa
         init_file.write_text(f"from . import {name}_data_module  # noqa: F401\n", encoding="utf-8")
         created.append(init_file)
 
-        # 3. Base config in in/config/data/<name>.yaml
-        cfg_file = self.paths.user_config / "data" / f"{name}.yaml"
+        # 3. Editable base config in src/usr/config/data/<name>.yaml
+        cfg_file = self.paths.config / "data" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 data_module: {name}
@@ -582,7 +582,7 @@ num_workers: 0
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_path": f"src/usr/data/{name}",
-            "config_path": f"in/config/data/{name}.yaml",
+            "config_path": f"data/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
@@ -639,8 +639,8 @@ class {class_name}(EvaluationHookProtocol):
         init_file.write_text(f"from . import {name}_evaluator  # noqa: F401\n", encoding="utf-8")
         created.append(init_file)
 
-        # 3. Base config in in/config/eval/<name>.yaml
-        cfg_file = self.paths.user_config / "eval" / f"{name}.yaml"
+        # 3. Editable base config in src/usr/config/eval/<name>.yaml
+        cfg_file = self.paths.config / "eval" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 evaluator: {name}
@@ -660,7 +660,7 @@ frequency: 1
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_path": f"src/usr/eval/{name}",
-            "config_path": f"in/config/eval/{name}.yaml",
+            "config_path": f"eval/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
@@ -716,8 +716,8 @@ class {class_name}(BasePlotter):
         init_file.write_text(f"from . import {name}_plotter  # noqa: F401\n", encoding="utf-8")
         created.append(init_file)
 
-        # Default configuration in in/config/plot/<name>.yaml
-        config_dir = self.paths.user_config / "plot"
+        # Editable default configuration in src/usr/config/plot/<name>.yaml
+        config_dir = self.paths.config / "plot"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / f"{name}.yaml"
         config_content = f"""# Default configuration profile for {name} plotter component
@@ -743,7 +743,7 @@ output_dir: null
             "author": {"name": opts.author},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_path": f"src/usr/plotters/{name}",
-            "config_path": f"in/config/plot/{name}.yaml",
+            "config_path": f"plot/{name}.yaml",
             "compatibility": {"theta": ">=2.0.0"},
             "paradigms": paradigms,
         }
@@ -761,12 +761,12 @@ output_dir: null
         source = target / "monitor.py"
         source.write_text('from src.app.monitoring.api import Result\n\nclass Monitor:\n    def collect(self, context):\n        return Result({"samples": float(len(context.probes.observations))})\n')
         (target / "__init__.py").write_text("")
-        profile = self.paths.user_config / "monitor" / (name + ".yaml")
+        profile = self.paths.config / "monitor" / (name + ".yaml")
         profile.parent.mkdir(parents=True, exist_ok=True)
         profile.write_text("component: " + name + "\nparams: {}\n")
         meta = {"id": name, "name": opts.name, "kind": "monitor", "version": opts.version,
                 "description": opts.description or "Custom experiment diagnostic monitor", "author": opts.author,
-                "config_path": "in/config/monitor/" + name + ".yaml"}
+                "config_path": "monitor/" + name + ".yaml"}
         self._native_metadata(meta, target, source, "Monitor", profile)
         cap = meta["capabilities"][0]
         cap["requires"] = ["probe_forward.v1", "post_update.v1"]

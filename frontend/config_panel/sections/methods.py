@@ -293,7 +293,7 @@ def build(self, data, resolved, tree, paradigm, is_base):
                         )
                         if is_missing:
                             txt_agent.setToolTip(
-                                f"Missing component: Algorithm '{agent_val}' is not installed in in/config/agent/. Install it via Component Hub."
+                                f"Missing component: No agent profile '{agent_val}' is available. Install its package via Component Hub."
                             )
                         else:
                             txt_agent.setToolTip(
@@ -477,12 +477,12 @@ def build(self, data, resolved, tree, paradigm, is_base):
                         )
                         if is_missing:
                             txt_model.setToolTip(
-                                f"Missing component: Model '{model_name}' is not installed in in/config/model/. Install it via Component Hub."
+                                f"Missing component: No model profile '{model_name}' is available. Install its package via Component Hub."
                             )
                         else:
-                            txt_model.setToolTip("Architectures defined in in/config/model/")
+                            txt_model.setToolTip("Model profiles from the workspace and installed packages")
                     else:
-                        txt_model.setToolTip("Architectures defined in in/config/model/")
+                        txt_model.setToolTip("Model profiles from the workspace and installed packages")
                     txt_model.setCurrentText(model_name)
 
                 def _on_model_changed(v, mn=m_name, cur_mn=model_name):

@@ -33,7 +33,7 @@ def test_parse_method_list_omegaconf_list():
 
 def test_resolve_experiment_config_name_direct_match(tmp_path, monkeypatch):
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
-    directory = tmp_path / "in/config/experiment"
+    directory = tmp_path / "src/usr/config/experiment"
     directory.mkdir(parents=True)
     (directory / "my_exp.yaml").write_text("{}\n")
     assert resolve_experiment_config_name("my_exp") == "my_exp"
@@ -47,7 +47,7 @@ def test_resolve_experiment_config_name_exp_dir_missing(tmp_path, monkeypatch):
 
 def test_resolve_experiment_config_name_glob_single(tmp_path, monkeypatch):
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
-    directory = tmp_path / "in/config/experiment/group"
+    directory = tmp_path / "src/usr/config/experiment/group"
     directory.mkdir(parents=True)
     (directory / "my_exp.yaml").write_text("{}\n")
     assert resolve_experiment_config_name("my_exp") == "group/my_exp"
@@ -56,7 +56,7 @@ def test_resolve_experiment_config_name_glob_single(tmp_path, monkeypatch):
 def test_resolve_experiment_config_name_glob_multiple(tmp_path, monkeypatch):
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     for group in ("first", "second"):
-        directory = tmp_path / "in/config/experiment" / group
+        directory = tmp_path / "src/usr/config/experiment" / group
         directory.mkdir(parents=True)
         (directory / "my_exp.yaml").write_text("{}\n")
     with pytest.raises(ValueError, match="Ambiguous experiment name"):
@@ -65,6 +65,6 @@ def test_resolve_experiment_config_name_glob_multiple(tmp_path, monkeypatch):
 
 def test_resolve_experiment_config_name_not_found(tmp_path, monkeypatch):
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
-    (tmp_path / "in/config/experiment").mkdir(parents=True)
+    (tmp_path / "src/usr/config/experiment").mkdir(parents=True)
     with pytest.raises(ValueError, match="not found in"):
         resolve_experiment_config_name("my_exp")

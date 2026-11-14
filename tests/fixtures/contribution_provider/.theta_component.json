@@ -1,6 +1,6 @@
 {
   "id": "independent-host-tools", "name": "Independent host tools", "version": "1.0.0",
-  "kind": "suite", "storage_version": 2, "api_version": 1,
+  "kind": "suite", "storage_version": 3, "api_version": 1,
   "capabilities": [{
     "id": "fixture-site", "kind": "site", "entry_point": "provider.py:activate", "contribution_api": 1,
     "readiness": {"config": ["connection.host"]},

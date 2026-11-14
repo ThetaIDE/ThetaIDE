@@ -1,4 +1,4 @@
-"""Data module for the .npz datasets in/datasets/prepare_tabular.py writes.
+"""Data module for .npz datasets, such as the examples prepare_tabular.py writes.
 
 The unsupervised paradigm needs an offline dataset, and clinical trajectory data is not available
 to this project, so these are real datasets bundled with scikit-learn. The
@@ -81,7 +81,7 @@ class TabularNpzDataModule(L.LightningDataModule, BaseDataModule):
                 return candidate
         raise FileNotFoundError(
             f"No dataset for '{stem}' under {self.paths.datasets}. Set dataset_path to an existing input, "
-            f"or generate an example with {self.paths.application / 'in/datasets/prepare_tabular.py'}."
+            f"or generate an example with `python -m src.app.core.paradigm_impls.base.prepare_tabular`."
         )
 
     # -- BaseDataModule ---------------------------------------------------
@@ -174,7 +174,7 @@ class SupervisedNpzDataModule(TabularNpzDataModule):
         if self.labels is None:
             raise ValueError(
                 "SupervisedNpzDataModule needs a 'labels' array in the dataset. "
-                "in/datasets/prepare_tabular.py writes one."
+                "`python -m src.app.core.paradigm_impls.base.prepare_tabular` writes one."
             )
         split = self.train_indices if shuffle else self.val_indices
         x = torch.from_numpy(np.ascontiguousarray(array))

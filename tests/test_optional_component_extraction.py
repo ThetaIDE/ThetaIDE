@@ -97,7 +97,7 @@ def test_independent_scheduler_uses_the_same_dispatch(tmp_path):
     root.mkdir(parents=True)
     (root / 'scheduler.py').write_text('class Scheduler:\n api_version = 1\n def validate_allocation(self, cfg, *, paths=None): return {"workspace": str(paths.root)}\n')
     (root / '.theta_component.json').write_text(json.dumps({'id': 'independent-scheduler', 'name': 'Independent', 'version': '1.0.0',
-      'kind': 'package', 'storage_version': 2, 'api_version': 1,
+      'kind': 'package', 'storage_version': 3, 'api_version': 1,
       'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 1}],
       'payload': {'implementations': ['scheduler.py'], 'resources': [], 'configs': {}}}))
     cfg = {'site': {'scheduler': 'lattice-batch'}}
@@ -166,7 +166,7 @@ def test_site_check_uses_the_selected_schedulers_remote_requirements(tmp_path, m
         ' def remote_requirements(self, site):\n'
         '  return [("lattice-submit", None), ("lattice-acct", "accounting unavailable")]\n')
     (root / '.theta_component.json').write_text(json.dumps({'id': 'independent-scheduler', 'name': 'Independent',
-      'version': '1.0.0', 'kind': 'package', 'storage_version': 2, 'api_version': 1,
+      'version': '1.0.0', 'kind': 'package', 'storage_version': 3, 'api_version': 1,
       'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 1}],
       'payload': {'implementations': ['scheduler.py'], 'resources': [], 'configs': {}}}))
     create(paths.root, 'lattice', scheduler='lattice-batch')

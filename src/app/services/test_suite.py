@@ -228,11 +228,13 @@ def evaluate_test_suite(
 
 def evaluate_component_contracts(suite: TestSuite, workspace_dir: str | Path) -> tuple[ComponentContractResult, ...]:
     """Verify that installed components retain the configuration capabilities a suite needs."""
-    root = Path(workspace_dir)
+    from src.app.workspace import WorkspacePaths
+    paths = workspace_dir if isinstance(workspace_dir, WorkspacePaths) else WorkspacePaths(Path(workspace_dir))
     results: list[ComponentContractResult] = []
     for contract in suite.components:
-        config_path = root / contract.config_path
-        if not config_path.is_file():
+        resolved = paths.config_resolver().resolve(contract.config_path)
+        config_path = resolved.file if resolved is not None else None
+        if config_path is None or not config_path.is_file():
             results.append(ComponentContractResult(contract, False, f"Missing config: {contract.config_path}"))
             continue
         try:

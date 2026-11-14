@@ -50,7 +50,7 @@ class ModelBuilderPlugin(Plugin):
         """One button per model row, bound to that row's method."""
         button = QPushButton("Design...")
         button.setToolTip(
-            "Design this architecture by wiring layer blocks together.\nSaves a new architecture into in/config/model/."
+            "Design this architecture by wiring layer blocks together.\nSaves a new architecture into src/usr/config/model/."
         )
         # clicked passes a checked flag, which would land in `row` if the
         # slot took it positionally.

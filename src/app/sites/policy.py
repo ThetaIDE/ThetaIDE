@@ -65,8 +65,8 @@ def stage_inputs(root, destination, policy):
     """Copy only declared files/trees; fresh mtimes respect shared-storage purge policy."""
     files, total = [], 0
     for mapping in policy['inputs']:
-        if not str(mapping['target']).startswith(('in/datasets/', 'in/inputs/')):
-            raise ValueError('Declared inputs must target in/datasets/ or in/inputs/')
+        if not str(mapping['target']).startswith('src/usr/datasets/'):
+            raise ValueError('Declared inputs must target src/usr/datasets/')
         source = safe_path(root, mapping['source'])
         target = safe_path(destination, mapping['target'])
         if not source.exists(): raise ValueError(f'Missing declared input: {source}')

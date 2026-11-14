@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (QApplication, QComboBox, QStyle, QStyledItemDelegat
 
 from src.app.api.desktop import label, theme_color
 
-from .catalog import KIND_TITLES, build_catalog, normalize_tags, tag_counts, tag_phrase
+from .catalog import KIND_TITLES, build_catalog, config_selectors, normalize_tags, tag_counts, tag_phrase
 from .search import ACKNOWLEDGEMENT, ArxivSearcher, SearchError, build_query
 
 if TYPE_CHECKING:
@@ -109,13 +109,14 @@ class ArxivPanel(QWidget):
         self.context = context
         # An explicit client (tests, embedding) wins; otherwise the host's Hub service.
         self.hub_client = hub_client
-        if config_root:
-            self.config_root = Path(config_root)
-        elif context is not None:
-            self.config_root = context.workspace_paths().config
+        # An explicit config directory (tests, embedding) wins; otherwise the
+        # workspace's effective profiles, including those its packages provide.
+        self.config_root = Path(config_root) if config_root else None
+        if context is not None:
+            self.workspace = context.workspace_paths()
         else:
             from src.app.api.workspace import WorkspacePaths
-            self.config_root = WorkspacePaths.for_process().config
+            self.workspace = WorkspacePaths.for_process()
         if searcher is None:
             cache = context.get_data_dir() / "plugins" / "arxiv_cache.json" if context else None
             searcher = ArxivSearcher(cache_path=cache)
@@ -290,7 +291,8 @@ class ArxivPanel(QWidget):
         checked = set(self.selected_tags())
         current = self.component_tree.currentItem()
         current_key = current.data(0, ROLE_KEY) if current else None
-        self.components = build_catalog(self.config_root, self._hub_source(), self._overrides())
+        selectors = config_selectors(self.config_root) if self.config_root else self.workspace.config_resolver().selectors()
+        self.components = build_catalog(selectors, self._hub_source(), self._overrides())
         self._building = True
         self.component_tree.clear()
         groups = {}

@@ -3,7 +3,7 @@
   "name": "d3rlpy editable execution backend",
   "kind": "suite",
   "version": "0.1.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "origin": "user",
   "parent": {
@@ -140,27 +140,27 @@
     ],
     "resources": [],
     "configs": {
-      "in/config/agent/d3rlpy-dev/bc.yaml": "configs/agent/d3rlpy-dev/bc.yaml",
-      "in/config/agent/d3rlpy-dev/cql.yaml": "configs/agent/d3rlpy-dev/cql.yaml",
-      "in/config/agent/d3rlpy-dev/iql.yaml": "configs/agent/d3rlpy-dev/iql.yaml",
-      "in/config/agent/d3rlpy-dev/td3_bc.yaml": "configs/agent/d3rlpy-dev/td3_bc.yaml",
-      "in/config/model/d3rlpy-dev/vector.yaml": "configs/model/d3rlpy-dev/vector.yaml",
-      "in/config/experiment/Execution/d3rlpy_smoke.yaml": "configs/experiment/Execution/d3rlpy_smoke.yaml"
+      "agent/d3rlpy-dev/bc.yaml": "configs/agent/d3rlpy-dev/bc.yaml",
+      "agent/d3rlpy-dev/cql.yaml": "configs/agent/d3rlpy-dev/cql.yaml",
+      "agent/d3rlpy-dev/iql.yaml": "configs/agent/d3rlpy-dev/iql.yaml",
+      "agent/d3rlpy-dev/td3_bc.yaml": "configs/agent/d3rlpy-dev/td3_bc.yaml",
+      "model/d3rlpy-dev/vector.yaml": "configs/model/d3rlpy-dev/vector.yaml",
+      "experiment/Execution/d3rlpy_smoke.yaml": "configs/experiment/Execution/d3rlpy_smoke.yaml"
     }
   },
   "config_paths": [
-    "in/config/agent/d3rlpy-dev/bc.yaml",
-    "in/config/agent/d3rlpy-dev/cql.yaml",
-    "in/config/agent/d3rlpy-dev/iql.yaml",
-    "in/config/agent/d3rlpy-dev/td3_bc.yaml",
-    "in/config/model/d3rlpy-dev/vector.yaml",
-    "in/config/experiment/Execution/d3rlpy_smoke.yaml"
+    "agent/d3rlpy-dev/bc.yaml",
+    "agent/d3rlpy-dev/cql.yaml",
+    "agent/d3rlpy-dev/iql.yaml",
+    "agent/d3rlpy-dev/td3_bc.yaml",
+    "model/d3rlpy-dev/vector.yaml",
+    "experiment/Execution/d3rlpy_smoke.yaml"
   ],
   "parameter_schema": {
     "type": "object",
     "properties": {},
     "x-theta-config-schemas": {
-      "in/config/agent/d3rlpy-dev/bc.yaml": {
+      "agent/d3rlpy-dev/bc.yaml": {
         "type": "object",
         "properties": {
           "algorithm": {
@@ -186,7 +186,7 @@
           }
         }
       },
-      "in/config/agent/d3rlpy-dev/cql.yaml": {
+      "agent/d3rlpy-dev/cql.yaml": {
         "type": "object",
         "properties": {
           "algorithm": {
@@ -212,7 +212,7 @@
           }
         }
       },
-      "in/config/agent/d3rlpy-dev/iql.yaml": {
+      "agent/d3rlpy-dev/iql.yaml": {
         "type": "object",
         "properties": {
           "algorithm": {
@@ -238,7 +238,7 @@
           }
         }
       },
-      "in/config/agent/d3rlpy-dev/td3_bc.yaml": {
+      "agent/d3rlpy-dev/td3_bc.yaml": {
         "type": "object",
         "properties": {
           "algorithm": {
@@ -264,7 +264,7 @@
           }
         }
       },
-      "in/config/model/d3rlpy-dev/vector.yaml": {
+      "model/d3rlpy-dev/vector.yaml": {
         "type": "object",
         "properties": {
           "architecture": {

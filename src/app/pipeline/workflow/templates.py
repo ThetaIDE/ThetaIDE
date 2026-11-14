@@ -332,7 +332,7 @@ def make_dataset_source_node(
             name="dataset",
             direction=PortDirection.OUTPUT,
             port_type=PortType.DATASET,
-            description=f"Static offline dataset: {dataset_path or 'in/datasets'}",
+            description=f"Static offline dataset: {dataset_path or 'src/usr/datasets'}",
         )
     )
     return node

@@ -46,12 +46,12 @@ for width, name in enumerate(('one', 'two'), 31):
     (provider / 'configs/model/probe.yaml').write_text(f'architecture: probe\nwidth: {width}\n')
     (provider / '.theta_component.json').write_text(json.dumps({
         'id': 'distribution-probe', 'name': 'Probe', 'kind': 'model', 'version': '1.0.0',
-        'storage_version': 2, 'api_version': 1,
+        'storage_version': 3, 'api_version': 1,
         'capabilities': [{'id': 'probe', 'kind': 'model', 'entry_point': 'provider.py:Model'}],
         'payload': {'implementations': ['provider.py'], 'resources': [],
-                    'configs': {'in/config/model/probe.yaml': 'configs/model/probe.yaml'}}}))
-    (selected.user_config / 'experiment').mkdir(parents=True)
-    (selected.user_config / 'experiment/probe.yaml').write_text('# @package _global_\ndefaults: [override /model: probe]\n')
+                    'configs': {'model/probe.yaml': 'configs/model/probe.yaml'}}}))
+    (selected.config / 'experiment').mkdir(parents=True)
+    (selected.config / 'experiment/probe.yaml').write_text('# @package _global_\ndefaults: [override /model: probe]\n')
     before_selected = inventory(selected)
     assert ConfigTree(selected.config, workspace=selected).models['probe'].parameters['width'] == width
     assert compose_experiment('probe', workspace=selected).cfg.model.width == width
@@ -60,6 +60,7 @@ for width, name in enumerate(('one', 'two'), 31):
     assert worker.returncode == 0, worker.stderr
     assert f'width: {width}' in worker.stdout
     assert inventory(selected) == before_selected
+    assert not (selected.root / 'in').exists(), 'a v3 workspace never creates in/'
     agreement.append({'workspace': name, 'owner': 'distribution-probe', 'width': width, 'worker_exit': worker.returncode})
 # Check native checkpoint import identity after workspace relocation in a fresh installed process.
 import pickle, zipfile
@@ -67,7 +68,7 @@ from src.app.components.installer import HubInstaller
 from src.app.components.models import HubComponent, ReleaseInfo
 from src.app.core.provider_loader import resolve_provider
 checkpoint_meta = {'id': 'checkpoint-probe', 'name': 'Checkpoint probe', 'kind': 'model', 'version': '1.0.0',
- 'storage_version': 2, 'api_version': 1,
+ 'storage_version': 3, 'api_version': 1,
  'capabilities': [{'id': 'checkpoint-probe', 'kind': 'model', 'entry_point': 'model.py:Model'}],
  'payload': {'implementations': ['model.py'], 'resources': [], 'configs': {}}}
 archive = pathlib.Path.cwd() / 'checkpoint.zip'
@@ -103,9 +104,9 @@ def main():
     with tarfile.open(args.sdist) as archive:
         sdist_files = sorted('/'.join(p.split('/')[1:]) for p in archive.getnames())
     forbidden = ('src/plugins/components/installed/', 'src/plugins/app/installed/',
-                 'in/datasets/', 'results/', '.thetaide/', 'node_modules/', '.venv/', 'optional_components/')
+                 'in/', 'src/usr/datasets/', 'src/usr/config/', 'results/', '.thetaide/', 'node_modules/', '.venv/', 'optional_components/')
     for files in (wheel_files, sdist_files):
-        assert not any(any(name.startswith(part) if part in ('results/', '.thetaide/', 'in/datasets/') else part in name for part in forbidden) for name in files)
+        assert not any(any(name.startswith(part) if part in ('in/', 'results/', '.thetaide/') else part in name for part in forbidden) for name in files)
         assert 'src/plugins/inventory.json' in files
         assert 'src/app/config_defaults/config.yaml' in files
         assert 'frontend/icons/play.svg' in files or any(n.startswith('frontend/icons/') for n in files)

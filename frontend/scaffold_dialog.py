@@ -181,7 +181,7 @@ class ScaffoldPluginDialog(QDialog):
                 f"• src/usr/models/{name}/__init__.py",
                 f"• src/usr/models/{name}/.theta_component.json",
                 f"• src/usr/models/{name}/pyproject.toml",
-                f"• in/config/model/{name}.yaml",
+                f"• src/usr/config/model/{name}.yaml",
             ]
         elif kind in ("agent", "algorithm"):
             lines = [
@@ -189,14 +189,14 @@ class ScaffoldPluginDialog(QDialog):
                 f"• src/usr/algorithms/{name}/__init__.py",
                 f"• src/usr/algorithms/{name}/.theta_component.json",
                 f"• src/usr/algorithms/{name}/pyproject.toml",
-                f"• in/config/agent/{name}.yaml",
+                f"• src/usr/config/agent/{name}.yaml",
             ]
         elif kind == "env":
             lines = [
                 f"• src/usr/environments/{name}/env.py",
                 f"• src/usr/environments/{name}/__init__.py",
                 f"• src/usr/environments/{name}/.theta_component.json",
-                f"• in/config/env/{name}.yaml",
+                f"• src/usr/config/env/{name}.yaml",
                 f"• src/usr/rules/{name}/default.rules",
             ]
         elif kind == "datamodule":
@@ -213,13 +213,13 @@ class ScaffoldPluginDialog(QDialog):
             ]
         elif kind == "monitor":
             lines = [f"• src/usr/monitors/{name}/monitor.py", f"• src/usr/monitors/{name}/catalog.py",
-                     f"• src/usr/monitors/{name}/.theta_component.json", f"• in/config/monitor/{name}.yaml"]
+                     f"• src/usr/monitors/{name}/.theta_component.json", f"• src/usr/config/monitor/{name}.yaml"]
         elif kind in ("plotter", "plot"):
             lines = [
                 f"• src/usr/plotters/{name}/{name}_plotter.py",
                 f"• src/usr/plotters/{name}/__init__.py",
                 f"• src/usr/plotters/{name}/.theta_component.json",
-                f"• in/config/plot/{name}.yaml",
+                f"• src/usr/config/plot/{name}.yaml",
             ]
         else:
             lines = []

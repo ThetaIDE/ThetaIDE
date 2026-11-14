@@ -4,7 +4,7 @@
   "description": "Original source mirrored verbatim; original training gated; historical demo requires explicit selection.",
   "kind": "suite",
   "version": "0.1.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "origin": "user",
   "capabilities": [
@@ -327,55 +327,55 @@
       "resources/synthetic_time.csv"
     ],
     "configs": {
-      "in/config/paradigms/apprenticeship.yaml": "configs/paradigms/apprenticeship.yaml",
-      "in/config/agent/themes-dev/em_edm.yaml": "configs/agent/themes-dev/em_edm.yaml",
-      "in/config/model/themes-dev/ticc.yaml": "configs/model/themes-dev/ticc.yaml",
-      "in/config/data/themes-dev/trajectories.yaml": "configs/data/themes-dev/trajectories.yaml",
-      "in/config/experiment/AL/_base.yaml": "configs/experiment/AL/_base.yaml",
-      "in/config/experiment/AL/codex/themes_synthetic_smoke.yaml": "configs/experiment/AL/codex/themes_synthetic_smoke.yaml",
-      "in/config/experiment/AL/codex/themes_synthetic.yaml": "configs/experiment/AL/codex/themes_synthetic.yaml",
-      "in/config/data/themes-dev/csv_trajectories.yaml": "configs/data/themes-dev/csv_trajectories.yaml",
-      "in/config/experiment/AL/codex/themes_mimic_q10_120.yaml": "configs/experiment/AL/codex/themes_mimic_q10_120.yaml",
-      "in/config/experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml": "configs/experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml",
-      "in/config/plot/themes-dev/themes.yaml": "configs/plot/themes-dev/themes.yaml",
-      "in/config/model/themes-dev/bundle.yaml": "configs/model/themes-dev/bundle.yaml",
-      "in/config/agent/themes-dev/themes.yaml": "configs/agent/themes-dev/themes.yaml",
-      "in/config/model/themes-dev/full_bundle.yaml": "configs/model/themes-dev/full_bundle.yaml",
-      "in/config/data/themes-dev/time_csv_trajectories.yaml": "configs/data/themes-dev/time_csv_trajectories.yaml",
-      "in/config/experiment/AL/codex/themes_paper_synthetic.yaml": "configs/experiment/AL/codex/themes_paper_synthetic.yaml",
-      "in/config/experiment/AL/codex/themes_mimic_q10_120_port.yaml": "configs/experiment/AL/codex/themes_mimic_q10_120_port.yaml",
-      "in/config/plot/themes-dev/themes_full.yaml": "configs/plot/themes-dev/themes_full.yaml",
-      "in/config/experiment/AL/themes_mimic_q10_120.yaml": "configs/experiment/AL/themes_mimic_q10_120.yaml",
-      "in/config/experiment/AL/codex/_base.yaml": "configs/experiment/AL/codex/_base.yaml"
+      "paradigms/apprenticeship.yaml": "configs/paradigms/apprenticeship.yaml",
+      "agent/themes-dev/em_edm.yaml": "configs/agent/themes-dev/em_edm.yaml",
+      "model/themes-dev/ticc.yaml": "configs/model/themes-dev/ticc.yaml",
+      "data/themes-dev/trajectories.yaml": "configs/data/themes-dev/trajectories.yaml",
+      "experiment/AL/_base.yaml": "configs/experiment/AL/_base.yaml",
+      "experiment/AL/codex/themes_synthetic_smoke.yaml": "configs/experiment/AL/codex/themes_synthetic_smoke.yaml",
+      "experiment/AL/codex/themes_synthetic.yaml": "configs/experiment/AL/codex/themes_synthetic.yaml",
+      "data/themes-dev/csv_trajectories.yaml": "configs/data/themes-dev/csv_trajectories.yaml",
+      "experiment/AL/codex/themes_mimic_q10_120.yaml": "configs/experiment/AL/codex/themes_mimic_q10_120.yaml",
+      "experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml": "configs/experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml",
+      "plot/themes-dev/themes.yaml": "configs/plot/themes-dev/themes.yaml",
+      "model/themes-dev/bundle.yaml": "configs/model/themes-dev/bundle.yaml",
+      "agent/themes-dev/themes.yaml": "configs/agent/themes-dev/themes.yaml",
+      "model/themes-dev/full_bundle.yaml": "configs/model/themes-dev/full_bundle.yaml",
+      "data/themes-dev/time_csv_trajectories.yaml": "configs/data/themes-dev/time_csv_trajectories.yaml",
+      "experiment/AL/codex/themes_paper_synthetic.yaml": "configs/experiment/AL/codex/themes_paper_synthetic.yaml",
+      "experiment/AL/codex/themes_mimic_q10_120_port.yaml": "configs/experiment/AL/codex/themes_mimic_q10_120_port.yaml",
+      "plot/themes-dev/themes_full.yaml": "configs/plot/themes-dev/themes_full.yaml",
+      "experiment/AL/themes_mimic_q10_120.yaml": "configs/experiment/AL/themes_mimic_q10_120.yaml",
+      "experiment/AL/codex/_base.yaml": "configs/experiment/AL/codex/_base.yaml"
     }
   },
   "config_paths": [
-    "in/config/paradigms/apprenticeship.yaml",
-    "in/config/agent/themes-dev/em_edm.yaml",
-    "in/config/model/themes-dev/ticc.yaml",
-    "in/config/data/themes-dev/trajectories.yaml",
-    "in/config/experiment/AL/_base.yaml",
-    "in/config/experiment/AL/codex/themes_synthetic_smoke.yaml",
-    "in/config/experiment/AL/codex/themes_synthetic.yaml",
-    "in/config/data/themes-dev/csv_trajectories.yaml",
-    "in/config/experiment/AL/codex/themes_mimic_q10_120.yaml",
-    "in/config/experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml",
-    "in/config/plot/themes-dev/themes.yaml",
-    "in/config/model/themes-dev/bundle.yaml",
-    "in/config/agent/themes-dev/themes.yaml",
-    "in/config/model/themes-dev/full_bundle.yaml",
-    "in/config/data/themes-dev/time_csv_trajectories.yaml",
-    "in/config/experiment/AL/codex/themes_paper_synthetic.yaml",
-    "in/config/experiment/AL/codex/themes_mimic_q10_120_port.yaml",
-    "in/config/plot/themes-dev/themes_full.yaml",
-    "in/config/experiment/AL/themes_mimic_q10_120.yaml",
-    "in/config/experiment/AL/codex/_base.yaml"
+    "paradigms/apprenticeship.yaml",
+    "agent/themes-dev/em_edm.yaml",
+    "model/themes-dev/ticc.yaml",
+    "data/themes-dev/trajectories.yaml",
+    "experiment/AL/_base.yaml",
+    "experiment/AL/codex/themes_synthetic_smoke.yaml",
+    "experiment/AL/codex/themes_synthetic.yaml",
+    "data/themes-dev/csv_trajectories.yaml",
+    "experiment/AL/codex/themes_mimic_q10_120.yaml",
+    "experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml",
+    "plot/themes-dev/themes.yaml",
+    "model/themes-dev/bundle.yaml",
+    "agent/themes-dev/themes.yaml",
+    "model/themes-dev/full_bundle.yaml",
+    "data/themes-dev/time_csv_trajectories.yaml",
+    "experiment/AL/codex/themes_paper_synthetic.yaml",
+    "experiment/AL/codex/themes_mimic_q10_120_port.yaml",
+    "plot/themes-dev/themes_full.yaml",
+    "experiment/AL/themes_mimic_q10_120.yaml",
+    "experiment/AL/codex/_base.yaml"
   ],
   "parameter_schema": {
     "type": "object",
     "properties": {},
     "x-theta-config-schemas": {
-      "in/config/agent/themes-dev/em_edm.yaml": {
+      "agent/themes-dev/em_edm.yaml": {
         "type": "object",
         "properties": {
           "algorithm": {
@@ -439,7 +439,7 @@
         },
         "additionalProperties": false
       },
-      "in/config/model/themes-dev/ticc.yaml": {
+      "model/themes-dev/ticc.yaml": {
         "type": "object",
         "properties": {
           "architecture": {
@@ -463,7 +463,7 @@
           }
         }
       },
-      "in/config/data/themes-dev/csv_trajectories.yaml": {
+      "data/themes-dev/csv_trajectories.yaml": {
         "type": "object",
         "properties": {
           "data_module": {
@@ -504,7 +504,7 @@
           }
         }
       },
-      "in/config/plot/themes-dev/themes.yaml": {
+      "plot/themes-dev/themes.yaml": {
         "type": "object",
         "properties": {
           "name": {
@@ -559,7 +559,7 @@
           }
         }
       },
-      "in/config/agent/themes-dev/themes.yaml": {
+      "agent/themes-dev/themes.yaml": {
         "type": "object",
         "properties": {
           "algorithm": {
@@ -701,7 +701,7 @@
         },
         "additionalProperties": false
       },
-      "in/config/model/themes-dev/full_bundle.yaml": {
+      "model/themes-dev/full_bundle.yaml": {
         "type": "object",
         "properties": {
           "architecture": {
@@ -842,7 +842,7 @@
         },
         "additionalProperties": false
       },
-      "in/config/data/themes-dev/time_csv_trajectories.yaml": {
+      "data/themes-dev/time_csv_trajectories.yaml": {
         "type": "object",
         "properties": {
           "data_module": {
@@ -900,7 +900,7 @@
           }
         }
       },
-      "in/config/plot/themes-dev/themes_full.yaml": {
+      "plot/themes-dev/themes_full.yaml": {
         "type": "object",
         "properties": {
           "name": {

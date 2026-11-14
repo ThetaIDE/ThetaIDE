@@ -30,20 +30,40 @@ for p in [
     if p not in sys.path:
         sys.path.insert(0, p)
 
-collect_ignore_glob = ["in/envs/*"]
+
+
+def copy_research_config(target):
+    """Copy every non-bundled profile this checkout's workspace resolves into ``target``.
+
+    Bundled profiles still come from the application. User files and installed
+    or authored package profiles become editable files of an isolated workspace,
+    so tests never touch the user's workspace.
+    """
+    from src.app.core.provider_catalog import DuplicateProvider
+    from src.app.workspace import WorkspacePaths
+    target = Path(target)
+    resolver = WorkspacePaths(PROJECT_ROOT).config_resolver()
+    for selector in resolver.selectors():
+        try:
+            resolved = resolver.resolve(selector)
+        except DuplicateProvider:
+            continue
+        if resolved is None or resolved.origin in ("bundled", "framework"):
+            continue
+        destination = target / selector
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(resolved.file, destination)
+    return target
 
 
 @pytest.fixture
-def fixture_workspace(tmp_path):
-    """Build test configs outside the user's workspace, even if tests are interrupted."""
-    target = tmp_path / "in" / "config"
-    shutil.copytree(PROJECT_ROOT / "in" / "config", target)
-    # Hub source profiles can be read-only. These are isolated test copies and
-    # must be editable before overlaying fixtures or exercising editor saves.
-    for path in target.rglob("*"):
-        if path.is_file():
-            path.chmod(path.stat().st_mode | 0o200)
+def fixture_workspace(tmp_path, monkeypatch):
+    """An isolated workspace with this checkout's effective profiles plus test profiles."""
+    from src.app.workspace import WorkspacePaths
+    target = copy_research_config(WorkspacePaths(tmp_path).config)
     shutil.copytree(TEST_WORKSPACE_CONFIG, target, dirs_exist_ok=True)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     return tmp_path
 
 
@@ -125,12 +145,6 @@ def _no_hub_network(monkeypatch):
 def project_root():
     """Return the project root directory."""
     return PROJECT_ROOT
-
-
-@pytest.fixture
-def config_dir():
-    """Return the Hydra config directory."""
-    return PROJECT_ROOT / "in" / "config"
 
 
 @pytest.fixture

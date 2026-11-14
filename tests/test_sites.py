@@ -28,8 +28,8 @@ def no_ssh(monkeypatch):
 def project(root):
     (root / 'src').mkdir(parents=True)
     (root / 'src/worker.py').write_text('print("original")\n')
-    (root / 'in/config').mkdir(parents=True)
-    (root / 'in/config/config.yaml').write_text('defaults: [{site: local}]\n')
+    (root / 'src/usr/config').mkdir(parents=True)
+    (root / 'src/usr/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text('# runner\n')
     workspace_id(root)
     from component_fixtures import install_optional
@@ -303,7 +303,7 @@ def test_default_batch_interpreter_preserves_virtualenv_path(tmp_path, monkeypat
 def test_hydra_inherits_and_overrides_site_group(tmp_path, monkeypatch):
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     from src.app.pipeline.compose import compose_experiment
-    config = tmp_path / 'in/config'
+    config = tmp_path / 'src/usr/config'
     (config / 'experiment/g').mkdir(parents=True)
     (config / 'site').mkdir()
     (config / 'config.yaml').write_text('defaults:\n  - site: local\n  - _self_\ngroup: ungrouped\nexperiment_id: default_exp\nexperiment_name: default_exp\n')

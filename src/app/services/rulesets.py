@@ -16,30 +16,9 @@ import yaml
 from src.app.workspace import WorkspacePaths
 
 
-def reject_legacy_rules_paths(value):
-    """Reject legacy asset references; never rewrite a research resource path."""
-    if isinstance(value, (str, Path)):
-        path = str(value).replace("\\", "/").rstrip("/")
-        if path == "in/rules" or path.startswith("in/rules/") or "/in/rules/" in path or path.endswith("/in/rules"):
-            raise ValueError(f"Unsupported legacy rules path: {value}. Use src/usr/rules and update the package or reference explicitly.")
-    elif isinstance(value, Mapping):
-        for key, item in value.items():
-            reject_legacy_rules_paths(key)
-            reject_legacy_rules_paths(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            reject_legacy_rules_paths(item)
-
-
-def require_canonical_rules_layout(workspace):
-    old = Path(workspace) / "in/rules"
-    if old.exists() or old.is_symlink():
-        raise ValueError(f"Unsupported legacy rules location: {old}. Rules must exist only in src/usr/rules; move the assets and update references explicitly.")
-
-
 def symbolic_environment(environment, workspace) -> str | None:
     """Resolve a config selector/profile and its explicit symbolic_name override."""
-    root = Path(workspace)
+    paths = workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(Path(workspace))
     if isinstance(environment, Mapping):
         explicit = environment.get("symbolic_name")
         if explicit:
@@ -50,7 +29,7 @@ def symbolic_environment(environment, workspace) -> str | None:
     name = str(environment)
     _environment_id(name)  # validate before constructing a filesystem path
     for suffix in (".yaml", ".yml"):
-        profile = root / "in/config/env" / (name + suffix)
+        profile = paths.resolve_config("env/" + name + suffix)
         if profile.is_file():
             data = yaml.safe_load(profile.read_text()) or {}
             if data.get("symbolic_name"):
@@ -95,7 +74,6 @@ class Ruleset:
 
 def available_rulesets(workspace, environment=None) -> list[Ruleset]:
     paths = WorkspacePaths(workspace)
-    require_canonical_rules_layout(paths.root)
     env = symbolic_environment(environment, paths.root)
     bases = [paths.rules]
     from src.app.core.provider_catalog import get_catalog
@@ -161,7 +139,6 @@ def resolve_ruleset(workspace, environment, name) -> Ruleset:
 def rules_folder_targets(*, value, context):
     """Open the selected resource folder; never search all matching basenames."""
     root = Path(context["workspace_root"])
-    require_canonical_rules_layout(root)
     env = context.get("config", {}).get("env")
     if not symbolic_environment(env, root) and (not isinstance(value, str) or "/" not in value):
         paths = WorkspacePaths(root)

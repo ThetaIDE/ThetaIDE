@@ -16,11 +16,10 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 app = QApplication.instance() or QApplication(sys.argv[:1])
 
 from frontend.plugins.core.arxiv_papers import search as search_module  # noqa: E402
-from frontend.plugins.core.arxiv_papers.catalog import build_catalog, tag_counts, tag_phrase  # noqa: E402
+from frontend.plugins.core.arxiv_papers.catalog import build_catalog, config_selectors, tag_counts, tag_phrase  # noqa: E402
 from frontend.plugins.core.arxiv_papers.panel import ArxivPanel  # noqa: E402
 from frontend.plugins.core.arxiv_papers.search import ArxivSearcher, Paper, SearchError, build_query  # noqa: E402
 
-CONFIG = Path(__file__).resolve().parents[1] / "in" / "config"
 
 
 def paper(n, title="Conservative Q-Learning for Offline Reinforcement Learning"):
@@ -80,7 +79,7 @@ def test_local_components_get_built_in_tags_and_hub_components_their_index_tags(
     hub = SimpleNamespace(components=[SimpleNamespace(id="blendrl", name="BlendRL", kind="model",
                                                       tags=["BlendRL", "neural-symbolic"], description="")],
                           cache_file=None)
-    catalog = {c.key: c for c in build_catalog(mock_config_root, hub)}
+    catalog = {c.key: c for c in build_catalog(config_selectors(mock_config_root), hub)}
     assert catalog["agent/cql"].tags == ["cql", "offline-rl", "q-learning"]
     assert catalog["hub/blendrl"].tags == ["blendrl", "neural-symbolic"] and catalog["hub/blendrl"].source == "hub"
     assert "env/cartpole" in catalog and "model/nsfr" in catalog
@@ -89,7 +88,7 @@ def test_local_components_get_built_in_tags_and_hub_components_their_index_tags(
 
 
 def test_user_tags_replace_the_defaults(mock_config_root):
-    catalog = {c.key: c for c in build_catalog(mock_config_root, None, {"env/pyrenees": ["Offline RL", "health"]})}
+    catalog = {c.key: c for c in build_catalog(config_selectors(mock_config_root), None, {"env/pyrenees": ["Offline RL", "health"]})}
     assert catalog["env/pyrenees"].tags == ["offline-rl", "health"] and catalog["env/pyrenees"].edited
 
 

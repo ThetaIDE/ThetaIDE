@@ -19,10 +19,10 @@ def test_dependency_lookup_uses_the_requested_package(tmp_path):
 
 def test_recursive_cross_kind_dependencies_have_independent_ownership(tmp_path):
     data = native_component(tmp_path, "image-data", kind="datamodule", configs={
-        "in/config/data/image_data.yaml": "data_module: image-data\n",
+        "data/image_data.yaml": "data_module: image-data\n",
     })
     environment = native_component(tmp_path, "example-env", kind="env", dependencies=[data.id], configs={
-        "in/config/env/example.yaml": "name: example-env\n",
+        "env/example.yaml": "name: example-env\n",
     })
     panel = native_component(tmp_path, "example-panel", kind="plugin", dependencies=[data.id], files={
         "provider.py": "class Provider: pass\n",

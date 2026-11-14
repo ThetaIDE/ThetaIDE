@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .execution import TERMINAL, finalize, owned_files, receipt_path, refresh_status, refresh_many
-from .snapshot import archive, freeze, source_files
+from .snapshot import DATASET_ROOT, archive, freeze, source_files
 from .transport import rsync_shell
 from . import transfer_output
 from .storage import digest, read_json, safe_path, transfer_lock, workspace_id, write_json
@@ -145,8 +145,8 @@ def push(root, site, *, datasets=False, live_output=False):
         # Transfer a frozen list, not a tree that the user may still be editing.
         write_json(stage / '.theta-managed.json', {'project_id': source['project_id'], 'expires_at': __import__('time').time() + 7200})
         files = [*source['files'], '.thetaide/source.json', '.theta-managed.json']
-        if datasets and (root / 'in/datasets').is_dir():
-            for path in (root / 'in/datasets').rglob('*'):
+        if datasets and (root / DATASET_ROOT).is_dir():
+            for path in (root / DATASET_ROOT).rglob('*'):
                 if path.is_symlink(): raise ValueError('Dataset symlinks need a cluster-side dataset mapping')
                 if path.is_file():
                     relative = path.relative_to(root).as_posix()
@@ -507,8 +507,8 @@ def activate(root, source):
             shutil.copyfile(safe_path(source, relative), temporary)
             os.replace(temporary, target)
         # Dataset uploads are explicit and separate from the source manifest.
-        if (source / 'in/datasets').is_dir():
-            for path in (source / 'in/datasets').rglob('*'):
+        if (source / DATASET_ROOT).is_dir():
+            for path in (source / DATASET_ROOT).rglob('*'):
                 if path.is_file():
                     relative = path.relative_to(source).as_posix()
                     target = safe_path(root, relative)

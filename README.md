@@ -78,7 +78,7 @@ of silently converting them.
 ## Command line
 
 The IDE and the command line run the same pipeline. Experiments are named `<group>/<experiment>`, after their
-YAML file under `in/config/experiment/`:
+YAML file under `src/usr/config/experiment/`:
 
 ```bash
 # Train an experiment (install its components from the Hub first)

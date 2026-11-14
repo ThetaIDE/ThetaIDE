@@ -180,17 +180,21 @@ class ProviderCatalog:
         return load_capability(*resolved, paths=self.paths)
 
     def inventory(self, hashes=True):
+        resolver = self.paths.config_resolver()
         active_configs = []
         for package in self.packages:
-            for relative in package.manifest.get("config_paths", []):
-                path = self.paths.root / relative
-                active_configs.append({"owner": package.id, "path": str(path), "exists": path.is_file(),
-                    "hash": file_hash(path) if hashes and path.is_file() else None,
-                    "installed_hash": package.manifest.get("config_hashes", {}).get(relative)})
-        return {"active_configs": active_configs,"storage_version": 2, "workspace": str(self.paths.root), "application": str(self.paths.application),
+            for selector in package.manifest.get("payload", {}).get("configs", {}):
+                try:
+                    resolved = resolver.resolve(selector)
+                except DuplicateProvider:
+                    resolved = None
+                path = resolved.file if resolved is not None else package.resource(package.manifest["payload"]["configs"][selector])
+                active_configs.append({"owner": package.id, "selector": selector, "path": str(path), "exists": path.is_file(),
+                    "origin": resolved.origin if resolved is not None else None,
+                    "hash": file_hash(path) if hashes and path.is_file() else None})
+        return {"active_configs": active_configs,"storage_version": 3, "workspace": str(self.paths.root), "application": str(self.paths.application),
                 "state": str(self.paths.data_dir), "packages": [p.record(hashes) for p in self.packages],
-                "diagnostics": self.diagnostics,
-                "unsupported_rules": str(self.paths.root / "in/rules") if (self.paths.root / "in/rules").exists() else None}
+                "diagnostics": self.diagnostics}
 
 _CATALOGS = {}
 
@@ -219,8 +223,8 @@ def get_catalog(paths=None, app_roots=()):
 
 def provider_hash(package):
     """Hash executable payload and stable metadata, excluding machine-local install records."""
-    volatile = {'target_dir','origin','installed_from','sha256','source_hashes','asset_hashes','config_hashes',
-                'config_backups','installed_files','user_config_paths','retained_edits','authoring_hash','releases'}
+    volatile = {'target_dir','origin','installed_from','sha256','source_hashes','asset_hashes',
+                'installed_files','retained_edits','authoring_hash','releases'}
     def stable(value):
         if isinstance(value,dict): return {k:stable(v) for k,v in value.items() if k not in volatile}
         if isinstance(value,list): return [stable(v) for v in value]

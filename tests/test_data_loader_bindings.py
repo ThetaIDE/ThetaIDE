@@ -31,7 +31,7 @@ def loader_workspace(tmp_path, monkeypatch):
     model_cap['entry_point'] = 'never_construct.py:Model'
     meta['id'] = 'state-model'
     meta['payload']['implementations'].append('never_construct.py')
-    meta['payload']['configs']['in/config/model/state-model.yaml'] = 'configs/model/state-model.yaml'
+    meta['payload']['configs']['model/state-model.yaml'] = 'configs/model/state-model.yaml'
     shutil.copyfile(package / 'configs/model/blendrl-dev.yaml', package / 'configs/model/state-model.yaml')
     meta['config_paths'] = list(meta['payload']['configs'])
     (package / '.theta_component.json').write_text(json.dumps(meta))

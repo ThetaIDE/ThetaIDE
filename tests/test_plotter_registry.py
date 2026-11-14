@@ -52,7 +52,7 @@ def test_auto_discover_plotters(tmp_path, monkeypatch):
             encoding="utf-8",
         )
         import json
-        (subpkg/'.theta_component.json').write_text(json.dumps({'id':'mock_test_suite','name':'Mock','kind':'plotter','version':'1.0.0','storage_version':2,'api_version':1,
+        (subpkg/'.theta_component.json').write_text(json.dumps({'id':'mock_test_suite','name':'Mock','kind':'plotter','version':'1.0.0','storage_version':3,'api_version':1,
             'capabilities':[{'id':'mock_suite_metric','kind':'plotter','entry_point':'mock_plot.py:MockSuitePlotter'}],
             'payload':{'implementations':['__init__.py','mock_plot.py'],'resources':[],'configs':{}}}))
         auto_discover_plotters()
@@ -69,8 +69,8 @@ def test_auto_discover_plotters(tmp_path, monkeypatch):
 
 
 def test_base_plotter_config_resolution(tmp_path):
-    """Verify that BasePlotter searches in/config/plot/ for Tier 1 default configs."""
-    cfg_dir = tmp_path / "in" / "config" / "plot"
+    """Verify that BasePlotter searches src/usr/config/plot/ for Tier 1 default configs."""
+    cfg_dir = tmp_path / "src/usr/config" / "plot"
     cfg_dir.mkdir(parents=True)
     cfg_file = cfg_dir / "test_diag.yaml"
     cfg_file.write_text("smoothing_window: 25\ndpi: 600\n", encoding="utf-8")

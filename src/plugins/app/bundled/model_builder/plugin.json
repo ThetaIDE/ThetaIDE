@@ -13,7 +13,7 @@
       "sequential_spec"
     ]
   },
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "sdk": ">=1.0,<2"
 }

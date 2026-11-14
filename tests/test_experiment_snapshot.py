@@ -4,7 +4,7 @@ from src.app.pipeline.experiment_snapshot import save_experiment_snapshot
 
 
 def test_snapshots_preserve_original_recipe_across_recoveries(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     cfg = SimpleNamespace(group="group", experiment_id="run")
     save_experiment_snapshot(cfg, {"experiment_yaml": b"seed: 1\n"})
     save_experiment_snapshot(cfg, {"experiment_yaml": b"seed: 2\n"})
@@ -18,7 +18,7 @@ def test_run_snapshot_handles_hydra_runtime_interpolation(tmp_path, monkeypatch)
     from omegaconf import OmegaConf
     from src.app.pipeline.experiment_snapshot import save_run_config
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     cfg = OmegaConf.create({
         "group": "group", "experiment_id": "run", "seed": 42,
         "env": {"seed": "${seed}"},
@@ -37,18 +37,18 @@ def test_run_snapshot_with_actual_composed_hydra_config(tmp_path, monkeypatch):
     import yaml
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
-    from src.app.pipeline.compose import CONFIG_DIR
+    from src.app.workspace import WorkspacePaths
     from src.app.pipeline.experiment_snapshot import save_run_config
 
     GlobalHydra.instance().clear()
     try:
-        with initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR)):
+        with initialize_config_dir(version_base=None, config_dir=str(WorkspacePaths(tmp_path, application=WorkspacePaths().application).framework_config)):
             cfg = compose(config_name="config", return_hydra_config=True)
     finally:
         GlobalHydra.instance().clear()
     cfg.group = "group"
     cfg.experiment_id = "run"
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     save_run_config(cfg)
     saved = yaml.safe_load((tmp_path / "results/logs/group/run/config.yaml").read_text())
     assert "hydra" not in saved
@@ -59,7 +59,7 @@ def test_local_launch_reaches_methods_with_hydra_runtime_placeholder(tmp_path, m
     from omegaconf import OmegaConf
     from src.app.pipeline import local_runner
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     cfg = OmegaConf.create({"group": "group", "experiment_id": "run", "no_plot": True,
                             "hydra": {"job": {"num": "???"},
                                       "sweep": {"subdir": "${hydra.job.num}"}}})

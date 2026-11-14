@@ -30,7 +30,7 @@ MLP_INSTALLED = any(
 )
 needs_mlp = pytest.mark.skipif(not MLP_INSTALLED, reason="the MLP model component is not installed")
 
-CONFIG = Path("in/config")
+CONFIG = Path("src/usr/config")
 
 
 class _Cfg(dict):
@@ -140,7 +140,7 @@ def test_a_dataset_without_labels_is_refused_with_a_usable_message():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "d.npz"
         np.savez_compressed(path, features=np.zeros((10, 4), dtype=np.float32))
-        with pytest.raises(ValueError, match="prepare_tabular.py"):
+        with pytest.raises(ValueError, match="prepare_tabular"):
             _supervised_dm(path)
 
 
@@ -293,8 +293,8 @@ def test_scoring_leaves_eval_mode_alone_when_it_started_there():
 def _env_cfg(tmp_path, name="breast_cancer"):
     """A config carrying an env but no `data_module`, over a dataset written here.
 
-    in/datasets/ is gitignored - its contents are produced by
-    in/datasets/prepare_tabular.py - so a test that reads from it passes only on
+    src/usr/datasets/ is gitignored - its contents are produced by
+    prepare_tabular - so a test that reads from it passes only on
     a machine where someone has run that script, and fails in CI.
     """
     return _Cfg(
@@ -381,15 +381,15 @@ def test_a_named_dataset_that_is_missing_is_reported(tmp_path, monkeypatch, capl
     "train_loader has not been set" and no word about the dataset."""
     import logging
 
-    monkeypatch.chdir(tmp_path)  # no in/datasets here
+    monkeypatch.chdir(tmp_path)  # no src/usr/datasets here
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     with caplog.at_level(logging.WARNING, logger="src.app.core.paradigm_impls.base.supervised"):
-        # Named but never written: no dataset_path, so it is looked up under in/datasets/.
+        # Named but never written: no dataset_path, so it is looked up under src/usr/datasets/.
         name = "breast_cancer"
         named = _Cfg(env=_Cfg(name=name, dataset_name=f"{name}.npz"), batch_size=32)
         dm = get_component("SupervisedDataModule")(named)
     assert dm._delegate is None
-    assert f"No dataset for 'breast_cancer' under {tmp_path / 'in/datasets'}" in caplog.text
+    assert f"No dataset for 'breast_cancer' under {tmp_path / 'src/usr/datasets'}" in caplog.text
 
 
 def test_a_config_naming_no_dataset_stays_quiet(caplog):

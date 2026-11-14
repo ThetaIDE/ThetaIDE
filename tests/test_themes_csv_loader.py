@@ -151,16 +151,12 @@ def test_external_csv_recipes_preflight_and_real_worker_use_custom_loader(tmp_pa
     import shutil
     from src.app.pipeline.compose import compose_experiment, validate_composed
     workspace = tmp_path / 'workspace'
-    shutil.copytree(ROOT / 'src/app/config_defaults', workspace / 'in/config')
     package = workspace / 'src/usr/packages/themes-dev'
     shutil.copytree(PACKAGE, package, ignore=shutil.ignore_patterns('__pycache__', '*.egg-info', 'build'))
-    manifest = json.loads((package / '.theta_component.json').read_text())
-    for dest, source in manifest['payload']['configs'].items():
-        target = workspace / dest
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(package / source, target)
+    monkeypatch.delenv('THETA_DATA_DIR', raising=False)
+    monkeypatch.delenv('THETA_PROVIDER_SNAPSHOT', raising=False)
     from test_themes_integration import historical_test_workspace
-    historical_test_workspace(workspace)
+    historical_test_workspace(WorkspacePaths(workspace))
     external = tmp_path / 'downloaded'
     external.mkdir()
     for name in ['MIMIC_md_expert_Q10_120.csv', 'MIMIC_cleantrain_md_expert_Q10_116.csv']:

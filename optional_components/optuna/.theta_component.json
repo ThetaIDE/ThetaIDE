@@ -45,7 +45,7 @@
   "id": "optuna",
   "name": "optuna",
   "version": "1.0.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "payload": {
     "implementations": [
@@ -62,13 +62,13 @@
     ],
     "resources": [],
     "configs": {
-      "in/config/hydra/sweeper/optuna_online.yaml": "configs/hydra/sweeper/optuna_online.yaml",
-      "in/config/hydra/sweeper/optuna_offline.yaml": "configs/hydra/sweeper/optuna_offline.yaml"
+      "hydra/sweeper/optuna_online.yaml": "configs/hydra/sweeper/optuna_online.yaml",
+      "hydra/sweeper/optuna_offline.yaml": "configs/hydra/sweeper/optuna_offline.yaml"
     }
   },
   "config_paths": [
-    "in/config/hydra/sweeper/optuna_online.yaml",
-    "in/config/hydra/sweeper/optuna_offline.yaml"
+    "hydra/sweeper/optuna_online.yaml",
+    "hydra/sweeper/optuna_offline.yaml"
   ],
   "dependencies": {
     "pip": [

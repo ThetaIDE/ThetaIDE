@@ -12,7 +12,7 @@ Usage:
   # Erase all experiments in a group except specified ones to keep:
   python scripts/erase_experiment.py -g experiment_group -k experiment_to_keep
 
-  # Also delete the YAML config in in/config/experiment/:
+  # Also delete the YAML config in src/usr/config/experiment/:
   python scripts/erase_experiment.py -e experiment_id --delete-config
 
   # Dry run to preview what would be deleted without deleting anything:
@@ -35,7 +35,7 @@ DEFAULT_RESULT_CATEGORIES = [
     "slurm_ids",
 ]
 
-DEFAULT_TRACKING_FILE = "in/deleted_experiments.txt"
+DEFAULT_TRACKING_FILE = ".thetaide/deleted_experiments.txt"
 
 
 def parse_args():
@@ -63,7 +63,7 @@ def parse_args():
         "--delete-config",
         "-c",
         action="store_true",
-        help="Also delete the YAML config file from in/config/experiment/.",
+        help="Also delete the YAML config file from src/usr/config/experiment/.",
     )
     parser.add_argument(
         "--results-dir",
@@ -177,8 +177,8 @@ def erase_experiments(
             for item in slurm_group_dir.iterdir():
                 if not should_keep_file_or_dir(item.name, keep):
                     items_to_remove.add(item)
-        # Check in/datasets
-        in_ds_group = Path("in/datasets") / group
+        # Check src/usr/datasets
+        in_ds_group = Path("src/usr/datasets") / group
         if in_ds_group.exists() and in_ds_group.is_dir():
             for item in in_ds_group.iterdir():
                 if not should_keep_file_or_dir(item.name, keep):
@@ -224,8 +224,8 @@ def erase_experiments(
                             if st.exists():
                                 items_to_remove.add(st)
 
-            # 3. Generated datasets: in/datasets/[group]/[exp_id]
-            in_ds_base = Path("in/datasets")
+            # 3. Generated datasets: src/usr/datasets/[group]/[exp_id]
+            in_ds_base = Path("src/usr/datasets")
             if in_ds_base.exists():
                 if group:
                     dt = in_ds_base / group / clean_id
@@ -256,9 +256,9 @@ def erase_experiments(
                     except Exception as e:
                         pass
 
-            # 5. Optional: YAML config file in in/config/experiment/
+            # 5. Optional: YAML config file in src/usr/config/experiment/
             if delete_config:
-                matches = list(Path("in/config/experiment").glob(f"**/{clean_id}.yaml"))
+                matches = list(Path("src/usr/config/experiment").glob(f"**/{clean_id}.yaml"))
                 for cfg_file in matches:
                     items_to_remove.add(cfg_file)
 
@@ -275,7 +275,7 @@ def erase_experiments(
         if slurm_group_dir.exists() and slurm_group_dir.is_dir():
             for item in slurm_group_dir.iterdir():
                 items_to_remove.add(item)
-        in_ds_group = Path("in/datasets") / group
+        in_ds_group = Path("src/usr/datasets") / group
         if in_ds_group.exists() and in_ds_group.is_dir():
             for item in in_ds_group.iterdir():
                 items_to_remove.add(item)

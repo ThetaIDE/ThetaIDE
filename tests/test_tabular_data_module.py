@@ -1,14 +1,13 @@
 """Tests for the offline dataset path of the unsupervised paradigm.
 
 MIMIC is unavailable to this project, so unsupervised experiments train on
-datasets in/datasets/prepare_tabular.py materialises from scikit-learn. That
-directory is gitignored, so nothing here reads it: the data module tests write
+datasets prepare_tabular.py materialises from scikit-learn into src/usr/datasets.
+That directory is gitignored, so nothing here reads it: the data module tests write
 their own .npz, and the prepare tests build into a temporary directory.
 """
 
 from __future__ import annotations
 
-import importlib.util
 from importlib.metadata import entry_points
 from pathlib import Path
 
@@ -27,16 +26,6 @@ needs_autoencoder = pytest.mark.skipif(
     not AUTOENCODER_INSTALLED,
     reason="the autoencoder model component is not installed",
 )
-
-PREPARE = Path("in/datasets/prepare_tabular.py")
-
-
-def _load_prepare_module():
-    spec = importlib.util.spec_from_file_location("prepare_tabular", PREPARE)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
 
 def _write_npz(path: Path, n=40, dim=6, sequences=False, labels=True):
     arrays = {"features": np.random.default_rng(0).normal(size=(n, dim)).astype(np.float32)}
@@ -134,7 +123,7 @@ def test_sequence_form_yields_the_four_part_batch(tmp_path):
 
 def test_a_missing_dataset_says_how_to_build_it(tmp_path):
     cfg = _Cfg(env=_Cfg(dataset_name="not_a_dataset.npz"))
-    with pytest.raises(FileNotFoundError, match="prepare_tabular.py"):
+    with pytest.raises(FileNotFoundError, match="prepare_tabular"):
         get_component("TabularNpzDataModule")(cfg)
 
 
@@ -159,41 +148,42 @@ def test_the_module_feeds_the_autoencoder(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_script_exists_since_the_datasets_are_gitignored():
-    assert PREPARE.is_file(), "in/datasets/ is gitignored, so the script is what ships"
-
-
-def test_prepare_builds_a_loadable_dataset(tmp_path, monkeypatch):
-    module = _load_prepare_module()
-    monkeypatch.setattr(module, "OUT_ROOT", tmp_path)
-    path = module.build("breast_cancer")
+def test_prepare_builds_a_loadable_dataset(tmp_path):
+    from src.app.core.paradigm_impls.base import prepare_tabular
+    path = prepare_tabular.build("breast_cancer", tmp_path)
     with np.load(path) as handle:
         assert handle["features"].shape == (569, 30)
         assert handle["labels"].shape == (569,)
 
 
-def test_prepare_standardises_features(tmp_path, monkeypatch):
+def test_prepare_standardises_features(tmp_path):
     """Unstandardised, the loss is dominated by whichever feature has the
     largest units rather than by anything structural."""
-    module = _load_prepare_module()
-    monkeypatch.setattr(module, "OUT_ROOT", tmp_path)
-    with np.load(module.build("breast_cancer")) as handle:
+    from src.app.core.paradigm_impls.base import prepare_tabular
+    with np.load(prepare_tabular.build("breast_cancer", tmp_path)) as handle:
         features = handle["features"]
     assert np.allclose(features.mean(axis=0), 0, atol=1e-4)
     assert np.allclose(features.std(axis=0), 1, atol=1e-4)
 
 
-def test_prepare_emits_a_sequence_form_where_the_shape_allows(tmp_path, monkeypatch):
-    module = _load_prepare_module()
-    monkeypatch.setattr(module, "OUT_ROOT", tmp_path)
-    with np.load(module.build("digits")) as handle:
+def test_prepare_emits_a_sequence_form_where_the_shape_allows(tmp_path):
+    from src.app.core.paradigm_impls.base import prepare_tabular
+    with np.load(prepare_tabular.build("digits", tmp_path)) as handle:
         assert handle["sequences"].shape == (1797, 8, 8)
 
 
-def test_prepare_rejects_an_unknown_dataset(tmp_path, monkeypatch):
-    module = _load_prepare_module()
-    monkeypatch.setattr(module, "OUT_ROOT", tmp_path)
-    assert module.main(["prepare_tabular.py", "not_a_dataset"]) == 1
+def test_prepare_writes_to_the_selected_workspace_dataset_root(tmp_path, monkeypatch):
+    from src.app.core.paradigm_impls.base import prepare_tabular
+    from src.app.workspace import WorkspacePaths
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    assert prepare_tabular.main(["digits"]) == 0
+    assert (WorkspacePaths(tmp_path).datasets / "digits" / "digits.npz").is_file()
+    assert not (tmp_path / "in").exists()
+
+
+def test_prepare_rejects_an_unknown_dataset(tmp_path):
+    from src.app.core.paradigm_impls.base import prepare_tabular
+    assert prepare_tabular.main(["--output", str(tmp_path), "not_a_dataset"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +221,7 @@ def test_a_config_without_an_agent_section_still_resolves():
 
 
 def test_no_test_here_depends_on_a_generated_dataset():
-    """in/datasets/ is gitignored, so anything read from it exists only where
+    """src/usr/datasets/ is gitignored, so anything read from it exists only where
     someone has run prepare_tabular.py. Two tests once resolved breast_cancer.npz
     from there and passed locally while failing in CI; this keeps that from
     coming back unnoticed.
@@ -242,10 +232,10 @@ def test_no_test_here_depends_on_a_generated_dataset():
     for path in sorted(Path("tests").glob("test_*.py")):
         text = path.read_text(encoding="utf-8")  # the default on Windows is cp1252, which some test files are not
         for number, line in enumerate(text.splitlines(), start=1):
-            if "in/datasets" not in line or line.lstrip().startswith("#"):
+            if "src/usr/datasets" not in line or line.lstrip().startswith("#"):
                 continue
             # A prepare-script reference or a skip-guarded lookup is fine; reading a
             # dataset file as a fixture is not.
-            if re.search(r"in/datasets/\w+/\w+\.npz|dataset_name=\"?\w+\.npz", line):
+            if re.search(r"src/usr/datasets/\w+/\w+\.npz|dataset_name=\"?\w+\.npz", line):
                 offenders.append(f"{path.name}:{number}: {line.strip()}")
     assert not offenders, "tests must build their own dataset:\n" + "\n".join(offenders)

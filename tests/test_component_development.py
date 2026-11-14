@@ -53,18 +53,17 @@ class Example:
     def __init__(self, **kwargs): pass
     def forward(self): return 11
 ''')
-    profile = root / "in/config/model/original/default.yaml"
+    profile = source / "configs/model/original/default.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("# @package model\narchitecture: original\nwidth: 16\n")
     meta = {"id": "original", "kind": "model", "name": "Original", "version": "1.0.0",
-            "storage_version":2,"api_version":1,"origin":"hub",
+            "storage_version":3,"api_version":1,"origin":"hub",
             "capabilities":[{"id":"original","kind":"model","entry_point":"model.py:Example"}],
-            "payload":{"implementations":["__init__.py","model.py"],"resources":[],"configs":{"in/config/model/original/default.yaml":"configs/model/original/default.yaml"}},
-            "config_path": "in/config/model/original/default.yaml",
-            "config_paths": ["in/config/model/original/default.yaml"],
+            "payload":{"implementations":["__init__.py","model.py"],"resources":[],"configs":{"model/original/default.yaml":"configs/model/original/default.yaml"}},
+            "config_path": "model/original/default.yaml",
+            "config_paths": ["model/original/default.yaml"],
             "parameter_schema": {"x-theta-validate": True, "type": "object",
                                  "properties": {"width": {"type": "integer", "minimum": 1}}}}
-    packaged=source/"configs/model/original/default.yaml";packaged.parent.mkdir(parents=True);packaged.write_bytes(profile.read_bytes())
     (source / ".theta_component.json").write_text(json.dumps(meta))
     HubInstaller(root, root / ".thetaide").protect_installed_components()
     return root, source, profile
@@ -114,10 +113,10 @@ def test_shared_config_copy_protection_conflicts_and_schema(installed_model):
     assert yaml.safe_load(copy.read_text())["architecture"] == "original"
     with pytest.raises(FileExistsError):
         configs.copy(profile, copy)
-    with pytest.raises(ValueError, match="inside in/config"):
+    with pytest.raises(ValueError, match="inside src/usr/config"):
         configs.copy(profile, "../../outside")
-    (root / "in/config/escape").symlink_to(root.parent, target_is_directory=True)
-    with pytest.raises(ValueError, match="inside in/config"):
+    (root / "src/usr/config/escape").symlink_to(root.parent, target_is_directory=True)
+    with pytest.raises(ValueError, match="inside src/usr/config"):
         configs.copy(profile, "escape/outside")
     configs.configure(copy, ["width=0"])
     process, error = cli(root, "config", "validate", "model/custom/default")
@@ -130,7 +129,7 @@ def test_ambiguous_native_identity_fails_without_writes(installed_model):
     other=root/'src/usr/environments/other';other.mkdir(parents=True)
     (other/'env.py').write_text('class Env: pass\n')
     manifest=other/'.theta_component.json'
-    meta={'id':'original','name':'Collision','kind':'env','version':'1.0.0','storage_version':2,'api_version':1,
+    meta={'id':'original','name':'Collision','kind':'env','version':'1.0.0','storage_version':3,'api_version':1,
           'capabilities':[{'id':'other','kind':'env','entry_point':'env.py:Env'}],
           'payload':{'implementations':['env.py'],'resources':[],'configs':{}}}
     manifest.write_text(json.dumps(meta))
@@ -155,7 +154,7 @@ def test_context_does_not_write_into_hub_payload(installed_model):
 def test_config_copy_failure_leaves_no_partial_file(installed_model, monkeypatch):
     root, _, profile = installed_model
     configs = ConfigurationFiles(WorkspacePaths(root))
-    target = root / "in/config/model/broken/default.yaml"
+    target = root / "src/usr/config/model/broken/default.yaml"
     def failed_publish(*args):
         raise OSError("simulated disk failure")
     monkeypatch.setattr(os, "link", failed_publish)
@@ -169,14 +168,14 @@ def test_nonmodel_profile_uses_its_declared_validation_schema(installed_model):
     root, _, _ = installed_model
     source = root / "src/usr/data/example"
     source.mkdir(parents=True)
-    profile = root / "in/config/data/example/default.yaml"
+    profile = root / "src/usr/config/data/example/default.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("batch_size: 0\n")
     (source / ".theta_component.json").write_text(json.dumps({
         "id": "example", "name": "Example", "kind": "datamodule", "version": "1.0.0",
-        "storage_version":2,"api_version":1,"capabilities":[],
-        "payload":{"implementations":[],"resources":[],"configs":{"in/config/data/example/default.yaml":"default.yaml"}},
-        "config_path": "in/config/data/example/default.yaml",
+        "storage_version":3,"api_version":1,"capabilities":[],
+        "payload":{"implementations":[],"resources":[],"configs":{"data/example/default.yaml":"default.yaml"}},
+        "config_path": "data/example/default.yaml",
         "parameter_schema": {"x-theta-validate": True, "type": "object",
                              "properties": {"batch_size": {"type": "integer", "minimum": 1}}},
     }))
@@ -193,21 +192,21 @@ def test_path_policy_and_compatibility_modules_share_class_identity(tmp_path):
     assert LegacyInstaller is HubInstaller
     assert LegacyComponent is HubComponent
     paths = WorkspacePaths(tmp_path)
-    assert paths.config == tmp_path / "in/config"
+    assert paths.config == tmp_path / "src/usr/config"
     assert paths.research == tmp_path / "src/usr"
-    assert paths.config_file("in/config/model/a.yaml") == paths.config_file("model/a")
+    assert paths.config_file("src/usr/config/model/a.yaml") == paths.config_file("model/a")
 
 
 def test_experiment_preflight_reports_effective_method_source(installed_model, fixture_workspace):
     root, _, _ = installed_model
-    shutil.copytree(fixture_workspace / "in/config", root / "in/config", dirs_exist_ok=True)
+    shutil.copytree(fixture_workspace / "src/usr/config", root / "src/usr/config", dirs_exist_ok=True)
     # The UI fixture stores legacy defaults as a mapping; actual Hydra method
     # composition needs a normal runnable agent config.
-    (root / "in/config/agent/ppo.yaml").write_text("algorithm: ppo\ncompatible_paradigms: [online_rl]\nlr: 0.0003\n")
+    (root / "src/usr/config/agent/ppo.yaml").write_text("algorithm: ppo\ncompatible_paradigms: [online_rl]\nlr: 0.0003\n")
     for kind,name,aliases in [('algorithm','ppo',[]),('env','cartpole',['gym_classic_control/cartpole'])]:
         package=WorkspacePaths(root).user(kind)/name;package.mkdir(parents=True)
         (package/'provider.py').write_text('class Provider: pass\n')
-        (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':2,'api_version':1,
+        (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
             'capabilities':[{'id':name,'kind':kind,'entry_point':'provider.py:Provider','aliases':aliases}],
             'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}))
     process, copied = cli(root, "copy", "original", "my_model")

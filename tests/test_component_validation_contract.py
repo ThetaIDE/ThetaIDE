@@ -14,12 +14,12 @@ def test_profile_schema_validates_selected_model_and_leaves_legacy_schemas_optio
     path = component / ".theta_component.json"
     schema = {"type": "object", "properties": {"width": {"type": "integer", "minimum": 1}},
               "required": ["width"]}
-    path.write_text(json.dumps({"id": "example", "config_path": "in/config/model/example.yaml",
+    path.write_text(json.dumps({"id": "example", "config_path": "model/example.yaml",
                                 "parameter_schema": schema}))
     method = {"model": "example"}
     assert schemas_for_method(tmp_path, method) == {}
     schema["x-theta-validate"] = True
-    path.write_text(json.dumps({"id": "example", "config_path": "in/config/model/example.yaml",
+    path.write_text(json.dumps({"id": "example", "config_path": "model/example.yaml",
                                 "parameter_schema": schema}))
     schemas = schemas_for_method(tmp_path, method)
     validate_method_components(OmegaConf.create({"model": {"width": 16}}), schemas, "m")
@@ -44,7 +44,7 @@ def test_declared_model_value_routes_to_model_even_if_yaml_is_old(tmp_path, monk
     component = tmp_path / "src/usr/models/example"
     component.mkdir(parents=True)
     component.joinpath(".theta_component.json").write_text(json.dumps({
-        "config_path": "in/config/model/example.yaml",
+        "config_path": "model/example.yaml",
         "parameter_schema": {"type": "object", "properties": {"logic_lr": {"type": "number"}}},
     }))
     monkeypatch.chdir(tmp_path)

@@ -29,12 +29,12 @@
       "lark"
     ]
   },
-  "config_path": "in/config/model/blendrl-dev.yaml",
+  "config_path": "model/blendrl-dev.yaml",
   "config_paths": [
-    "in/config/model/blendrl-dev.yaml",
-    "in/config/plot/blendrl-dev/blend_routing.yaml",
-    "in/config/data/blendrl-dev/symbolic_state.yaml",
-    "in/config/data/blendrl-dev/cartpole_state.yaml"
+    "model/blendrl-dev.yaml",
+    "plot/blendrl-dev/blend_routing.yaml",
+    "data/blendrl-dev/symbolic_state.yaml",
+    "data/blendrl-dev/cartpole_state.yaml"
   ],
   "compatibility": {
     "theta": ">=2.0.0"
@@ -125,7 +125,7 @@
       }
     },
     "x-theta-config-schemas": {
-      "in/config/plot/blendrl-dev/blend_routing.yaml": {
+      "plot/blendrl-dev/blend_routing.yaml": {
         "type": "object",
         "properties": {
           "output_subdir": {
@@ -158,7 +158,7 @@
           }
         }
       },
-      "in/config/data/blendrl-dev/symbolic_state.yaml": {
+      "data/blendrl-dev/symbolic_state.yaml": {
         "type": "object",
         "properties": {
           "object_count": {
@@ -187,7 +187,7 @@
         },
         "additionalProperties": false
       },
-      "in/config/data/blendrl-dev/cartpole_state.yaml": {
+      "data/blendrl-dev/cartpole_state.yaml": {
         "type": "object",
         "properties": {
           "object_count": {
@@ -218,7 +218,7 @@
       }
     }
   },
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "capabilities": [
     {
@@ -355,10 +355,10 @@
     ],
     "resources": [],
     "configs": {
-      "in/config/model/blendrl-dev.yaml": "configs/model/blendrl-dev.yaml",
-      "in/config/plot/blendrl-dev/blend_routing.yaml": "configs/plot/blendrl-dev/blend_routing.yaml",
-      "in/config/data/blendrl-dev/symbolic_state.yaml": "configs/data/blendrl-dev/symbolic_state.yaml",
-      "in/config/data/blendrl-dev/cartpole_state.yaml": "configs/data/blendrl-dev/cartpole_state.yaml"
+      "model/blendrl-dev.yaml": "configs/model/blendrl-dev.yaml",
+      "plot/blendrl-dev/blend_routing.yaml": "configs/plot/blendrl-dev/blend_routing.yaml",
+      "data/blendrl-dev/symbolic_state.yaml": "configs/data/blendrl-dev/symbolic_state.yaml",
+      "data/blendrl-dev/cartpole_state.yaml": "configs/data/blendrl-dev/cartpole_state.yaml"
     }
   },
   "origin": "user",

@@ -423,7 +423,7 @@ class Paradigm:
 
 
 class ConfigTree:
-    """The `in/config/` directory, parsed into queryable objects."""
+    """The workspace config root (``src/usr/config``) with package profiles, parsed into queryable objects."""
 
     def __init__(self, config_root: Path, *, workspace=None):
         self.config_root = Path(config_root)
@@ -449,7 +449,6 @@ class ConfigTree:
             if Path(rel_name).name not in self.agents:
                 self.agents[Path(rel_name).name] = agent_obj
 
-        model_dir = self.config_root / "model"
         self.models = {}
         for rel_name, m in profile_files("model"):
             model_obj = replace(Model.from_file(m), name=rel_name)
@@ -460,14 +459,13 @@ class ConfigTree:
         # (e.g. ``profile`` for ``package/profile``). UI pickers should show each config
         # file once, under its canonical path.
         from src.app.services.local_components import LocalComponents
-        hidden_paths = LocalComponents(self.workspace).hidden_config_paths()
-        hidden_model_names = {path.relative_to(model_dir.resolve()).with_suffix("").as_posix() for path in hidden_paths if path.is_relative_to(model_dir.resolve())}
+        hidden_selectors = LocalComponents(self.workspace).hidden_selectors()
         self._hidden_names = {
-            kind: {path.relative_to((self.config_root / kind).resolve()).with_suffix("").as_posix()
-                   for path in hidden_paths if path.is_relative_to((self.config_root / kind).resolve())}
+            kind: {Path(selector).relative_to(kind).with_suffix("").as_posix()
+                   for selector in hidden_selectors if selector.startswith(kind + "/")}
             for kind in ("model", "agent", "env", "data", "eval", "plot")
         }
-        self.model_names = sorted({model.name for model in self.models.values()} - hidden_model_names)
+        self.model_names = sorted({model.name for model in self.models.values()} - self._hidden_names["model"])
         # ``agents`` also includes short-name aliases for older configs. Keep a
         # canonical list for UI pickers so each installed profile appears once.
         self.agent_names = sorted({agent.name for agent in self.agents.values()} - self._hidden_names["agent"])
@@ -490,7 +488,6 @@ class ConfigTree:
             resolved = self.resolver.resolve(selector, required=True)
             if resolved.schema:
                 self.component_parameter_schemas[selector] = resolved.schema
-                self.component_parameter_schemas["in/config/" + selector] = resolved.schema
                 group, _, name = selector.partition("/")
                 name = str(Path(name).with_suffix(""))
                 collection = self.agents if group == "agent" else self.models if group == "model" else {}
@@ -511,12 +508,6 @@ class ConfigTree:
         and register them into self.agents, self.models, and self.environments if not already present.
         """
         import json
-
-        # Infer workspace root
-        if self.config_root.name == "config" and self.config_root.parent.name == "in":
-            ws_root = self.config_root.parent.parent
-        else:
-            ws_root = self.config_root.parent
 
         from src.app.core.provider_catalog import get_catalog
         from src.app.workspace import WorkspacePaths
@@ -539,8 +530,6 @@ class ConfigTree:
                             normalized = Path(config_path).as_posix()
                             profile_schema = profile_schemas.get(normalized, parameter_schema) if isinstance(profile_schemas, dict) else parameter_schema
                             self.component_parameter_schemas[normalized] = profile_schema
-                            if normalized.startswith("in/config/"):
-                                self.component_parameter_schemas[normalized[len("in/config/"):]] = profile_schema
                     paradigms = meta.get("paradigms") or meta.get("compatible_paradigms") or ()
                     if isinstance(paradigms, list):
                         paradigms_tuple = tuple(str(p) for p in paradigms)
@@ -591,7 +580,7 @@ class ConfigTree:
                             )
                     # Environment manifests describe installable packages, not
                     # selectable environments. The actual choices come from
-                    # each package's YAML configs under in/config/env/.
+                    # each package's env/ config profiles.
                 except Exception:
                     continue
 
@@ -599,8 +588,7 @@ class ConfigTree:
         # The component ID for an algorithm/model can be its config path (e.g.
         # ``package/profile``), while a package manifest may describe several profiles.
         for config_path, schema in self.component_parameter_schemas.items():
-            rel_path = config_path[len("in/config/"):] if config_path.startswith("in/config/") else config_path
-            parts = Path(rel_path).parts
+            parts = Path(config_path).parts
             if len(parts) < 2 or not parts[-1].endswith(".yaml"):
                 continue
             component_name = Path(*parts[1:]).with_suffix("").as_posix()
@@ -656,13 +644,13 @@ class ConfigTree:
 
     @classmethod
     def discover(cls, start: Path | None = None) -> ConfigTree:
-        """Walk upward from `start` looking for an `in/config` directory."""
+        """Walk upward from `start` looking for a workspace config root (``src/usr/config``)."""
         current = Path(start or Path(__file__).resolve().parent)
         for candidate in (current, *current.parents):
-            config_root = candidate / "in" / "config"
+            config_root = candidate / "src" / "usr" / "config"
             if config_root.is_dir():
                 return cls(config_root)
-        raise FileNotFoundError(f"No in/config directory found above {current}")
+        raise FileNotFoundError(f"No src/usr/config directory found above {current}")
 
     def visible_environments(self):
         return {env.name: env for env in self.environments.values()
@@ -730,7 +718,7 @@ class ConfigTree:
     @property
     def experiment_groups(self) -> dict[str, ExperimentGroup]:
         # Built once per tree: group() alone reads it up to three times. Folder edits through this
-        # tree reset it; anything else that changes in/config invalidates the whole tree.
+        # tree reset it; anything else that changes the config root invalidates the whole tree.
         if self._experiment_groups is None:
             names = {Path(key).parts[1] for key in self.resolver.selectors("experiment") if len(Path(key).parts) > 2}
             self._experiment_groups = {
@@ -768,7 +756,7 @@ class ConfigTree:
         """Use the runtime catalog; unscoped profiles get qualified selectors."""
         from src.app.services.rulesets import available_rulesets, symbolic_environment
 
-        workspace = self.config_root.parent.parent
+        workspace = self.workspace.root
         scoped = symbolic_environment(environment, workspace)
         return [r.name if scoped else f"{r.environment}/{r.name}"
                 for r in available_rulesets(workspace, environment)]
@@ -784,17 +772,8 @@ class ConfigTree:
 
     def parameter_schema_for_config(self, config_path: str | Path) -> dict[str, Any]:
         """Find a component-manifest schema for a config profile path."""
-        normalized = Path(config_path).as_posix()
-        candidates = [normalized]
-        if normalized.startswith("in/config/"):
-            candidates.append(normalized[len("in/config/"):])
-        else:
-            candidates.append(f"in/config/{normalized}")
-        for candidate in candidates:
-            schema = self.component_parameter_schemas.get(candidate)
-            if schema:
-                return dict(schema)
-        return {}
+        schema = self.component_parameter_schemas.get(Path(config_path).as_posix().removeprefix("src/usr/config/"))
+        return dict(schema) if schema else {}
 
     def agent_parameter_schema(self, agent_name: str | None, path: tuple[str, ...] = ()) -> dict[str, Any]:
         """Return the JSON Schema node describing an agent parameter."""
@@ -821,7 +800,7 @@ class ConfigTree:
 
 @dataclass(frozen=True)
 class ExperimentGroup:
-    """A directory under in/config/experiment/, described by its _base.yaml.
+    """An experiment config group (``experiment/<group>/``), described by its _base.yaml.
 
     The base is what binds an environment and a paradigm, so every experiment in
     the group inherits them; individual experiments only choose methods and a

@@ -15,10 +15,10 @@ def native_component(directory, package_id="example", *, kind="model", version="
     if capabilities is None:
         capabilities = ([{"id": package_id, "kind": kind, "entry_point": "provider.py:Provider"}]
                         if "provider.py" in files else [])
-    config_map = {dest: "configs/" + dest.removeprefix("in/config/") for dest in (configs or {})}
+    config_map = {selector: "configs/" + selector for selector in (configs or {})}
     meta = {
         "id": package_id, "name": package_id, "kind": kind, "version": version,
-        "storage_version": 2, "api_version": 1, "capabilities": capabilities,
+        "storage_version": 3, "api_version": 1, "capabilities": capabilities,
         "payload": {
             "implementations": [name for name in files if name.endswith(".py")],
             "resources": [name for name in files if not name.endswith(".py")],

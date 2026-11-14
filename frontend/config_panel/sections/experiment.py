@@ -181,7 +181,7 @@ def build(self):
     self.txt_group.textChanged.connect(lambda v: self._on_field_edited("group", v))
     self.field_widgets["group"] = self.txt_group
 
-    # Paradigm + Environment, driven by in/config/paradigms constraints.
+    # Paradigm + Environment, driven by paradigm profile constraints.
     tree = self.tree
     top_box = None
     if is_base:

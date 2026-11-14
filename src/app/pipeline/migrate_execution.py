@@ -76,9 +76,9 @@ def main():
         if value.is_symlink():
             raise ManualResolution(f"{value}: select an editable file directly, not a symlink")
         file = value.resolve()
-        editable = (file.is_relative_to(paths.research) or file.is_relative_to(paths.config))
+        editable = file.is_relative_to(paths.research)
         if not editable or file.suffix not in ('.yaml', '.yml') or file.is_symlink():
-            raise ManualResolution(f'{file}: select a local editable YAML file under src/usr or in/config')
+            raise ManualResolution(f'{file}: select a local editable YAML file under src/usr')
         original = file.read_text()
         updated = yaml.safe_dump(migrate(yaml.safe_load(original)), sort_keys=False)
         proposals.append((file, updated))

@@ -17,10 +17,10 @@ def provider(paths, package_id, value, *, origin="user", selector="fixture/net")
     (root / "configs/model/fixture").mkdir(parents=True)
     (root / "provider.py").write_text("raise RuntimeError('catalog must not import provider code')\n")
     (root / "configs/model/fixture/net.yaml").write_text(f"architecture: net\nwidth: {value}\n")
-    destination = f"in/config/model/{selector}.yaml"
+    destination = f"model/{selector}.yaml"
     (root / ".theta_component.json").write_text(json.dumps({
         "id": package_id, "name": package_id, "version": "1.0.0", "kind": "model",
-        "storage_version": 2, "api_version": 1,
+        "storage_version": 3, "api_version": 1,
         "capabilities": [{"id": selector, "kind": "model", "entry_point": "provider.py:Network"}],
         "payload": {"implementations": ["provider.py"], "resources": [],
                     "configs": {destination: "configs/model/fixture/net.yaml"}},
@@ -127,7 +127,7 @@ def test_explicit_editable_copy_is_under_usr_and_survives_uninstall(tmp_path):
     original = source.read_bytes()
     files = ConfigurationFiles(paths)
     override = files.create_override("model/fixture/net")
-    assert override == paths.user_config / "model/fixture/net.yaml"
+    assert override == paths.config / "model/fixture/net.yaml"
     assert override.read_bytes() == original == source.read_bytes()
     files.configure(override, ["width=12"])
     assert files.create_override("model/fixture/net") == override
@@ -157,7 +157,7 @@ def test_override_transaction_rolls_back_on_record_failure(tmp_path, monkeypatch
     monkeypatch.setattr(transactions, "write_json", fail_record)
     with pytest.raises(OSError, match="disk failure"):
         ConfigurationFiles(paths).create_override("model/fixture/net")
-    assert not (paths.user_config / "model/fixture/net.yaml").exists()
+    assert not (paths.config / "model/fixture/net.yaml").exists()
     assert not (paths.data_dir / "config_overrides.json").exists()
 
 
@@ -169,7 +169,7 @@ def test_headless_cli_can_create_provider_override(tmp_path):
                              "config", "override", "model/fixture/net"], cwd=tmp_path,
                             env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
-    assert Path(json.loads(result.stdout)["config"]) == paths.user_config / "model/fixture/net.yaml"
+    assert Path(json.loads(result.stdout)["config"]) == paths.config / "model/fixture/net.yaml"
 
 
 def test_report_cache_tracks_selected_workspace_and_usr_edits(tmp_path):
@@ -192,18 +192,17 @@ def test_usr_only_workspace_and_root_override_use_framework_defaults(tmp_path):
     from src.app.components.configuration import ConfigurationFiles
     paths = WorkspacePaths(tmp_path)
     provider(paths, "independent", 17)
-    (paths.user_config / "experiment").mkdir(parents=True)
-    (paths.user_config / "experiment/probe.yaml").write_text(
+    (paths.config / "experiment").mkdir(parents=True)
+    (paths.config / "experiment/probe.yaml").write_text(
         "# @package _global_\ndefaults: [override /model: fixture/net]\n")
-    assert not paths.config.exists()
     assert compose_experiment("probe", workspace=paths).cfg.model.width == 17
     files = ConfigurationFiles(paths)
     root_override = files.create_override("config")
+    assert root_override == paths.config / "config.yaml"
     files.configure(root_override, ["seed=123"])
     composed = compose_experiment("probe", workspace=paths)
     assert composed.cfg.seed == 123
     assert composed.cfg.model.width == 17
-    assert not paths.config.exists()
 
 
 def test_override_rejects_symlinked_user_destination(tmp_path):
@@ -212,7 +211,7 @@ def test_override_rejects_symlinked_user_destination(tmp_path):
     provider(paths, "independent", 17)
     outside = tmp_path / "outside"
     outside.mkdir()
-    paths.user_config.symlink_to(outside, target_is_directory=True)
+    paths.config.symlink_to(outside, target_is_directory=True)
     with pytest.raises(ValueError, match="symbolic links"):
         ConfigurationFiles(paths).create_override("model/fixture/net")
     assert list(outside.iterdir()) == []

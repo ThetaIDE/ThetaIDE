@@ -18,9 +18,9 @@ from src.app.workspace import PROJECT_ROOT, WorkspacePaths
 
 
 def archive(tmp_path, package_id="toy-suite", kind="model", version="1.0.0", files=None, **extra):
-    meta = {"id": package_id, "name": package_id, "kind": kind, "version": version, "storage_version": 2, "api_version": 1,
+    meta = {"id": package_id, "name": package_id, "kind": kind, "version": version, "storage_version": 3, "api_version": 1,
             "capabilities": [{"id": "toy", "kind": kind, "entry_point": "model.py:Toy"}],
-            "payload": {"implementations": ["model.py", "helper.py"], "resources": [], "configs": {"in/config/model/toy.yaml": "profiles/toy.yaml"}}, **extra}
+            "payload": {"implementations": ["model.py", "helper.py"], "resources": [], "configs": {"model/toy.yaml": "profiles/toy.yaml"}}, **extra}
     target = tmp_path / (package_id + "-" + version + ".zip")
     payload = {"model.py": "from .helper import VALUE\nclass Toy:\n    value=VALUE\n", "helper.py": "VALUE=1\n", "profiles/toy.yaml": "architecture: toy\nvalue: 1\n", **(files or {})}
     with ZipFile(target, "w") as z:
@@ -50,13 +50,14 @@ def test_metadata_headless_relative_imports_and_workspace_identity(tmp_path, mon
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("boundary", ["config", "package", "record"])
+@pytest.mark.parametrize("boundary", ["package", "record"])
 def test_update_failure_restores_package_configs_and_modes(tmp_path, monkeypatch, boundary):
     installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
     component = archive(tmp_path)
     installer.install(component, install_dependencies=False)
     original = content_hash(installer.resolve_target_dir(component))
     config = installer.paths.config / "model/toy.yaml"
+    config.parent.mkdir(parents=True)
     config.write_text("architecture: toy\nvalue: 99\n")
     before = config.read_bytes()
     update = archive(tmp_path, version="2.0.0", files={"helper.py": "VALUE=7\n", "profiles/toy.yaml": "architecture: toy\nvalue: 2\nnew: true\n"})
@@ -69,7 +70,7 @@ def test_update_failure_restores_package_configs_and_modes(tmp_path, monkeypatch
     assert not list((installer.paths.root / ".thetaide/transactions").glob("*/journal.json"))
 
 
-def test_success_update_invalidation_and_uninstall_edit_retention(tmp_path):
+def test_success_update_invalidation_and_uninstall_keeps_user_override(tmp_path):
     installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
     component = archive(tmp_path)
     installer.install(component, install_dependencies=False)
@@ -78,10 +79,11 @@ def test_success_update_invalidation_and_uninstall_edit_retention(tmp_path):
     second = resolve_provider("model", "toy", installer.paths)
     assert first is not second and second.value == 2
     profile = installer.paths.config / "model/toy.yaml"
+    profile.parent.mkdir(parents=True)
     profile.write_text("architecture: toy\nvalue: 99\n")
     installer.uninstall(component)
     assert ProviderCatalog(installer.paths).resolve("model", "toy") is None
-    assert any(p.read_text().endswith("value: 99\n") for p in installer._retained_config_dir(component.id).rglob("*.yaml"))
+    assert profile.read_text() == "architecture: toy\nvalue: 99\n"
 
 
 def test_active_jobs_and_concurrent_operations_defer_changes(tmp_path):
@@ -94,7 +96,7 @@ def test_active_jobs_and_concurrent_operations_defer_changes(tmp_path):
     installer.install(component, install_dependencies=False)
 
 
-@pytest.mark.parametrize("payload", [{"src/app/evil.py": "x=1"}, {"frontend/evil.py": "x=1"}, {"../escape": "bad"}, {"in/datasets/x.csv": "data"}, {"in/rules/x": "legacy"}])
+@pytest.mark.parametrize("payload", [{"src/app/evil.py": "x=1"}, {"frontend/evil.py": "x=1"}, {"../escape": "bad"}, {"results/x.csv": "data"}])
 def test_archive_escape_and_protected_payload_rejected(tmp_path, payload):
     installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
     with pytest.raises(ValueError): installer.install(archive(tmp_path, files=payload), install_dependencies=False)
@@ -119,7 +121,7 @@ def test_duplicate_owners_and_explicit_user_override(tmp_path):
     paths = WorkspacePaths(tmp_path)
     for relative in ("src/usr/models/a", "src/usr/models/b"):
         root = tmp_path / relative; root.mkdir(parents=True)
-        (root / ".theta_component.json").write_text(json.dumps({"id": root.name, "name":root.name, "kind":"model", "version": "1.0.0", "storage_version":2, "api_version":1, "payload":{"implementations":["model.py"],"resources":[],"configs":{}}, "capabilities": [{"id": "same", "kind": "model", "entry_point": "model.py:Model"}]}))
+        (root / ".theta_component.json").write_text(json.dumps({"id": root.name, "name":root.name, "kind":"model", "version": "1.0.0", "storage_version":3, "api_version":1, "payload":{"implementations":["model.py"],"resources":[],"configs":{}}, "capabilities": [{"id": "same", "kind": "model", "entry_point": "model.py:Model"}]}))
         (root / "model.py").write_text("class Model: pass")
     with pytest.raises(DuplicateProvider, match="a@.*b@"):
         ProviderCatalog(paths).resolve("model", "same")
@@ -152,7 +154,7 @@ def test_legacy_sources_are_diagnosed_without_discovery_or_mutation(tmp_path):
 
 def test_abandoned_transaction_restores_config(tmp_path):
     paths = WorkspacePaths(tmp_path)
-    target = paths.root / 'in/config/edited.yaml'
+    target = paths.root / 'src/usr/config/edited.yaml'
     target.parent.mkdir(parents=True); target.write_text('value: before')
     transaction = FileTransaction(paths, 'install', 'toy')
     transaction.protect([target]); target.write_text('value: interrupted')
@@ -168,13 +170,13 @@ def test_legacy_import_contract_identity_and_paradigms():
     new = importlib.import_module("src.plugins.components.bundled.sequential_spec.sequential_spec")
     assert old is new
     for name in ("online_rl", "offline_rl", "supervised", "unsupervised"):
-        assert (PROJECT_ROOT / "in/config/paradigms" / (name + ".yaml")).is_file()
+        assert (PROJECT_ROOT / "src/usr/config/paradigms" / (name + ".yaml")).is_file()
         assert (PROJECT_ROOT / "src/app/core/paradigm_impls/base" / (name + ".py")).is_file()
 
 
 def test_fresh_worker_resolves_native_script_and_records_snapshot(tmp_path):
     installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
-    component = archive(tmp_path, payload={"implementations":["model.py","helper.py","run.py"],"resources":[],"configs":{"in/config/model/toy.yaml":"profiles/toy.yaml"}},
+    component = archive(tmp_path, payload={"implementations":["model.py","helper.py","run.py"],"resources":[],"configs":{"model/toy.yaml":"profiles/toy.yaml"}},
                         files={"run.py": "from .helper import VALUE\nfrom pathlib import Path\nPath('worker.txt').write_text(str(VALUE))\n"})
     installer.install(component, install_dependencies=False)
     env = {**os.environ, **installer.paths.process_environment(), "PYTHONPATH": str(PROJECT_ROOT)}
@@ -238,7 +240,7 @@ def test_core_import_boundaries_and_installer_policy():
             if isinstance(node,ast.ImportFrom) and node.module and node.module.startswith('src.plugins.'):
                 assert relative in allowed, f'Framework imports provider directly: {relative}:{node.lineno}'
     paths=WorkspacePaths(PROJECT_ROOT)
-    for relative in ('src/app/x','frontend/x','src/plugins/components/bundled/x','src/usr/models/x','in/datasets/x'):
+    for relative in ('src/app/x','frontend/x','src/plugins/components/bundled/x','src/usr/models/x','src/usr/datasets/x'):
         with pytest.raises(ValueError): paths.require_managed(PROJECT_ROOT/relative)
 
 
@@ -335,7 +337,7 @@ def test_run_snapshot_verifies_active_config_rules_and_override_identity(tmp_pat
     rule=paths.rules/'env/test/clauses.txt';rule.parent.mkdir(parents=True);rule.write_text('rule(X).\n')
     with pytest.raises(RuntimeError,match='rules'):verify_snapshot(snapshot,paths)
     rule.unlink()
-    (paths.config/'model/toy.yaml').write_text('architecture: toy\nvalue: 9\n')
+    (paths.config/'model').mkdir(parents=True);(paths.config/'model/toy.yaml').write_text('architecture: toy\nvalue: 9\n')
     with pytest.raises(RuntimeError,match='config'):verify_snapshot(snapshot,paths)
 
 
@@ -372,7 +374,7 @@ def test_workspace_switch_keeps_base_paradigms_and_selected_overrides(tmp_path, 
     from src.app.pipeline.validation import list_paradigms, load_paradigm
     for label in ('first', 'second'):
         workspace = tmp_path / label
-        directory = workspace / 'in/config/paradigms'
+        directory = workspace / 'src/usr/config/paradigms'
         directory.mkdir(parents=True)
         (directory / 'online_rl.yaml').write_text('marker: ' + label + '\n')
         monkeypatch.setenv('THETA_WORKSPACE', str(workspace))

@@ -1,5 +1,5 @@
 {
-  "storage_version": 2,
+  "storage_version": 3,
   "packages": [
     {
       "id": "final_metric",

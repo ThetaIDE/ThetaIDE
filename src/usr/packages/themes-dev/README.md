@@ -20,8 +20,8 @@ not the new full method. Its old Theta recipes are gated by default.
 This editable `themes-dev` suite also owns the runnable `AL/themes_synthetic_smoke`
 and `AL/themes_synthetic` recipes. Its `theta_adapter.py` connects the independent
 numerical package to Theta's registered apprenticeship runner and telemetry;
-`themes_al` itself remains independent of Theta. Profile sources live in `configs`,
-with active copies in `in/config` for the experiment panel. Backend snapshots
+`themes_al` itself remains independent of Theta. Its profiles live in `configs` and
+are read from the package; override one by saving a copy under `src/usr/config`. Backend snapshots
 include the numerical source and artificial demonstration resource.
 
 ```sh

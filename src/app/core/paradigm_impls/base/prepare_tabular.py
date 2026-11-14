@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
-"""
-in/datasets/prepare_tabular.py
+"""Write example .npz datasets for the tabular NPZ data modules.
 
 Materializes real datasets for the unsupervised paradigm, which needs an offline
 dataset but has no access to MIMIC. Everything here ships inside scikit-learn,
 so nothing is downloaded and the result is reproducible on any machine.
 
-Writes to in/datasets/<name>/<name>.npz, each holding:
+Writes <output>/<name>/<name>.npz, each holding:
     features  float32  (n_samples, n_features)        flat form
     sequences float32  (n_samples, steps, per_step)    sequence form, when the
                                                        feature count factorises
     labels    int64    (n_samples,)                    held back from training;
                                                        for scoring a latent space
 
-Usage:
-    python in/datasets/prepare_tabular.py            # every dataset
-    python in/datasets/prepare_tabular.py digits     # just one
-"""
+<output> defaults to the selected workspace's dataset root (src/usr/datasets).
 
-import sys
+Usage:
+    python -m src.app.core.paradigm_impls.base.prepare_tabular                 # every dataset
+    python -m src.app.core.paradigm_impls.base.prepare_tabular digits          # just one
+    python -m src.app.core.paradigm_impls.base.prepare_tabular --output DIR    # elsewhere
+"""
+from __future__ import annotations
+
+import argparse
 from pathlib import Path
 
 import numpy as np
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-OUT_ROOT = PROJECT_ROOT / "in" / "datasets"
 
 # name -> (sklearn loader, sequence shape or None)
 DATASETS = {
@@ -32,8 +32,10 @@ DATASETS = {
     "digits": ("load_digits", (8, 8)),
 }
 
+COMMAND = "python -m src.app.core.paradigm_impls.base.prepare_tabular"
 
-def build(name: str) -> Path:
+
+def build(name: str, output: Path) -> Path:
     import sklearn.datasets as skd
 
     loader_name, seq_shape = DATASETS[name]
@@ -54,30 +56,32 @@ def build(name: str) -> Path:
         if steps * per_step == features.shape[1]:
             arrays["sequences"] = features.reshape(-1, steps, per_step)
 
-    out_dir = OUT_ROOT / name
+    out_dir = Path(output) / name
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{name}.npz"
     np.savez_compressed(out_path, **arrays)
-
     shapes = ", ".join(f"{k}{v.shape}" for k, v in arrays.items())
-    try:
-        shown = out_path.relative_to(PROJECT_ROOT)
-    except ValueError:
-        shown = out_path  # An output directory outside the project is still fine.
-    print(f"wrote {shown}  ({shapes})")
+    print(f"wrote {out_path}  ({shapes})")
     return out_path
 
 
-def main(argv: list[str]) -> int:
-    requested = argv[1:] or sorted(DATASETS)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Write example .npz datasets for the tabular data modules.")
+    parser.add_argument("names", nargs="*", help=f"datasets to build (default: all of {', '.join(sorted(DATASETS))})")
+    parser.add_argument("--output", type=Path, help="dataset root to write into (default: the workspace's src/usr/datasets)")
+    args = parser.parse_args(argv)
+    requested = args.names or sorted(DATASETS)
     unknown = [n for n in requested if n not in DATASETS]
     if unknown:
         print(f"unknown dataset(s): {', '.join(unknown)}. Available: {', '.join(sorted(DATASETS))}")
         return 1
+    if args.output is None:
+        from src.app.workspace import WorkspacePaths
+        args.output = WorkspacePaths.for_process().datasets
     for name in requested:
-        build(name)
+        build(name, args.output)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(main())

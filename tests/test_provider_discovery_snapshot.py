@@ -16,7 +16,7 @@ def package(root, name="toy"):
     manifest = root / ".theta_component.json"
     manifest.write_text(json.dumps({
         "id": name, "name": name, "kind": "model", "version": "1.0.0",
-        "storage_version": 2, "api_version": 1,
+        "storage_version": 3, "api_version": 1,
         "payload": {"implementations": ["model.py"], "resources": [], "configs": {}},
         "capabilities": [{"id": name, "kind": "model", "entry_point": "model.py:Model"}],
     }))

@@ -4,8 +4,8 @@ Validates experiment configs against their declared paradigm before any
 training begins. Raises ConfigurationError on fatal mismatches so the
 pipeline aborts cleanly at startup.
 
-Paradigm definitions live in in/config/paradigms/. Adding a new paradigm
-requires only a new YAML file — no changes to this module.
+Paradigm definitions are the effective ``paradigms/<name>.yaml`` profiles. Adding a
+new paradigm requires only a new YAML file in src/usr/config/paradigms/ — no changes to this module.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from src.app.workspace import WorkspacePaths
 
 
 def _load_all_paradigms(*, paths=None) -> dict[str, dict]:
-    """Load all paradigm YAML files from in/config/paradigms/.
+    """Load every effective ``paradigms/<name>.yaml`` profile.
 
     Returns a dict mapping paradigm name → paradigm definition dict.
     """
@@ -64,7 +64,7 @@ def load_paradigm(paradigm_name: str, *, paths=None) -> dict:
         raise ConfigurationError(
             f"[ConfigurationError] Unknown paradigm '{paradigm_name}'. "
             f"Available paradigms: {sorted(paradigms.keys())}. "
-            f"To add a new paradigm create in/config/paradigms/<name>.yaml."
+            f"To add a new paradigm create src/usr/config/paradigms/<name>.yaml."
         )
     return paradigms[paradigm_name]
 

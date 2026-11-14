@@ -1,5 +1,5 @@
 """Unit tests for the overhauled Experiment Pane in Theta-IDE:
-- ConfigTreeWidget mirroring in/config/
+- ConfigTreeWidget mirroring src/usr/config/
 - Boxed ConfigViewer with real-time updates and saving
 - On-demand Hydra YAML preview (hidden by default)
 - Experiment creation and duplication
@@ -33,8 +33,8 @@ except ImportError:
 class TestConfigTree(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
-        # Create mock in/config structure
+        self.root = Path(self.temp_dir.name) / "src/usr/config"
+        # Create mock src/usr/config structure
         (self.root / "experiment" / "cartpole").mkdir(parents=True)
         (self.root / "agent").mkdir(parents=True)
         (self.root / "env").mkdir(parents=True)
@@ -88,8 +88,8 @@ class TestConfigTree(unittest.TestCase):
         from PyQt6.QtWidgets import QLabel
         labels_exp = tree_exp.findChildren(QLabel)
         labels_comp = tree_comp.findChildren(QLabel)
-        self.assertFalse(any("in/config" in lbl.text() for lbl in labels_exp))
-        self.assertFalse(any("in/config" in lbl.text() for lbl in labels_comp))
+        self.assertFalse(any("src/usr/config" in lbl.text() for lbl in labels_exp))
+        self.assertFalse(any("src/usr/config" in lbl.text() for lbl in labels_comp))
         tree_exp.close()
         tree_comp.close()
 
@@ -791,7 +791,7 @@ class TestConfigViewer(unittest.TestCase):
         (provider / "provider.py").write_text(textwrap.dedent(inspect.getsource(OtherTuner)))
         (provider / ".theta_component.json").write_text(json.dumps({
             "id": "other-tools", "name": "Other tuner", "kind": "tuner", "version": "1.0.0",
-            "storage_version": 2, "api_version": 1,
+            "storage_version": 3, "api_version": 1,
             "capabilities": [{"id": "other", "kind": "tuner", "entry_point": "provider.py:OtherTuner",
                 "contribution_api": 1, "contributions": [
                     {"id": "configure", "slot": "configuration.tuning", "availability": "enabled"},
@@ -991,9 +991,9 @@ app.exec()
 class TestComponentsPanel(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        # The real layout, <workspace>/in/config: the panel takes the workspace (and the Hub's
-        # .thetaide) from two levels up, which for a bare temp dir is "/" on Linux and unwritable
-        self.root = Path(self.temp_dir.name) / "in" / "config"
+        # The real layout, <workspace>/src/usr/config: the panel takes the workspace (and the Hub's
+        # .thetaide) from three levels up, which for a bare temp dir is "/" on Linux and unwritable
+        self.root = Path(self.temp_dir.name) / "src/usr/config"
         (self.root / "experiment" / "cartpole").mkdir(parents=True)
         (self.root / "agent").mkdir(parents=True)
         (self.root / "env").mkdir(parents=True)

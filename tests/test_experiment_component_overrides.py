@@ -19,19 +19,17 @@ def qapp():
 
 @pytest.fixture
 def isolated_component_workspace(fixture_workspace, monkeypatch):
-    import src.app.pipeline.compose as compose_module
     from frontend.config_model import ConfigTree
     import frontend.config_viewer as viewer_module
 
     monkeypatch.chdir(fixture_workspace)
-    config_root = fixture_workspace / "in" / "config"
-    monkeypatch.setattr(compose_module, "CONFIG_DIR", config_root)
+    config_root = fixture_workspace / "src/usr/config"
     monkeypatch.setattr(viewer_module, "config_tree", lambda *args, **kwargs: ConfigTree(config_root))
     return fixture_workspace
 
 
 def test_hydra_composes_component_overrides(isolated_component_workspace):
-    path = isolated_component_workspace / "in/config/experiment/thetaide/_pytest_components.yaml"
+    path = isolated_component_workspace / "src/usr/config/experiment/thetaide/_pytest_components.yaml"
     path.write_text(
         "# @package _global_\n"
         "defaults:\n  - thetaide/_base\n"
@@ -211,7 +209,7 @@ def test_panel_filters_components_by_declared_paradigm(qapp, tmp_path):
 def test_inherited_figure_list_accepts_parameter_override(qapp, isolated_component_workspace):
     from frontend.config_viewer import ConfigViewer
 
-    group = isolated_component_workspace / "in/config/experiment/_pytest_plot_overrides"
+    group = isolated_component_workspace / "src/usr/config/experiment/_pytest_plot_overrides"
     group.mkdir()
     base = group / "_base.yaml"
     recipe = group / "example.yaml"
@@ -241,7 +239,7 @@ def test_inherited_figure_mapping_can_remove_one_figure(qapp, isolated_component
     from frontend.config_viewer import ConfigViewer
     from plot.manager import get_requested_plots
 
-    group = isolated_component_workspace / "in/config/experiment/_pytest_plot_removal"
+    group = isolated_component_workspace / "src/usr/config/experiment/_pytest_plot_removal"
     group.mkdir()
     base = group / "_base.yaml"
     recipe = group / "example.yaml"
@@ -326,7 +324,7 @@ def test_figures_box_is_optional_and_uses_two_column_cards(qapp, tmp_path, monke
     viewer.close()
 
 
-@pytest.mark.parametrize("config_path", ["in/config/config.yaml", "src/app/config_defaults/config.yaml"])
+@pytest.mark.parametrize("config_path", ["src/app/config_defaults/config.yaml"])
 def test_root_config_disables_plotting_by_default(config_path):
     from pathlib import Path
 

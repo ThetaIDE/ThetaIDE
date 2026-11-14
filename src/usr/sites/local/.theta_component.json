@@ -3,7 +3,7 @@
   "name": "local",
   "kind": "site",
   "version": "1.0.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "capabilities": [
     {
@@ -13,8 +13,8 @@
     }
   ],
   "config_paths": [
-    "in/config/site/local/_defaults.yaml",
-    "in/config/site/local/default.yaml"
+    "site/local/_defaults.yaml",
+    "site/local/default.yaml"
   ],
   "payload": {
     "implementations": [
@@ -24,8 +24,8 @@
       "ssh_config"
     ],
     "configs": {
-      "in/config/site/local/_defaults.yaml": "configs/site/local/_defaults.yaml",
-      "in/config/site/local/default.yaml": "configs/site/local/default.yaml"
+      "site/local/_defaults.yaml": "configs/site/local/_defaults.yaml",
+      "site/local/default.yaml": "configs/site/local/default.yaml"
     }
   }
 }

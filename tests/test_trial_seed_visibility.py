@@ -99,7 +99,7 @@ def main(cfg):
            "agent": {"name": "m", "algorithm": "sb3/ppo"}, "total_timesteps": 4, "eval_episodes": 1,
            "objective": {"component": "learning_curve"}, "theta_execution": {"script": str(script)},
            "variability": {"training_seeds": [11, 22], "parallel_runs": 2},
-           "hydra": {"searchpath": [f"file://{project / 'in/config'}"]}}
+           "hydra": {"searchpath": [f"file://{project / 'src/usr/config'}"]}}
     if not custom:
         cfg.pop("objective")
         cfg["tuning"] = {"metric": "eval/reward", "direction": "maximize"}

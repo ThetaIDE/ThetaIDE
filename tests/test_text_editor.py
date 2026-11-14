@@ -365,7 +365,7 @@ def test_component_folder_tree_edits_actual_owned_config(panel, tmp_path):
     root.mkdir(parents=True)
     implementation = root / "model.py"
     implementation.write_text("value = 1\n")
-    config = tmp_path / "in/config/model/local_model.yaml"
+    config = tmp_path / "src/usr/config/model/local_model.yaml"
     config.parent.mkdir(parents=True)
     config.write_text("architecture: local_model\n")
     assert panel.open_folder(root, initial_file=implementation, owned_paths=[config])

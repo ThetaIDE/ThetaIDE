@@ -1,6 +1,6 @@
 """Tests for the ThetaIDE config model.
 
-These run against the real in/config tree rather than fixtures, so they fail if
+These run against the real src/usr/config tree rather than fixtures, so they fail if
 the backend's config schema moves in a way the panel would not survive. Where a
 concrete value would rot as configs are added, the assertion is written as a
 property instead.
@@ -331,9 +331,9 @@ def test_tree_agent_and_model_helpers(tree):
 
 
 def test_candidate_hyperparameters_filtering(fixture_workspace):
-    (fixture_workspace / "in/config/agent/cql.yaml").write_text("algorithm: cql\ncql_alpha: 5.0\n")
+    (fixture_workspace / "src/usr/config/agent/cql.yaml").write_text("algorithm: cql\ncql_alpha: 5.0\n")
     tree = ConfigTree.discover()
-    tree.agents["cql"] = ConfigTree(fixture_workspace / "in" / "config").agents["cql"]
+    tree.agents["cql"] = ConfigTree(fixture_workspace / "src/usr/config").agents["cql"]
     if "dnn" not in tree.models or "blendrl" not in tree.models:
         pytest.skip("dnn or blendrl model plugins not installed")
     from frontend.config_viewer import get_method_candidate_hyperparameters

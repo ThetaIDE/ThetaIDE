@@ -18,10 +18,10 @@ def release(tmp_path, version, width, *, name='boundary-net'):
     (root / 'model.py').write_text('class Model: pass\n')
     (root / 'configs/model/boundary.yaml').write_text(f'architecture: boundary-net\nwidth: {width}\n')
     meta = {'id': name, 'name': name, 'kind': 'model', 'version': version,
-            'storage_version': 2, 'api_version': 1,
+            'storage_version': 3, 'api_version': 1,
             'capabilities': [{'id': 'boundary-net', 'kind': 'model', 'entry_point': 'model.py:Model'}],
             'payload': {'implementations': ['model.py'], 'resources': [],
-                        'configs': {'in/config/model/boundary.yaml': 'configs/model/boundary.yaml'}}}
+                        'configs': {'model/boundary.yaml': 'configs/model/boundary.yaml'}}}
     (root / '.theta_component.json').write_text(json.dumps(meta))
     archive = tmp_path / (name + version + '.zip')
     with ZipFile(archive, 'w') as stream:

@@ -12,6 +12,7 @@ import optuna
 import pytest
 
 from component_fixtures import optional_module
+from conftest import copy_research_config
 _optuna_utils = optional_module('optuna', 'utils.py')
 promote_best_trial_checkpoint = _optuna_utils.promote_best_trial_checkpoint
 from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
@@ -123,7 +124,7 @@ def test_hydra_sweeps_pass_optuna_trial_numbers_after_resuming(tmp_path, monkeyp
         "from pathlib import Path\n"
         "import hydra\n"
         "from src.app.pipeline.trial_artifacts import trial_checkpoint_dir\n"
-        f"@hydra.main(version_base=None, config_path={str(project / 'in/config')!r}, config_name='config')\n"
+        f"@hydra.main(version_base=None, config_path={str(project / 'src/usr/config')!r}, config_name='config')\n"
         "def main(cfg):\n"
         "    Path(f'trial_{cfg.theta_tuning.trial_number}.txt').write_text(cfg.theta_tuning.study_name)\n"
         "    path = trial_checkpoint_dir('results/checkpoints/g/e/m', cfg.theta_tuning.study_name, cfg.theta_tuning.trial_number)\n"
@@ -158,7 +159,7 @@ def test_hydra_sweep_marks_invalid_objective_as_failed(tmp_path):
     script = tmp_path / "bad_objective.py"
     script.write_text(
         "import hydra\n"
-        f"@hydra.main(version_base=None, config_path={str(project / 'in/config')!r}, config_name='config')\n"
+        f"@hydra.main(version_base=None, config_path={str(project / 'src/usr/config')!r}, config_name='config')\n"
         "def main(cfg): return float('nan')\n"
         "if __name__ == '__main__': main()\n",
         encoding="utf-8",
@@ -186,7 +187,7 @@ def test_time_budget_waits_for_running_trial_but_stops_new_batches(tmp_path):
     script = tmp_path / "slow_objective.py"
     script.write_text(
         "import hydra, time\n"
-        f"@hydra.main(version_base=None, config_path={str(project / 'in/config')!r}, config_name='config')\n"
+        f"@hydra.main(version_base=None, config_path={str(project / 'src/usr/config')!r}, config_name='config')\n"
         "def main(cfg):\n"
         "    time.sleep(1.2)\n"
         "    return 1.0\n"
@@ -212,7 +213,7 @@ def test_sweep_continues_after_allowed_trial_failure(tmp_path):
     script = tmp_path / "sometimes_fails.py"
     script.write_text(
         "import hydra\n"
-        f"@hydra.main(version_base=None, config_path={str(project / 'in/config')!r}, config_name='config')\n"
+        f"@hydra.main(version_base=None, config_path={str(project / 'src/usr/config')!r}, config_name='config')\n"
         "def main(cfg):\n"
         "    if cfg.theta_tuning.trial_number == 0: raise ValueError('broken candidate')\n"
         "    return 1.0\n"
@@ -237,7 +238,7 @@ def test_qmc_sampler_runs_a_real_sweep(tmp_path):
     script = tmp_path / "objective.py"
     script.write_text(
         "import hydra\n"
-        f"@hydra.main(version_base=None, config_path={str(project / 'in/config')!r}, config_name='config')\n"
+        f"@hydra.main(version_base=None, config_path={str(project / 'src/usr/config')!r}, config_name='config')\n"
         "def main(cfg): return float(cfg.x)\n"
         "if __name__ == '__main__': main()\n", encoding="utf-8")
     storage = f"sqlite:///{tmp_path / 'qmc.db'}"
@@ -314,8 +315,8 @@ def test_resume_remains_compatible_with_legacy_optuna_distributions(tmp_path):
 @pytest.mark.parametrize('adaptive', [False, True])
 def test_real_sb3_training_sweep_selects_its_checkpoint(tmp_path, monkeypatch, adaptive):
     project = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
-    shutil.copytree(project / "in/config", config)
+    config = tmp_path / "src/usr/config"
+    copy_research_config(config)
     experiment = config / "experiment/smoke.yaml"
     experiment.write_text(
         "# @package _global_\n"
@@ -356,8 +357,8 @@ def test_real_sb3_training_sweep_selects_its_checkpoint(tmp_path, monkeypatch, a
 @pytest.mark.skipif(importlib.util.find_spec("stable_baselines3") is None, reason="SB3 is optional")
 def test_real_sb3_sweep_records_a_pruned_trial(tmp_path):
     project = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
-    shutil.copytree(project / "in/config", config)
+    config = tmp_path / "src/usr/config"
+    copy_research_config(config)
     (config / "experiment/smoke.yaml").write_text(
         "# @package _global_\ngroup: g\nexperiment_id: e\nparadigm: online_rl\n"
         "total_timesteps: 16\neval_freq_steps: 8\neval_episodes: 1\n"
@@ -395,8 +396,8 @@ def test_local_pipeline_sweep_trains_the_selected_blendrl(tmp_path, monkeypatch)
     from src.app.pipeline.local_runner import _run_methods_sequential
 
     project = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
-    shutil.copytree(project / "in/config", config)
+    config = tmp_path / "src/usr/config"
+    copy_research_config(config)
     for provider in ("blendrl", "dnn", "nsfr"):
         shutil.copytree(project / "src/usr/models" / provider, tmp_path / "src/usr/models" / provider)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
@@ -450,8 +451,8 @@ def test_cartpole_blendrl_experiment_sweep_compiles_and_runs(tmp_path, monkeypat
     from src.app.pipeline.validation import _validate_tuning
 
     project = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
-    shutil.copytree(project / "in/config", config)
+    config = tmp_path / "src/usr/config"
+    copy_research_config(config)
     for provider in ("blendrl", "dnn", "nsfr"):
         shutil.copytree(project / "src/usr/models" / provider, tmp_path / "src/usr/models" / provider)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
@@ -520,8 +521,8 @@ def test_local_pipeline_runs_a_real_sb3_sweep(tmp_path, monkeypatch):
     from src.app.pipeline.local_runner import _run_methods_sequential
 
     project = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
-    shutil.copytree(project / "in/config", config)
+    config = tmp_path / "src/usr/config"
+    copy_research_config(config)
     (config / "agent/ppo.yaml").write_text("algorithm: ppo\nn_steps: 8\nbatch_size: 4\nlearning_rate: 0.001\n")
     (config / "model/dnn.yaml").write_text("architecture: dnn\nsb3_native_policy: true\n")
     (config / "experiment/smoke.yaml").write_text(
@@ -588,7 +589,7 @@ def test_real_lightning_trial_returns_the_selected_metric(tmp_path, monkeypatch,
             def train_dataloader(self):
                 return DataLoader(TensorDataset(torch.ones(4, 1)), batch_size=2)
 
-        @hydra.main(version_base=None, config_path={str(project / 'in/config')!r}, config_name='config')
+        @hydra.main(version_base=None, config_path={str(project / 'src/usr/config')!r}, config_name='config')
         def main(cfg):
             model = Tiny(cfg.x)
             trainer = L.Trainer(max_epochs=1, logger=False, enable_checkpointing=False,
@@ -633,8 +634,8 @@ def test_full_lightning_pipeline_sweep(tmp_path, monkeypatch, pruning, capfd):
     from src.app.pipeline.local_runner import _run_methods_sequential
 
     project = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
-    shutil.copytree(project / "in/config", config)
+    config = tmp_path / "src/usr/config"
+    copy_research_config(config)
     (config / "model/tiny.yaml").write_text("lightning_module: tiny_training\nlr: 0.01\n")
     (config / "experiment/smoke.yaml").write_text(
         "# @package _global_\ngroup: g\nexperiment_id: e\nparadigm: supervised\n"

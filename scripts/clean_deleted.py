@@ -2,7 +2,7 @@
 """
 clean_deleted.py
 
-Reads deleted experiment output paths from a tracking file (default: in/deleted_experiments.txt)
+Reads deleted experiment output paths from a tracking file (default: .thetaide/deleted_experiments.txt)
 and moves matching files/directories in results/ on the cluster to results/legacy_results/.
 
 This prevents rsync from pulling deleted experiments back from the cluster into local results.
@@ -21,7 +21,7 @@ import shutil
 from pathlib import Path
 
 
-DEFAULT_TRACKING_FILE = "in/deleted_experiments.txt"
+DEFAULT_TRACKING_FILE = ".thetaide/deleted_experiments.txt"
 DEFAULT_RESULTS_DIR = "results"
 DEFAULT_LEGACY_DIR = "results/legacy_results"
 

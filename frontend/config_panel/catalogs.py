@@ -10,7 +10,7 @@ from ..config_model import ConfigTree
 
 
 def _get_available_paradigms() -> list[str]:
-    """Return all paradigm names defined in in/config/paradigms/*.yaml."""
+    """Return all paradigm names defined in the paradigms config group."""
     from src.app.pipeline.validation import list_paradigms
 
     return list_paradigms()
@@ -141,7 +141,7 @@ def _dataset_workspace():
 
 
 def discover_datasets(env_name: str | None = None, *, paths=None) -> list[str]:
-    """Discover available dataset files and folders in in/datasets and results/datasets."""
+    """Discover available dataset files and folders in src/usr/datasets and results/datasets."""
     found = []
     paths = paths or _dataset_workspace()
     base_dirs = [paths.datasets, paths.results / "datasets"]
@@ -233,7 +233,7 @@ _CONFIG_TREE_LOADED = False
 
 
 def invalidate_config_tree():
-    """Clear cached in/config tree so subsequent lookups re-scan the filesystem."""
+    """Clear the cached config tree so subsequent lookups re-scan the filesystem."""
     global _CONFIG_TREE, _CONFIG_TREE_LOADED
     _CONFIG_TREE = None
     _CONFIG_TREE_LOADED = False
@@ -247,7 +247,7 @@ def set_config_tree(tree: ConfigTree | None):
 
 
 def config_tree(force_reload: bool = False):
-    """The parsed in/config tree, or None if it cannot be found.
+    """The parsed config tree, or None if it cannot be found.
 
     Callers must handle None: the viewer falls back to free-text entry so it
     still works when run outside a checkout.

@@ -13,9 +13,9 @@ from src.app.services.experiment_exporter import ExperimentExporter, ExportOptio
 
 def _setup_test_experiment(workspace: Path) -> str:
     """Helper to create a minimal experiment in a test workspace."""
-    exp_dir = workspace / "in" / "config" / "experiment" / "demo"
+    exp_dir = workspace / "src/usr/config" / "experiment" / "demo"
     exp_dir.mkdir(parents=True, exist_ok=True)
-    env_dir = workspace / "in" / "config" / "env"
+    env_dir = workspace / "src/usr/config" / "env"
     env_dir.mkdir(parents=True, exist_ok=True)
 
     (exp_dir / "_base.yaml").write_text("paradigm: online_rl\n", encoding="utf-8")
@@ -56,9 +56,9 @@ def test_export_experiment_success(tmp_path):
         namelist = zf.namelist()
         assert ".theta_component.json" in namelist
         assert "README.md" in namelist
-        assert "in/config/experiment/demo/quick_test.yaml" in namelist
-        assert "in/config/experiment/demo/_base.yaml" in namelist
-        assert "in/config/env/demo_env.yaml" in namelist
+        assert "src/usr/config/experiment/demo/quick_test.yaml" in namelist
+        assert "src/usr/config/experiment/demo/_base.yaml" in namelist
+        assert "src/usr/config/env/demo_env.yaml" in namelist
 
         # Inspect manifest
         manifest_raw = zf.read(".theta_component.json").decode("utf-8")
@@ -119,11 +119,11 @@ def test_hub_installer_roundtrip(tmp_path):
     assert installed is True
 
     # Check that experiment yaml was unpacked to target workspace
-    dest_exp_yaml = mock_workspace / "in" / "config" / "experiment" / "demo" / "quick_test.yaml"
+    dest_exp_yaml = mock_workspace / "src/usr/config" / "experiment" / "demo" / "quick_test.yaml"
     assert dest_exp_yaml.is_file()
 
     # Check that env config was unpacked to target workspace
-    dest_env_yaml = mock_workspace / "in" / "config" / "env" / "demo_env.yaml"
+    dest_env_yaml = mock_workspace / "src/usr/config" / "env" / "demo_env.yaml"
     assert dest_env_yaml.is_file()
 
     # Check installer detection
@@ -137,23 +137,23 @@ def test_export_composite_model_and_recursive_configs(tmp_path):
     workspace.mkdir()
 
     # Create recursive agent config
-    agent_dir = workspace / "in" / "config" / "agent" / "deep"
+    agent_dir = workspace / "src/usr/config" / "agent" / "deep"
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "cql.yaml").write_text("name: cql\nalgorithm: cql\n", encoding="utf-8")
 
     # Create recursive and flat model configs
-    model_dir = workspace / "in" / "config" / "model"
+    model_dir = workspace / "src/usr/config" / "model"
     (model_dir / "symbolic").mkdir(parents=True, exist_ok=True)
     (model_dir / "dueling_resnet.yaml").write_text("name: dueling_resnet\n", encoding="utf-8")
     (model_dir / "symbolic" / "cew.yaml").write_text("name: cew\n", encoding="utf-8")
 
     # Create recursive env config
-    env_dir = workspace / "in" / "config" / "env" / "atari"
+    env_dir = workspace / "src/usr/config" / "env" / "atari"
     env_dir.mkdir(parents=True, exist_ok=True)
     (env_dir / "seaquest.yaml").write_text("name: seaquest\n", encoding="utf-8")
 
     # Create experiment with composite BlendRL submodels
-    exp_dir = workspace / "in" / "config" / "experiment" / "suite"
+    exp_dir = workspace / "src/usr/config" / "experiment" / "suite"
     exp_dir.mkdir(parents=True, exist_ok=True)
     (exp_dir / "_base.yaml").write_text("paradigm: offline_rl\n", encoding="utf-8")
     (exp_dir / "hybrid.yaml").write_text(
@@ -188,12 +188,12 @@ methods:
 
     with zipfile.ZipFile(out_zip, "r") as zf:
         namelist = zf.namelist()
-        assert "in/config/experiment/suite/hybrid.yaml" in namelist
-        assert "in/config/experiment/suite/_base.yaml" in namelist
-        assert "in/config/agent/deep/cql.yaml" in namelist
-        assert "in/config/model/dueling_resnet.yaml" in namelist
-        assert "in/config/model/symbolic/cew.yaml" in namelist
-        assert "in/config/env/atari/seaquest.yaml" in namelist
+        assert "src/usr/config/experiment/suite/hybrid.yaml" in namelist
+        assert "src/usr/config/experiment/suite/_base.yaml" in namelist
+        assert "src/usr/config/agent/deep/cql.yaml" in namelist
+        assert "src/usr/config/model/dueling_resnet.yaml" in namelist
+        assert "src/usr/config/model/symbolic/cew.yaml" in namelist
+        assert "src/usr/config/env/atari/seaquest.yaml" in namelist
 
         manifest = json.loads(zf.read(".theta_component.json").decode("utf-8"))
         assert "cql" in manifest["agents"]

@@ -62,12 +62,12 @@ def resolve_dataset_path(
     """Robustly resolve the filesystem path for an offline dataset.
 
     Checks in order:
-    1. in/datasets/[group]/[experiment_id]/[dataset_name]
-    2. in/datasets/[group]/[dataset_name]
-    3. in/datasets/[dataset_name]
-    4. in/datasets/[dataset_id]
+    1. src/usr/datasets/[group]/[experiment_id]/[dataset_name]
+    2. src/usr/datasets/[group]/[dataset_name]
+    3. src/usr/datasets/[dataset_name]
+    4. src/usr/datasets/[dataset_id]
     5. yaml_ds_path (if explicitly configured and valid)
-    6. Shallowest global match under in/datasets/
+    6. Shallowest global match under src/usr/datasets/
     """
     from src.app.workspace import WorkspacePaths
     paths = paths or WorkspacePaths.for_process()

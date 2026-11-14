@@ -21,9 +21,9 @@ def _profile(group, name, paths):
     path = paths.resolve_config(f"{group}/{name}.yaml")
     if not path.is_file():
         from src.app.core.provider_catalog import get_catalog
-        dest = f"in/config/{group}/{name}.yaml"
+        selector = f"{group}/{name}.yaml"
         for package in get_catalog(paths).packages:
-            relative = package.manifest.get("payload", {}).get("configs", {}).get(dest)
+            relative = package.manifest.get("payload", {}).get("configs", {}).get(selector)
             if relative:
                 path = package.root / relative
                 break
@@ -132,7 +132,7 @@ def input_requirements(cfg, method=None, *, paths=None):
         if selected is None:
             # A profile selector may differ from the capability's public ID.
             owners = [(p, c) for p in catalog.packages for c in p.capabilities
-                      if c.kind == capability_kind and f"in/config/{kind}/{name}.yaml" in p.manifest.get("payload", {}).get("configs", {})]
+                      if c.kind == capability_kind and f"{kind}/{name}.yaml" in p.manifest.get("payload", {}).get("configs", {})]
             selected = owners[0] if len(owners) == 1 else None
         if selected is None:
             continue
@@ -169,10 +169,10 @@ def _state_loader_choices(paths):
     choices = {name: {} for name, metadata in selector_metadata("datamodule", paths).items()
                if metadata.get("role") == "symbolic_state"}
     for package in get_catalog(paths).packages:
-        for dest, relative in package.manifest.get("payload", {}).get("configs", {}).items():
-            if not dest.startswith("in/config/data/"):
+        for selector, relative in package.manifest.get("payload", {}).get("configs", {}).items():
+            if not selector.startswith("data/"):
                 continue
-            path = paths.resolve_config(dest.removeprefix("in/config/"))
+            path = paths.resolve_config(selector)
             if not path.is_file():
                 path = package.root / relative
             profile = profile_values(path)
@@ -181,7 +181,7 @@ def _state_loader_choices(paths):
             except DuplicateProvider:
                 continue
             if profile.get("role", metadata.get("role")) == "symbolic_state":
-                choices[dest.removeprefix("in/config/data/").removesuffix(".yaml")] = profile
+                choices[selector.removeprefix("data/").removesuffix(".yaml")] = profile
     return choices
 
 

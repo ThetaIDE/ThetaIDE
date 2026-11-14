@@ -89,7 +89,7 @@ def qapp():
 def install_fixture(tmp_path, *, sdk=">=1.0,<2", plugin_id="lattice_notes"):
     archive = tmp_path / f"{plugin_id}.zip"
     meta = {"id": plugin_id, "name": "Lattice notes", "kind": "plugin", "version": "0.3.0",
-            "storage_version": 2, "api_version": 1,
+            "storage_version": 3, "api_version": 1,
             "payload": {"implementations": ["__init__.py"], "resources": [], "configs": {}},
             "capabilities": [{"id": plugin_id, "kind": "plugin", "entry_point": "__init__.py:LatticeNotes"}]}
     with ZipFile(archive, "w") as bundle:

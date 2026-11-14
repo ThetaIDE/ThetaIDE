@@ -215,6 +215,18 @@ def activate_macos_window(window):
     QTimer.singleShot(500, report_activation_state)
 
 
+
+def _profile_exists(tree, selector):
+    """Whether the tree's workspace resolves ``selector`` to a profile (user file or package)."""
+    workspace = getattr(tree, "workspace", None)
+    if workspace is None:
+        return False
+    try:
+        return workspace.config_resolver().resolve(selector) is not None
+    except ValueError:
+        return False
+
+
 class Window(QMainWindow):
     def __init__(self, data_dir, progress=None, workspace=None):
         """`progress(message, fraction)` reports startup steps (the splash screen shows them)."""
@@ -422,7 +434,7 @@ class Window(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self.config_splitter = splitter
 
-        # 1. Config Tree (mirrors in/config/experiment/) - extends to top!
+        # 1. Config Tree (mirrors the experiment config group) - extends to top!
         self.config_tree = ConfigTreeWidget(mode="experiments", settings_manager=getattr(self, "settings_manager", None))
         self.tree = self.config_tree.tree  # backwards compatibility alias
         self.config_tree.file_selected.connect(self.on_config_file_selected)
@@ -1143,7 +1155,7 @@ class Window(QMainWindow):
 
         comp = self.hub_client.get_component(component_id) if hasattr(self, "hub_client") else None
 
-        # Determine target category folder in in/config/ (e.g. "agent", "model", "env", "experiment")
+        # Determine the config group to reveal (e.g. "agent", "model", "env", "experiment")
         target_folder = None
         target_config_rel = None
         if comp:
@@ -1158,13 +1170,11 @@ class Window(QMainWindow):
                 target_config_rel = f"{target_folder}/{comp.id}.yaml"
 
         if comp and action in ("install", "copy"):
-            try:
-                config = self.hub_client.local_components.installed_config(comp, self.hub_client.installer)
-                target_config_rel = config.relative_to(self.hub_client.workspace_dir / "in/config").as_posix()
-            except (ValueError, AttributeError):
-                relative = comp.extra.get("config_path")
-                if relative and relative.startswith("in/config/"):
-                    target_config_rel = relative[len("in/config/"):]
+            from src.app.core.provider_catalog import get_catalog
+            package = get_catalog(self.workspace_paths).package(comp.id)
+            selectors = list((package.manifest if package else comp.extra).get("payload", {}).get("configs", {}))
+            if selectors:
+                target_config_rel = selectors[0]
 
         # Refresh components panel and config tree so added or removed YAMLs update immediately without collapsing folders
         if hasattr(self, "components_panel") and self.components_panel is not None:
@@ -1634,7 +1644,7 @@ class Window(QMainWindow):
             if hasattr(self.components_panel, "viewer") and self.components_panel.viewer and self.components_panel.viewer.is_dirty:
                 self.components_panel.save_current()
 
-        # Refresh the config panels only when something under in/config changed since they last
+        # Refresh the config panels only when something under src/usr/config changed since they last
         # loaded (the Components panel, a hub install, an edit in the terminal). Reloading on every
         # switch rebuilt the tree and re-rendered the open form each time (~0.5s).
         if self._configs_changed_since(self):
@@ -1673,7 +1683,7 @@ class Window(QMainWindow):
                     self.settings_view.refresh_styles()
 
     def _configs_changed_since(self, holder) -> bool:
-        """True if in/config changed since `holder` last checked; remembers the new state on it."""
+        """True if the config root changed since `holder` last checked; remembers the new state on it."""
         fingerprint = config_fingerprint(self.config_tree.root_dir, workspace=self.workspace_paths)
         changed = getattr(holder, "_config_fingerprint", None) != fingerprint
         holder._config_fingerprint = fingerprint
@@ -2064,7 +2074,7 @@ class Window(QMainWindow):
                     env_exists = (
                         env_val in tree.environments
                         or any(getattr(e, "name", None) == env_val for e in tree.environments.values())
-                        or (getattr(tree, "config_root", Path("in/config")) / "env" / f"{env_val}.yaml").is_file()
+                        or _profile_exists(tree, f"env/{env_val}.yaml")
                     )
                     if not env_exists:
                         missing.append(f"environment: {env_val}")
@@ -2082,7 +2092,7 @@ class Window(QMainWindow):
                             ag_exists = (
                                 ag_str in tree.agents
                                 or any(getattr(a, "name", None) == ag_str or getattr(a, "algorithm", None) == ag_str for a in tree.agents.values())
-                                or (getattr(tree, "config_root", Path("in/config")) / "agent" / f"{ag_str}.yaml").is_file()
+                                or _profile_exists(tree, f"agent/{ag_str}.yaml")
                             )
                             if not ag_exists:
                                 missing.append(f"agent: {ag_str}")
@@ -2097,8 +2107,8 @@ class Window(QMainWindow):
                             mo_exists = (
                                 mo_str in tree.models
                                 or mo_stem in tree.models
-                                or (getattr(tree, "config_root", Path("in/config")) / "model" / f"{mo_str}.yaml").is_file()
-                                or (getattr(tree, "config_root", Path("in/config")) / "model" / "basics" / f"{mo_stem}.yaml").is_file()
+                                or _profile_exists(tree, f"model/{mo_str}.yaml")
+                                or _profile_exists(tree, f"model/basics/{mo_stem}.yaml")
                             )
                             if not mo_exists:
                                 missing.append(f"model: {mo_str}")
@@ -2111,8 +2121,9 @@ class Window(QMainWindow):
                 data = None
         if not data:
             exp_target = getattr(self, "current_experiment", None)
-            if exp_target:
-                p = Path("in/config/experiment") / f"{exp_target}.yaml"
+            workspace = getattr(self, "workspace_paths", None)
+            if exp_target and workspace is not None:
+                p = workspace.resolve_config(f"experiment/{exp_target}.yaml")
                 if p.is_file():
                     try:
                         import yaml

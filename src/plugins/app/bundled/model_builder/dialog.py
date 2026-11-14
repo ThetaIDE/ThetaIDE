@@ -1,6 +1,6 @@
 """The model builder window: palette, canvas, parameters, save.
 
-Saving writes an ordinary `in/config/model/<name>.yaml`. That directory is
+Saving writes an ordinary `src/usr/config/model/<name>.yaml`. That directory is
 already scanned to fill the method's model combo, so a design shows up as a
 selectable architecture without the panel knowing this dialog exists.
 """
@@ -163,7 +163,7 @@ class ModelBuilderDialog(QDialog):
         self.txt_name = QLineEdit(initial_name)
         self.txt_name.setPlaceholderText("my_model")
         self.txt_name.setMaximumWidth(260)
-        self.txt_name.setToolTip("Written to in/config/model/<name>.yaml")
+        self.txt_name.setToolTip("Written to src/usr/config/model/<name>.yaml")
         name_row.addWidget(self.txt_name)
         name_row.addStretch()
         root.addLayout(name_row)

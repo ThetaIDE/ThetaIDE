@@ -265,7 +265,8 @@ class ExportExperimentDialog(QDialog):
                 if self.raw_yaml_text:
                     content = self.raw_yaml_text
                 else:
-                    exp_yaml = self.workspace_root / "in" / "config" / "experiment" / f"{self.experiment_id}.yaml"
+                    from src.app.workspace import WorkspacePaths
+                    exp_yaml = WorkspacePaths(self.workspace_root).resolve_config(f"experiment/{self.experiment_id}.yaml")
                     content = exp_yaml.read_text(encoding="utf-8") if exp_yaml.is_file() else ""
                 target_path.write_text(content, encoding="utf-8")
                 self.accept()

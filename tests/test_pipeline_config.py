@@ -286,7 +286,7 @@ class TestParseMethodsDict:
         assert "modules" not in resolved["second"]["model_params"]
 
     def test_group_method_resolution(self, monkeypatch):
-        """Methods defined in in/config/experiment/<group>/methods/ should resolve automatically."""
+        """Methods defined in src/usr/config/experiment/<group>/methods/ should resolve automatically."""
         from src.app.pipeline.config import parse_methods_dict
 
         mock_templates = {

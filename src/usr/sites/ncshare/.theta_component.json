@@ -3,7 +3,7 @@
   "name": "ncshare",
   "kind": "site",
   "version": "1.0.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "capabilities": [
     {
@@ -13,10 +13,10 @@
     }
   ],
   "config_paths": [
-    "in/config/site/ncshare/common.yaml",
-    "in/config/site/ncshare/_defaults.yaml",
-    "in/config/site/ncshare/gpu.yaml",
-    "in/config/site/ncshare/default.yaml"
+    "site/ncshare/common.yaml",
+    "site/ncshare/_defaults.yaml",
+    "site/ncshare/gpu.yaml",
+    "site/ncshare/default.yaml"
   ],
   "payload": {
     "implementations": [
@@ -26,10 +26,10 @@
       "ssh_config"
     ],
     "configs": {
-      "in/config/site/ncshare/common.yaml": "configs/site/ncshare/common.yaml",
-      "in/config/site/ncshare/_defaults.yaml": "configs/site/ncshare/_defaults.yaml",
-      "in/config/site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml",
-      "in/config/site/ncshare/default.yaml": "configs/site/ncshare/default.yaml"
+      "site/ncshare/common.yaml": "configs/site/ncshare/common.yaml",
+      "site/ncshare/_defaults.yaml": "configs/site/ncshare/_defaults.yaml",
+      "site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml",
+      "site/ncshare/default.yaml": "configs/site/ncshare/default.yaml"
     }
   }
 }

@@ -390,12 +390,11 @@ class ComponentsPanel(QWidget):
         if parent is not None and hasattr(parent, "hub_client") and parent.hub_client is not None:
             self.hub_client = parent.hub_client
             return self.hub_client
-        workspace_dir = (
-            self.components_tree.root_dir.parent.parent
-            if hasattr(self, "components_tree") and self.components_tree.root_dir
-            else __import__("src.app.workspace", fromlist=["WorkspacePaths"]).WorkspacePaths.for_process().root
-        )
-        data_dir = workspace_dir / ".thetaide"
+        from src.app.workspace import WorkspacePaths
+        paths = (self.components_tree._workspace_paths()
+                 if hasattr(self, "components_tree") and self.components_tree.root_dir
+                 else WorkspacePaths.for_process())
+        workspace_dir, data_dir = paths.root, paths.data_dir
         self.hub_client = HubClient(
             workspace_dir=workspace_dir,
             data_dir=data_dir,

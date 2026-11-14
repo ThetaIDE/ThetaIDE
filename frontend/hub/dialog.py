@@ -504,7 +504,7 @@ class HubComponentCard(QFrame):
 
 
 class UninstallComponentDialog(QDialog):
-    """Confirm uninstall; component configs are hidden and restored on reinstall."""
+    """Confirm uninstall; the user's own config files are never removed."""
 
     def __init__(self, component_name: str, parent=None):
         super().__init__(parent)
@@ -519,9 +519,9 @@ class UninstallComponentDialog(QDialog):
         layout.addWidget(title)
 
         desc = QLabel(
-            "The installed source code will be removed. Hub components will be downloaded "
-            "from the Hub when installed again. Edited YAML profiles are preserved separately "
-            "and restored on reinstall."
+            "The installed package, including its default profiles, will be removed. Hub "
+            "components will be downloaded from the Hub when installed again. Your files in "
+            "src/usr/config, including overrides of this package's profiles, are kept."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet(f"color: {theme_color('muted')}; font-size: 12px; line-height: 1.4;")

@@ -28,9 +28,7 @@ app = QApplication.instance() or QApplication(sys.argv[:1])
 
 @pytest.fixture(autouse=True)
 def isolated_job_config(fixture_workspace, monkeypatch):
-    import src.app.pipeline.compose as compose_module
     monkeypatch.chdir(fixture_workspace)
-    monkeypatch.setattr(compose_module, "CONFIG_DIR", fixture_workspace / "in" / "config")
 
 
 @pytest.fixture(autouse=True)
@@ -358,9 +356,10 @@ def real_overrides(experiment_id, total_timesteps):
 
 
 def _has_real_training_plugins():
-    has_cartpole = Path("in/config/env/cartpole.yaml").exists() or Path("in/envs/cartpole").exists()
-    has_ppo = Path("in/config/agent/ppo.yaml").exists() or Path("in/config/agent/sb3/ppo.yaml").exists()
-    return has_cartpole and has_ppo
+    from src.app.workspace import WorkspacePaths
+    resolver = WorkspacePaths.for_process().config_resolver()
+    return resolver.resolve("env/cartpole.yaml") is not None and any(
+        resolver.resolve(selector) is not None for selector in ("agent/ppo.yaml", "agent/sb3/ppo.yaml"))
 
 
 @pytest.mark.slow

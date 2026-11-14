@@ -12,10 +12,10 @@ def test_checkout_does_not_track_component_or_experiment_configs():
             "ls-files",
             "-z",
             "--",
-            "in/config/agent",
-            "in/config/env",
-            "in/config/model",
-            "in/config/experiment",
+            "src/usr/config/agent",
+            "src/usr/config/env",
+            "src/usr/config/model",
+            "src/usr/config/experiment",
         ],
         cwd=root,
         check=True,
@@ -23,8 +23,8 @@ def test_checkout_does_not_track_component_or_experiment_configs():
     )
     tracked = {Path(path.decode()) for path in result.stdout.split(b"\0") if path}
     assert tracked == {
-        Path("in/config/agent/.gitkeep"),
-        Path("in/config/env/.gitkeep"),
-        Path("in/config/model/.gitkeep"),
-        Path("in/config/experiment/.gitkeep"),
+        Path("src/usr/config/agent/.gitkeep"),
+        Path("src/usr/config/env/.gitkeep"),
+        Path("src/usr/config/model/.gitkeep"),
+        Path("src/usr/config/experiment/.gitkeep"),
     }

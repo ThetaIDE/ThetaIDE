@@ -93,8 +93,8 @@ def create(root, name, data=None, variants=None, *, scheduler=None):
         (directory / (profile + '.yaml')).write_text('# @package site\n' + yaml.safe_dump(value, sort_keys=False))
     (component / 'site.py').write_text('"""Site metadata; execution uses the shared scheduler adapter."""\nSITE = ' + repr({'scheduler': data.get('scheduler')}) + '\n')
     (component / 'ssh_config').write_text('# Site-owned OpenSSH aliases and overrides. Private keys stay outside the project.\nInclude ~/.ssh/config\n')
-    configs = {f'in/config/site/{name}/{p.name}': f'configs/site/{name}/{p.name}' for p in directory.glob('*.yaml')}
-    manifest = {'id': name + '-site', 'name': name, 'kind': 'site', 'version': '1.0.0', 'storage_version': 2, 'api_version': 1,
+    configs = {f'site/{name}/{p.name}': f'configs/site/{name}/{p.name}' for p in directory.glob('*.yaml')}
+    manifest = {'id': name + '-site', 'name': name, 'kind': 'site', 'version': '1.0.0', 'storage_version': 3, 'api_version': 1,
                 'capabilities': [{'id': name, 'kind': 'site', 'entry_point': 'site.py:SITE'}],
                 'config_paths': list(configs), 'payload': {'implementations': ['site.py'], 'resources': ['ssh_config'], 'configs': configs}}
     (component / '.theta_component.json').write_text(json.dumps(manifest, indent=2) + '\n')

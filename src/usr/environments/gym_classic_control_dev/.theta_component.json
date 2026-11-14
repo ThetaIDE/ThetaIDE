@@ -7,12 +7,12 @@
   "author": {
     "name": "Theta-IDE Team"
   },
-  "config_path": "in/config/env/gym_classic_control_dev/acrobot.yaml",
+  "config_path": "env/gym_classic_control_dev/acrobot.yaml",
   "config_paths": [
-    "in/config/env/gym_classic_control_dev/acrobot.yaml",
-    "in/config/env/gym_classic_control_dev/cartpole.yaml",
-    "in/config/env/gym_classic_control_dev/mountaincar.yaml",
-    "in/config/env/gym_classic_control_dev/pendulum.yaml"
+    "env/gym_classic_control_dev/acrobot.yaml",
+    "env/gym_classic_control_dev/cartpole.yaml",
+    "env/gym_classic_control_dev/mountaincar.yaml",
+    "env/gym_classic_control_dev/pendulum.yaml"
   ],
   "compatibility": {
     "theta": ">=2.0.0"
@@ -21,7 +21,7 @@
     "type": "object",
     "properties": {},
     "x-theta-config-schemas": {
-      "in/config/env/gym_classic_control_dev/mountaincar.yaml": {
+      "env/gym_classic_control_dev/mountaincar.yaml": {
         "type": "object",
         "properties": {
           "monitor_metric": {
@@ -53,7 +53,7 @@
           }
         }
       },
-      "in/config/env/gym_classic_control_dev/pendulum.yaml": {
+      "env/gym_classic_control_dev/pendulum.yaml": {
         "type": "object",
         "properties": {
           "monitor_metric": {
@@ -85,7 +85,7 @@
           }
         }
       },
-      "in/config/env/gym_classic_control_dev/acrobot.yaml": {
+      "env/gym_classic_control_dev/acrobot.yaml": {
         "type": "object",
         "properties": {
           "monitor_metric": {
@@ -117,7 +117,7 @@
           }
         }
       },
-      "in/config/env/gym_classic_control_dev/cartpole.yaml": {
+      "env/gym_classic_control_dev/cartpole.yaml": {
         "type": "object",
         "properties": {
           "monitor_metric": {
@@ -155,7 +155,7 @@
     "components": [],
     "pip": []
   },
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "capabilities": [
     {
@@ -186,10 +186,10 @@
       "requirements.txt"
     ],
     "configs": {
-      "in/config/env/gym_classic_control_dev/acrobot.yaml": "configs/env/gym_classic_control_dev/acrobot.yaml",
-      "in/config/env/gym_classic_control_dev/cartpole.yaml": "configs/env/gym_classic_control_dev/cartpole.yaml",
-      "in/config/env/gym_classic_control_dev/mountaincar.yaml": "configs/env/gym_classic_control_dev/mountaincar.yaml",
-      "in/config/env/gym_classic_control_dev/pendulum.yaml": "configs/env/gym_classic_control_dev/pendulum.yaml"
+      "env/gym_classic_control_dev/acrobot.yaml": "configs/env/gym_classic_control_dev/acrobot.yaml",
+      "env/gym_classic_control_dev/cartpole.yaml": "configs/env/gym_classic_control_dev/cartpole.yaml",
+      "env/gym_classic_control_dev/mountaincar.yaml": "configs/env/gym_classic_control_dev/mountaincar.yaml",
+      "env/gym_classic_control_dev/pendulum.yaml": "configs/env/gym_classic_control_dev/pendulum.yaml"
     }
   },
   "origin": "user",

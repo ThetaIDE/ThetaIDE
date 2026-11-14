@@ -17,7 +17,7 @@ def declare_agent(root,name,class_name):
     import json
     package=root/'src/usr/algorithms'/name;package.mkdir(parents=True)
     (package/'agent.py').write_text(f'class {class_name}: pass\n')
-    (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':'algorithm','version':'1.0.0','storage_version':2,'api_version':1,
+    (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':'algorithm','version':'1.0.0','storage_version':3,'api_version':1,
         'capabilities':[{'id':name,'kind':'algorithm','entry_point':'agent.py:'+class_name}],
         'payload':{'implementations':['agent.py'],'resources':[],'configs':{}}}))
 

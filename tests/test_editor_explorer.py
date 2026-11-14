@@ -82,7 +82,7 @@ def test_related_paths_are_scoped_and_activate_actual_files(explorer, tmp_path):
     root.mkdir(parents=True)
     source = root / "model.py"
     source.write_text("value = 1")
-    config = tmp_path / "in/config/model/fork.yaml"
+    config = tmp_path / "src/usr/config/model/fork.yaml"
     config.parent.mkdir(parents=True)
     config.write_text("architecture: fork")
     unrelated = config.with_name("unrelated.yaml")

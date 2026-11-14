@@ -134,9 +134,9 @@ def _submit(root, experiment, overrides, cfg):
         else:
             source = freeze(root, snapshot)
             (snapshot / 'results').symlink_to(root / 'results', target_is_directory=True)
-            (snapshot / 'in').mkdir(exist_ok=True)
-            if (root / 'in/datasets').exists():
-                (snapshot / 'in/datasets').symlink_to(root / 'in/datasets', target_is_directory=True)
+            if (root / 'src/usr/datasets').exists():
+                (snapshot / 'src/usr').mkdir(parents=True, exist_ok=True)
+                (snapshot / 'src/usr/datasets').symlink_to(root / 'src/usr/datasets', target_is_directory=True)
         result_id = saved_run_id(str(cfg.experiment_id), f'__{execution_id}')
         command_overrides = [arg for arg in overrides if not arg.lstrip('+').startswith(('experiment_id=', 'group='))]
         command_overrides += [f'++experiment_id={json.dumps(result_id)}', f'++group={json.dumps(str(cfg.group))}']

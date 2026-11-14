@@ -39,9 +39,9 @@ class ComponentDevelopment:
                 configs = [*data.get("config_paths", []), *data.get("user_config_paths", [])]
                 if data.get("config_path"):
                     configs.append(data["config_path"])
-                files = [*configs, *data.get("installed_files", [])]
-                if (path == manifest.parent or manifest.parent in path.parents
-                        or path in {(self.paths.root / p).resolve() for p in files}):
+                files = {(self.paths.config / p).resolve() for p in configs}
+                files |= {(self.paths.root / p).resolve() for p in data.get("installed_files", [])}
+                if path == manifest.parent or manifest.parent in path.parents or path in files:
                     candidates.append((manifest, data))
         if len(candidates) != 1:
             detail = ", ".join(str(manifest) for manifest, _ in candidates)
@@ -56,8 +56,7 @@ class ComponentDevelopment:
         manifest, meta = self._resolve(reference)
         configs = list(meta.get("payload", {}).get("configs", {}))
         profiles = []
-        for value in configs:
-            selector = value.removeprefix("in/config/")
+        for selector in configs:
             resolved = self.paths.config_resolver().resolve(selector, required=True)
             profiles.append({"path": str(resolved.file), "selector": str(Path(selector).with_suffix("")),
                              "exists": resolved.file.is_file(), "read_only": self.installer.is_installed_file(resolved.file),
@@ -91,15 +90,6 @@ class ComponentDevelopment:
         from src.app.components.forking import fork_package
         return fork_package(self.paths, meta["id"], new_id, name)
 
-    def _validate_schema(self, meta, path, data):
-        schema = meta.get("parameter_schema") or {}
-        relative = path.relative_to(self.paths.root).as_posix()
-        selected = (schema.get("x-theta-config-schemas") or {}).get(relative, schema)
-        if selected.get("x-theta-validate", schema.get("x-theta-validate")) is True:
-            from jsonschema import Draft202012Validator
-            Draft202012Validator.check_schema(selected)
-            Draft202012Validator(selected).validate(data)
-
     def validate_profile(self, path, *, effective_data=None):
         """Validate YAML/schema and report the exact source for a model selector.
 
@@ -127,17 +117,23 @@ class ComponentDevelopment:
             schema = self.paths.config_resolver().resolve(selector_key, required=True).schema
             if not schema:
                 declared = meta.get("parameter_schema") or {}
-                schema = declared.get("x-theta-config-schemas", {}).get("in/config/" + selector_key, declared)
+                schema = declared.get("x-theta-config-schemas", {}).get(selector_key, declared)
             if schema.get("x-theta-validate", (meta.get("parameter_schema") or {}).get("x-theta-validate")) is True:
                 from jsonschema import Draft202012Validator
                 Draft202012Validator.check_schema(schema)
                 Draft202012Validator(schema).validate(data)
             result["components"].append({**info, "selector": selector})
         else:
-            owner = self.installer.find_component_for_path(path)
-            if owner:
-                self._validate_schema(owner, path, data)
-                result["components"].append(self.inspect(owner["id"]))
+            # The selector's owner validates both its own file and a user override of it.
+            resolved = self.paths.config_resolver().resolve(selector_key, required=True)
+            if resolved.package is not None:
+                declared = resolved.package.manifest.get("parameter_schema") or {}
+                schema = resolved.schema
+                if schema.get("x-theta-validate", declared.get("x-theta-validate")) is True:
+                    from jsonschema import Draft202012Validator
+                    Draft202012Validator.check_schema(schema)
+                    Draft202012Validator(schema).validate(data)
+                result["components"].append(self.inspect(resolved.package.id))
         return result
 
     def validate_experiment(self, experiment, overrides=()):

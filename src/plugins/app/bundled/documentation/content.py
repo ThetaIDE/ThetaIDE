@@ -32,7 +32,7 @@ ARTICLES: List[DocArticle] = [
 
 <h3>Framework Architecture</h3>
 <ul>
-  <li><b>Hydra Configuration Layer (<code>in/config/</code>):</b> Declarative, three-tier hierarchical configuration defining environments, agents, models, cluster resources, and experiment recipes.</li>
+  <li><b>Hydra Configuration Layer (<code>src/usr/config/</code> and package profiles):</b> Declarative, three-tier hierarchical configuration defining environments, agents, models, cluster resources, and experiment recipes.</li>
   <li><b>In-process pipeline services (<code>src/app/services/</code>) &amp; job manager (<code>frontend/job_manager.py</code>):</b> The app composes and validates configs in-process. A detached runner owns training child processes and queue scheduling; the desktop reconnects to durable status, logs and metrics. There is no HTTP server to start.</li>
   <li><b>Training runtimes:</b> The built-in PyTorch Lightning driver (<code>src/app/train.py</code>) provides automated checkpointing, device acceleration (CUDA/MPS/CPU), and structured logging. Method plugins can declare their own runner entrypoint in each agent profile.</li>
   <li><b>Components from the Theta Hub:</b> A fresh clone provides the framework and generic IDE features without research algorithms, experiment recipes, trained results, or domain environments. Install the components required by an experiment from the <b>Theta Hub</b> (<a href="ide://components">Components</a> tab, globe button), or create your own with the <a href="authoring_plugins">Authoring Guide</a>. Each component supplies its own dependencies and integration points.</li>
@@ -81,7 +81,7 @@ ARTICLES: List[DocArticle] = [
   <tr><td><code>src/app/telemetry/</code></td><td>One logging API for every engine: <code>run.log()</code> writes <code>metrics.csv</code> and the <code>events.jsonl</code> live feed.</td></tr>
   <tr><td><code>src/app/core/</code></td><td>Model, plotter, data-module and evaluator registries, the paradigm loader, Lightning builder, callbacks and checkpoints. The canonical agent registry lives in <code>src/app/core/agent_registry.py</code>; old imports remain compatible.</td></tr>
   <tr><td><code>src/app/train.py</code>, component runner entry points</td><td>The built-in Lightning driver and runner entry points provided by installed components.</td></tr>
-  <tr><td><code>src/usr/</code>, <code>in/config/</code></td><td>Authored components and active Hydra configs. Managed packages live in <code>src/plugins/components/installed</code>; bundled providers ship in <code>src/plugins/components/bundled</code>.</td></tr>
+  <tr><td><code>src/usr/</code>, <code>src/usr/config/</code></td><td>Authored components, your configs and recipes, and overrides of package profiles. Managed packages live in <code>src/plugins/components/installed</code>; bundled providers ship in <code>src/plugins/components/bundled</code>.</td></tr>
   <tr><td><code>plot/</code></td><td><code>manager.py</code> runs the selected research plotters, supplied by installed components such as a figures suite.</td></tr>
   <tr><td><code>results/</code>, <code>.thetaide/</code></td><td>Research outputs live under <code>results/</code>. IDE settings, run records, the queue (by default <code>.thetaide/runs/jobs/jobs.db</code>), installed GUI plugins, retained component snapshots and cache live under <code>.thetaide/</code>. These do not contain all active research source/configuration files.</td></tr>
 </table>
@@ -161,7 +161,7 @@ python -m frontend</code></pre>
         keywords=["new", "create", "rename", "delete", "duplicate", "experiment", "group", "save", "export", "config tree"],
         html_content=r"""
 <h2>Creating, Renaming & Deleting Experiments</h2>
-<p>Experiments live in <code>in/config/experiment/&lt;group&gt;/&lt;name&gt;.yaml</code>. Each group has a <code>_base.yaml</code> that sets the environment and paradigm its experiments inherit. Manage them from the config tree in the <a href="ide://config">Experiment Config</a> pane.</p>
+<p>Experiments live in <code>src/usr/config/experiment/&lt;group&gt;/&lt;name&gt;.yaml</code>. Each group has a <code>_base.yaml</code> that sets the environment and paradigm its experiments inherit. Manage them from the config tree in the <a href="ide://config">Experiment Config</a> pane.</p>
 
 <h3>Creating an Experiment</h3>
 <ol>
@@ -200,7 +200,7 @@ python -m frontend</code></pre>
   <li><b>Save configuration</b> (<code>Ctrl+S</code>): write your edits back to the experiment's YAML file.</li>
   <li><b>Export draft YAML&hellip;</b> (<code>Ctrl+Shift+S</code>, or <b>Export</b> in the tree's toolbar) opens the export dialog, with three formats:
     <ul>
-      <li><b>Standalone Recipe YAML (.yaml)</b>: one recipe file. Save it under <code>in/config/experiment/&lt;group&gt;/</code> and run it with <code>python run_pipeline.py &lt;group&gt;/&lt;name&gt;</code>.</li>
+      <li><b>Standalone Recipe YAML (.yaml)</b>: one recipe file. Save it under <code>src/usr/config/experiment/&lt;group&gt;/</code> and run it with <code>python run_pipeline.py &lt;group&gt;/&lt;name&gt;</code>.</li>
       <li><b>Theta Hub Component Archive (.zip)</b>: the recipe with everything it depends on, ready to publish on the Theta Hub (see <a href="authoring_plugins">Authoring Guide</a>).</li>
       <li><b>Standalone Git Repository / Directory</b>: the same files as a folder.</li>
     </ul>
@@ -222,7 +222,7 @@ python -m frontend</code></pre>
 <h3>1. Experiment Config (<code>config</code>)</h3>
 <p>The primary workspace for configuring and launching experiments:</p>
 <ul>
-  <li><b>Config Tree:</b> Hierarchical browser mirroring <code>in/config/experiment/</code>: groups, their subfolders and experiments. Its toolbar launches, exports and creates experiments (see <a href="managing_experiments">Creating Experiments</a>).</li>
+  <li><b>Config Tree:</b> Hierarchical browser over the <code>experiment/</code> config group: groups, their subfolders and experiments. Its toolbar launches, exports and creates experiments (see <a href="managing_experiments">Creating Experiments</a>).</li>
   <li><b>Experiment editor:</b> a form over the YAML, in tabs.
     <ul>
       <li><b>Experiment</b>: description, paradigm, environment and the run budget (timesteps or epochs, seed, evaluation, checkpoints). The <b>+</b> beside the heading adds any other setting.</li>
@@ -342,7 +342,7 @@ python -m frontend</code></pre>
     <td>Algorithms forbidden; unlabeled static data; budget in epochs</td>
   </tr>
 </table>
-<p>The rules live in <code>in/config/paradigms/&lt;name&gt;.yaml</code>: what each method needs, the training budget, the default data module and callbacks, and the constraints the pre-flight check enforces before a run starts.</p>
+<p>The rules live in the <code>paradigms/&lt;name&gt;.yaml</code> profiles (override one by saving a copy in <code>src/usr/config/paradigms/</code>): what each method needs, the training budget, the default data module and callbacks, and the constraints the pre-flight check enforces before a run starts.</p>
 
 <h3>Transition Dataset Schema</h3>
 <p>When online agents collect experience or offline datasets are loaded into replay buffers, transitions adhere to standard Gym / Gymnasium conventions:</p>
@@ -432,8 +432,8 @@ class BlendRLModel(nn.Module):
 <p>This example treats the child outputs as compatible scores for illustration. A real logic branch must implement the domain's grounding and reasoning, and the selected training algorithm must accept the parent's output. If it needs extra inputs, define and wire those through the relevant agent, data module, or environment component; arbitrary dataset fields are not passed to a model automatically.</p>
 
 <h3>2. Configure the component</h3>
-<p>The scaffold creates the model package, a default file under <code>in/config/model/</code>, a <code>.theta_component.json</code> manifest, and a <code>pyproject.toml</code> entry point. Add nested child settings to the model's configuration and parameter schema:</p>
-<pre><code># in/config/model/blendrl.yaml
+<p>The scaffold creates the model package, a default profile under the package's <code>configs/model/</code>, a <code>.theta_component.json</code> manifest, and a <code>pyproject.toml</code> entry point. Add nested child settings to the model's configuration and parameter schema:</p>
+<pre><code># profile model/blendrl.yaml
 architecture: blendrl
 blend_alpha: 0.25
 blend_function: softmax
@@ -626,7 +626,7 @@ symbolic:
 <p>Configurations in Theta-IDE use a strict 3-tier hierarchy that eliminates parameter duplication while allowing granular per-method overrides.</p>
 
 <h3>Tier 1: Defaults & Base Profiles</h3>
-<p>Installed with each component, under <code>in/config/agent/&lt;package&gt;/&lt;algo&gt;.yaml</code> and <code>in/config/model/&lt;package&gt;/&lt;arch&gt;.yaml</code> (for example <code>agent/sb3/ppo.yaml</code> and <code>model/basics/dnn.yaml</code>). These define the baseline algorithm and model parameters (e.g. default batch size, discount factor \(\gamma\), network layer dimensions). Experiments refer to them by that path: <code>agent: sb3/ppo</code>, <code>model: basics/dnn</code>.</p>
+<p>Provided by each installed package as the profiles <code>agent/&lt;package&gt;/&lt;algo&gt;.yaml</code> and <code>model/&lt;package&gt;/&lt;arch&gt;.yaml</code> (for example <code>agent/sb3/ppo.yaml</code> and <code>model/basics/dnn.yaml</code>). They are read from the package; to change one, create an override in <code>src/usr/config/</code> at the same path. These define the baseline algorithm and model parameters (e.g. default batch size, discount factor \(\gamma\), network layer dimensions). Experiments refer to them by that path: <code>agent: sb3/ppo</code>, <code>model: basics/dnn</code>.</p>
 <p>Each experiment group's <code>_base.yaml</code> sits between Tier 1 and the experiment: it sets the paradigm and environment, and anything its experiments share.</p>
 
 <h3>Tier 2: Universal Experiment Parameters (<code>methods.params</code>)</h3>
@@ -660,7 +660,7 @@ symbolic:
         rules: default</code></pre>
 
 <h3>Environment Keys</h3>
-<p>Environment YAMLs (<code>in/config/env/&lt;package&gt;/&lt;name&gt;.yaml</code>, e.g. <code>env/gym_classic_control/cartpole.yaml</code>) define operational metadata declaratively. A group's <code>_base.yaml</code> picks one with <code>- override /env: gym_classic_control/cartpole</code>.</p>
+<p>Environment profiles (<code>env/&lt;package&gt;/&lt;name&gt;.yaml</code>, e.g. <code>env/gym_classic_control/cartpole.yaml</code>) define operational metadata declaratively. A group's <code>_base.yaml</code> picks one with <code>- override /env: gym_classic_control/cartpole</code>.</p>
 <ul>
   <li><code>compatible_paradigms: [online_rl, offline_rl]</code> &mdash; the paradigms that may use it</li>
   <li><code>monitor_metric: "eval/reward" | "val/loss"</code> &mdash; target metric for checkpointing and tuning</li>
@@ -832,7 +832,7 @@ python run_pipeline.py component copy blendrl my_blendrl
 python run_pipeline.py component inspect my_blendrl
 python run_pipeline.py component config --help</code></pre>
 <p>Use profile paths returned by inspection with <code>component config show</code>, <code>set</code>, <code>copy</code> and <code>validate</code>. To check a configured experiment, use <code>component validate-experiment &lt;group&gt;/&lt;experiment&gt;</code>; it performs preflight and reports effective method model sources without starting training. Static validation is not a forward-pass or shape guarantee.</p>
-<p>GUI and terminal share headless component services in <code>src/app/components/</code>. Authored code lives in <code>src/usr/</code>; managed code lives in <code>src/plugins/components/installed</code>; active configs stay in <code>in/config</code>. Retained packages under <code>.thetaide/components/packages/</code> are snapshots; generated context is refreshed under <code>.thetaide/components/context/&lt;id&gt;.md</code>. Managed uninstall retains edits and never removes authored source. Explicit migration provides a dry-run, recovery journal and rollback.</p>
+<p>GUI and terminal share headless component services in <code>src/app/components/</code>. Authored code lives in <code>src/usr/</code>; managed code lives in <code>src/plugins/components/installed</code>; your configs and overrides live in <code>src/usr/config</code>, while package profiles are read from their package. Retained packages under <code>.thetaide/components/packages/</code> are snapshots; generated context is refreshed under <code>.thetaide/components/context/&lt;id&gt;.md</code>. Managed uninstall leaves <code>src/usr/config</code> untouched and never removes authored source. Explicit migration provides a dry-run, recovery journal and rollback.</p>
 
 <div style="background-color: rgba(69, 133, 136, 0.12); border-left: 4px solid #83a598; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
   <b>Component Kinds:</b> Every Theta Hub component declares a <code>kind</code>, which decides where the Hub installs its code and its default config. A component's configs go in a folder named after its package, so experiments refer to them as <code>&lt;package&gt;/&lt;name&gt;</code> (e.g. <code>sb3/ppo</code>).
@@ -842,7 +842,7 @@ python run_pipeline.py component config --help</code></pre>
   <tr style="background-color: rgba(255,255,255,0.05); font-weight: bold;">
     <td>Kind</td>
     <td>Code installs to</td>
-    <td>Config</td>
+    <td>Config profiles</td>
     <td>Registration</td>
   </tr>
   <tr>
@@ -854,37 +854,37 @@ python run_pipeline.py component config --help</code></pre>
   <tr>
     <td><b><code>method</code></b> (or <code>algorithm</code>)</td>
     <td><code>src/usr/algorithms/&lt;id&gt;/</code></td>
-    <td><code>in/config/agent/&lt;package&gt;/</code></td>
+    <td><code>agent/&lt;package&gt;/</code></td>
     <td><code>@register_algorithm("&lt;prefix&gt;")</code> (alias of <code>register_agent</code>) from <code>src/usr/algorithms/agent_registry.py</code></td>
   </tr>
   <tr>
     <td><b><code>model</code></b></td>
     <td><code>src/usr/models/&lt;id&gt;/</code></td>
-    <td><code>in/config/model/&lt;package&gt;/</code></td>
+    <td><code>model/&lt;package&gt;/</code></td>
     <td><code>@register_model("&lt;name&gt;")</code> in <code>src/app/core/model_registry.py</code></td>
   </tr>
   <tr>
     <td><b><code>env</code></b></td>
     <td><code>src/usr/environments/&lt;id&gt;/</code></td>
-    <td><code>in/config/env/&lt;package&gt;/</code></td>
+    <td><code>env/&lt;package&gt;/</code></td>
     <td><code>VectorizedBaseEnv.from_name()</code> factory</td>
   </tr>
   <tr>
     <td><b><code>data</code></b>, <b><code>eval</code></b></td>
     <td><code>src/usr/data/&lt;id&gt;/</code>, <code>src/usr/eval/&lt;id&gt;/</code></td>
-    <td><code>in/config/data/&lt;package&gt;/</code>, <code>in/config/eval/</code></td>
+    <td><code>data/&lt;package&gt;/</code>, <code>eval/</code></td>
     <td>Chosen in an experiment's <b>Data Loaders</b> and <b>Evaluators</b> boxes (<code>data_module:</code>, <code>evaluator:</code>)</td>
   </tr>
   <tr>
     <td><b><code>plot</code></b></td>
     <td><code>src/usr/plotters/&lt;id&gt;/</code></td>
-    <td><code>in/config/plot/&lt;package&gt;/</code></td>
+    <td><code>plot/&lt;package&gt;/</code></td>
     <td>A <code>BasePlotter</code> subclass, discovered automatically; requested under <code>plots:</code></td>
   </tr>
   <tr>
     <td><b><code>experiment</code></b></td>
     <td><code>.thetaide/experiments/&lt;id&gt;/</code></td>
-    <td>Its recipes under <code>in/config/experiment/</code></td>
+    <td>Its recipes under <code>experiment/</code></td>
     <td>Dispatched via <code>run_pipeline.py</code></td>
   </tr>
   <tr>
@@ -962,7 +962,7 @@ class MyToolPlugin(Plugin):
 <pre><code>my_method/
 ├── __init__.py       # REQUIRED: Exposes the agent and triggers @register_agent
 ├── agent.py          # PyTorch Lightning module implementation
-├── my_method.yaml    # Default Tier 1 hyperparameters (deployed to in/config/agent/)
+├── my_method.yaml    # Default Tier 1 hyperparameters (declared as profile agent/my_method.yaml)
 └── plugin.json       # Optional component metadata</code></pre>
 
 <div style="background-color: rgba(254, 128, 25, 0.12); border-left: 4px solid #fe8019; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
@@ -998,7 +998,7 @@ class MyCustomAlgorithm(OfflineAgentBase):
 __all__ = ["MyCustomAlgorithm"]</code></pre>
 
 <h4>Default Configuration (<code>my_algo.yaml</code>)</h4>
-<p>Deployed automatically to <code>in/config/agent/my_algo.yaml</code>:</p>
+<p>Declared in the manifest's <code>payload.configs</code> as the profile <code>agent/my_algo.yaml</code>:</p>
 <pre><code># @package _global_
 agent:
   name: my_algo
@@ -1017,8 +1017,8 @@ agent:
 ├── __init__.py
 ├── my_model_model.py       # Defines and registers the nn.Module
 ├── .theta_component.json  # Hub metadata and parameter schema
-└── pyproject.toml          # theta.models entry point
-in/config/model/my_model.yaml</code></pre>
+├── configs/model/my_model.yaml  # profile model/my_model.yaml
+└── pyproject.toml          # theta.models entry point</code></pre>
 <p><b>File &rarr; Scaffold New Component Plugin&hellip;</b> (<code>Ctrl+Shift+P</code>) generates this starting structure for a model. Its package import must load the module containing the registration decorator.</p>
 
 <h4>Implementing a Model</h4>
@@ -1042,7 +1042,7 @@ class MyModel(nn.Module):
 
     def forward(self, obs, **kwargs):
         return self.layers(obs.float().reshape(obs.shape[0], -1))</code></pre>
-<p>Keep the constructor tolerant of framework-provided keyword arguments, and return the output shape expected by the selected training algorithm. Put defaults in <code>in/config/model/&lt;name&gt;.yaml</code>; expose editable nested parameters through <code>parameter_schema</code> in the component manifest.</p>
+<p>Keep the constructor tolerant of framework-provided keyword arguments, and return the output shape expected by the selected training algorithm. Put defaults in the package profile <code>model/&lt;name&gt;.yaml</code>; expose editable nested parameters through <code>parameter_schema</code> in the component manifest.</p>
 
 <h4>Optional Runtime Hooks</h4>
 <p>Implement an interface from <code>src.app.core.protocols</code> only when the corresponding algorithm or runner consumes it. Available interfaces include:</p>
@@ -1064,7 +1064,7 @@ class MyModel(nn.Module):
 ├── __init__.py       # Registration or simulator hooks
 ├── env.py            # Environment wrapper or vectorization
 ├── reward.py         # Potential-based reward shaping functions
-└── my_custom_env.yaml# Deployed to in/config/env/my_custom_env.yaml</code></pre>
+└── my_custom_env.yaml# Declared as profile env/my_custom_env.yaml</code></pre>
 
 <h4>Declarative Environment Configuration</h4>
 <p>Every environment declares its operational properties declaratively in its YAML:</p>
@@ -1080,13 +1080,13 @@ env:
 
 <h3>5. Authoring Experiment Recipe Plugins (<code>kind: "experiment"</code>)</h3>
 <p>Experiment recipes tie environments, agents, paradigms, and cluster resources into reproducible benchmarks.</p>
-<pre><code># in/config/experiment/benchmark/_base.yaml
+<pre><code># src/usr/config/experiment/benchmark/_base.yaml
 # @package _global_
 defaults:
   - override /env: gym_classic_control/cartpole
 paradigm: online_rl
 
-# in/config/experiment/benchmark/my_experiment.yaml
+# src/usr/config/experiment/benchmark/my_experiment.yaml
 # @package _global_
 methods:
   ppo_dnn:
@@ -1160,7 +1160,7 @@ shasum -a 256 my_cql-1.0.0.zip</code></pre>
 <p>The experiment pipeline and component-development operations below are available from the terminal. Run them from the repository root in Theta's Python environment, after installing the required components. Some desktop actions, including Hub browsing and system Trash, have no terminal subcommand.</p>
 
 <h3>Running Experiments</h3>
-<p>Experiments are named <code>&lt;group&gt;/&lt;experiment&gt;</code>, matching their path under <code>in/config/experiment/</code> (an experiment in a subfolder is <code>&lt;group&gt;/&lt;subfolder&gt;/&lt;experiment&gt;</code>):</p>
+<p>Experiments are named <code>&lt;group&gt;/&lt;experiment&gt;</code>, matching their path under <code>src/usr/config/experiment/</code> (an experiment in a subfolder is <code>&lt;group&gt;/&lt;subfolder&gt;/&lt;experiment&gt;</code>):</p>
 <pre><code># Train an experiment
 python run_pipeline.py &lt;group&gt;/&lt;experiment&gt;
 

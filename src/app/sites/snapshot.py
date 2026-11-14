@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .storage import digest, safe_path, workspace_id, write_json
 
-SOURCE_ROOTS = ('src', 'frontend', 'hydra_plugins', 'plot', 'in/config')
+SOURCE_ROOTS = ('src', 'frontend', 'hydra_plugins', 'plot')
+DATASET_ROOT = 'src/usr/datasets'
 SOURCE_FILES = ('run_pipeline.py', 'pyproject.toml', 'setup.py', 'requirements.txt', 'README.md', 'LICENSE.md', 'MANIFEST.in',
                 '.thetaide/provider_overrides.json', '.thetaide/workspace.json', '.thetaide/extensions.json')
 EXCLUDED = {'__pycache__', '.git', 'node_modules', '.venv', 'venv', '.pytest_cache',
@@ -25,7 +26,7 @@ def source_files(root):
         if not directory.is_dir(): continue
         for path in directory.rglob('*'):
             relative = path.relative_to(root)
-            if any(part in EXCLUDED for part in relative.parts): continue
+            if any(part in EXCLUDED for part in relative.parts) or relative.as_posix().startswith(DATASET_ROOT + '/'): continue
             if path.is_symlink():
                 raise ValueError(f'Source symlink needs an explicit cluster copy: {relative}')
             if path.is_file() and path.suffix not in ('.pyc', '.pyo'):

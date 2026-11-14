@@ -18,12 +18,12 @@ def test_config_tree_fallback_uses_selected_workspace(tmp_path, monkeypatch):
     from frontend.config_tree import find_config_root
     selected = tmp_path / 'selected'
     monkeypatch.setenv('THETA_WORKSPACE', str(selected))
-    assert find_config_root() == selected / 'in/config'
+    assert find_config_root() == selected / 'src/usr/config'
 
 
 def test_managed_app_plugin_uses_catalog_identity_and_releases_contributions(tmp_path):
     archive=tmp_path/'panel.zip'
-    meta={'id':'my_panel','name':'My panel','kind':'plugin','version':'1.0.0','storage_version':2,'api_version':1,
+    meta={'id':'my_panel','name':'My panel','kind':'plugin','version':'1.0.0','storage_version':3,'api_version':1,
           'dependencies':{'components':['sequential_spec']},
           'payload':{'implementations':['__init__.py','helper.py'],'resources':[],'configs':{}},
           'capabilities':[{'id':'my_panel','kind':'plugin','entry_point':'__init__.py:Panel'}]}

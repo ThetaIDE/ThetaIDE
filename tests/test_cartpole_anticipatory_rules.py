@@ -9,7 +9,7 @@ import yaml
 
 pytest.importorskip("stable_baselines3")
 ROOT = Path(__file__).resolve().parents[1]
-RECIPE = ROOT / "in/config/experiment/Belndrl Bench/Cartpole Anticipatory Test.yaml"
+RECIPE = ROOT / "src/usr/config/experiment/Belndrl Bench/Cartpole Anticipatory Test.yaml"
 pytestmark = pytest.mark.skipif(not RECIPE.exists(), reason="Local anticipatory experiment is not installed")
 
 

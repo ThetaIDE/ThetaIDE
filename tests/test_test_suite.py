@@ -74,10 +74,11 @@ def test_component_contracts_verify_nested_and_list_capabilities(tmp_path):
     manifest = _manifest()
     manifest["test_suite"]["components"] = [{
         "id": "ppo", "title": "PPO", "description": "Online algorithm.",
-        "config_path": "in/config/agent/sb3/ppo.yaml",
+        "config_path": "agent/sb3/ppo.yaml",
         "required": {"entrypoint": "src/usr/algorithms/example/runner.py", "compatible_paradigms": ["online_rl"]},
     }]
-    target = tmp_path / "in/config/agent/sb3"
+    from src.app.workspace import WorkspacePaths
+    target = WorkspacePaths(tmp_path).config / "agent/sb3"
     target.mkdir(parents=True)
     (target / "ppo.yaml").write_text("entrypoint: src/usr/algorithms/example/runner.py\ncompatible_paradigms: [online_rl]\n", encoding="utf-8")
 
@@ -110,12 +111,12 @@ def test_downloadable_suite_installs_components_and_experiment_group(tmp_path):
     manifest = _manifest()
     manifest["dependencies"] = {"components": ["basic_suite"]}
     manifest["config_paths"] = [
-        "in/config/experiment/suite_fixture/_base.yaml",
-        "in/config/experiment/suite_fixture/online_smoke.yaml",
-        "in/config/experiment/suite_fixture/missing_method.yaml",
+        "src/usr/config/experiment/suite_fixture/_base.yaml",
+        "src/usr/config/experiment/suite_fixture/online_smoke.yaml",
+        "src/usr/config/experiment/suite_fixture/missing_method.yaml",
     ]
     (source / ".theta_component.json").write_text(json.dumps(manifest), encoding="utf-8")
-    experiment_dir = source / "in/config/experiment/suite_fixture"
+    experiment_dir = source / "src/usr/config/experiment/suite_fixture"
     experiment_dir.mkdir(parents=True)
     (experiment_dir / "_base.yaml").write_text("paradigm: online_rl\n", encoding="utf-8")
     (experiment_dir / "online_smoke.yaml").write_text("methods: {}\n", encoding="utf-8")
@@ -148,5 +149,5 @@ def test_downloadable_suite_installs_components_and_experiment_group(tmp_path):
     ]
     assert installed_suite.cases[0].execution == "run"
     assert json.loads(installed_manifest.read_text(encoding="utf-8"))["dependencies"]["components"] == ["basic_suite"]
-    assert (workspace / "in/config/experiment/suite_fixture/online_smoke.yaml").is_file()
-    assert (workspace / "in/config/experiment/suite_fixture/missing_method.yaml").is_file()
+    assert (workspace / "src/usr/config/experiment/suite_fixture/online_smoke.yaml").is_file()
+    assert (workspace / "src/usr/config/experiment/suite_fixture/missing_method.yaml").is_file()

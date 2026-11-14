@@ -51,7 +51,7 @@
   <text x="230" y="396" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="start">worker thread</text>
   <rect x="466" y="130" width="166" height="118" rx="7" fill="{{surface}}" stroke="{{border}}" stroke-width="1.2"/>
   <text x="478" y="150" font-family="sans-serif" font-size="14" fill="{{text}}" text-anchor="start" font-weight="bold">Components</text>
-  <text x="478" y="167" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="start">in/config/: Hydra YAML</text>
+  <text x="478" y="167" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="start">src/usr/config/: Hydra YAML</text>
   <text x="478" y="183" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="start">src/usr/: Python code</text>
   <text x="478" y="199" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="start">installed from the Hub</text>
   <rect x="466" y="270" width="166" height="188" rx="7" fill="{{accent_soft}}" stroke="{{accent}}" stroke-width="1.2"/>

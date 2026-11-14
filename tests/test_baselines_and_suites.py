@@ -124,11 +124,11 @@ def test_suite_installation_and_modular_uninstallation(tmp_path):
     assert (workspace / "in" / "envs" / "gym_classic_control").is_dir()
 
     # 3. Verify configs were deployed into basics/ subfolder
-    assert (workspace / "in" / "config" / "model" / "basics" / "dnn.yaml").is_file()
-    assert (workspace / "in" / "config" / "model" / "basics" / "nature_cnn.yaml").is_file()
-    assert (workspace / "in" / "config" / "agent" / "sb3" / "ppo.yaml").is_file()
-    assert (workspace / "in" / "config" / "agent" / "d3rlpy" / "cql.yaml").is_file()
-    assert (workspace / "in" / "config" / "env" / "gym_classic_control" / "cartpole.yaml").is_file()
+    assert (workspace / "src/usr/config" / "model" / "basics" / "dnn.yaml").is_file()
+    assert (workspace / "src/usr/config" / "model" / "basics" / "nature_cnn.yaml").is_file()
+    assert (workspace / "src/usr/config" / "agent" / "sb3" / "ppo.yaml").is_file()
+    assert (workspace / "src/usr/config" / "agent" / "d3rlpy" / "cql.yaml").is_file()
+    assert (workspace / "src/usr/config" / "env" / "gym_classic_control" / "cartpole.yaml").is_file()
 
     # 4. Modular uninstallation of a single child component (dnn)
     dnn_meta = json.loads((workspace / "src" / "usr" / "models" / "dnn" / ".theta_component.json").read_text(encoding="utf-8"))
@@ -136,8 +136,8 @@ def test_suite_installation_and_modular_uninstallation(tmp_path):
     uninstalled_dnn = installer.uninstall_by_metadata(dnn_meta)
     assert uninstalled_dnn is True
     assert not (workspace / "src" / "usr" / "models" / "dnn").exists()
-    assert not (workspace / "in" / "config" / "model" / "basics" / "dnn.yaml").exists()
-    assert (workspace / "in" / "config" / "model").is_dir()
+    assert not (workspace / "src/usr/config" / "model" / "basics" / "dnn.yaml").exists()
+    assert (workspace / "src/usr/config" / "model").is_dir()
 
     # Remaining child components are still intact!
     assert (workspace / "src" / "usr" / "models" / "dueling_resnet").is_dir()
@@ -148,11 +148,11 @@ def test_suite_installation_and_modular_uninstallation(tmp_path):
     # 5. Full suite uninstallation protects category directories (agent/, model/, env/)
     uninstalled_suite = installer.uninstall(suite_comp)
     assert uninstalled_suite is True
-    assert (workspace / "in" / "config" / "agent").is_dir()
-    assert (workspace / "in" / "config" / "model").is_dir()
-    assert (workspace / "in" / "config" / "env").is_dir()
-    assert not (workspace / "in" / "config" / "agent" / "sb3").exists()
-    assert not (workspace / "in" / "config" / "model" / "basics").exists()
+    assert (workspace / "src/usr/config" / "agent").is_dir()
+    assert (workspace / "src/usr/config" / "model").is_dir()
+    assert (workspace / "src/usr/config" / "env").is_dir()
+    assert not (workspace / "src/usr/config" / "agent" / "sb3").exists()
+    assert not (workspace / "src/usr/config" / "model" / "basics").exists()
 
 
 def test_missing_component_run_guard(tmp_path):
@@ -196,7 +196,9 @@ def test_missing_component_run_guard(tmp_path):
     mock_tree.environments = {"cartpole": MagicMock()}
     mock_tree.agents = {}
     mock_tree.models = {}
-    mock_tree.config_root = tmp_path
+    from src.app.workspace import WorkspacePaths
+    mock_tree.workspace = WorkspacePaths(tmp_path)
+    mock_tree.config_root = mock_tree.workspace.config
     win.config_tree.tree_model = mock_tree
 
     # Test check_missing_components
@@ -211,7 +213,7 @@ def test_missing_component_run_guard(tmp_path):
     assert "Missing component" in mock_btn.setText.call_args[0][0]
 
     # Named model mappings must be checked by their value, not the key "name".
-    model_dir = tmp_path / "model" / "basics"
+    model_dir = mock_tree.workspace.config / "model" / "basics"
     model_dir.mkdir(parents=True)
     (model_dir / "dnn.yaml").write_text("architecture: dnn\n")
     mock_viewer.raw_data["methods"]["my_ppo"]["model"] = {
@@ -229,7 +231,7 @@ def test_component_run_guard_uses_composed_inherited_environment(tmp_path, monke
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.delenv("THETA_DATA_DIR", raising=False)
-    config_root = tmp_path / "in" / "config"
+    config_root = tmp_path / "src/usr/config"
     for group in ("agent", "model", "env"):
         (config_root / group).mkdir(parents=True)
     (config_root / "agent" / "fixture_agent.yaml").write_text("algorithm: fixture_agent\n", encoding="utf-8")
@@ -242,7 +244,7 @@ def test_component_run_guard_uses_composed_inherited_environment(tmp_path, monke
     (provider / "provider.py").write_text("raise AssertionError('UI executed provider')\n")
     (provider / ".theta_component.json").write_text(json.dumps({
         "id": "fixture", "name": "Fixture", "version": "1.0.0", "kind": "model",
-        "storage_version": 2, "api_version": 1,
+        "storage_version": 3, "api_version": 1,
         "capabilities": [{"id": name, "kind": kind, "entry_point": "provider.py:Provider"}
                          for kind, name in [("env", "fixture_env"), ("algorithm", "fixture_agent"),
                                             ("model", "fixture_model")]],
@@ -309,10 +311,10 @@ def test_dl_basics_suite_and_mnist_package_install_and_uninstall(tmp_path):
     assert (workspace / "src" / "usr" / "models" / "autoencoder").is_dir()
 
     # Configs deployed
-    assert (workspace / "in" / "config" / "model" / "basics" / "mlp.yaml").is_file()
-    assert (workspace / "in" / "config" / "model" / "basics" / "transformer.yaml").is_file()
-    assert (workspace / "in" / "config" / "model" / "basics" / "lstm.yaml").is_file()
-    assert (workspace / "in" / "config" / "model" / "basics" / "autoencoder.yaml").is_file()
+    assert (workspace / "src/usr/config" / "model" / "basics" / "mlp.yaml").is_file()
+    assert (workspace / "src/usr/config" / "model" / "basics" / "transformer.yaml").is_file()
+    assert (workspace / "src/usr/config" / "model" / "basics" / "lstm.yaml").is_file()
+    assert (workspace / "src/usr/config" / "model" / "basics" / "autoencoder.yaml").is_file()
 
     # 2. Install mnist plugin
     mnist_zip = hub_packages / "mnist-1.0.0.zip"
@@ -329,7 +331,7 @@ def test_dl_basics_suite_and_mnist_package_install_and_uninstall(tmp_path):
     installed_mnist = installer.install(mnist_comp)
     assert installed_mnist is True
     assert (workspace / "in" / "envs" / "mnist").is_dir()
-    assert (workspace / "in" / "config" / "env" / "mnist" / "mnist.yaml").is_file()
+    assert (workspace / "src/usr/config" / "env" / "mnist" / "mnist.yaml").is_file()
 
     # 3. Modular uninstallation of mlp
     mlp_meta = json.loads((workspace / "src" / "usr" / "models" / "mlp" / ".theta_component.json").read_text(encoding="utf-8"))
@@ -337,7 +339,7 @@ def test_dl_basics_suite_and_mnist_package_install_and_uninstall(tmp_path):
     uninstalled_mlp = installer.uninstall_by_metadata(mlp_meta)
     assert uninstalled_mlp is True
     assert not (workspace / "src" / "usr" / "models" / "mlp").exists()
-    assert not (workspace / "in" / "config" / "model" / "basics" / "mlp.yaml").exists()
+    assert not (workspace / "src/usr/config" / "model" / "basics" / "mlp.yaml").exists()
 
     # Remaining models intact
     assert (workspace / "src" / "usr" / "models" / "transformer").is_dir()
@@ -372,5 +374,5 @@ def test_nsfr_and_neumann_packages(tmp_path):
         target = workspace / "src" / "usr" / "models" / comp_id
         assert target.is_dir()
         assert (target / f"{comp_id}.py").is_file()
-        assert (workspace / "in" / "config" / "model" / f"{comp_id}.yaml").is_file()
+        assert (workspace / "src/usr/config" / "model" / f"{comp_id}.yaml").is_file()
 

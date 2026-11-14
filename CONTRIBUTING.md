@@ -78,14 +78,14 @@ src/app/                 # Framework
   services/              # Run catalog, metrics and job store used by the IDE
   data/                  # Offline replay data modules
 src/plugins/             # Bundled and managed research providers and app plugins
-src/usr/                 # User-authored implementations and rules
-in/config/               # Hydra configs: experiment/, agent/, model/, env/, paradigms/, plot/
+src/usr/                 # User-authored implementations, rules and datasets
+src/usr/config/          # Your Hydra configs and overrides: experiment/, agent/, model/, env/, paradigms/, plot/
 plot/                    # Compatibility imports and plotting CLI
 tests/                   # pytest suite
 ```
 
-Managed packages under `src/plugins/{components,app}/installed/` and active component profiles are
-gitignored. Component authors develop native packages separately and install built archives for verification.
+Managed packages under `src/plugins/{components,app}/installed/` and personal profiles under
+`src/usr/config/` are gitignored. Component authors develop native packages separately and install built archives for verification.
 
 ## Common contributions
 
@@ -104,7 +104,7 @@ Plotters are declared as capabilities in native package manifests. Bundled examp
 1. Subclass `BasePlotter` from `src/app/core/plotting/base.py`, passing the plotter's name to `super().__init__("my_plot")`.
 2. Implement `run(self, exp_id, cli_overrides=None)`. Call `self.get_effective_config(exp_id, cli_overrides)`
    to get the merged settings, the experiment's group and the output folder.
-3. Put the default settings in `in/config/plot/<library>/my_plot.yaml`. Research plotters and their defaults
+3. Declare the default settings as the package profile `plot/<library>/my_plot.yaml`. Research plotters and their defaults
    are supplied by components; do not assume a particular losses/convergence package is installed.
 4. Experiments request the plotter by name under their `plots:` section, which can also override its settings.
 

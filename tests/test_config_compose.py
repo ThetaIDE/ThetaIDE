@@ -28,10 +28,7 @@ def gui_compose(config):
 
 @pytest.fixture(autouse=True)
 def isolated_config(fixture_workspace, monkeypatch):
-    import src.app.pipeline.compose as compose_module
-
     monkeypatch.chdir(fixture_workspace)
-    monkeypatch.setattr(compose_module, "CONFIG_DIR", fixture_workspace / "in" / "config")
 
 
 @pytest.fixture
@@ -39,7 +36,7 @@ def export_recipe(fixture_workspace):
     written = []
 
     def write(config):
-        path = fixture_workspace / "in" / "config" / "experiment" / "thetaide" / f"_pytest_export_{len(written)}.yaml"
+        path = fixture_workspace / "src/usr/config/experiment" / "thetaide" / f"_pytest_export_{len(written)}.yaml"
         path.write_text(config.recipe_yaml(), encoding="utf-8")
         written.append(path)
         return f"thetaide/{path.stem}"
@@ -69,7 +66,7 @@ def test_absent_tuning_does_not_compile_as_a_sweep_despite_legacy_flags():
 
 
 def test_composed_tuning_inherits_group_defaults_and_null_masks_them(fixture_workspace):
-    group = fixture_workspace / "in/config/experiment/implicit_tuning"
+    group = fixture_workspace / "src/usr/config/experiment/implicit_tuning"
     group.mkdir()
     (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: optuna, enabled: false}\n")
     (group / "inherited.yaml").write_text(
@@ -143,8 +140,7 @@ def test_sweep_preflight_checks_actual_trial_hydra_paths(monkeypatch):
 
 def test_draft_preview_composes_the_yaml_without_writing_it(fixture_workspace, monkeypatch):
     from src.app.services import config_service
-    monkeypatch.setattr(config_service, "CONFIG_DIR", fixture_workspace / "in" / "config")
-    path = fixture_workspace / "in/config/experiment/thetaide/cartpole_ppo_reference.yaml"
+    path = fixture_workspace / "src/usr/config/experiment/thetaide/cartpole_ppo_reference.yaml"
     before = path.read_text()
     draft = before + "\nseed: 123\nmethods:\n  ppo:\n    agent: ppo\n    model: dnn\n    hidden_sizes: [17, 29]\n"
     report = config_service.compose_report.uncached(REFERENCE, [], draft)
@@ -159,7 +155,7 @@ def test_component_schema_applies_to_the_actual_method_config(fixture_workspace)
     manifest_dir = fixture_workspace / "src/usr/models/dnn"
     manifest_dir.mkdir(parents=True)
     manifest_dir.joinpath(".theta_component.json").write_text(json.dumps({
-        "config_path": "in/config/model/dnn.yaml",
+        "config_path": "model/dnn.yaml",
         "parameter_schema": {"x-theta-validate": True, "type": "object", "properties": {
             "hidden_sizes": {"type": "array", "items": {"type": "integer", "minimum": 1}}
         }},

@@ -12,7 +12,6 @@ recursive-exclude src/usr *
 include src/usr/__init__.py src/usr/algorithms/__init__.py src/usr/algorithms/agent_registry.py src/usr/algorithms/base_agent.py
 include src/usr/models/__init__.py src/usr/models/sequential_spec/__init__.py src/usr/models/sequential_spec/sequential_spec.py
 prune .thetaide
-prune in/datasets
 prune results
 prune scratch
 global-exclude __pycache__ *.pyc .DS_Store

@@ -26,8 +26,7 @@ def test_nested_recipe_identity_reaches_every_provider(fixture_workspace, monkey
     import src.app.pipeline.compose as composition
 
     monkeypatch.chdir(fixture_workspace)
-    root = fixture_workspace / "in/config"
-    monkeypatch.setattr(composition, "CONFIG_DIR", root)
+    root = fixture_workspace / "src/usr/config"
     recipe = root / "experiment/thetaide/path/dir/run.yaml"
     recipe.parent.mkdir(parents=True)
     recipe.write_text("# @package _global_\ndefaults:\n  - /experiment/thetaide/_base\n  - _self_\n")

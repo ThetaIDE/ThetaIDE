@@ -133,7 +133,7 @@ def create_sepsis_reciprocal_preset() -> WorkflowGraph:
     )
 
     mimic_data = make_dataset_source_node(
-        "mimic_dataset", "MIMIC Patient Transitions", "in/datasets/mimic", pos_x=60, pos_y=300
+        "mimic_dataset", "MIMIC Patient Transitions", "src/usr/datasets/mimic", pos_x=60, pos_y=300
     )
     augmenter = make_feature_augmenter_node("feature_augmenter", "V(s) Feature Augmenter", pos_x=440, pos_y=80)
     ep = make_supervised_node(

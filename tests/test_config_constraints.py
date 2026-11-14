@@ -36,7 +36,7 @@ def setUpModule():
         return
 
     _SHARED_TMP = tempfile.TemporaryDirectory()
-    root = Path(_SHARED_TMP.name)
+    root = Path(_SHARED_TMP.name) / "src/usr/config"
 
     # Paradigms
     (root / "paradigms").mkdir(parents=True, exist_ok=True)
@@ -134,11 +134,11 @@ def tearDownModule():
 def an_experiment_in(group):
     """Any experiment in `group`, as (path, rel_path)."""
     if _SHARED_TMP is not None:
-        directory = Path(_SHARED_TMP.name) / "experiment" / group
+        directory = Path(_SHARED_TMP.name) / "src/usr/config/experiment" / group
         for path in sorted(directory.glob("*.yaml")):
             if not path.name.startswith("_"):
                 return path, f"experiment/{group}/{path.name}"
-    directory = Path("in/config/experiment") / group
+    directory = Path("src/usr/config/experiment") / group
     for path in sorted(directory.glob("*.yaml")):
         if not path.name.startswith("_"):
             return path, f"experiment/{group}/{path.name}"
@@ -193,7 +193,7 @@ class ConfigViewerConstraintTest(unittest.TestCase):
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
 class TestConfigTreeAvailable(unittest.TestCase):
     def test_config_tree_is_discoverable(self):
-        self.assertIsNotNone(config_tree(), "frontend must find in/config from a checkout")
+        self.assertIsNotNone(config_tree(), "frontend must find src/usr/config from a checkout")
 
     def test_config_tree_is_cached(self):
         self.assertIs(config_tree(), config_tree())
@@ -395,7 +395,7 @@ class TestTreeToolbar(unittest.TestCase):
     def setUp(self):
         from frontend.config_tree import ConfigTreeWidget
 
-        self.widget = ConfigTreeWidget(root_dir=Path(_SHARED_TMP.name), mode="experiments")
+        self.widget = ConfigTreeWidget(root_dir=Path(_SHARED_TMP.name) / "src/usr/config", mode="experiments")
         self.addCleanup(self.widget.close)
 
     def test_icon_buttons_have_icons_not_unrenderable_glyphs(self):

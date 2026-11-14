@@ -392,7 +392,7 @@ class TestEveryAgentlessParadigm(unittest.TestCase):
 
 
 class TestUnsupervisedParadigmInThePanel(unittest.TestCase):
-    """The panel reads in/config/paradigms/, so a new paradigm needs no UI change —
+    """The panel reads src/usr/config/paradigms/, so a new paradigm needs no UI change —
     this is the test that would fail if that stopped being true."""
 
     def setUp(self):

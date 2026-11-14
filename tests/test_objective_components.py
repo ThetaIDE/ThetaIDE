@@ -171,7 +171,7 @@ def main(cfg):
     cfg = config()
     cfg.theta_objective_runner.script = str(script)
     cfg.variability.evaluation_seed = None
-    cfg.hydra = {"searchpath": [f"file://{root / 'in/config'}"]}
+    cfg.hydra = {"searchpath": [f"file://{root / 'src/usr/config'}"]}
     OmegaConf.save(cfg, tmp_path / "test.yaml")
     env = {**os.environ, "PYTHONPATH": str(root), "HYDRA_FULL_ERROR": "1"}
     command = [sys.executable, "-m", "src.app.objectives.runner", "--config-path", str(tmp_path), "--config-name", "test"]

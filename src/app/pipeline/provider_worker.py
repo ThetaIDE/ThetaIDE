@@ -13,12 +13,22 @@ from src.app.core.provider_loader import resolve_resource
 from src.app.workspace import WorkspacePaths
 
 
+def _effective_profiles(paths, package):
+    """Hash of each declared selector's effective profile: a user override or the package file."""
+    resolver = paths.config_resolver()
+    result = {}
+    for selector in (package.manifest.get("payload") or {}).get("configs", {}):
+        resolved = resolver.resolve(selector)
+        result[selector] = file_hash(resolved.file) if resolved is not None else None
+    return result
+
+
 def provider_snapshot(paths=None):
     paths = paths or WorkspacePaths.for_process()
     return {"workspace": str(paths.root), "providers": [
         {"id": p.id, "version": p.version, "origin": p.origin, "hash": provider_hash(p) if p.origin != "python_distribution" else None,
          "distribution":p.manifest.get("distribution"),
-         "parent": p.manifest.get("parent"), "configs": {rel: file_hash(paths.root / rel) for rel in p.manifest.get("config_paths", []) if (paths.root / rel).is_file()}}
+         "parent": p.manifest.get("parent"), "configs": _effective_profiles(paths, p)}
         for p in get_catalog(paths).packages],
         "overrides": get_catalog(paths).overrides,
         "user_rules": {file.relative_to(paths.rules).as_posix(): file_hash(file) for file in paths.rules.rglob('*')
@@ -32,9 +42,9 @@ def verify_snapshot(snapshot, paths=None):
         package = current.get(record["id"])
         if package is None or package.version != record["version"] or (record.get("hash") is not None and provider_hash(package) != record["hash"]):
             raise RuntimeError(f"Provider {record['id']} differs from launch snapshot; synchronize provider versions/resources before running")
+        current_profiles = _effective_profiles(paths, package)
         for relative, digest in record.get('configs', {}).items():
-            config = paths.config_file(relative)
-            if not config.is_file() or file_hash(config) != digest:
+            if current_profiles.get(relative) != digest:
                 raise RuntimeError(f'Provider config {relative} differs from launch snapshot')
     if get_catalog(paths).overrides != snapshot.get('overrides', get_catalog(paths).overrides):
         raise RuntimeError('Provider override selection differs from launch snapshot')

@@ -2,7 +2,7 @@
 in topological order, wiring artifact outputs between nodes.
 
 This replaces the old reciprocal_task.py hard-coded orchestration.
-Workflow YAML files live in in/config/workflow/<workflow_id>.yaml.
+Workflow YAML files live in src/usr/config/workflow/<workflow_id>.yaml.
 
 Each node declares a paradigm (online_rl, offline_rl, supervised, transform)
 and an experiment_ref pointing to an existing experiment config. The executor
@@ -21,7 +21,7 @@ from src.app.workspace import WorkspacePaths
 
 
 def load_workflow(workflow_ref: Any):
-    """Load a WorkflowGraph from in/config/workflow/<workflow_id>.yaml or from dict/DictConfig."""
+    """Load a WorkflowGraph from src/usr/config/workflow/<workflow_id>.yaml or from dict/DictConfig."""
     from omegaconf import DictConfig, OmegaConf
 
     config_dir = WorkspacePaths.for_process().config / "workflow"

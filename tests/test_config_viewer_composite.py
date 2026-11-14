@@ -19,13 +19,13 @@ def qapp():
 @pytest.fixture(autouse=True)
 def _require_plugins():
     tree = config_tree()
-    if not Path("in/config/experiment/cartpole/final_cartpole.yaml").is_file() or "blendrl" not in tree.models:
+    if not Path("src/usr/config/experiment/cartpole/final_cartpole.yaml").is_file() or "blendrl" not in tree.models:
         pytest.skip("cartpole experiment or blendrl model plugin uninstalled; skipping composite viewer tests")
 
 
 def test_config_viewer_loads_cql_benchmark(qapp, tmp_path):
     # Copy mimic cql_benchmark.yaml to tmp_path
-    src_file = Path("in/config/experiment/mimic/cql_benchmark.yaml")
+    src_file = Path("src/usr/config/experiment/mimic/cql_benchmark.yaml")
     assert src_file.is_file()
 
     dest_file = tmp_path / "cql_benchmark.yaml"
@@ -84,7 +84,7 @@ def test_config_viewer_loads_cql_benchmark(qapp, tmp_path):
 
 
 def test_config_viewer_loads_cartpole_final(qapp, tmp_path):
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     assert src_file.is_file()
 
     dest_file = tmp_path / "final_cartpole.yaml"
@@ -150,7 +150,7 @@ def test_scoped_candidate_hyperparameters(qapp):
 def test_indented_hierarchy_blocks_in_gui(qapp, tmp_path):
     from frontend.config_viewer import IndentedHierarchyBlock
 
-    src_file = Path("in/config/experiment/mimic/cql_benchmark.yaml")
+    src_file = Path("src/usr/config/experiment/mimic/cql_benchmark.yaml")
     dest_file = tmp_path / "cql_benchmark.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -167,7 +167,7 @@ def test_indented_hierarchy_blocks_in_gui(qapp, tmp_path):
 
 
 def test_add_and_remove_parameters_in_hierarchy(qapp, tmp_path):
-    src_file = Path("in/config/experiment/mimic/cql_benchmark.yaml")
+    src_file = Path("src/usr/config/experiment/mimic/cql_benchmark.yaml")
     dest_file = tmp_path / "cql_benchmark.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -192,7 +192,7 @@ def test_add_and_remove_parameters_in_hierarchy(qapp, tmp_path):
 
 
 def test_top_box_defaults_hidden_until_added(qapp, tmp_path):
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -225,7 +225,7 @@ def test_top_box_defaults_hidden_until_added(qapp, tmp_path):
 
 def test_method_card_duplicate_and_header_plus_icons(qapp, tmp_path):
     from PyQt6.QtWidgets import QToolButton
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -260,7 +260,7 @@ def test_method_card_duplicate_and_header_plus_icons(qapp, tmp_path):
 
 def test_add_new_method_flow_empty_and_invalid(qapp, tmp_path):
     from frontend.config_viewer import InlineTitleEditor
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -303,7 +303,7 @@ def test_add_new_method_flow_empty_and_invalid(qapp, tmp_path):
 def test_add_new_method_valid_empty_method(qapp, tmp_path):
     from frontend.widgets import ComboBox
     from frontend.config_viewer import IndentedHierarchyBlock
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -335,7 +335,7 @@ def test_add_new_method_valid_empty_method(qapp, tmp_path):
 def test_sb3_algorithms_selectable_and_labels_renamed(qapp, tmp_path):
     from PyQt6.QtWidgets import QLabel
     from frontend.widgets import ComboBox
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -368,7 +368,7 @@ def test_blendrl_model_block_and_logic_module_rendering(qapp, tmp_path):
     from frontend.config_viewer import IndentedHierarchyBlock
     from PyQt6.QtWidgets import QLabel
 
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 
@@ -500,7 +500,7 @@ def test_blendrl_model_block_and_logic_module_rendering(qapp, tmp_path):
 
 
 def test_blendrl_params_and_rules_editing(qapp, tmp_path):
-    src_file = Path("in/config/experiment/cartpole/final_cartpole.yaml")
+    src_file = Path("src/usr/config/experiment/cartpole/final_cartpole.yaml")
     dest_file = tmp_path / "final_cartpole.yaml"
     shutil.copy(src_file, dest_file)
 

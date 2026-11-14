@@ -3,7 +3,7 @@
   "name": "Network Structure",
   "kind": "monitor",
   "version": "0.1.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "description": "Bounded feedforward topology, weights and fixed-probe activations.",
   "author": {
@@ -57,9 +57,9 @@
       }
     }
   ],
-  "config_path": "in/config/monitor/network-structure.yaml",
+  "config_path": "monitor/network-structure.yaml",
   "config_paths": [
-    "in/config/monitor/network-structure.yaml"
+    "monitor/network-structure.yaml"
   ],
   "payload": {
     "implementations": [
@@ -70,7 +70,7 @@
       "README.md"
     ],
     "configs": {
-      "in/config/monitor/network-structure.yaml": "configs/monitor/network-structure.yaml"
+      "monitor/network-structure.yaml": "configs/monitor/network-structure.yaml"
     }
   }
 }

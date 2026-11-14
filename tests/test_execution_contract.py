@@ -41,7 +41,7 @@ def test_old_selected_hub_profile_fails():
 
 def sentinel_workspace(tmp_path, runner="Sentinel"):
     root = Path(__file__).resolve().parents[1]
-    config = tmp_path / "in/config"
+    config = tmp_path / "src/usr/config"
     shutil.copytree(root / "src/app/config_defaults", config)
     (config / "paradigms").mkdir(exist_ok=True)
     (config / "paradigms/probe.yaml").write_text(
@@ -58,7 +58,7 @@ def sentinel_workspace(tmp_path, runner="Sentinel"):
     package = tmp_path / "src/usr/packages/probe"
     package.mkdir(parents=True)
     (package / ".theta_component.json").write_text(json.dumps({
-        "id": "probe", "name": "Probe", "description": "Execution test", "author": "Theta", "version": "1.0.0", "storage_version": 2, "api_version": 1, "kind": "suite",
+        "id": "probe", "name": "Probe", "description": "Execution test", "author": "Theta", "version": "1.0.0", "storage_version": 3, "api_version": 1, "kind": "suite",
         "payload": {"implementations": ["probe.py"], "resources": [], "configs": {}},
         "capabilities": [
             {"id": "Sentinel", "kind": "component", "entry_point": "probe.py:Sentinel"},
@@ -144,7 +144,7 @@ def test_configured_evaluator_runs_once():
 
 def test_pipeline_sweep_invokes_worker_once_per_trial(tmp_path):
     root = sentinel_workspace(tmp_path)
-    experiment = tmp_path / 'in/config/experiment/probe.yaml'
+    experiment = tmp_path / 'src/usr/config/experiment/probe.yaml'
     with experiment.open('a') as handle:
         handle.write('    tune:\n      model.lr: {type: choice, values: [0.001, 0.002]}\n')
     environment = {**os.environ, 'THETA_WORKSPACE': str(tmp_path), 'PYTHONPATH': str(root)}

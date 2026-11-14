@@ -21,7 +21,7 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path, jobs)
         'import hydra, time, os, json\nfrom pathlib import Path\n'
         'from src.app.services import resource_budget\n'
         'resource_budget.host_capacity=lambda: (8,32*resource_budget.GIB,32*resource_budget.GIB)\n'
-        f'@hydra.main(version_base=None, config_path={str(project / "in/config")!r}, config_name="config")\n'
+        f'@hydra.main(version_base=None, config_path={str(project / "src/usr/config")!r}, config_name="config")\n'
         'def main(cfg):\n'
         '    assert os.environ["THETA_TEST_ENV"] == "passed"\n'
         '    assert os.environ["OMP_NUM_THREADS"] == "1"\n'
@@ -36,7 +36,7 @@ def test_real_managed_trials_overlap_and_keep_separate_artifacts(tmp_path, jobs)
            'THETAIDE_SETTINGS_FILE': str(settings), 'THETA_MANAGED_SERIAL': '1', 'THETA_MANAGED_THREADS': '1',
            'OMP_NUM_THREADS': '1'}
     from src.app.workspace import WorkspacePaths
-    search = '[' + ','.join('file://' + str(path) for path in WorkspacePaths(project).config_roots() if path != project / 'in/config') + ']'
+    search = '[' + ','.join('file://' + str(path) for path in WorkspacePaths(project).config_roots() if path != project / 'src/usr/config') + ']'
     result = subprocess.run([sys.executable, str(script), '--multirun', 'hydra.searchpath=' + search, 'hydra/sweeper=optuna_offline',
         f'hydra.sweeper.storage={storage}', 'hydra.sweeper.study_name=parallel', 'hydra.sweeper.n_trials=3',
         f'hydra.sweeper.n_jobs={jobs}', f'hydra.sweep.dir={tmp_path}/hydra', '++trainer.accelerator=cpu',

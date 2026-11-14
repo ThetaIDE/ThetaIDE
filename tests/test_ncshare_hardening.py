@@ -109,9 +109,9 @@ def test_input_limits_and_fresh_mtimes(tmp_path):
     root.mkdir(); destination.mkdir()
     (root / 'data').write_bytes(b'payload')
     os.utime(root / 'data', (1, 1))
-    policy = {**DEFAULTS, 'inputs': [{'source': 'data', 'target': 'in/datasets/data'}]}
+    policy = {**DEFAULTS, 'inputs': [{'source': 'data', 'target': 'src/usr/datasets/data'}]}
     stage_inputs(root, destination, policy)
-    assert (destination / 'in/datasets/data').stat().st_mtime > time.time() - 10
+    assert (destination / 'src/usr/datasets/data').stat().st_mtime > time.time() - 10
     assert read_json(destination / '.theta-inputs.json')['files'][0]['original_mtime_ns'] == 1000000000
     policy['max_input_bytes'] = 1
     with pytest.raises(ValueError, match='max_input_bytes'): stage_inputs(root, tmp_path / 'other', policy)
@@ -394,7 +394,7 @@ def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monk
     root, scratch, work = [tmp_path / name for name in ('control', 'scratch', 'work')]
     for path in (root, scratch, work): path.mkdir()
     freeze(project, root)
-    target = root / 'in/config/experiment/ncshare'
+    target = root / 'src/usr/config/experiment/ncshare'
     target.mkdir(parents=True, exist_ok=True)
     for name in ('cpu_smoke', 'cpu_study'):
         shutil.copyfile(project / f'docs/development/examples/ncshare_{name}.yaml', target / f'{name}.yaml')

@@ -34,7 +34,7 @@ def test_native_profiles_compose_through_hydra(tmp_path):
     from hydra.core.global_hydra import GlobalHydra
     from omegaconf import OmegaConf
     component(tmp_path)
-    config = tmp_path / 'in/config'
+    config = tmp_path / 'src/usr/config'
     config.mkdir(parents=True)
     (config / 'config.yaml').write_text('defaults:\n  - site: example/common\n  - _self_\n')
     paths = WorkspacePaths(tmp_path)
@@ -62,8 +62,8 @@ def test_components_tree_groups_site_profiles(tmp_path, monkeypatch):
     from frontend.config_tree import ConfigTreeWidget
     app = QApplication.instance() or QApplication([])
     component(tmp_path)
-    (tmp_path / 'in/config').mkdir(parents=True)
-    tree = ConfigTreeWidget(root_dir=tmp_path / 'in/config', mode='components')
+    (tmp_path / 'src/usr/config').mkdir(parents=True)
+    tree = ConfigTreeWidget(root_dir=tmp_path / 'src/usr/config', mode='components')
     def visit(node):
         for i in range(node.childCount()):
             child = node.child(i)

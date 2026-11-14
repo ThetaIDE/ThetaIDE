@@ -23,14 +23,13 @@ def schemas_for_method(workspace: Path, settings: dict, *, validation_only: bool
         if isinstance(selected, dict):
             selected = selected.get("name") or selected.get("algorithm") or selected.get("architecture") or selected.get("type")
         if isinstance(selected, str) and selected:
-            wanted[f"in/config/{kind}/{selected}.yaml"] = kind
+            wanted[f"{kind}/{selected}.yaml"] = kind
     result = {}
     from src.app.workspace import WorkspacePaths
     paths = workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(workspace)
     resolver = paths.config_resolver()
-    for config_path, kind in wanted.items():
-        relative = config_path.removeprefix("in/config/")
-        package, _ = resolver.owner(relative)
+    for selector, kind in wanted.items():
+        package, _ = resolver.owner(selector)
         if package is None:
             continue
         data = package.manifest
@@ -38,10 +37,7 @@ def schemas_for_method(workspace: Path, settings: dict, *, validation_only: bool
         if not isinstance(schema, dict):
             continue
         profiles = schema.get("x-theta-config-schemas") or {}
-        declared = list(data.get("config_paths") or [])
-        if data.get("config_path"):
-            declared.append(data["config_path"])
-        selected_schema = profiles.get(config_path, schema)
+        selected_schema = profiles.get(selector, schema)
         if not isinstance(selected_schema, dict):
             continue
         if not validation_only or selected_schema.get("x-theta-validate", schema.get("x-theta-validate")) is True:

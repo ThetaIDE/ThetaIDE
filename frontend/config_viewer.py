@@ -2516,7 +2516,7 @@ class ConfigViewer(QWidget):
         if "description" in data and data["description"]:
             overrides.append(f"++description='{data['description']}'")
 
-        # Hydra config-group selections (defaults in in/config/config.yaml)
+        # Hydra config-group selections (defaults in the root config.yaml)
         for group in ("paradigm", "env", "site"):
             value = (self._get_explicit_env() if group == "env" else
                      self._site_selection(data) if group == "site" else data.get(group))

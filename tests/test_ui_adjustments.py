@@ -40,7 +40,7 @@ class TestUIAdjustments(unittest.TestCase):
         self.tmp_root = Path(self.temp_dir.name)
 
         # A real workspace layout: the config tree resolves profiles through the workspace.
-        config_dir = self.tmp_root / "in" / "config"
+        config_dir = self.tmp_root / "src/usr/config"
         agent_dir = config_dir / "agent"
         agent_dir.mkdir(parents=True, exist_ok=True)
         (agent_dir / "ppo.yaml").write_text("algorithm: ppo\nlr: 0.0003\nclip_range: 0.2\n", encoding="utf-8")
@@ -307,7 +307,7 @@ class TestUIAdjustments(unittest.TestCase):
         from frontend.config_model import ConfigTree
         from frontend.config_viewer import IndentedHierarchyBlock, set_config_tree
 
-        config_dir = self.tmp_root / "in" / "config"
+        config_dir = self.tmp_root / "src/usr/config"
         model_dir = config_dir / "model"
         model_dir.mkdir(parents=True, exist_ok=True)
         (model_dir / "blendrl.yaml").write_text(

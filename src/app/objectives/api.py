@@ -148,7 +148,7 @@ def create_objective(name: str, template="learning_curve", workspace=None):
     metadata = {**component.metadata, "source": source.name}
     source.write_text(component.source.read_text(encoding="utf-8"), encoding="utf-8")
     manifest.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-    package = {'id':name,'name':name,'kind':'objective','version':'0.1.0','storage_version':2,'api_version':1,
+    package = {'id':name,'name':name,'kind':'objective','version':'0.1.0','storage_version':3,'api_version':1,
                'capabilities':[{'id':name,'kind':'objective','entry_point':manifest.name}],
                'payload':{'implementations':[source.name],'resources':[manifest.name],'configs':{}}}
     (root / '.theta_component.json').write_text(json.dumps(package,indent=2)+'\n')

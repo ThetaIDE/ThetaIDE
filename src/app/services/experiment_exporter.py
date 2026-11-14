@@ -102,8 +102,6 @@ class ExperimentExporter:
         opts = options or ExportOptions()
 
         try:
-            from src.app.services.rulesets import require_canonical_rules_layout, reject_legacy_rules_paths
-            require_canonical_rules_layout(self.workspace_root)
             group, exp_name, exp_yaml_path = self._resolve_experiment_path(experiment_id_or_path)
             if not exp_yaml_path.exists():
                 return ExportResult(
@@ -120,7 +118,6 @@ class ExperimentExporter:
                     error=f"Failed to parse experiment YAML '{exp_yaml_path}': {e}",
                 )
 
-            reject_legacy_rules_paths(raw_cfg)
             # Dictionary mapping workspace-relative posix path -> source absolute Path
             files_to_pack: Dict[str, Path] = {}
 
@@ -224,7 +221,7 @@ class ExperimentExporter:
                 # Store all packaged assets with their relative workspace path
                 for rel_path, abs_path in sorted(files_to_pack.items()):
                     if abs_path.is_file():
-                        zf.write(abs_path, arcname=('configs/'+rel_path.removeprefix('in/config/') if rel_path.startswith('in/config/') else rel_path))
+                        zf.write(abs_path, arcname=rel_path)
 
             file_list = sorted(list(files_to_pack.keys()) + [".theta_component.json", "README.md"])
             log.info("Exported experiment '%s/%s' (%d files) to %s", group, exp_name, len(file_list), output_path)
@@ -253,7 +250,7 @@ class ExperimentExporter:
             if len(matches) != 1:
                 raise ValueError(f"Recipe is not an effective workspace profile: {path}")
             value = matches[0]
-        value = value.removeprefix("src/usr/config/").removeprefix("in/config/").removeprefix("experiment/")
+        value = value.removeprefix("src/usr/config/").removeprefix("experiment/")
         relative = Path(value).with_suffix(".yaml")
         source = self.paths.resolve_config(Path("experiment") / relative)
         group = relative.parts[0] if len(relative.parts) > 1 else "general"
@@ -262,7 +259,7 @@ class ExperimentExporter:
     def _config_key(self, path):
         for selector in self.paths.config_resolver().selectors():
             if self.paths.resolve_config(selector) == path:
-                return "in/config/" + selector
+                return "configs/" + selector
         return path.relative_to(self.workspace_root).as_posix()
 
     def _trace_group_templates(self, group, cfg, files_to_pack):
@@ -273,7 +270,7 @@ class ExperimentExporter:
                 continue
             tail = selector.removeprefix(prefix)
             if tail == "_base.yaml" or tail.startswith("methods/") or tail.removesuffix(".yaml") in defaults:
-                files_to_pack["in/config/" + selector] = self.paths.resolve_config(selector)
+                files_to_pack["configs/" + selector] = self.paths.resolve_config(selector)
 
     def _resolve_env_name(self, cfg: Dict[str, Any], group: str) -> str | None:
         """Extract environment name from configuration or defaults."""
@@ -313,7 +310,7 @@ class ExperimentExporter:
         return None
 
     def _find_config_file(self, folder: str, name: str) -> Path | None:
-        """Find a configuration file in in/config/<folder>/ directly or recursively."""
+        """Find a configuration file in the config root's <folder>/ directly or recursively."""
         for suffix in (".yaml", ".yml"):
             path = self.paths.resolve_config(f"{folder}/{name}{suffix}")
             if path.is_file():
@@ -379,16 +376,16 @@ class ExperimentExporter:
         files_to_pack: Dict[str, Path],
         raw_cfg: Dict[str, Any] | None = None,
     ) -> None:
-        """Trace any associated DAG workflows in in/config/workflow/."""
+        """Trace any associated DAG workflows in the workflow config group."""
         names = {str(raw_cfg["workflow"])} if raw_cfg and raw_cfg.get("workflow") else set()
         for selector in self.paths.config_resolver().selectors("workflow"):
             if group in Path(selector).stem or Path(selector).stem in names:
-                files_to_pack["in/config/" + selector] = self.paths.resolve_config(selector)
+                files_to_pack["configs/" + selector] = self.paths.resolve_config(selector)
 
     def _trace_all_group_experiments(self, group, files_to_pack):
         for selector in self.paths.config_resolver().selectors("experiment"):
             if selector.startswith(f"experiment/{group}/"):
-                files_to_pack["in/config/" + selector] = self.paths.resolve_config(selector)
+                files_to_pack["configs/" + selector] = self.paths.resolve_config(selector)
 
     def export_group(
         self,
@@ -497,7 +494,7 @@ class ExperimentExporter:
             zf.writestr("README.md", readme_content + "\n")
             for rel_path, abs_path in sorted(files_to_pack.items()):
                 if abs_path.is_file():
-                    zf.write(abs_path, arcname=('configs/'+rel_path.removeprefix('in/config/') if rel_path.startswith('in/config/') else rel_path))
+                    zf.write(abs_path, arcname=rel_path)
 
         file_list = sorted(list(files_to_pack.keys()) + [".theta_component.json", "README.md"])
         log.info("Exported experiment group '%s' (%d files) to %s", group, len(file_list), output_path)
@@ -530,7 +527,7 @@ class ExperimentExporter:
             if agent_name and isinstance(agent_name, str):
                 agents_found.add(agent_name)
                 self._trace_declared_provider('algorithm',agent_name,files_to_pack)
-                # in/config/agent/<agent>.yaml (direct or recursive)
+                # agent/<agent>.yaml (direct or recursive)
                 agent_yaml = self._find_config_file("agent", agent_name)
                 if agent_yaml and agent_yaml.is_file():
                     rel = self._config_key(agent_yaml)
@@ -582,7 +579,7 @@ class ExperimentExporter:
             _collect_models(m_cfg.get("model"))
             for m in sorted(set(extracted_models)):
                 models_found.add(m)
-                # in/config/model/<m>.yaml (direct or recursive)
+                # model/<m>.yaml (direct or recursive)
                 model_yaml = self._find_config_file("model", m)
                 if model_yaml and model_yaml.is_file():
                     rel = self._config_key(model_yaml)
@@ -611,7 +608,6 @@ class ExperimentExporter:
         with tempfile.TemporaryDirectory(prefix='theta-experiment-export-') as temporary:
             root=Path(temporary)
             for relative, source in files.items():
-                relative='configs/'+relative.removeprefix('in/config/') if relative.startswith('in/config/') else relative
                 dest=root/relative;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,dest)
             validate_native_package(manifest,root)
 
@@ -625,7 +621,7 @@ class ExperimentExporter:
             if not owners: continue
             owner = max(owners, key=lambda p: len(p.root.parts))
             dependencies[owner.id] = {'id': owner.id, 'version': '==' + owner.version}
-            if not relative.startswith('in/config/'):
+            if not relative.startswith('configs/'):
                 files.pop(relative)
         # Optional checkpoints are reproducibility resources, never runtime results to deploy.
         for relative in list(files):
@@ -647,7 +643,8 @@ class ExperimentExporter:
         """Generate component manifest matching Theta Hub specifications."""
         is_group_bundle = exp_name in ("all", group)
         component_id = group if is_group_bundle else f"{group}_{exp_name}".replace("/", "_")
-        config_paths = sorted([k for k in files if k.startswith("in/config/")])
+        config_files = sorted(k for k in files if k.startswith("configs/"))
+        config_paths = [k.removeprefix("configs/") for k in config_files]
         manifest = {
             "id": component_id,
             "name": f"{group.replace('_', ' ').title()} Experiment Suite" if is_group_bundle else f"{group}/{exp_name}",
@@ -665,13 +662,13 @@ class ExperimentExporter:
             "package_contents": files,
         }
         if not is_group_bundle:
-            manifest["entry_point"] = f"in/config/experiment/{group}/{exp_name}.yaml"
+            manifest["entry_point"] = f"experiment/{group}/{exp_name}.yaml"
         if paradigms:
             manifest["paradigms"] = paradigms
-        manifest.update(storage_version=2, api_version=1,
+        manifest.update(storage_version=3, api_version=1,
             payload={'implementations':[f for f in files if f.endswith('.py')],
-                     'configs':{f:'configs/'+f.removeprefix('in/config/') for f in config_paths},
-                     'resources':[f for f in files if f not in config_paths and not f.endswith('.py')]},
+                     'configs':{f.removeprefix('configs/'):f for f in config_files},
+                     'resources':[f for f in files if f not in config_files and not f.endswith('.py')]},
             dependencies={'components':getattr(self, '_package_dependencies', [])})
         manifest['capabilities'] = []
         if any(f.startswith('resources/rules/') for f in files): manifest['rules_root'] = 'resources/rules'

@@ -24,7 +24,7 @@ def declared_workspace(tmp_path, monkeypatch):
     (root / "provider.py").write_text("import missing_startup_dependency_123\nclass Provider: pass\n")
     manifest = {
         "id": "declared", "name": "Declared", "version": "1.0.0", "kind": "model",
-        "storage_version": 2, "api_version": 1,
+        "storage_version": 3, "api_version": 1,
         "capabilities": [
             {"id": name, "kind": kind, "aliases": [alias], "entry_point": "provider.py:Provider"}
             for kind, name, alias in [("algorithm", "declared/agent", "AgentAlias"),
@@ -70,7 +70,7 @@ def test_availability_uses_aliases_variants_and_one_discovery_pass(declared_work
 
 def test_restore_loads_only_active_and_reads_latest_inactive_file(tmp_path):
     app = QApplication.instance() or QApplication([])
-    config = tmp_path / "in/config"
+    config = tmp_path / "src/usr/config"
     folder = config / "experiment/g"
     folder.mkdir(parents=True)
     for name in ("one", "two", "three"):
@@ -120,9 +120,11 @@ def test_restore_loads_only_active_and_reads_latest_inactive_file(tmp_path):
 
 def test_missing_saved_active_falls_back_to_first_tab(tmp_path):
     app = QApplication.instance() or QApplication([])
-    (tmp_path / "one.yaml").write_text("seed: 7\n")
+    root = tmp_path / "src/usr/config"
+    root.mkdir(parents=True)
+    (root / "one.yaml").write_text("seed: 7\n")
     manager = ConfigTabManager()
-    manager.restore_files(tmp_path, ["one.yaml"], "gone.yaml")
+    manager.restore_files(root, ["one.yaml"], "gone.yaml")
     assert manager.current_viewer().raw_data["seed"] == 7
     manager.close()
 
@@ -167,7 +169,7 @@ module.TerminalPanel = Terminal
 module.JobManager = Jobs
 module.LocalBackend = Backend
 root = Path(sys.argv[1])
-folder = root / 'in/config/experiment/g'
+folder = root / 'src/usr/config/experiment/g'
 folder.mkdir(parents=True)
 for name in ('one', 'two'):
     (folder / (name + '.yaml')).write_text('experiment_id: ' + name + '\nmethods: {m: {agent: startup/agent, model: startup/model}}\n')
@@ -176,7 +178,7 @@ provider.mkdir(parents=True)
 (provider / 'provider.py').write_text('import torch\nraise AssertionError("provider executed")\n')
 (provider / '.theta_component.json').write_text(json.dumps({
     'id': 'startup', 'name': 'Startup', 'version': '1.0.0', 'kind': 'model',
-    'storage_version': 2, 'api_version': 1,
+    'storage_version': 3, 'api_version': 1,
     'capabilities': [{'kind': k, 'id': 'startup/' + n, 'entry_point': 'provider.py:Provider'}
                      for k, n in [('algorithm', 'agent'), ('model', 'model'), ('env', 'env')]],
     'payload': {'implementations': ['provider.py'], 'resources': [], 'configs': {}}}))

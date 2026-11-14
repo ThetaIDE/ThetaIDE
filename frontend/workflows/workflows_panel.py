@@ -494,11 +494,15 @@ class WorkflowsPanel(QWidget):
         self._clear_inspector_content()
         self._show_diagram_overview()
 
+    def _workflow_dir(self):
+        from src.app.workspace import WorkspacePaths
+        return WorkspacePaths.for_process().config / "workflow"
+
     def save_yaml_dialog(self):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Workflow Diagram",
-            str(Path("in/config/workflow") / f"{self.scene.graph.id}.yaml"),
+            str(self._workflow_dir() / f"{self.scene.graph.id}.yaml"),
             "YAML Files (*.yaml *.yml)"
         )
         if path:
@@ -510,7 +514,7 @@ class WorkflowsPanel(QWidget):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Workflow Diagram",
-            "in/config/workflow",
+            str(self._workflow_dir()),
             "YAML Files (*.yaml *.yml)"
         )
         if path:

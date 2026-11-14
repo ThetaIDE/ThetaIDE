@@ -72,7 +72,7 @@ class TestPluginSystem(unittest.TestCase):
         from src.app.components.models import HubComponent, ReleaseInfo
         from src.app.workspace import WorkspacePaths
         meta = {"id": self.plugin_id, "name": "Sample Plugin", "kind": "plugin", "version": "0.1.0",
-                "storage_version": 2, "api_version": 1,
+                "storage_version": 3, "api_version": 1,
                 "payload": {"implementations": ["__init__.py"], "resources": [], "configs": {}},
                 "capabilities": [{"id": self.plugin_id, "kind": "plugin", "entry_point": "__init__.py:SamplePlugin"}]}
         archive = Path(self.temp_dir) / f"{self.plugin_id}-0.1.0.zip"

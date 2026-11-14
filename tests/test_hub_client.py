@@ -158,16 +158,17 @@ class TestHubClientAndInstaller(unittest.TestCase):
             self.temp_dir, "sample-rl-agent", kind="method",
             files={"main.py": "class Agent: pass\n"},
             capabilities=[{"id": "sample-rl-agent", "kind": "algorithm", "entry_point": "main.py:Agent"}],
-            configs={"in/config/agent/sample-rl-agent.yaml": "learning_rate: 0.001\n"},
+            configs={"agent/sample-rl-agent.yaml": "learning_rate: 0.001\n"},
         )
         installer = self.client.installer
         self.assertFalse(installer.check_installed(comp)[0])
         self.assertTrue(installer.install(comp))
         dest = installer.resolve_target_dir(comp)
-        deployed_cfg = self.workspace_dir / "in/config/agent/sample-rl-agent.yaml"
+        deployed_cfg = installer.paths.resolve_config("agent/sample-rl-agent.yaml")
         self.assertTrue((dest / "main.py").is_file())
-        self.assertTrue((dest / "configs/agent/sample-rl-agent.yaml").is_file())
+        self.assertEqual(deployed_cfg, dest / "configs/agent/sample-rl-agent.yaml")
         self.assertEqual(deployed_cfg.read_text(), "learning_rate: 0.001\n")
+        self.assertFalse((installer.paths.config / "agent/sample-rl-agent.yaml").exists())
         self.assertEqual((dest / "main.py").stat().st_mode & 0o222, 0)
         self.assertEqual((dest / ".theta_component.json").stat().st_mode & 0o222, 0)
         self.assertTrue(installer.is_installed_file(deployed_cfg))
@@ -369,10 +370,10 @@ class TestHubClientAndInstaller(unittest.TestCase):
 
     def test_suite_dependencies_have_independent_installations(self):
         model = native_component(self.temp_dir, "suite-model", configs={
-            "in/config/model/suite-model.yaml": "architecture: suite-model\n",
+            "model/suite-model.yaml": "architecture: suite-model\n",
         })
         data = native_component(self.temp_dir, "suite-data", kind="datamodule", configs={
-            "in/config/data/suite-data.yaml": "data_module: suite-data\n",
+            "data/suite-data.yaml": "data_module: suite-data\n",
         })
         suite = native_component(self.temp_dir, "example-suite", kind="suite", dependencies=[model.id, data.id])
         self.client.components = [suite, model, data]
@@ -388,9 +389,10 @@ class TestHubClientAndInstaller(unittest.TestCase):
         # Removing a suite never removes another package's implementation or profiles.
         for component in (model, data):
             self.assertTrue(installer.resolve_target_dir(component).is_dir())
-            self.assertTrue(installer.has_configs(component))
+            selector = next(iter(component.extra["payload"]["configs"]))
+            self.assertIsNotNone(installer.paths.config_resolver().resolve(selector))
             self.assertTrue(installer.uninstall(component))
             self.assertFalse(installer.resolve_target_dir(component).exists())
-            self.assertFalse(installer.has_configs(component))
+            self.assertIsNone(installer.paths.config_resolver().resolve(selector))
 
 

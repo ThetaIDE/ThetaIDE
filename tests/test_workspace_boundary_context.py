@@ -44,14 +44,13 @@ def test_inventory_preserves_ignored_bytes_modes_and_external_references(tmp_pat
     recipe.write_text("dataset_path: /external/data.npz\n")
     first = inventory(paths)
     assert inventory(paths) == first
-    record = next(item for item in first["files"] if item["path"] == "in/datasets/ignored.npz")
+    record = next(item for item in first["files"] if item["path"] == "src/usr/datasets/ignored.npz")
     assert record["mode"] == 0o640
-    assert record["intended_destination"] == "src/usr/datasets/ignored.npz"
     assert record["tracked"] is False
-    assert first["dataset_references"] == [{"file": "in/config/experiment/ignored.yaml", "field": "dataset_path",
+    assert next(item for item in first["files"] if item["path"] == "src/usr/config/experiment/ignored.yaml")["selector"] == "experiment/ignored.yaml"
+    assert first["dataset_references"] == [{"file": "src/usr/config/experiment/ignored.yaml", "field": "dataset_path",
                                                "value": "/external/data.npz", "external": True}]
     assert dataset.read_bytes() == b"ignored local input"
-    assert not paths.user_inputs.exists()
 
 
 def test_plot_and_export_consume_effective_profiles_from_two_workspaces(tmp_path, monkeypatch):
@@ -67,8 +66,8 @@ def test_plot_and_export_consume_effective_profiles_from_two_workspaces(tmp_path
     for width, name in enumerate(('one', 'two'), 17):
         paths = WorkspacePaths(tmp_path / name)
         provider(paths, 'independent', width)
-        (paths.user_config / 'experiment/probe').mkdir(parents=True)
-        (paths.user_config / 'experiment/probe/run.yaml').write_text(f'group: probe\nseed: {width}\n')
+        (paths.config / 'experiment/probe').mkdir(parents=True)
+        (paths.config / 'experiment/probe/run.yaml').write_text(f'group: probe\nseed: {width}\n')
         override = ConfigurationFiles(paths).create_override('model/fixture/net')
         override.write_text(f'architecture: net\nwidth: {width + 10}\n')
         result = ComponentExporter(paths).export(override, ComponentExportOptions(output_path=paths.root / 'model.zip'))
@@ -98,7 +97,7 @@ def test_site_template_configuration_creates_user_override(tmp_path):
     original = resolved.file.read_bytes()
     configure(paths, 'ncshare/gpu', {'host': 'test-alias', 'remote_root': '/scratch/test'})
     assert resolved.file.read_bytes() == original
-    assert defaults_path(paths, 'ncshare/gpu') == paths.user_config / 'site/ncshare/_defaults.yaml'
+    assert defaults_path(paths, 'ncshare/gpu') == paths.config / 'site/ncshare/_defaults.yaml'
     assert load(paths, 'ncshare/gpu')['connection']['host'] == 'test-alias'
     assert not paths.user('site').exists()
 
@@ -131,10 +130,9 @@ def test_plot_worker_environment_uses_explicit_workspace(tmp_path, monkeypatch):
 def test_editor_group_metadata_uses_usr_profile(tmp_path):
     from frontend.config_model import ConfigTree
     paths = WorkspacePaths(tmp_path)
-    base = paths.user_config / 'experiment/example/_base.yaml'
+    base = paths.config / 'experiment/example/_base.yaml'
     base.parent.mkdir(parents=True)
     base.write_text('paradigm: supervised\nenv: example\nmethods: {first: {model: example}}\n')
     group = ConfigTree(paths.config, workspace=paths).experiment_groups['example']
     assert group.has_base and group.paradigm == 'supervised'
     assert group.env == 'example' and group.base_methods['first']['model'] == 'example'
-    assert not paths.config.exists()

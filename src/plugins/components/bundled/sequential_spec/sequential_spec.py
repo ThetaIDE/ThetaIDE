@@ -4,11 +4,11 @@ Every other architecture in this package is a Python class with named
 hyperparameters, so adding one is a code change. This one takes the
 architecture *itself* as configuration: a ``layers`` list of
 ``{type: ..., **params}`` dicts that the visual model builder writes into
-``in/config/model/<name>.yaml``.
+``src/usr/config/model/<name>.yaml``.
 
 Nothing in the pipeline needed to change to support it. ``build_model``
 already forwards unrecognised config keys to the constructor, and
-``in/config/model/`` is already scanned to populate the panel's model combo,
+the workspace's model profiles already populate the panel's model combo,
 so a saved design is selectable like any hand-written architecture.
 
 ``plan_shapes`` is the other half of the contract: it resolves the tensor

@@ -15,12 +15,9 @@ from test_themes_csv_loader import csv_fixture
 
 
 def test_public_recipe_has_resolved_dataset_and_enabled_run_button(workspace,monkeypatch):
-    folder=workspace.root/'in/datasets/AL/codex';folder.mkdir(parents=True)
+    folder=workspace.datasets/'AL/codex';folder.mkdir(parents=True)
     csv_fixture(folder/'MIMIC_md_expert_Q10_120.csv')
     monkeypatch.setenv('THEMES_DATASETS_DIR',str(folder))
-    monkeypatch.setattr(config_service,'CONFIG_DIR',workspace.config)
-    from src.app.pipeline import compose
-    monkeypatch.setattr(compose,'CONFIG_DIR',workspace.config)
     recipe='AL/themes_mimic_q10_120'
     path=workspace.config/'experiment'/f'{recipe}.yaml'
     raw=path.read_text().replace('../../THEMES/datasets/MIMIC_md_expert_Q10_120.csv',

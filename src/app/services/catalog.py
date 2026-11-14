@@ -23,7 +23,7 @@ import yaml
 
 from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, nested_run_names, SAVED_RUN_NAME
 
-from . import LOGS_DIR, PROJECT_ROOT
+from . import LOGS_DIR
 from .metrics import latest_version_file, read_metrics_table
 
 try:
@@ -32,10 +32,6 @@ except ImportError:  # pragma: no cover - registry is optional
 
     def list_registered_agents():
         return []
-
-
-CONFIG_DIR = PROJECT_ROOT / "in" / "config"
-_DEFAULT_CONFIG_DIR = CONFIG_DIR
 
 
 _DEFAULT_LOGS_DIR = LOGS_DIR
@@ -58,7 +54,7 @@ def _logs_dir(workspace=None):
 
 def _config_resolver(workspace=None):
     from src.app.workspace import WorkspacePaths
-    paths = workspace or (WorkspacePaths.from_config_root(CONFIG_DIR) if CONFIG_DIR != _DEFAULT_CONFIG_DIR else WorkspacePaths.for_process())
+    paths = workspace or WorkspacePaths.for_process()
     return paths.config_resolver()
 
 

@@ -29,7 +29,7 @@ def provider(tmp_path, *, features=None, intermediate=True, query="return cfg.ge
     runner = tmp_path / 'src/usr/packages/runner'
     runner.mkdir()
     data = {'id': 'runner', 'name': 'Runner', 'kind': 'algorithm', 'version': '1.0.0',
-            'storage_version': 2, 'api_version': 1,
+            'storage_version': 3, 'api_version': 1,
             'capabilities': [{'id': 'unfamiliar', 'kind': 'algorithm', 'entry_point': 'run.py:execute',
                               'execution_contract': 1, 'backend': 'new-engine',
                               'execution_features': {'tuning': True, 'winner_promotion': True,
@@ -108,7 +108,7 @@ def test_independent_objective_pruning_validation_from_unrelated_cwd(tmp_path, m
     (root / 'score.json').write_text(json.dumps({'api_version': 1, 'source': 'score.py'}))
     (root / '.theta_component.json').write_text(json.dumps({
         'id': 'score', 'name': 'Score', 'version': '1.0.0', 'kind': 'objective',
-        'storage_version': 2, 'api_version': 1,
+        'storage_version': 3, 'api_version': 1,
         'capabilities': [{'id': 'score', 'kind': 'objective', 'entry_point': 'score.json'}],
         'payload': {'implementations': ['score.py'], 'resources': ['score.json'], 'configs': {}}}))
     monkeypatch.chdir(tmp_path.parent)

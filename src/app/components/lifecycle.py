@@ -11,7 +11,6 @@ from src.app.components.archive import adapt, extract
 from src.app.components.transactions import FileTransaction, assert_idle, remove, workspace_lock
 from src.app.core.provider_catalog import ProviderCatalog, file_hash, content_hash, owner_selected
 from src.app.core.provider_loader import invalidate
-from src.app.services.rulesets import require_canonical_rules_layout
 
 
 def dependencies(meta):
@@ -48,15 +47,7 @@ def validate_dependencies(catalog, meta, lookup=None, stack=()):
     return missing
 
 
-def _config_files(installer, config_map, meta):
-    paths = installer.paths
-    result = [paths.config_file(value) for value in config_map]
-    for value in [*meta.get("config_paths", []), *meta.get("user_config_paths", [])]: result.append(paths.config_file(value))
-    return result
-
-
 def install(installer, component, version=None, progress_callback=None, install_dependencies=True):
-    require_canonical_rules_layout(installer.workspace_dir)
     paths = installer.paths
     ver = version or component.version
     if ver not in component.releases: raise ValueError(f"Version {ver} not found in releases for {component.id}")
@@ -116,17 +107,16 @@ def install(installer, component, version=None, progress_callback=None, install_
                         selection = catalog.overrides.get(f"{cap.kind}:{alias.lower()}")
                         if any(p.origin == "bundled" for p, _ in owners) or not any(owner_selected(p, selection) for p in [candidate, *(p for p,c in owners)]):
                             raise ValueError(f"Capability collision {cap.kind}:{alias}: {[p.id for p, _ in owners]}; declare an explicit provider_overrides selection or export qualified capability IDs")
-                destinations = _config_files(installer, configs, previous)
-                # A different package can share identical configs, but differing content never wins by traversal order.
-                for dest, relative in configs.items():
-                    active = paths.config_file(dest)
+                # Profiles resolve from their package by selector. Another package may
+                # declare the same selector only with identical content.
+                for selector, relative in configs.items():
                     for owner in catalog.packages:
-                        if owner.id == component.id or dest not in owner.manifest.get("config_paths", []): continue
-                        if not active.is_file() or file_hash(active) != file_hash(staged / relative):
-                            raise ValueError(f"Config profile collision {dest}: owned by {owner.id}")
-                retained = installer._retained_config_dir(component.id)
+                        declared = owner.manifest.get("payload", {}).get("configs", {}).get(selector)
+                        if owner.id == component.id or declared is None: continue
+                        if file_hash(owner.resource(declared)) != file_hash(staged / relative):
+                            raise ValueError(f"Config profile collision {selector}: owned by {owner.id}")
                 with FileTransaction(paths, "install", component.id) as transaction:
-                    transaction.protect([target, *destinations, retained, paths.root / ".thetaide/config_backups", paths.root / ".thetaide/workspace.json"])
+                    transaction.protect([target, paths.root / ".thetaide/workspace.json"])
                     from src.app.components.transactions import write_json
                     write_json(paths.root / ".thetaide/workspace.json", {"id": paths.identity})
                     if retained_package is not None:
@@ -138,32 +128,7 @@ def install(installer, component, version=None, progress_callback=None, install_
                             raise ValueError(f"Retained edited package collision: {retained_package}")
                         meta["retained_edits"] = list(dict.fromkeys([*previous.get("retained_edits", []), str(retained_package)]))
                         component.extra["retained_edits"] = meta["retained_edits"]
-                    backups = dict(previous.get("config_backups", {}))
-                    for dest, relative in configs.items():
-                        active = paths.config_file(dest)
-                        packaged = staged / relative
-                        active.parent.mkdir(parents=True, exist_ok=True)
-                        # User edits and unrelated workspace defaults win; merge only missing defaults.
-                        if active.is_file():
-                            from src.app.components.installer import _add_missing_yaml_defaults
-                            incoming = packaged.read_text()
-                            current = active.read_text()
-                            expected = previous.get("config_hashes", {}).get(dest)
-                            if expected and file_hash(active) == expected:
-                                active.chmod(active.stat().st_mode | 0o200)
-                                shutil.copy2(packaged, active)
-                            else:
-                                installer._backup_existing_config(component.id, active, backups)
-                                active.chmod(active.stat().st_mode | 0o200)
-                                active.write_text(_add_missing_yaml_defaults(current, incoming))
-                        else: shutil.copy2(packaged, active)
-                        installer._failure_point("config", dest)
-                    user_configs = []
-                    if not existing:
-                        user_configs = installer._restore_retained_configs(component.id, list(configs), backups)
-                    meta.update(config_paths=list(configs), config_path=next(iter(configs), None), config_backups=backups,
-                                user_config_paths=list(dict.fromkeys([*previous.get("user_config_paths", []), *user_configs])),
-                                config_hashes={dest: file_hash(staged / relative) for dest, relative in configs.items()},
+                    meta.update(config_paths=list(configs), config_path=next(iter(configs), None),
                                 installed_files=[], target_dir=str(target))
                     if meta.get("config_path") is None: meta.pop("config_path", None)
                     meta["source_hashes"] = {p.relative_to(staged).as_posix(): file_hash(p) for p in staged.rglob("*")
@@ -191,7 +156,6 @@ def install(installer, component, version=None, progress_callback=None, install_
 
 def uninstall(installer, meta):
     paths = installer.paths
-    require_canonical_rules_layout(paths.root)
     target = paths.require_managed(meta["target_dir"])
     package_id = meta["id"]
     with workspace_lock(paths):
@@ -200,19 +164,16 @@ def uninstall(installer, meta):
         for owner in catalog.packages:
             if owner.id != package_id and any(dep == package_id for dep, _ in dependencies(owner.manifest)):
                 raise ValueError(f"{package_id} is required by {owner.id}; uninstall that dependent first")
-        destinations = _config_files(installer, {}, meta)
         with FileTransaction(paths, "uninstall", package_id) as transaction:
-            transaction.protect([target, *destinations, installer._retained_config_dir(package_id), paths.root / ".thetaide/config_backups"])
+            transaction.protect([target])
             if installer.has_local_changes(target, meta):
                 retained = paths.data_dir / "retained_packages" / package_id / (str(meta.get("version", "unknown")) + "-" + content_hash(target)[:16])
                 transaction.protect([retained])
                 retained.parent.mkdir(parents=True, exist_ok=True)
                 if not retained.exists(): shutil.copytree(target, retained)
-            shared = {dest for p in catalog.packages if p.id != package_id for dest in p.manifest.get("config_paths", [])}
-            owned_meta = {**meta, "config_paths": [c for c in meta.get("config_paths", []) if c not in shared]}
+            # User files in the config root, including overrides of this package's
+            # selectors, belong to the user and are left in place.
             installer._set_install_permissions(target, meta, writable=True)
-            installer._uninstall_configs(owned_meta)
-            installer._failure_point("config", package_id)
             remove(target)
             installer._failure_point("package", package_id)
             from src.app.services.local_components import LocalComponents

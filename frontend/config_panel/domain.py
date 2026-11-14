@@ -559,7 +559,7 @@ def _set_experiment_dataset_override(self) -> None:
     env_name = (
         self.env_selection() or self._get_explicit_env() or self._inherited_env() or self._group_name() or "dataset"
     )
-    self.raw_data["dataset_path"] = self._get_resolved_defaults().get("dataset_path") or f"in/datasets/{env_name}"
+    self.raw_data["dataset_path"] = self._get_resolved_defaults().get("dataset_path") or f"src/usr/datasets/{env_name}"
     self._mark_dirty()
     QTimer.singleShot(0, self._render_boxes)
 
@@ -689,7 +689,7 @@ def _component_parameter_schema(self, path: tuple[str, ...]) -> dict[str, Any]:
 
         spec = self._effective_objective_spec(self.raw_data, self._get_resolved_defaults()) or {}
         tree = self.tree
-        workspace = tree.config_root.parent.parent if tree else PROJECT_ROOT
+        workspace = tree.workspace.root if tree else PROJECT_ROOT
         try:
             schema = load_objective(spec["component"], workspace).metadata.get("schema", {})
         except (ValueError, KeyError, OSError):
@@ -1437,7 +1437,7 @@ def add_block(self, block_name: str):
         env_name = (
             self.env_selection() or self._get_explicit_env() or self._inherited_env() or self._group_name() or "dataset"
         )
-        self.raw_data["dataset_path"] = self._get_resolved_defaults().get("dataset_path") or f"in/datasets/{env_name}"
+        self.raw_data["dataset_path"] = self._get_resolved_defaults().get("dataset_path") or f"src/usr/datasets/{env_name}"
     elif block_name == "params":
         self._show_empty_shared_params = True
         self.raw_data.setdefault("methods", {})["params"] = {}
@@ -1539,8 +1539,8 @@ def _resolve_default_param_value(self, method_name: str, param_key: str):
     """Look up hierarchical default for param_key:
     1. methods.params in current file
     2. Group _base.yaml (methods.params or methods[method_name])
-    3. in/config/agent/<agent>.yaml
-    4. in/config/model/<model>.yaml
+    3. agent/<agent>.yaml profile
+    4. model/<model>.yaml profile
     5. Known defaults fallback
     """
     methods = self.raw_data.get("methods")
@@ -1570,13 +1570,13 @@ def _resolve_default_param_value(self, method_name: str, param_key: str):
                 if param_key in base_methods[method_name]:
                     return base_methods[method_name][param_key]
 
-    # 3. Agent YAML: in/config/agent/<agent>.yaml
+    # 3. Agent profile: agent/<agent>.yaml
     if tree and agent_name:
         agent_params = tree.agent_hyperparameters(agent_name)
         if param_key in agent_params:
             return agent_params[param_key]
 
-    # 4. Model YAML: in/config/model/<model>.yaml
+    # 4. Model profile: model/<model>.yaml
     if tree and model_name:
         model_params = tree.model_parameters(model_name)
         if param_key in model_params:
@@ -1668,7 +1668,7 @@ def _add_experiment_param(self, key: str, default_val: Any = None, *, render: bo
 def _set_method_model(self, method_name: str, model_name: str) -> None:
     """Point a method at a model, and re-read the configs from disk.
 
-    The model combo is filled from in/config/model/, so a model written
+    The model combo is filled from the model profiles, so a model written
     while the app is open is invisible until the cached tree re-scans.
     """
     if not model_name:
@@ -1683,7 +1683,7 @@ def _set_method_model(self, method_name: str, model_name: str) -> None:
 def _pin_fields_the_paradigm_forbids(self, rules):
     """Write legal values for the fields the chosen paradigm disables.
 
-    in/config/config.yaml defaults eval_episodes to 100 for the online case.
+    The root config.yaml defaults eval_episodes to 100 for the online case.
     A config that simply omits it inherits that and is rejected before
     training starts, which is why the shipped offline and supervised bases pin it.
     Marking the field "not used" in the panel is not enough on its own:

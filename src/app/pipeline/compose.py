@@ -20,19 +20,14 @@ from src.app.pipeline.config import resolve_experiment_config_name
 from src.app.pipeline.result_paths import result_identity
 from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
 from src.app.pipeline.validation import validate_experiment_config
-from src.app.workspace import WorkspacePaths, PROJECT_ROOT
-
-# Compatibility constant for older callers. Runtime workspace selection occurs
-# at the entry point, never while importing this reusable service.
-CONFIG_DIR = PROJECT_ROOT / "in/config"
-_DEFAULT_CONFIG_DIR = CONFIG_DIR
-
+from src.app.workspace import WorkspacePaths
 
 def composition_workspace(config_dir=None, workspace=None):
+    # Runtime workspace selection occurs at the entry point, never while importing this service.
     if workspace is not None:
         return workspace
-    if config_dir is not None or CONFIG_DIR != _DEFAULT_CONFIG_DIR:
-        return WorkspacePaths.from_config_root(config_dir or CONFIG_DIR)
+    if config_dir is not None:
+        return WorkspacePaths.from_config_root(config_dir)
     return WorkspacePaths.for_process()
 
 # The compose API cannot parse Optuna sweep operators or hydra internal configs
@@ -45,7 +40,7 @@ _HYDRA_LOCK = threading.Lock()
 @dataclass
 class ComposedExperiment:
     experiment: str
-    """Resolved experiment config path relative to in/config/experiment/."""
+    """Resolved experiment selector relative to the experiment config group."""
     cfg: DictConfig
     extra_args: list[str]
     """User-supplied overrides exactly as they would be typed on the command line."""

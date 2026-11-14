@@ -1,7 +1,7 @@
 """Components and their tags, and the arXiv phrase each tag searches for.
 
 Tags come from three places, merged in this order:
-1. Built-in tags for the agents, models and environments in in/config (BUILTIN_TAGS).
+1. Built-in tags for the workspace's agent, model and environment profiles (BUILTIN_TAGS).
 2. The Community Hub index (each Hub component's `tags`).
 3. Tags the user edits in the panel, which replace the tags above for that component.
 """
@@ -91,14 +91,22 @@ class Component:
     edited: bool = False
 
 
-def local_components(config_root: Path) -> list[Component]:
-    """Agents, models and environments in in/config, with their built-in tags."""
+def config_selectors(config_root: Path) -> list[str]:
+    """The profile selectors (``<group>/<name>.yaml``) of one config directory."""
+    root = Path(config_root)
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("*.yaml")) if root.is_dir() else []
+
+
+def local_components(selectors) -> list[Component]:
+    """Agent, model and environment profiles, with their built-in tags.
+
+    A profile directly in a group is one component; a package's folder of
+    profiles (``agent/sb3/ppo.yaml``) is listed once, by its folder name.
+    """
     components = []
     for group in ("agent", "model", "env"):
-        folder = Path(config_root) / group
-        if not folder.is_dir():
-            continue
-        names = sorted({p.stem for p in folder.glob("*.yaml")} | {p.name for p in folder.iterdir() if p.is_dir()})
+        names = sorted({Path(s).parts[1].removesuffix(".yaml") for s in selectors
+                        if Path(s).parts[0] == group and len(Path(s).parts) > 1})
         for name in names:
             components.append(Component(key=f"{group}/{name}", name=name, kind=group,
                                         tags=list(BUILTIN_TAGS.get((group, name), []))))
@@ -138,9 +146,9 @@ def _hub_records(raw) -> list[Component]:
     return out
 
 
-def build_catalog(config_root: Path, hub_client=None, overrides: dict | None = None) -> list[Component]:
+def build_catalog(selectors, hub_client=None, overrides: dict | None = None) -> list[Component]:
     """Every component with its tags; `overrides` maps component keys to tags the user set."""
-    components = local_components(config_root) + (hub_components(hub_client) if hub_client else [])
+    components = local_components(selectors) + (hub_components(hub_client) if hub_client else [])
     for comp in components:
         if overrides and comp.key in overrides:
             comp.tags = normalize_tags(overrides[comp.key])

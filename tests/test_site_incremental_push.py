@@ -18,7 +18,7 @@ def test_push_transfers_only_changed_files_and_retains_pinned_archives(tmp_path,
     (local / 'src').mkdir()
     component = local / 'src/component.py'
     component.write_text('version = 1\n')
-    yaml = local / 'in/config/group/run.yaml'
+    yaml = local / 'src/usr/config/group/run.yaml'
     yaml.parent.mkdir(parents=True)
     yaml.write_text('seed: 1\n')
     (local / 'run_pipeline.py').write_text('# launcher\n')
@@ -69,9 +69,9 @@ def test_push_transfers_only_changed_files_and_retains_pinned_archives(tmp_path,
     os.utime(yaml, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
     second = transfer.push(local, 'cluster')
     payloads = lambda batch: [name for name in batch if not name.startswith('.theta')]
-    assert payloads(batches[1]) == ['in/config/group/run.yaml']
+    assert payloads(batches[1]) == ['src/usr/config/group/run.yaml']
     assert (remote / 'src/component.py').stat().st_ino == original_inode
-    assert (remote / 'in/config/group/run.yaml').read_text() == 'seed: 2\n'
+    assert (remote / 'src/usr/config/group/run.yaml').read_text() == 'seed: 2\n'
     transfer.push(local, 'cluster')
     assert payloads(batches[2]) == []
     component.write_text('version = 2\n')
@@ -84,5 +84,5 @@ def test_push_transfers_only_changed_files_and_retains_pinned_archives(tmp_path,
     for result, seed in [(first, 'seed: 1\n'), (second, 'seed: 2\n')]:
         destination = tmp_path / result['source_sha256']
         extract(remote / '.thetaide/sources' / (result['source_sha256'] + '.zip'), destination)
-        assert (destination / 'in/config/group/run.yaml').read_text() == seed
+        assert (destination / 'src/usr/config/group/run.yaml').read_text() == seed
         assert (destination / 'src/component.py').read_text() == 'version = 1\n'

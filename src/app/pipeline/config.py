@@ -54,7 +54,7 @@ def _declared_selectors(kind, group, paths=None):
     from src.app.core.provider_catalog import get_catalog
     catalog = get_catalog(paths)
     values = {selector for p in catalog.packages for c in p.capabilities if c.kind==kind for selector in (c.id,*c.aliases)}
-    prefix='in/config/'+group+'/'
+    prefix=group+'/'
     values.update(dest.removeprefix(prefix).rsplit('.',1)[0] for p in catalog.packages
                   for dest in p.manifest.get('payload',{}).get('configs',{}) if dest.startswith(prefix))
     return values
@@ -139,7 +139,7 @@ def find_group_method_config(method_name: str, group: str | None = None, *, path
     """Find and load a group-level method config YAML file.
 
     Location:
-        in/config/experiment/<group>/methods/<method_name>.yaml
+        the effective experiment/<group>/methods/<method_name>.yaml profile
     """
     if not group or group == "ungrouped":
         return {}
@@ -218,8 +218,8 @@ def _extract_name_and_subparams(
 
 
 def load_model_base_config(model_name: str, config_dir=None, *, paths=None) -> dict:
-    """Load the base YAML configuration for a model architecture from in/config/model/<model_name>.yaml
-    or from installed component manifests in src/usr/models/<model_name>.
+    """Load the base YAML configuration for a model architecture from its effective
+    model/<model_name>.yaml profile or from the providing package's manifest.
     """
     if not model_name:
         return {}
@@ -593,7 +593,7 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
 
 def resolve_experiment_config_name(exp_input: str, *, paths=None, config_dir=None) -> str:
     """Resolve an experiment name (e.g. 'group_run' or 'group/run')
-    to its relative Hydra config path inside in/config/experiment/."""
+    to its experiment selector relative to the experiment config group."""
     paths = paths or WorkspacePaths.for_process()
     from src.app.config_resolution import ConfigResolver
     resolver = ConfigResolver(paths, config_root=config_dir)

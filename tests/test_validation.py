@@ -69,7 +69,7 @@ def _declare_test_providers(tmp_path, monkeypatch):
             root=paths.user(kind)/name;root.mkdir(parents=True)
             (root/'provider.py').write_text('class Provider: pass\n')
             paradigms=['online_rl'] if name=='ppo' else ['offline_rl'] if kind=='algorithm' else []
-            meta={'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':2,'api_version':1,
+            meta={'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
                   'capabilities':[{'id':name,'kind':kind,'entry_point':'provider.py:Provider','paradigms':paradigms}],
                   'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}
             (root/'.theta_component.json').write_text(json.dumps(meta))
@@ -244,7 +244,7 @@ def test_agent_supported_paradigms_from_installed_manifest(tmp_path, monkeypatch
     method_dir = tmp_path / "src" / "usr" / "algorithms" / "custom_agent"
     method_dir.mkdir(parents=True, exist_ok=True)
     manifest = method_dir / ".theta_component.json"
-    manifest.write_text(json.dumps({"id":"custom_agent","name":"Custom agent","kind":"algorithm","version":"1.0.0","storage_version":2,"api_version":1,"capabilities":[{"id":"custom_agent","kind":"algorithm","entry_point":"agent.py:Agent"}],"payload":{"implementations":["agent.py"],"resources":[],"configs":{}},"paradigms":["offline_rl"]}), encoding="utf-8")
+    manifest.write_text(json.dumps({"id":"custom_agent","name":"Custom agent","kind":"algorithm","version":"1.0.0","storage_version":3,"api_version":1,"capabilities":[{"id":"custom_agent","kind":"algorithm","entry_point":"agent.py:Agent"}],"payload":{"implementations":["agent.py"],"resources":[],"configs":{}},"paradigms":["offline_rl"]}), encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))

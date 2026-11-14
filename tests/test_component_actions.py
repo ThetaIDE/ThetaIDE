@@ -1,6 +1,8 @@
 """Unit tests for component actions: opening code in editor and uninstalling/deleting components."""
 from pathlib import Path
 import pytest
+
+from src.app.workspace import WorkspacePaths
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
@@ -37,28 +39,29 @@ def test_svg_icons_exist_and_render(qapp):
 def test_find_component_assets_multi_config_package(tmp_path):
     ws = tmp_path / "workspace"
     component = native_component(tmp_path, "atari-env", kind="env", configs={
-        "in/config/env/atari/pong.yaml": "name: pong\n",
-        "in/config/env/atari/breakout.yaml": "name: breakout\n",
+        "env/atari/pong.yaml": "name: pong\n",
+        "env/atari/breakout.yaml": "name: breakout\n",
     })
     installer = HubInstaller(ws, tmp_path / "state")
     installer.install(component, install_dependencies=False)
     source = installer.resolve_target_dir(component)
-    first = installer.paths.config / "env/atari/pong.yaml"
-    second = installer.paths.config / "env/atari/breakout.yaml"
+    first = installer.paths.resolve_config("env/atari/pong.yaml")
+    assert first == source / "configs/env/atari/pong.yaml"
     assets = find_component_assets(first, "env/atari/pong.yaml", workspace_dir=ws)
     assert assets["is_component"] is True
     assert assets["is_hub_installed"] is True
     assert assets["action_type"] == "uninstall"
     assert assets["comp_name"] == component.name
     assert assets["primary_code_file"] == source / "provider.py"
-    assert set(assets["files_to_delete"]) == {source, first, second}
+    # Uninstalling removes only the package; profiles live inside it.
+    assert set(assets["files_to_delete"]) == {source}
 
 
 def test_find_component_assets_local_scaffolded_component(tmp_path):
     ws = tmp_path / "workspace"
     result = PluginScaffolder(ws).scaffold(ScaffoldOptions(name="myfirstmlp", kind="model"))
     assert result.success, result.error
-    config = ws / "in/config/model/myfirstmlp.yaml"
+    config = WorkspacePaths(ws).config / "model/myfirstmlp.yaml"
     code = ws / "src/usr/models/myfirstmlp/myfirstmlp_model.py"
     assets = find_component_assets(config, "model/myfirstmlp.yaml", workspace_dir=ws)
     assert assets["is_component"] is True
@@ -72,10 +75,9 @@ def test_find_component_assets_loose_config(tmp_path):
     """Test resolving a standalone config not tied to any component code."""
     ws = tmp_path / "workspace"
     ws.mkdir()
-    (ws / "in" / "config" / "agent").mkdir(parents=True)
-    (ws / "src").mkdir()
+    (ws / "src/usr/config" / "agent").mkdir(parents=True)
 
-    cfg = ws / "in" / "config" / "agent" / "my_custom_loose_agent.yaml"
+    cfg = ws / "src/usr/config" / "agent" / "my_custom_loose_agent.yaml"
     cfg.write_text("agent: custom\n")
 
     assets = find_component_assets(cfg, "agent/my_custom_loose_agent.yaml", workspace_dir=ws)
@@ -157,7 +159,7 @@ def test_components_panel_integration(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("THETA_DATA_DIR", str(ws / ".thetaide"))
     result = PluginScaffolder(ws).scaffold(ScaffoldOptions(name="sample_mlp", kind="model"))
     assert result.success, result.error
-    cfg = ws / "in/config/model/sample_mlp.yaml"
+    cfg = WorkspacePaths(ws).config / "model/sample_mlp.yaml"
     cfg.write_text("architecture: sample_mlp\nhidden_sizes: [64, 64]\n")
     cfg2 = cfg.with_name("another_model.yaml")
     cfg2.write_text("architecture: another_model\n")
@@ -166,7 +168,7 @@ def test_components_panel_integration(qapp, tmp_path, monkeypatch):
 
     panel = ComponentsPanel()
     # Point tree to test root
-    panel.components_tree.root_dir = ws / "in" / "config"
+    panel.components_tree.root_dir = WorkspacePaths(ws).config
     panel.on_component_selected(cfg, "model/sample_mlp.yaml")
 
     # Assert viewer is in component mode and buttons are visible

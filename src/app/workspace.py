@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-STORAGE_VERSION = 2
+STORAGE_VERSION = 3
 # Authoring destinations only. Never use these as installer destinations.
 COMPONENT_DIRECTORIES = {
     "model": "src/usr/models", "algorithm": "src/usr/algorithms",
@@ -37,11 +37,7 @@ class WorkspacePaths:
         object.__setattr__(self, "data_dir", Path(state).expanduser().resolve() if state is not None else self.root / ".thetaide")
 
     @property
-    def config(self): return self.root / "in/config"
-    @property
-    def user_config(self): return self.research / "config"
-    @property
-    def user_inputs(self): return self.research / "datasets"
+    def config(self): return self.research / "config"
     @property
     def framework_defaults(self): return self.framework_config
 
@@ -78,7 +74,7 @@ class WorkspacePaths:
 
     def config_roots(self):
         from src.app.core.provider_catalog import get_catalog
-        roots = [self.user_config, self.config]
+        roots = [self.config]
         for package in get_catalog(self).packages:
             root = package.root / "configs"
             if root.is_dir(): roots.append(root)
@@ -93,7 +89,7 @@ class WorkspacePaths:
         return self.config / relative
 
     @property
-    def datasets(self): return self.root / "in/datasets"
+    def datasets(self): return self.research / "datasets"
     @property
     def research(self): return self.root / "src/usr"
     @property
@@ -172,11 +168,11 @@ class WorkspacePaths:
     def config_file(self, value: str | Path) -> Path:
         path = Path(value).expanduser()
         if not path.is_absolute():
-            path = self.root / path if path.parts[:2] == ("in", "config") or path.parts[:3] == ("src", "usr", "config") else self.config / path
+            path = self.root / path if path.parts[:3] == ("src", "usr", "config") else self.config / path
         if not path.suffix: path = path.with_suffix(".yaml")
         path = path.resolve()
-        if not any(path.is_relative_to(root.resolve()) for root in (self.config, self.user_config)) or path.suffix not in (".yaml", ".yml"):
-            raise ValueError("Configuration paths must be YAML files inside in/config/ (legacy) or src/usr/config/.")
+        if not path.is_relative_to(self.config.resolve()) or path.suffix not in (".yaml", ".yml"):
+            raise ValueError("Configuration paths must be YAML files inside src/usr/config/.")
         return path
 
     def process_environment(self):
@@ -189,7 +185,7 @@ class WorkspacePaths:
             return cls(root.parents[2])
         if root.parts[-3:] == ("src", "app", "config_defaults"):
             return cls(root.parents[2], application=root.parents[2])
-        return cls(root.parent.parent)
+        raise ValueError(f"Not a workspace config root: {root}")
 
     @classmethod
     def for_process(cls):
@@ -205,4 +201,4 @@ class WorkspacePaths:
                     return cls(Path(hydra.HydraConfig.get().runtime.cwd))
             except (AttributeError, ValueError, TypeError): pass
         current = Path.cwd()
-        return cls(current) if (current / "in/config").is_dir() or (current / "src/usr").is_dir() else cls()
+        return cls(current) if (current / "src/usr").is_dir() or (current / ".thetaide/workspace.json").is_file() else cls()

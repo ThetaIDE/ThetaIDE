@@ -1,4 +1,4 @@
-"""Tree widget mirroring in/config/ directory for Theta-IDE."""
+"""Tree widget for the workspace config root and package profiles."""
 import json
 import shutil
 from pathlib import Path
@@ -278,8 +278,8 @@ class ComponentDeleteDialog(QDialog):
 
         desc = QLabel(
             f"<b>'{rel_path}'</b> is managed by Theta Hub (<b>{comp_name}</b>).<br><br>"
-            f"Uninstalling removes its source code and hides its YAMLs. Edits and copied profiles are kept in "
-            f"ignored IDE storage and restored on reinstall. You can also delete only this folder."
+            f"Uninstalling removes the package and its default profiles. Your own config files, "
+            f"including overrides of its profiles, are kept. You can also delete only this folder."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #a89984; font-size: 12px; line-height: 1.4;")
@@ -327,7 +327,7 @@ def find_config_root():
 
 
 class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
-    """File tree that mirrors in/config/ and allows selecting, duplicating,
+    """File tree over src/usr/config and package profiles that allows selecting, duplicating,
 
     and creating experiments in groups.
     """
@@ -603,7 +603,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Recursively scan root_dir and populate the tree based on mode."""
         if self.mode == "components":
             from src.app.services.local_components import LocalComponents
-            self._hidden_component_paths = LocalComponents(self.root_dir.parent.parent).hidden_config_paths()
+            self._hidden_component_paths = LocalComponents(self._workspace_paths()).hidden_config_paths()
+        self._package_profiles = self._collect_package_profiles()
         expanded_paths = self.get_expanded_paths()
         if ensure_expanded:
             clean_exp = str(Path(ensure_expanded)).replace("\\", "/").strip("/")
@@ -621,7 +622,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self._cancel_inline_group(self._active_inline_item)
         self.tree.clear()
         if not self.root_dir.exists():
-            item = QTreeWidgetItem(self.tree, ["in/config (not found)"])
+            item = QTreeWidgetItem(self.tree, ["src/usr/config (not found)"])
             item.setToolTip(0, f"Directory not found: {self.root_dir}")
             return
 
@@ -629,14 +630,13 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         top_files = sorted([p for p in self.root_dir.iterdir() if p.is_file() and p.suffix in (".yaml", ".yml")])
 
         if self.mode in ("experiments", "experiment"):
-            # The tree directory is in/config/experiment/ - show groups and files directly
+            # The tree directory is the experiment group - show groups and files directly
             if self.root_dir.name in ("experiment", "experiments"):
                 exp_dir = self.root_dir
             else:
                 exp_dir = existing_dirs.get("experiment") or existing_dirs.get("experiments") or (self.root_dir / "experiment")
-            if exp_dir.exists():
-                subdirs = sorted([p for p in exp_dir.iterdir() if p.is_dir() and not p.name.startswith(".")])
-                files = sorted([p for p in exp_dir.iterdir() if p.is_file() and p.suffix in (".yaml", ".yml")])
+            if exp_dir.exists() or self._has_package_profiles(exp_dir):
+                subdirs, files = self._dir_entries(exp_dir)
                 base_files = [p for p in files if p.stem == "_base"]
                 other_files = [p for p in files if p.stem != "_base"]
                 for f in base_files:
@@ -822,10 +822,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         is_group: bool | None = None,
         custom_display_name: str | None = None,
     ):
-        if self.mode == "components" and not is_group:
-            profiles = {path.resolve() for path in dir_path.rglob("*") if path.is_file() and path.suffix in (".yaml", ".yml")}
-            if profiles and profiles <= getattr(self, "_hidden_component_paths", set()):
-                return
+        if not dir_path.exists() and not self._has_package_profiles(dir_path):
+            return
         name = dir_path.name
         rel_path = str(dir_path.relative_to(self.root_dir)).replace("\\", "/").strip("/")
 
@@ -864,8 +862,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         node.setToolTip(0, rel_path)
 
         # Only the group's own defaults are pinned above its folders and files.
-        subdirs = sorted([p for p in dir_path.iterdir() if p.is_dir() and not p.name.startswith(".")])
-        files = sorted([p for p in dir_path.iterdir() if p.is_file() and p.suffix in (".yaml", ".yml")])
+        subdirs, files = self._dir_entries(dir_path)
 
         base_files = [p for p in files if is_group_defaults_path(self._config_relative_path(p))]
         other_files = [p for p in files if p not in base_files]
@@ -894,7 +891,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     def _add_site_components(self, parent, expanded=()):
         from src.app.sites.catalog import all_profiles, normalize
         from src.app.workspace import WorkspacePaths
-        paths = WorkspacePaths(self.root_dir.parent.parent)
+        paths = self._workspace_paths()
         available = all_profiles(paths)
         heading = QTreeWidgetItem(parent, ['Sites'])
         heading.setData(0, Qt.ItemDataRole.UserRole, {'type': 'dir', 'path': str(self.root_dir / 'site'), 'rel_path': 'site', 'is_group': True})
@@ -910,13 +907,88 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 groups[component] = node
             self._add_file_node(groups[component], path, custom_display_name='Defaults' if Path(selector).name == '_defaults' else Path(selector).name)
 
+    def _workspace_paths(self):
+        from src.app.workspace import WorkspacePaths
+        config_root = self.root_dir.parent if self.root_dir.name in ("experiment", "experiments") else self.root_dir
+        return WorkspacePaths.from_config_root(config_root)
+
+    def _config_file(self, rel_path) -> Path:
+        """The file a tree path stands for: a user file, else the package profile it lists."""
+        path = self.root_dir / rel_path
+        if path.exists() or Path(rel_path).suffix not in (".yaml", ".yml"):
+            return path
+        from src.app.core.provider_catalog import DuplicateProvider
+        try:
+            resolved = self._workspace_paths().config_resolver().resolve(self._config_dir_selector(path))
+        except (DuplicateProvider, ValueError):
+            return path
+        return resolved.file if resolved is not None else path
+
+    def _collect_package_profiles(self) -> dict:
+        """Package-owned profiles without a user file, keyed by config selector.
+
+        Package defaults stay inside their package; the tree lists them next to
+        user files so they can be opened (read-only when managed) or overridden.
+        """
+        from src.app.core.provider_catalog import DuplicateProvider
+        try:
+            resolver = self._workspace_paths().config_resolver()
+            hidden = {p.resolve() for p in getattr(self, "_hidden_component_paths", set())}
+            result = {}
+            for selector in resolver.profiles:
+                if selector.startswith("site/"):
+                    continue
+                try:
+                    resolved = resolver.resolve(selector)
+                except DuplicateProvider:
+                    continue
+                if resolved is None or resolved.origin in ("workspace", "framework"):
+                    continue
+                if self.mode == "components" and resolved.file.resolve() in hidden:
+                    continue
+                result[selector] = resolved.file
+            return result
+        except (OSError, ValueError):
+            return {}
+
+    def _config_dir_selector(self, dir_path: Path) -> str:
+        rel = dir_path.relative_to(self.root_dir).as_posix().strip("/")
+        if self.root_dir.name in ("experiment", "experiments"):
+            rel = f"{self.root_dir.name}/{rel}".rstrip("/").removesuffix("/.")
+        return "" if rel == "." else rel
+
+    def _all_package_profiles_under(self, dir_path: Path):
+        prefix = self._config_dir_selector(dir_path)
+        return [file for selector, file in getattr(self, "_package_profiles", {}).items()
+                if not prefix or selector.startswith(prefix + "/")]
+
+    def _has_package_profiles(self, dir_path: Path) -> bool:
+        return bool(self._all_package_profiles_under(dir_path))
+
+    def _dir_entries(self, dir_path: Path):
+        """Subdirectories and YAML files of a config folder, including package profiles."""
+        subdirs = {p.name: p for p in dir_path.iterdir() if p.is_dir() and not p.name.startswith(".")} if dir_path.is_dir() else {}
+        files = {p.name: p for p in dir_path.iterdir() if p.is_file() and p.suffix in (".yaml", ".yml")} if dir_path.is_dir() else {}
+        prefix = self._config_dir_selector(dir_path)
+        for selector, file in getattr(self, "_package_profiles", {}).items():
+            if prefix and not selector.startswith(prefix + "/"):
+                continue
+            parts = Path(selector).relative_to(prefix).parts if prefix else Path(selector).parts
+            if len(parts) > 1:
+                subdirs.setdefault(parts[0], dir_path / parts[0])
+            else:
+                files.setdefault(parts[0], file)
+        return [subdirs[k] for k in sorted(subdirs)], [files[k] for k in sorted(files)]
+
     def _config_relative_path(self, path: Path) -> str:
         try:
             rel_path = path.relative_to(self.root_dir).as_posix()
         except ValueError:
+            for selector, candidate in getattr(self, "_package_profiles", {}).items():
+                if candidate == path: return selector
             from src.app.sites.catalog import all_profiles
             from src.app.workspace import WorkspacePaths
-            for selector, candidate in all_profiles(WorkspacePaths(self.root_dir.parent.parent)).items():
+            for selector, candidate in all_profiles(self._workspace_paths()).items():
                 if candidate == path: return 'site/' + selector + '.yaml'
             raise
         if self.root_dir.name in ("experiment", "experiments"):
@@ -1092,7 +1164,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         return False
 
     def _model(self):
-        """The parsed in/config tree, or None when it cannot be read."""
+        """The parsed config tree, or None when it cannot be read."""
         try:
             return ConfigTree(self.root_dir)
         except (OSError, ValueError):
@@ -1163,7 +1235,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         return f"experiment/{group_name}/{filename}"
 
     def get_available_groups(self):
-        """Return sorted list of experiment groups in in/config/experiment/."""
+        """Return sorted list of experiment groups."""
         exp_dir = self.root_dir if self.root_dir.name in ("experiment", "experiments") else (self.root_dir / "experiment")
         if not exp_dir.exists():
             return []
@@ -1514,7 +1586,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             QMessageBox.information(self, "No File Selected", "Please select an experiment YAML file first.")
             return
 
-        source_file = self.root_dir / self.current_rel_path
+        source_file = self._config_file(self.current_rel_path)
         if not source_file.exists() or not source_file.is_file():
             QMessageBox.warning(self, "Invalid Selection", "Selected item is not a valid file.")
             return
@@ -1562,7 +1634,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if not source_rel:
             QMessageBox.information(self, "No File Selected", "Please select a component YAML file first.")
             return
-        source_file = self.root_dir / source_rel
+        source_file = self._config_file(source_rel)
         if not source_file.is_file():
             QMessageBox.warning(self, "Invalid Selection", "Selected item is not a valid component YAML file.")
             return
@@ -1596,7 +1668,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if not source_rel:
             QMessageBox.information(self, "No File Selected", "Please select a component YAML file first.")
             return
-        source_file = self.root_dir / source_rel
+        source_file = self._config_file(source_rel)
         if not source_file.is_file():
             QMessageBox.warning(self, "Invalid Selection", "Selected item is not a valid component YAML file.")
             return
@@ -1606,8 +1678,10 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Add a blank pending component row; install only when its name is committed."""
         from .component_actions import ComponentDevelopmentActions, find_workspace_root
         source_file = Path(source_file)
-        parent = source_file.parent if source_file.is_relative_to(self.root_dir) else self.root_dir / "model"
-        parent_rel = parent.relative_to(self.root_dir).as_posix()
+        try:
+            parent_rel = Path(self._config_relative_path(source_file)).parent.as_posix()
+        except ValueError:
+            parent_rel = "model"
         actions = ComponentDevelopmentActions(find_workspace_root(source_file), self)
         def commit(name):
             copied = actions.deep_copy(source_file, name)
@@ -1619,7 +1693,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def _select_created_component_file(self, target_file: Path):
         self.populate()
-        self.select_file(target_file.relative_to(self.root_dir).as_posix())
+        self.select_file(self._config_relative_path(Path(target_file)))
 
     def delete_config(self, rel_path):
         """Delete a config file. Returns (removed, error).
@@ -1627,7 +1701,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         Opens no dialogs: a modal message box blocks forever when nobody is
         there to dismiss it, so the caller reports the error instead.
         """
-        path = self.root_dir / rel_path
+        path = self._config_file(rel_path)
         if self._get_installer().is_installed_file(path):
             return False, "Hub component files are read-only. Make a component copy to edit them."
         blocked = deletion_blocked_reason(path)
@@ -1647,7 +1721,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def rename_config(self, rel_path, new_name):
         """Rename a config, keeping experiment_id in step. Returns (new_rel, error)."""
-        path = self.root_dir / rel_path
+        path = self._config_file(rel_path)
         if self._get_installer().is_installed_file(path):
             return None, "Hub component files are read-only. Make a component copy to edit them."
         new_name = (new_name or "").strip()
@@ -1666,7 +1740,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             target.write_text(rename_experiment_text(text, target.stem), encoding="utf-8")
         except OSError as exc:
             return None, str(exc)
-        self._remap_component_tracking(rel_path, str(Path(rel_path).parent / new_name).replace("\\", "/"))
         from .config_viewer import invalidate_config_tree
         invalidate_config_tree()
         new_rel = str(Path(rel_path).parent / new_name)
@@ -1715,7 +1788,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         except OSError as exc:
             return None, str(exc)
         new_rel = str(new_dir.relative_to(self.root_dir)).replace("\\", "/")
-        self._remap_component_tracking(rel_path, new_rel)
         self.dir_renamed.emit(rel_path, new_rel)
         self.populate(ensure_expanded=new_rel)
         return new_rel, None
@@ -1775,7 +1847,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def move_component_yaml(self, rel_path: str, target_dir_rel: str) -> tuple[str | None, str | None]:
         """Move a YAML within its component category and update install tracking."""
-        source = self.root_dir / rel_path
+        source = self._config_file(rel_path)
         target_dir = self.root_dir / target_dir_rel
         if self._get_installer().is_installed_file(source):
             return None, "Hub component files are read-only. Make a component copy to edit them."
@@ -1801,26 +1873,11 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             return None, str(exc)
 
         new_rel = target.relative_to(self.root_dir).as_posix()
-        self._remap_component_tracking(rel_path, new_rel)
         from .config_viewer import invalidate_config_tree
         invalidate_config_tree()
         self.populate(ensure_expanded=target_dir_rel)
         self.select_file(new_rel)
         return new_rel, None
-
-    def _remap_component_tracking(self, old_rel: str, new_rel: str) -> None:
-        """Keep Hub manifests aligned with config tree rename/move operations."""
-        if self.mode != "components":
-            return
-        try:
-            workspace = self.root_dir.parent.parent
-            old_workspace_rel = (self.root_dir / old_rel).resolve().relative_to(workspace.resolve()).as_posix()
-            new_workspace_rel = (self.root_dir / new_rel).resolve().relative_to(workspace.resolve()).as_posix()
-            installer = self._get_installer()
-            if installer:
-                installer.remap_tracked_paths(old_workspace_rel, new_workspace_rel)
-        except (OSError, ValueError):
-            return
 
     def _handle_component_tree_drop(self, source_rel: str, destination_rel: str):
         """Apply a drag-and-drop move and report any filesystem conflict."""
@@ -1872,7 +1929,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 QMessageBox.warning(self, "Rename Failed", err)
 
     def prompt_delete(self, rel_path):
-        blocked = deletion_blocked_reason(self.root_dir / rel_path)
+        blocked = deletion_blocked_reason(self._config_file(rel_path))
         if blocked:
             QMessageBox.warning(self, "Cannot delete", blocked)
             return
@@ -1891,7 +1948,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def prompt_delete_files(self, rel_paths):
         """Confirm and delete selected files, reporting any failures together."""
-        blocked = [(rel, deletion_blocked_reason(self.root_dir / rel)) for rel in rel_paths]
+        blocked = [(rel, deletion_blocked_reason(self._config_file(rel))) for rel in rel_paths]
         blocked = [(rel, reason) for rel, reason in blocked if reason]
         if blocked:
             QMessageBox.warning(self, "Cannot delete", "\n".join(f"{rel}: {reason}" for rel, reason in blocked))
@@ -1915,9 +1972,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     def _get_installer(self):
         try:
             from frontend.hub.installer import HubInstaller
-            workspace_dir = self.root_dir.parent.parent
-            data_dir = workspace_dir / ".thetaide"
-            return HubInstaller(workspace_dir=workspace_dir, data_dir=data_dir)
+            paths = self._workspace_paths()
+            return HubInstaller(workspace_dir=paths.root, data_dir=paths.data_dir)
         except Exception:
             return None
 
@@ -2115,7 +2171,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             from .export_dialog import ExportExperimentDialog
             dlg = ExportExperimentDialog(
                 experiment_id=group_name,
-                workspace_root=self.root_dir.parent.parent,
+                workspace_root=self._workspace_paths().root,
                 group=group_name,
                 parent=self,
             )

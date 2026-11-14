@@ -31,10 +31,10 @@ def _files(root, excluded):
 
 def inventory(paths: WorkspacePaths) -> dict:
     """Record input/source/config bytes, symlinks, ownership state and references."""
-    roots = [paths.root / "in", paths.research, *paths.managed_roots,
+    roots = [paths.research, *paths.managed_roots,
              paths.application / "src/app", paths.application / "frontend", *paths.bundled_roots]
     state = [paths.data_dir / name for name in ("components", "provider_overrides.json", "workspace.json",
-                                               "config_overrides.json", "config_backups", "retained_packages")]
+                                               "config_overrides.json", "retained_packages")]
     excluded = set()
     files = sorted(set(file for root in [*roots, *state] for file in _files(root, excluded)))
     tracked = set()
@@ -49,20 +49,13 @@ def inventory(paths: WorkspacePaths) -> dict:
         origin = "application" if any(file.is_relative_to(root) for root in application_roots) else "workspace" if file.is_relative_to(paths.root) else "state"
         owner_root = {"workspace": paths.root, "application": paths.application, "state": paths.data_dir}[origin]
         relative = file.relative_to(owner_root).as_posix()
-        destination = relative
-        if relative.startswith("in/config/"):
-            destination = "src/usr/config/" + relative[len("in/config/"):]
-        elif relative.startswith("in/datasets/"):
-            destination = "src/usr/datasets/" + relative[len("in/datasets/"):]
         try:
             link = file.is_symlink()
             payload = str(file.readlink()).encode() if link else file.read_bytes()
             records.append({"path": relative, "origin": origin, "tracked": file in tracked,
                             "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload),
                             "mode": stat.S_IMODE(file.lstat().st_mode), "symlink": link,
-                            "intended_destination": destination,
-                            "selector": relative[len("in/config/"):] if relative.startswith("in/config/") else
-                                        relative[len("src/usr/config/"):] if relative.startswith("src/usr/config/") else None})
+                            "selector": relative[len("src/usr/config/"):] if relative.startswith("src/usr/config/") else None})
             if not link and file.suffix in (".yaml", ".yml"):
                 import yaml
                 def visit(value, key=""):

@@ -57,25 +57,20 @@ class ResolvedConfig:
         if self.package is None:
             return {}
         schema = self.package.manifest.get("parameter_schema") or {}
-        return schema.get("x-theta-config-schemas", {}).get("in/config/" + self.selector, schema)
+        return schema.get("x-theta-config-schemas", {}).get(self.selector, schema)
 
 
 class ConfigResolver:
     def __init__(self, paths: WorkspacePaths, *, config_root=None):
         self.paths = paths
         self.config_root = Path(config_root) if config_root else paths.config
-        self.user_roots = tuple(dict.fromkeys((
-            *((self.config_root,) if self.config_root != paths.config else ()),
-            paths.user_config, paths.config,
-        )))
+        self.user_roots = tuple(dict.fromkeys((self.config_root, paths.config)))
         self.catalog = get_catalog(paths)
         self.profiles = {}
         self._selectors = None
         for package in self.catalog.packages:
-            for destination, source in package.manifest.get("payload", {}).get("configs", {}).items():
-                if destination.startswith("in/config/"):
-                    relative = destination[len("in/config/"):]
-                    self.profiles.setdefault(relative, []).append((package, package.resource(source)))
+            for selector, source in package.manifest.get("payload", {}).get("configs", {}).items():
+                self.profiles.setdefault(selector, []).append((package, package.resource(source)))
 
     def owner(self, relative):
         relative = selector_path(relative).as_posix()
@@ -115,7 +110,7 @@ class ConfigResolver:
         for root in self.user_roots:
             user = root / relative
             if user.is_file():
-                return ResolvedConfig(relative, user, "user", package, source is not None)
+                return ResolvedConfig(relative, user, "workspace", package, source is not None)
         if source is not None and source.is_file():
             return ResolvedConfig(relative, source, package.origin, package)
         fallback = self.paths.framework_config / relative

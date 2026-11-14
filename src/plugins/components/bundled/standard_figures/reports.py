@@ -90,8 +90,13 @@ class ReportsPlotter(BasePlotter):
                 except Exception:
                     pass
 
-        # 4. Check in/config/agent/ directly
-        for agent_file in Path("in/config/agent").rglob("*.yaml"):
+        # 4. Check the workspace's effective agent profiles
+        resolver = self.workspace.config_resolver()
+        for selector in resolver.selectors("agent"):
+            agent_file = resolver.resolve(selector)
+            if agent_file is None:
+                continue
+            agent_file = agent_file.file
             try:
                 with open(agent_file) as f:
                     data = yaml.safe_load(f)

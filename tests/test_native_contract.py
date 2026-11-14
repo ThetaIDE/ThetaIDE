@@ -14,14 +14,14 @@ from src.app.workspace import WorkspacePaths
 def package(root, name='native', **changes):
     root.mkdir(parents=True,exist_ok=True)
     (root/'model.py').write_text('class Model: pass\n')
-    meta={'id':name,'name':name,'kind':'model','version':'1.0.0','storage_version':2,'api_version':1,
+    meta={'id':name,'name':name,'kind':'model','version':'1.0.0','storage_version':3,'api_version':1,
           'capabilities':[{'id':name,'kind':'model','entry_point':'model.py:Model'}],
           'payload':{'implementations':['model.py'],'resources':[],'configs':{}},**changes}
     (root/'.theta_component.json').write_text(json.dumps(meta))
     return meta
 
 
-@pytest.mark.parametrize('field,value', [('storage_version',None),('storage_version',1),('api_version',None),('legacy_paths',{}),('module_aliases',{}),('target_path','src/usr/models/native')])
+@pytest.mark.parametrize('field,value', [('storage_version',None),('storage_version',1),('storage_version',2),('api_version',None),('legacy_paths',{}),('module_aliases',{}),('target_path','src/usr/models/native')])
 def test_legacy_or_missing_contract_is_rejected_without_installation(tmp_path,field,value):
     source=tmp_path/'source';meta=package(source,**{field:value})
     archive=tmp_path/'native.zip'
@@ -101,7 +101,7 @@ def test_requested_release_version_is_checked_against_the_archive(tmp_path):
 def test_explicit_native_config_mapping_supplies_packaged_default(tmp_path):
     source=tmp_path/'source'
     meta=package(source,payload={'implementations':['model.py'],'resources':[],
-        'configs':{'in/config/model/native.yaml':'profile.yaml'}})
+        'configs':{'model/native.yaml':'profile.yaml'}})
     (source/'profile.yaml').write_text('architecture: native\nwidth: 8\n')
     archive=tmp_path/'native.zip'
     with ZipFile(archive,'w') as z:
@@ -109,7 +109,8 @@ def test_explicit_native_config_mapping_supplies_packaged_default(tmp_path):
     comp=HubComponent.from_dict(meta);comp.releases={comp.version:ReleaseInfo(comp.version,archive.as_uri(),'')}
     installer=HubInstaller(tmp_path/'workspace',tmp_path/'state')
     installer.install(comp,install_dependencies=False)
-    (installer.paths.config/'model/native.yaml').unlink()
+    # Package defaults stay inside the package; install writes nothing to the config root.
+    assert not (installer.paths.config/'model/native.yaml').exists()
     assert installer.paths.resolve_config('model/native.yaml')==installer.paths.installed_components/'native/configs/model/native.yaml'
     assert installer.paths.resolve_config('model/native.yaml').read_text()=='architecture: native\nwidth: 8\n'
 
@@ -131,3 +132,13 @@ def test_episode_outcomes_require_a_declared_runner_contract(tmp_path,monkeypatc
     (root/'.theta_component.json').write_text(json.dumps(meta))
     invalidate(paths,root)
     assert runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'native'})
+
+
+@pytest.mark.parametrize('destination', ['src/usr/config/model/native.yaml', 'src/usr/config/model/native.yaml',
+                                         '/model/native.yaml', 'model/../native.yaml', 'native.yaml', 'model/native.txt'])
+def test_config_destinations_are_logical_selectors(tmp_path, destination):
+    source = tmp_path / 'source'
+    meta = package(source, payload={'implementations': ['model.py'], 'resources': [], 'configs': {destination: 'profile.yaml'}})
+    (source / 'profile.yaml').write_text('architecture: native\n')
+    with pytest.raises(ValueError, match='config selector'):
+        validate_native_package(meta, source)

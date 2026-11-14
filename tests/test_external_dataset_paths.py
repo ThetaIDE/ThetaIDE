@@ -9,11 +9,12 @@ from src.app.pipeline.compose import compose_experiment, validate_composed
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.validation import find_missing_components
 from src.app.workspace import WorkspacePaths
+from conftest import copy_research_config
 
 
 def test_explicit_missing_path_does_not_fall_back_to_other_data(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / 'in/datasets/AL/demo').mkdir(parents=True)
+    (tmp_path / 'src/usr/datasets/AL/demo').mkdir(parents=True)
     explicit = tmp_path / 'downloaded/missing.csv'
     with pytest.raises(FileNotFoundError, match='Check dataset_path') as error:
         resolve_dataset_for_method('ticc_em_edm', {}, {'dataset_path': str(explicit), 'group': 'AL', 'experiment_id': 'demo'})
@@ -91,7 +92,7 @@ def test_draft_preview_keeps_dataset_relative_to_project_not_temporary_config(tm
     from themes_al.data import PHYSIOLOGY
     project = Path(__file__).resolve().parents[1]
     draft_config = tmp_path / 'preview/config'
-    shutil.copytree(project / 'in/config', draft_config)
+    copy_research_config(draft_config)
     source = tmp_path / 'external.csv'
     source.write_text(','.join(['VisitIdentifier', 'MinutesFromArrival', *PHYSIOLOGY, 'a_2']) + '\n')
     relative = os.path.relpath(source, project)

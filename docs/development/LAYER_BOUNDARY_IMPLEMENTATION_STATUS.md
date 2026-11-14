@@ -4,7 +4,7 @@ Branch: `implement/layer-boundaries`. The [implementation plan](../plans/LAYER_B
 
 ## Progress outline
 
-Snapshot as of 2026-11-14, after the [pre-phase-4 cleanup](#pre-phase-4-cleanup--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
+Snapshot as of 2026-11-14, after [phase 4 units 4a and 4b](#phase-4-units-4a-and-4b--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
 
 | Phase (delivery) | State | Local gate | What is left |
 | --- | --- | --- | --- |
@@ -12,12 +12,38 @@ Snapshot as of 2026-11-14, after the [pre-phase-4 cleanup](#pre-phase-4-cleanup-
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists. Decisions settled; [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md) ready |
+| 4 — `in/` migration (F) | **In progress**: 4a, 4b and the 4e test port landed | Not yet | 4f (move this workspace; dry run ready, awaiting the user's go-ahead), 4c adapters and SDK 2.0, 4d guides, remaining 4e tests, 4g Hub preparation |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
 | 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages. Adapter retirement moved into phase 4 |
 
 Phase 4 depends on the phase 3 consumers being ready, which they now are. The user settled its decisions on 2026-11-14: no legacy support of any kind. That means package format v3 only (v2 retired on the Hub too), no detection of `in/`, a complete move of the user's workspace, and retirement of every compatibility adapter, including the checkpoint aliases (see the [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+
+## Phase 4 units 4a and 4b — 2026-11-14
+
+**Status:** package format v3 and the path cutover are in one commit, with the shared test fixture and the ported tests. The user's workspace has not moved yet (unit 4f), so suites that read this checkout's research workspace fail until it does.
+
+- **One commit for 4a, 4b and the 4e port.** The scaffolder, exporters and installer already write `src/usr/config`, so the v3 format could not pass its tests without the cutover. The plan also asks that the port land with 4b so the suite never mixes layouts.
+- **Install model (user decision, 2026-11-14: "stop copying").** Package profiles resolve from the package by selector and are never copied into the workspace. `src/usr/config` holds only the user's own files and explicit overrides; uninstall and update never touch it. The hash, backup, retained-config and `user_config_paths` machinery is deleted. The config tree lists package profiles through the resolver, and editing a managed one requires an override (`config override`). Profiles of authored (writable) packages are edited in place. Needs the user's installed-GUI check.
+- **Format v3.** `storage_version: 3` only. Config destinations, `x-theta-config-schemas` keys, `config_path(s)`, compatibility selectors and test-suite paths are `<group>/<name>.yaml` selectors; absolute paths, `..` and `in/` or `src/` prefixes are rejected. Every tracked manifest (bundled, authored, optional components, fixtures, the distribution probe, generated site and objective manifests) is v3.
+- **Paths.** `WorkspacePaths.config` is `src/usr/config` and `.datasets` is `src/usr/datasets`; the `user_config`/`user_inputs` aliases are gone. A workspace is recognized by `src/usr` or `.thetaide/workspace.json`, and `from_config_root` rejects any other root. Resolver precedence: `src/usr/config`, selected provider profile, framework fallback. A user file now reports origin `workspace`, so it can no longer be confused with an authored package (origin `user`); the config tree had dropped authored package profiles because of that clash.
+- **Removed with no replacement.** The `CONFIG_DIR` rebinding constants (`compose`, `catalog`, `config_service`), `in/rules` detection (`reject_legacy_rules_paths`, `require_canonical_rules_layout`), `in/` checks in archive validation, and the inventory's `in/` → `src/usr` destination mapping.
+- **Consumers.** Site policy, snapshot and transfer use `src/usr/datasets` (snapshots exclude it); the Slurm executor links it; the worker snapshot hashes each declared selector's effective profile, so an override created after launch is detected; component context and validation resolve profiles by selector; the arXiv catalog lists effective profiles; the reports plotter reads agent profiles through the resolver; the launch guard checks profiles through the resolver. `prepare_tabular.py` moved next to the core NPZ data module (`python -m src.app.core.paradigm_impls.base.prepare_tabular`, `--output` defaulting to the workspace dataset root) rather than into a Hub package, so core messages name no package. The documentation panel, README, CONTRIBUTING, `.gitignore`, `MANIFEST.in`, `pyproject.toml` and `pytest.ini` describe the new layout; the guides under `docs/` are unit 4d.
+- **Tests.** `fixture_workspace` builds an isolated `src/usr/config` from every non-bundled profile this checkout resolves (`copy_research_config`) and selects it with `THETA_WORKSPACE`. All test files that built `in/config` layouts were ported; tests for retired behavior (legacy rules locations, materialization, retained configs) were deleted or rewritten. New: `tests/test_layout_guard.py` fails if tracked source outside `tests/`, `docs/` and `results/` mentions `in/config`, `in/datasets`, `in/envs` or `in/inputs`.
+
+### Evidence
+
+Each of the 87 affected test files was run on its own, on the branch and on a baseline worktree at `e3fdbcd`, and the failures compared by test ID. Totals are 1084 passed and 130 failed on the branch, against 1092 passed and 129 failed on the baseline. Deleted tests for retired behavior account for the drop in passes. No failure is new except these, which are expected:
+
+- **Until this workspace moves (4f):** `test_data_loader_bindings` (7, the BlendRL agents resolve through `src/usr/config`), `test_execution_contract::test_old_selected_hub_profile_fails`, `test_provider_organization::test_legacy_import_contract_identity_and_paradigms`, `test_workspace_defaults::test_checkout_does_not_track_component_or_experiment_configs` (tracked `.gitkeep` paths) and `test_baselines_and_suites::test_missing_component_run_guard`.
+- **Until the sibling packages are v3 (4g):** `test_rulesets::test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process` and `test_baselines_and_suites` (nsfr/neumann and dl-basics archives are storage 2).
+
+`test_layout_guard` passes. Failures that already occur on the baseline (`test_job_manager`, `test_experiment_pane`, `test_experiment_exporter` and others) are unchanged.
+
+### Still open
+
+- **4f.** The dry run is ready and awaits the user's go-ahead. Installed manifests are still v2 on disk, so the catalog ignores them until 4f converts them.
+- **4g.** The Hub sources in `../theta-plugins` are v2, so the NSFR, Neumann and DL-basics install tests fail until they are rebuilt.
 
 ## Pre-phase-4 cleanup — 2026-11-14
 

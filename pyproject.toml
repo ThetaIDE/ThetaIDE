@@ -96,7 +96,6 @@ extend-exclude = [
     "src/plugins/components/installed",
     "src/plugins/app/installed",
     "src/usr",
-    "in/envs",
     "venv",
 ]
 
@@ -137,7 +136,6 @@ exclude = [
     "src/plugins/components/installed",
     "src/plugins/app/installed",
     "src/usr",
-    "in/envs",
     "venv",
 ]
 

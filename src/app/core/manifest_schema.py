@@ -14,7 +14,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "required": ["id", "name", "kind", "version", "storage_version", "api_version", "capabilities", "payload"],
     "properties": {
-        "storage_version": {"type": "integer", "enum": [2]},
+        "storage_version": {"type": "integer", "const": 3},
         "api_version": {"type": "integer", "const": 1},
         "capabilities": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "entry_point"],
             "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"type": "string"},
@@ -125,7 +125,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
         },
         "config_path": {
             "type": "string",
-            "description": "Primary YAML configuration path in in/config/.",
+            "description": "Primary config selector, relative to the config root (e.g. model/mlp.yaml).",
         },
         "config_paths": {
             "type": "array",
@@ -276,6 +276,34 @@ VALID_KINDS = {
 }
 
 
+def config_selector(value) -> str:
+    """Return a package config selector such as ``model/mlp.yaml``.
+
+    Selectors are relative to the config root: absolute paths, ``..`` and
+    workspace-layout prefixes are rejected.
+    """
+    from pathlib import PurePosixPath
+    text = str(value) if isinstance(value, str) else ""
+    path = PurePosixPath(text)
+    if (not text or "\\" in text or ":" in text or path.is_absolute() or ".." in path.parts
+            or len(path.parts) < 2 or path.parts[0] in ("in", "src") or path.suffix not in (".yaml", ".yml")
+            or path.as_posix() != text):
+        raise ValueError(f"Invalid config selector {value!r}: use <group>/<name>.yaml relative to the config root")
+    return text
+
+
+def validate_config_selectors(data: Dict[str, Any]) -> None:
+    """Every config destination, schema key and recorded profile is a logical selector."""
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    configs = payload.get("configs") if isinstance(payload.get("configs"), dict) else {}
+    schemas = (data.get("parameter_schema") or {}).get("x-theta-config-schemas", {}) if isinstance(data.get("parameter_schema"), dict) else {}
+    suite = data.get("test_suite") if isinstance(data.get("test_suite"), dict) else {}
+    contracts = [c.get("config_path") for c in suite.get("components", []) if isinstance(c, dict) and c.get("config_path")]
+    for value in [*configs, *(schemas if isinstance(schemas, dict) else {}), *data.get("config_paths", []),
+                  *([data["config_path"]] if data.get("config_path") else []), *contracts]:
+        config_selector(value)
+
+
 def validate_manifest_data(data: Dict[str, Any]) -> Tuple[bool, str | None]:
     """Validate component manifest dictionary against schema.
 
@@ -288,7 +316,7 @@ def validate_manifest_data(data: Dict[str, Any]) -> Tuple[bool, str | None]:
     if not isinstance(data, dict):
         return False, "Manifest must be a JSON object dictionary."
 
-    if data.get("storage_version") != 2 or data.get("api_version") != 1:
+    if data.get("storage_version") != 3 or data.get("api_version") != 1:
         return False, "Unsupported archive storage_version or provider api_version"
     for field in ('capabilities','payload'):
         if field not in data: return False, f"Missing native manifest field: {field}"
@@ -305,6 +333,10 @@ def validate_manifest_data(data: Dict[str, Any]) -> Tuple[bool, str | None]:
                 TuningFeatures.from_metadata(cap)
             except ValueError as exc:
                 return False, str(exc)
+    try:
+        validate_config_selectors(data)
+    except ValueError as exc:
+        return False, str(exc)
     exports = data.get("exports", {})
     if not isinstance(exports, dict):
         return False, "exports must map public names to 'file.py:attribute'"

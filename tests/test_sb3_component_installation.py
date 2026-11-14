@@ -20,7 +20,7 @@ def test_fresh_editable_sb3_runs_selected_model_and_reloads(tmp_path):
     workspace = tmp_path / 'workspace'
     package = workspace / 'src/usr/algorithms/sb3-dev'
     shutil.copytree(project / 'src/usr/algorithms/sb3-dev', package, ignore=shutil.ignore_patterns('__pycache__'))
-    config = workspace / 'in/config'
+    config = workspace / 'src/usr/config'
     shutil.copytree(project / 'src/app/config_defaults', config)
     model = workspace / 'src/usr/models/dnn-test-dev'
     model.mkdir(parents=True)
@@ -29,7 +29,7 @@ def test_fresh_editable_sb3_runs_selected_model_and_reloads(tmp_path):
     (model / 'model.py').write_text(source)
     (model / '.theta_component.json').write_text(json.dumps({
         'id': 'dnn-test-dev', 'name': 'DNN test fixture', 'kind': 'model', 'version': '0.1.0',
-        'storage_version': 2, 'api_version': 1, 'origin': 'user',
+        'storage_version': 3, 'api_version': 1, 'origin': 'user',
         'parent': {'id': dnn.id, 'version': dnn.version, 'origin': dnn.origin},
         'capabilities': [{'id': 'dnn-test-dev', 'kind': 'model', 'entry_point': 'model.py:DNNModel'}],
         'payload': {'implementations': ['model.py'], 'resources': [], 'configs': {}}}))

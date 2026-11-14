@@ -49,13 +49,13 @@ class ComponentExportResult:
 
 
 def find_workspace_root(start_path: Path | None = None) -> Path:
-    """Find the workspace root by looking for 'in' and 'src' directories upwards."""
+    """Find the nearest enclosing workspace (``src/usr`` or ``.thetaide/workspace.json``)."""
     curr = (start_path or Path.cwd()).resolve()
     if curr.is_file():
         curr = curr.parent
 
     for p in [curr, *curr.parents]:
-        if (p / "in").is_dir() and (p / "src").is_dir():
+        if (p / "src/usr").is_dir() or (p / ".thetaide/workspace.json").is_file():
             return p
     return Path.cwd().resolve()
 
@@ -69,15 +69,19 @@ def find_component_assets(config_path, rel_path=None, workspace_dir=None):
                      if paths.resolve_config(key) == cfg), None)
     profile_owner = resolved.package if resolved else None
     owners = [p for p in get_catalog(paths).packages if p.origin != 'python_distribution' and
-              (p == profile_owner or cfg == p.root or cfg.is_relative_to(p.root) or cfg in {paths.root / v for v in [*p.manifest.get('config_paths', []),*p.manifest.get('user_config_paths', [])]})]
+              (p == profile_owner or cfg == p.root or cfg.is_relative_to(p.root))]
     if len(owners) > 1: raise ValueError(f"Ambiguous config ownership: {cfg}: {[p.id for p in owners]}")
     owner = owners[0] if owners else None
     meta = {**owner.manifest, 'origin':owner.origin, 'writable':owner.writable, 'target_dir':str(owner.root)} if owner else {}
     primary = next((owner.resource(c.entry_point.split(':')[0]) for c in owner.capabilities), owner.root) if owner else cfg
     managed = owner is not None and owner.origin in ('bundled','hub','local_archive')
+    owned = [owner.root] if owner else [cfg]
+    if owner is not None and not managed:
+        # Deleting an authored component also removes the editable profiles it created.
+        owned += [paths.config / s for s in owner.manifest.get('payload', {}).get('configs', {}) if (paths.config / s).is_file()]
     return {'comp_id':owner.id if owner else cfg.stem, 'comp_name':meta.get('name',cfg.stem), 'kind':meta.get('kind','component'),
             'config_path':cfg, 'code_dir':owner.root if owner else None, 'primary_code_file':primary,
-            'files_to_delete':([owner.root, *[paths.root / v for v in meta.get('config_paths',[])] ] if owner else [cfg]),
+            'files_to_delete':owned,
             'is_component':owner is not None, 'is_hub_installed':managed,
             'action_type':'uninstall' if managed else 'delete_component' if owner else 'delete_config',
             'meta':meta, 'origin':meta.get('origin','user'), 'writable':meta.get('writable',True)}
@@ -122,14 +126,11 @@ class ComponentExporter:
             if owner is None or owner.origin == 'python_distribution':
                 raise ValueError('Export requires an explicitly declared native package; author a manifest first')
             manifest = copy.deepcopy(owner.manifest)
-            for key in ('source_hashes','asset_hashes','config_hashes','config_backups','installed_from','installed_files',
-                        'sha256','target_dir','origin','source_manifest','retained_edits','user_config_paths','authoring_hash'):
+            for key in ('source_hashes','asset_hashes','installed_from','installed_files',
+                        'sha256','target_dir','origin','source_manifest','retained_edits','authoring_hash'):
                 manifest.pop(key, None)
             manifest.update(version=opts.version, author={'name':opts.author})
             if opts.description: manifest['description'] = opts.description
-            for dest in owner.manifest.get('user_config_paths',[]):
-                if self.paths.config_file(dest).is_file():
-                    manifest['payload']['configs'].setdefault(dest,'configs/'+dest.removeprefix('in/config/'))
             manifest['config_paths']=list(manifest['payload']['configs'])
             files = {}
             for section in ('implementations','resources'):
@@ -146,8 +147,9 @@ class ComponentExporter:
             original_configs=owner.manifest.get('payload',{}).get('configs',{})
             canonical={}
             for dest,relative in manifest['payload']['configs'].items():
-                active=self.paths.resolve_config(dest.removeprefix("in/config/"))
-                selected='configs/'+dest.removeprefix('in/config/')
+                # Export the effective profile, including a user override.
+                active=self.paths.resolve_config(dest)
+                selected='configs/'+dest
                 files[selected]=active if active.is_file() else owner.resource(original_configs.get(dest,relative))
                 canonical[dest]=selected
             manifest['payload']['configs']=canonical
@@ -169,7 +171,7 @@ class ComponentExporter:
         path = Path(target).expanduser()
         if not path.is_absolute():
             candidate = self.workspace_root / path
-            path = candidate if candidate.is_file() else self.paths.resolve_config(str(path).removeprefix("in/config/"))
+            path = candidate if candidate.is_file() else self.paths.resolve_config(str(path))
         if not path.suffix: path = path.with_suffix('.yaml')
         path = path.resolve()
         return path, path.relative_to(self.workspace_root).as_posix() if path.is_relative_to(self.workspace_root) else path.name

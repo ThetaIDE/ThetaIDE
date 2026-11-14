@@ -306,7 +306,7 @@ def model_config_yaml(
     input_shape: tuple[int, ...] | None = None,
     layout: list[list[int]] | None = None,
 ) -> str:
-    """The text of an `in/config/model/<name>.yaml` for this stack.
+    """The text of an `src/usr/config/model/<name>.yaml` for this stack.
 
     Written by hand rather than dumped so the file reads like the
     hand-written model configs beside it, keeps `layers` in order, and can

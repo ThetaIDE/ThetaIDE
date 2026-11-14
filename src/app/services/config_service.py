@@ -20,7 +20,6 @@ from omegaconf import OmegaConf
 
 from src.app.pipeline.compose import (
     _HYDRA_LOCK,
-    CONFIG_DIR,
     compose_experiment,
     effective_config,
     method_plans,
@@ -32,17 +31,10 @@ from src.app.workspace import WorkspacePaths
 
 # A Hydra compose costs ~130-200 ms, and the GUI asks for the same one again and again: at startup,
 # on every Settings visit, on reopening an experiment, after an undo. The result depends only on its
-# arguments, the YAML under in/config, and the agent registry (auto-discovered from src/usr), so
+# arguments, the effective config profiles, and the agent registry (auto-discovered from src/usr), so
 # results are reused while all of those are byte-for-byte unchanged (~3 ms to check).
-_DEFAULT_CONFIG_DIR = CONFIG_DIR
-
-
 def _workspace(workspace=None):
-    if workspace is not None:
-        return workspace
-    if CONFIG_DIR != _DEFAULT_CONFIG_DIR:
-        return WorkspacePaths.from_config_root(CONFIG_DIR)
-    return WorkspacePaths.for_process()
+    return workspace if workspace is not None else WorkspacePaths.for_process()
 _COMPOSE_CACHE: OrderedDict[tuple, tuple[bool, Any]] = OrderedDict()
 _COMPOSE_CACHE_SIZE = 64
 _COMPOSE_CACHE_LOCK = threading.Lock()

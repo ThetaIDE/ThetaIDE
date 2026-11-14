@@ -3,7 +3,7 @@
   "name": "arc",
   "kind": "site",
   "version": "1.0.0",
-  "storage_version": 2,
+  "storage_version": 3,
   "api_version": 1,
   "capabilities": [
     {
@@ -13,8 +13,8 @@
     }
   ],
   "config_paths": [
-    "in/config/site/arc/_defaults.yaml",
-    "in/config/site/arc/default.yaml"
+    "site/arc/_defaults.yaml",
+    "site/arc/default.yaml"
   ],
   "payload": {
     "implementations": [
@@ -24,8 +24,8 @@
       "ssh_config"
     ],
     "configs": {
-      "in/config/site/arc/_defaults.yaml": "configs/site/arc/_defaults.yaml",
-      "in/config/site/arc/default.yaml": "configs/site/arc/default.yaml"
+      "site/arc/_defaults.yaml": "configs/site/arc/_defaults.yaml",
+      "site/arc/default.yaml": "configs/site/arc/default.yaml"
     }
   }
 }

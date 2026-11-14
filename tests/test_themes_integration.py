@@ -20,16 +20,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'src/usr/packages/themes-dev'
 
 
-def historical_test_workspace(root):
-    """Tests explicitly request the historical demo; never migrate user configs."""
+def historical_test_workspace(paths):
+    """Tests explicitly request the historical demo through user overrides of the package profiles."""
     import yaml
-    config = root / 'in/config'
-    agent = config / 'agent/themes-dev/em_edm.yaml'
-    profile = yaml.safe_load(agent.read_text())
+    agent = 'agent/themes-dev/em_edm.yaml'
+    profile = yaml.safe_load(paths.resolve_config(agent).read_text())
     profile['implementation'] = 'demo_reconstruction'
-    agent.write_text(yaml.safe_dump(profile))
-    for recipe in (config / 'experiment/AL').rglob('*.yaml'):
-        doc = yaml.safe_load(recipe.read_text())
+    (paths.config / agent).parent.mkdir(parents=True, exist_ok=True)
+    (paths.config / agent).write_text(yaml.safe_dump(profile))
+    for selector in paths.config_resolver().selectors('experiment/AL'):
+        doc = yaml.safe_load(paths.resolve_config(selector).read_text())
+        recipe = paths.config / selector
+        recipe.parent.mkdir(parents=True, exist_ok=True)
         for method in (doc.get('methods') or {}).values():
             model = method.get('model')
             if model == 'themes-dev/ticc':
@@ -43,19 +45,14 @@ def historical_test_workspace(root):
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    shutil.copytree(ROOT / 'src/app/config_defaults', tmp_path / 'in/config')
     provider = tmp_path / 'src/usr/packages/themes-dev'
     shutil.copytree(SOURCE, provider, ignore=shutil.ignore_patterns('__pycache__', '*.egg-info', 'build'))
-    manifest = json.loads((provider / '.theta_component.json').read_text())
-    for dest, source in manifest['payload']['configs'].items():
-        path = tmp_path / dest
-        path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(provider / source, path)
-    historical_test_workspace(tmp_path)
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     monkeypatch.delenv('THETA_DATA_DIR', raising=False)
     monkeypatch.delenv('THETA_PROVIDER_SNAPSHOT', raising=False)
-    return WorkspacePaths(tmp_path)
+    paths = WorkspacePaths(tmp_path)
+    historical_test_workspace(paths)
+    return paths
 
 
 def launch(paths, experiment='themes_synthetic_smoke', overrides=()):
@@ -181,6 +178,7 @@ def test_selected_stage_model_substitution_changes_execution(workspace):
     manifest['payload']['implementations'].append('alternate.py')
     manifest_path.write_text(json.dumps(manifest))
     profile = workspace.config / 'model/themes-dev/single.yaml'
+    profile.parent.mkdir(parents=True, exist_ok=True)
     profile.write_text('architecture: themes-dev/single\nstages: 1\nticc_iterations: 1\n')
     launch(workspace, overrides=['++methods.ticc_em_edm.model={name:themes-dev/bundle,stage:{architecture:themes-dev/single,stages:1,ticc_iterations:1}}'])
     record = json.loads(next(workspace.results.rglob('execution.json')).read_text())
@@ -192,9 +190,6 @@ def test_selected_stage_model_substitution_changes_execution(workspace):
 def test_gui_launch_preparation_uses_the_same_recipe(workspace, monkeypatch):
     from src.app.pipeline import compose
     from src.app.services import config_service
-    monkeypatch.setattr(compose, 'CONFIG_DIR', workspace.config)
-    monkeypatch.setattr(config_service, 'CONFIG_DIR', workspace.config)
-    monkeypatch.setattr(config_service, 'LOGS_DIR', workspace.results / 'logs')
     launch = config_service.prepare_launch('AL/codex/themes_synthetic_smoke')
     assert launch['group'] == 'AL'
     assert launch['experiment_id'] == 'codex/themes_synthetic_smoke'
