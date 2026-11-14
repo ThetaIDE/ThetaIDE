@@ -102,8 +102,9 @@ HIDDEN_BY_DEFAULT = {"workflows", "monitor"}
 class _LazyFigureWorkspace(QWidget):
     """Load Matplotlib after the main window is visible, not during startup."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, paths=None):
         super().__init__(parent)
+        self.paths = paths
         self._loaded = False
         layout = QVBoxLayout(self)
         layout.addStretch()
@@ -128,7 +129,7 @@ class _LazyFigureWorkspace(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        layout.addWidget(FigureWorkspace())
+        layout.addWidget(FigureWorkspace(paths=self.paths))
 
 def normalize_menu_shortcut(shortcut_str: str) -> str:
     """Normalize user-entered shortcut string for Qt QKeySequence.
@@ -289,7 +290,7 @@ class Window(QMainWindow):
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.tick)
         # Configs compose in-process and training runs as a QProcess: no server to start.
-        self.backend = LocalBackend(self, isolate_validation=True)
+        self.backend = LocalBackend(self, isolate_validation=True, workspace=paths)
         self.jobs = JobManager(
             project_root=workspace_dir,
             logs_dir=WorkspacePaths(workspace_dir, ide_data_dir).results / "logs",
@@ -390,7 +391,7 @@ class Window(QMainWindow):
         self.hotkey_manager = HotkeyManager(self, self.settings_manager)
         # The form already reflects this generation. Do not reload it merely
         # because the Experiment pane is selected for the first time.
-        fingerprint = config_fingerprint(self.config_tree.root_dir)
+        fingerprint = config_fingerprint(self.config_tree.root_dir, workspace=self.workspace_paths)
         self._config_fingerprint = fingerprint
         self.config_tab_manager.current_viewer()._config_fingerprint = fingerprint
         self._initializing = False
@@ -459,7 +460,7 @@ class Window(QMainWindow):
 
         # Multi-tabbed Config Tab Manager (replaces single ConfigViewer)
         self.config_tab_manager = ConfigTabManager(
-            self.settings_manager, self, plugin_manager=self.plugin_manager
+            self.settings_manager, self, plugin_manager=self.plugin_manager, workspace=self.workspace_paths
         )
         self.config_tab_manager.auto_save = True
         self.config_tab_manager.btn_save = self.btn_save
@@ -546,7 +547,7 @@ class Window(QMainWindow):
 
         # 5b. Figure workspace: defer Matplotlib's potentially slow macOS font
         # scan until after the main window is visible.
-        self.figure_workspace = _LazyFigureWorkspace()
+        self.figure_workspace = _LazyFigureWorkspace(paths=self.workspace_paths)
         self.tabs.addTab(self.figure_workspace, "Figure workspace", "export", "Figures", tab_id="figures")
 
         # 8. Terminal Panel
@@ -1175,6 +1176,10 @@ class Window(QMainWindow):
             self.config_tree.populate(ensure_expanded=target_folder)
         if hasattr(self, "config_tab_manager") and self.config_tab_manager is not None:
             self.config_tab_manager.refresh_component_choices()
+        # Site sync controls follow installed scheduler components; they never poll.
+        from .site_sync import SiteSyncControl
+        for control in self.findChildren(SiteSyncControl):
+            control.refresh_availability()
 
         # Non-plugin components (methods, models, envs) are filesystem assets only — no plugin UI to update.
         if comp and comp.kind != "plugin":
@@ -1669,7 +1674,7 @@ class Window(QMainWindow):
 
     def _configs_changed_since(self, holder) -> bool:
         """True if in/config changed since `holder` last checked; remembers the new state on it."""
-        fingerprint = config_fingerprint(self.config_tree.root_dir)
+        fingerprint = config_fingerprint(self.config_tree.root_dir, workspace=self.workspace_paths)
         changed = getattr(holder, "_config_fingerprint", None) != fingerprint
         holder._config_fingerprint = fingerprint
         return changed
@@ -2154,7 +2159,7 @@ class Window(QMainWindow):
         missing_components = Window.check_missing_components(self) if has_experiment else []
         if not isinstance(missing_components, list):
             missing_components = []
-        remote_site = ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm"
+        remote_site = ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler", "local") != "local"
         if hasattr(self, "experiment_site_sync"):
             self.experiment_site_sync.set_config(
                 getattr(self, "composed_config", None) if has_experiment else None,
@@ -2224,7 +2229,7 @@ class Window(QMainWindow):
 
     def launch_training(self):
         """Submit through the queue; available slots decide when training starts."""
-        if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm":
+        if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler", "local") != "local":
             from .site_launch import launch
             launch(self)
             return
@@ -2394,7 +2399,7 @@ class Window(QMainWindow):
                         active[label] = live
                 return active
         if load and backend.get("group") and backend.get("experiment_id"):
-            from .monitor.sweep_view import study_summaries
+            from src.app.pipeline.tuning_monitor import study_summaries
             for method, study in study_summaries(self.jobs.project_root, run):
                 for trial in study.get("trials", []):
                     version = trial.get("log_version")
@@ -2481,11 +2486,11 @@ class Window(QMainWindow):
         if is_recover:
             return name
         from src.app.pipeline.result_paths import saved_run_id
-        from src.app.services import LOGS_DIR
+        logs = self.workspace_paths.results / "logs"
         group = getattr(self, "current_experiment", "").split("/")[0] if getattr(self, "current_experiment", None) else None
         base = saved_run_id(name, f"_{datetime.now():%Y%m%d-%H%M%S}")
         experiment_id, n = base, 2
-        while experiment_id in self.issued_ids or (group and (LOGS_DIR / group / experiment_id).exists()):
+        while experiment_id in self.issued_ids or (group and (logs / group / experiment_id).exists()):
             experiment_id, n = f"{base}-{n}", n + 1
         self.issued_ids.add(experiment_id)
         return experiment_id
@@ -2507,9 +2512,9 @@ class Window(QMainWindow):
                 raise LaunchError(message)
             self.statusBar().showMessage(message, timeout)
 
-        if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler") == "slurm":
+        if ((getattr(self, "composed_config", None) or {}).get("site") or {}).get("scheduler", "local") != "local":
             if strict:
-                raise LaunchError("Slurm experiments are launched from the Run button, not queued.")
+                raise LaunchError("Scheduler-site experiments are launched from the Run button, not queued.")
             return None
         missing = self.check_missing_components()
         if missing:
@@ -2917,8 +2922,7 @@ class Window(QMainWindow):
         group = run.get("backend", {}).get("group")
         exp_id = run.get("backend", {}).get("experiment_id")
         if group and exp_id:
-            from src.app.services import LOGS_DIR
-            saved_cfg = LOGS_DIR / group / exp_id / "config.yaml"
+            saved_cfg = self.workspace_paths.results / "logs" / group / exp_id / "config.yaml"
             if saved_cfg.is_file():
                 try:
                     cfg_dict = yaml.safe_load(saved_cfg.read_text(encoding="utf-8"))
@@ -3138,6 +3142,8 @@ def main():
         entry, icon = install_desktop_entry()
         print(f"Installed {entry}\nInstalled {icon}")
         return 0
+    from . import error_log
+    error_log.install(WorkspacePaths(args.workspace).data_dir)  # a raising slot must not abort the desktop
     set_windows_app_id()  # before any window: the taskbar then shows ThetaIDE's icon, not python.exe's
     if sys.platform == "darwin":
         try:
@@ -3182,6 +3188,13 @@ def main():
         QMessageBox.critical(None, "Workspace unavailable", f"Could not open local run storage:\n{exc}")
         return 1
     splash.set_progress("Opening window…", 0.88)
+
+    def report_error(message, path):
+        window.log(f"Unexpected error: {message}. Details: {path}")
+        window.statusBar().showMessage(f"Unexpected error: {message} (logged to {path.name})", 10000)
+
+    error_log.set_reporter(report_error)
+    app.aboutToQuit.connect(lambda: error_log.set_reporter(None))
     window.setWindowIcon(app_icon())
     window.show()
     splash.finish(window)

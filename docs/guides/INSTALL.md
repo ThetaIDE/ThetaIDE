@@ -179,3 +179,8 @@ and some laptops' media keys do). Rebind it in **Settings → Hotkeys**, or use 
 
 **`pip` warns that gymnasium has no extra `accept-rom-license`.** This is harmless: Gymnasium 1.x ships the
 Atari ROMs without it.
+
+**The status bar shows "Unexpected error".** A desktop action failed, and the IDE kept running. Training
+runs in a separate runner, so jobs are unaffected. The full traceback is in `.thetaide/logs/desktop-errors.log`
+in your workspace; include it when you report the problem. If the IDE itself stops without a message, look
+in `.thetaide/logs/desktop-faults.log`.

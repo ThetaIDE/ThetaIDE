@@ -124,12 +124,10 @@ class TestHotkeyManagerNavigation(unittest.TestCase):
         self.assertEqual(self.hm.get_pane_id_by_index(5), "plots")
         # 6 -> tensorboard
         self.assertEqual(self.hm.get_pane_id_by_index(6), "tensorboard")
-        # 7 -> queue
-        self.assertEqual(self.hm.get_pane_id_by_index(7), "queue")
-        # 8 -> terminal
-        self.assertEqual(self.hm.get_pane_id_by_index(8), "terminal")
-        # 9 -> console
-        self.assertEqual(self.hm.get_pane_id_by_index(9), "console")
+        # The Job queue pane moved into the Monitor; 7 -> terminal
+        self.assertEqual(self.hm.get_pane_id_by_index(7), "terminal")
+        # 8 -> console
+        self.assertEqual(self.hm.get_pane_id_by_index(8), "console")
 
     def test_switch_to_pane_by_index_direct(self):
         # Switch to 0 (Settings)
@@ -147,14 +145,14 @@ class TestHotkeyManagerNavigation(unittest.TestCase):
         self.assertTrue(res2)
         self.assertIs(self.window.tabs.currentWidget(), self.window.config_panel)
 
-        # Switch to 8 (Terminal)
-        res8 = self.hm.switch_to_pane_by_index(8)
-        self.assertTrue(res8)
+        # Switch to 7 (Terminal)
+        res7 = self.hm.switch_to_pane_by_index(7)
+        self.assertTrue(res7)
         self.assertIs(self.window.tabs.currentWidget(), self.window.terminal_panel)
 
-        # Switch to 9 (Console)
-        res9 = self.hm.switch_to_pane_by_index(9)
-        self.assertTrue(res9)
+        # Switch to 8 (Console)
+        res8 = self.hm.switch_to_pane_by_index(8)
+        self.assertTrue(res8)
         self.assertIs(self.window.tabs.currentWidget(), self.window.console_panel)
 
     def test_chorded_action_plus_number(self):

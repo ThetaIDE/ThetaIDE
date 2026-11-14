@@ -97,7 +97,7 @@ def test_obsolete_queued_compositions_never_execute_and_late_results_are_dropped
     backend._submit(lambda: (blocked.set(), release.wait(10)), callback=lambda *_: None)
     assert blocked.wait(2)
     executions, replies = [], []
-    def compose(experiment, overrides, draft):
+    def compose(experiment, overrides, draft, **_):
         executions.append((experiment, draft))
         return {'valid': True}
     monkeypatch.setattr('frontend.local_backend.config_service.compose_report', compose)
@@ -221,8 +221,11 @@ def test_lazy_editor_can_theme_and_close_without_a_renderer(app, tmp_path, monke
     from src.plugins.app.bundled.text_editor.panel import TextEditorPanel
     create = Mock(side_effect=AssertionError('hidden editor created a renderer'))
     monkeypatch.setattr('src.plugins.app.bundled.text_editor.panel.QWebEngineView', create)
-    context = SimpleNamespace(window=SimpleNamespace(
-        settings_manager=SettingsManager(tmp_path), theme_manager=ThemeManager(tmp_path / '.appearance.json')))
+    from frontend.plugins.context import PluginContext
+    from src.app.workspace import WorkspacePaths
+    context = PluginContext('text_editor', SimpleNamespace(
+        settings_manager=SettingsManager(tmp_path), theme_manager=ThemeManager(tmp_path / '.appearance.json'),
+        workspace_paths=WorkspacePaths(tmp_path)), tmp_path / 'plugin.json')
     editor = TextEditorPanel(context, lazy=True)
     editor.apply_theme()
     assert editor.web_view is None and editor.can_close()
