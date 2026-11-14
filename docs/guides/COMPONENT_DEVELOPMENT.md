@@ -1,6 +1,6 @@
 # Component development from the GUI or terminal
 
-Theta keeps authored research code in `src/usr/`, managed packages in `src/plugins/components/installed/<package-id>`, bundled providers in `src/plugins/components/bundled`, and active configurations in `in/config/`. See [the native storage contract](../reference/PLUGIN_STORAGE.md) for ownership, explicit manifests and package-relative exports.
+Theta keeps authored research code in `src/usr/`, managed packages in `src/plugins/components/installed/<package-id>`, bundled providers in `src/plugins/components/bundled`, and your configurations and profile overrides in `src/usr/config/`. Package profiles are read from their package and are not copied into the workspace. See [the native storage contract](../reference/PLUGIN_STORAGE.md) for ownership, explicit manifests and package-relative exports.
 
 Author component changes in the `../theta-plugins` source repository. Installed Hub payloads in this workspace are read-only runtime copies, not the component authoring source. Build and install a package to validate a component update; use an isolated workspace first.
 
@@ -37,7 +37,7 @@ python run_pipeline.py component config copy model/my_blendrl/default model/my_b
 
 `config set` applies dotted `KEY=YAML` assignments and serializes the mapping while retaining opening comments, including Hydra package directives. Use a text editor to retain internal formatting/comments. Hydra command-line operators such as `+` and `~` belong on experiment invocations, not on `config set` keys.
 
-A YAML copy still references shared code; a component copy creates an independent implementation. Copy operations refuse existing destinations. CLI config paths accept config-root-relative names, `in/config/...` paths, or absolute YAML paths within `in/config/`; directory and symlink escapes are rejected.
+A YAML copy still references shared code; a component copy creates an independent implementation. Copy operations refuse existing destinations. CLI config paths accept config-root-relative names, `src/usr/config/...` paths, or absolute YAML paths within `src/usr/config/`; directory and symlink escapes are rejected.
 
 Hub originals are read-only in shared editing operations and retain filesystem protection. Local component/profile copies are editable. GUI config saves and Copy YAML call the same file/protection services. System Trash is injected by the desktop into the headless deletion service; core component operations never import Qt.
 
@@ -86,13 +86,13 @@ All paths below are relative to the existing checkout, using the default app dat
 | Authored environments and independent plotters | `src/usr/environments/`, `src/usr/plotters/`; owned auxiliary sources stay inside their package |
 | Managed research packages | `src/plugins/components/installed/<package-id>/` |
 | Symbolic rules and ruleset-owned predicate code | `src/usr/rules/<environment>/<ruleset>/` |
-| Experiment recipes and component profiles | `in/config/` by category; local files and protected Hub defaults share this tree |
-| Local datasets | `in/datasets/`, or explicitly configured data paths |
+| Experiment recipes and profile overrides | `src/usr/config/` by category; package defaults stay in their package's `configs/` |
+| Local datasets | `src/usr/datasets/`, or explicitly configured data paths |
 | Research outputs | `results/` (logs, plots, checkpoints, exports and related outputs) |
 | Managed GUI plugins | `src/plugins/app/installed/<id>/`; custom data directories hold state, not new source installs |
 | Built-in GUI plugins | `src/plugins/app/bundled/` |
 | Retained component packages, collection state and generated context | `.thetaide/components/packages/`, `collection.json`, `context/` |
-| Hub cache and retained YAML/backups | `.thetaide/cache/hub/`, `.thetaide/retained_configs/`, `.thetaide/config_backups/` |
+| Hub cache | `.thetaide/cache/hub/` |
 | IDE run records and queue | `.thetaide/runs/` (queue DB at `jobs/jobs.db` beneath the app data directory) |
 | Workspace preferences and personal appearance | `.thetaide/settings.toml`, `.thetaide/runs/.appearance.json` by default |
 | User-global preferences | `~/.config/thetaide/settings.toml` |

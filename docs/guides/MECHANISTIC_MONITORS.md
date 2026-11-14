@@ -7,7 +7,7 @@ train/evaluation routing diagnostics remain supported.
 
 ## Try the working experiment
 
-`in/config/experiment/newMonitors/onlineRL.yaml` runs MountainCar with the existing
+`src/usr/config/experiment/NewMonitors/onlineRL.yaml` runs MountainCar with the existing
 DQN method (displayed as `PPO`) and an additional `BlendRL` method using PPO.
 The original method and shared training budget are preserved. Each method keeps
 its own architecture-compatible monitor instances.

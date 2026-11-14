@@ -28,7 +28,7 @@ pytest tests/ -v
 
 ### 1.2 Checking an existing experiment
 
-Install the experiment's components from the Hub and choose an actual recipe under `in/config/experiment/`.
+Install the experiment's components from the Hub and choose an actual recipe under `src/usr/config/experiment/`.
 The following names are placeholders for a recipe already installed in your checkout:
 
 ```bash
@@ -57,8 +57,8 @@ directly and launches `run_pipeline.py` as a child process, so there is nothing 
 
 Everything the GUI used to request over HTTP is now a direct call. The pure-Python services live in
 `src/app/services/` and have no Qt dependency, so scripts and tests can use them too. The Qt side lives in
-`frontend/job_manager.py`, `frontend/local_backend.py` and the built-in plugins. `frontend/tensorboard.py`
-is a compatibility import for `src/plugins/app/bundled/tensorboard/`.
+`frontend/job_manager.py`, `frontend/local_backend.py` and the built-in plugins under
+`src/plugins/app/bundled/`.
 
 ### 3.1 Services (`src/app/services/`)
 
@@ -136,7 +136,7 @@ a deliberate `stop()`).
 
 `src/app/workspace.py` defines `WorkspacePaths` for the current checkout layout. It does not create,
 switch or migrate standalone research workspaces. Component implementations live under
-`src/app/components/`; frontend installer/model/dependency imports are compatibility aliases.
+`src/app/components/`; the desktop imports them from there.
 
 | Interface | Purpose |
 | --- | --- |
@@ -174,8 +174,7 @@ loads an enabled implementation for setup. Missing, blank and non-string selecto
 fail before provider resolution. Capability aliases and case use normal catalog
 resolution; portable plans record the canonical capability ID without editing the
 recipe. See the [contribution contract](EXTENSION_CONTRIBUTIONS.md) for saved-recipe
-diagnostics and the [portable contract](TUNER_EXECUTION_CONTRACT.md) for the bounded
-historical receipt adapter.
+diagnostics and the [portable contract](TUNER_EXECUTION_CONTRACT.md) for receipts.
 
 The optional remote extension of the local tuner API is
 `PortableTuner.remote_api_version = 1`. Supported types and publication helpers

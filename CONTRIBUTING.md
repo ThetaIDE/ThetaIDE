@@ -68,11 +68,11 @@ isolated fixtures rather than a fixed set of private researcher files.
 ```
 run_pipeline.py          # Command-line entry point
 frontend/                # The desktop IDE (PyQt6)
-  plugins/               # Generic Qt plugin infrastructure and compatibility imports
-  hub/                   # Theta Hub GUI client and compatibility imports
+  plugins/               # Generic Qt plugin infrastructure
+  hub/                   # Theta Hub GUI client
 src/app/                 # Framework
   components/            # Headless installer, development operations, config I/O and CLI
-  workspace.py           # Shared paths for the existing checkout layout
+  workspace.py           # Shared workspace paths
   pipeline/              # Config composition, validation and orchestration
   core/                  # Interfaces, registries (agents, plotters, ...), factories, callbacks
   services/              # Run catalog, metrics and job store used by the IDE
@@ -80,7 +80,6 @@ src/app/                 # Framework
 src/plugins/             # Bundled and managed research providers and app plugins
 src/usr/                 # User-authored implementations, rules and datasets
 src/usr/config/          # Your Hydra configs and overrides: experiment/, agent/, model/, env/, paradigms/, plot/
-plot/                    # Compatibility imports and plotting CLI
 tests/                   # pytest suite
 ```
 
@@ -101,7 +100,8 @@ Plugin…** (Ctrl+Shift+P) generates a starting point.
 Plotters are declared as capabilities in native package manifests. Bundled examples live under
 `src/plugins/components/bundled/standard_figures/`:
 
-1. Subclass `BasePlotter` from `src/app/core/plotting/base.py`, passing the plotter's name to `super().__init__("my_plot")`.
+1. Subclass `BasePlotter` from `src.app.api.plotting`. The constructor takes the host's workspace and passes it on:
+   `def __init__(self, *, paths): super().__init__("my_plot", paths=paths)`.
 2. Implement `run(self, exp_id, cli_overrides=None)`. Call `self.get_effective_config(exp_id, cli_overrides)`
    to get the merged settings, the experiment's group and the output folder.
 3. Declare the default settings as the package profile `plot/<library>/my_plot.yaml`. Research plotters and their defaults

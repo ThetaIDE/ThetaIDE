@@ -2,7 +2,7 @@
 
 Theta submits one experiment per Slurm allocation. Slurm support, including the ARC/NCShare site templates and the cluster setup panel, is the optional `slurm` scheduler component; install it into the workspace first (see [the scheduler contract](../reference/SCHEDULER_CONTRACT.md#installing-the-slurm-component)). Without it, no cluster settings or commands appear and saved cluster recipes report the missing scheduler. Project upload, submission, sync, and cleanup are explicit operations. Closing the desktop does not cancel a submitted job. OpenSSH owns authentication; Theta does not store passwords or silently retry ambiguous submissions.
 
-The hardened CPU pilot is `site=ncshare/common`; `ncshare_common` remains an alias. Its code has local filesystem/subprocess coverage, including actual CPU training and tuning. **Live NCShare acceptance and the overnight gate are still pending.** See the [implementation status and validation commands](../development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md). GPU qualification, automatic requeue, and full training-checkpoint resume are separate work.
+The hardened CPU pilot is `site=ncshare/common`. Its code has local filesystem/subprocess coverage, including actual CPU training and tuning. **Live NCShare acceptance and the overnight gate are still pending.** See the [implementation status and validation commands](../development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md). GPU qualification, automatic requeue, and full training-checkpoint resume are separate work.
 
 ## NCShare storage and setup
 
@@ -71,11 +71,11 @@ Datasets are excluded by default. Declare only required input copies in the site
 ```yaml
 execution:
   inputs:
-    - source: in/datasets/pilot.csv
-      target: in/datasets/pilot.csv
+    - source: src/usr/datasets/pilot.csv
+      target: src/usr/datasets/pilot.csv
 ```
 
-Sources are control-project-relative, links/traversal are rejected, and targets must be below `in/datasets/` or `in/inputs/`. `site push SITE --include-datasets` uploads datasets to control storage explicitly; submission stages only declared inputs to work, then the allocation copies them to scratch. Input byte/file/free-space limits apply. Relative runtime paths resolve from scratch. Large shared read-only dataset mappings are not qualified in this pilot; declare bounded copies or defer the experiment.
+Sources are control-project-relative, links/traversal are rejected, and targets must be below `src/usr/datasets/`. `site push SITE --include-datasets` uploads datasets to control storage explicitly; submission stages only declared inputs to work, then the allocation copies them to scratch. Input byte/file/free-space limits apply. Relative runtime paths resolve from scratch. Large shared read-only dataset mappings are not qualified in this pilot; declare bounded copies or defer the experiment.
 
 New work uploads/publications get current mtimes, while source archive/input metadata retains original timestamps. Do not touch older results to defeat `/work`'s documented 75-day mtime purge. Scientific results need independent durable backups.
 
@@ -135,7 +135,7 @@ Monitor’s Queue includes local work and remote executions last confirmed queue
 
 In Monitor, **Sync** is a direct button that downloads all published outputs for the displayed remote experiment run: metrics, logs, diagnostics, plots, and checkpoints. It has no menu and uses that run’s site and execution ID. Each pull reads one published snapshot. A sealed publication manifest (or finalized legacy artifacts) moves the run into Results. Confirmed terminal allocations also leave Monitor even if publication failed; Results exposes their downloaded metrics and logs with an **incomplete results** label. Publication completeness and cleanup eligibility remain separate from job termination. Later publications can be pulled manually from the experiment tree, even after Monitor closes.
 
-Cluster Python stderr is retained in `results/slurm/<execution_id>/pipeline.err` and in Slurm stderr; `pipeline.log` remains the combined stdout/stderr history. Nested training workers also retain a sibling `.err` file and forward stderr separately, preserving original dependency tracebacks. Error files are published with other metrics/logs and preview as text in Results → Files. Opening a failed run selects a nonempty Python error log, scheduler error preview, or legacy combined pipeline log without requiring a local job ID. Final publication failures are also written to Slurm stderr so they remain diagnosable when payload publication cannot finish. These changes apply to newly uploaded/submitted code; existing snapshots retain their original files.
+Cluster Python stderr is retained in `results/sites/<execution_id>/pipeline.err` and in Slurm stderr; `pipeline.log` remains the combined stdout/stderr history. Nested training workers also retain a sibling `.err` file and forward stderr separately, preserving original dependency tracebacks. Error files are published with other metrics/logs and preview as text in Results → Files. Opening a failed run selects a nonempty Python error log, scheduler error preview, or legacy combined pipeline log without requiring a local job ID. Final publication failures are also written to Slurm stderr so they remain diagnosable when payload publication cannot finish. These changes apply to newly uploaded/submitted code; existing snapshots retain their original files.
 
 **Run uploads project code to the cluster and opens the submission terminal. Monitor Sync, Sync Results, and the experiment toolbar sync icon download published data to your machine.** These sync controls offer only pull actions. Run does not download results, and pulling monitor/results data does not upload project code or launch experiments.
 
@@ -183,7 +183,7 @@ venv/bin/python run_pipeline.py site clean ncshare/common EXECUTION_ID
 
 Cleanup requires a full reverified local manifest, confirmed termination, no active/unknown dependency jobs, no continuation pin, and no transfer lease. It removes that execution's published objects, staged inputs, and reclaimable workspace; compact receipts/manifests/source identity remain. An interrupted deletion is retryable. Back up scientific results independently first.
 
-On the cluster, inventory legacy data and preview managed temporary collection:
+On the cluster, inventory unclassified data and preview managed temporary collection:
 
 ```bash
 venv/bin/python run_pipeline.py site inventory
@@ -192,9 +192,9 @@ venv/bin/python run_pipeline.py site maintenance
 venv/bin/python run_pipeline.py site maintenance --apply
 ```
 
-Expired managed uploads/transfers are reclaimed at bounded sync maintenance points. Source GC uses ownership and surviving receipt references under the same project mutation lock as submission. Active transfer leases renew during retrieval. Unclassified legacy uploads/workspaces/sync copies are inventory-only and are never moved/deleted automatically.
+Expired managed uploads/transfers are reclaimed at bounded sync maintenance points. Source GC uses ownership and surviving receipt references under the same project mutation lock as submission. Active transfer leases renew during retrieval. Unclassified uploads/workspaces/sync copies are inventory-only and are never moved/deleted automatically.
 
-Other sites without an execution policy retain the shared-workspace compatibility executor. Legacy active SQLite sync is now refused: export on its owning compute node or migrate after its processes close. Old unsealed runs need explicit scheduled repair/migration; they do not gain the new CPU publication guarantees retroactively.
+Sites without an execution policy run in the shared workspace and do not get the scratch publication guarantees. A live SQLite study from such a run cannot be synced from the login node: export it on its owning compute node, or sync after its processes close.
 
 ### Worker threads and shutdown diagnostics
 

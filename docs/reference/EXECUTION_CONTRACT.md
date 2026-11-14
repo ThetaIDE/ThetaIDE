@@ -42,12 +42,11 @@ production IDs. Use `sb3-dev/*` or `d3rlpy-dev/*` explicitly.
 For migration, explicitly select files, review preview, then apply:
 
 ```sh
-python -m src.app.pipeline.migrate_execution in/config/experiment/example.yaml
-python -m src.app.pipeline.migrate_execution --apply in/config/experiment/example.yaml
+python -m src.app.pipeline.migrate_execution src/usr/config/experiment/example.yaml
+python -m src.app.pipeline.migrate_execution --apply src/usr/config/experiment/example.yaml
 ```
 
-The tool only writes explicitly selected editable YAML under `src/usr` or
-`in/config`. Conflicts and unknown scripts require manual resolution and a
+The tool only writes explicitly selected editable YAML under `src/usr`. Conflicts and unknown scripts require manual resolution and a
 registered implementation. Installed components and snapshots are never edited.
 
 ## Evaluation and checkpoints

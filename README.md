@@ -134,7 +134,7 @@ Plots and reports are generated automatically at the end of a run. To regenerate
 which is its folder name under `results/logs/<group>/`:
 
 ```bash
-python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
+python -m src.app.core.plotting.manager thetaide/cartpole_ppo_baseline --wipe
 ```
 
 ## Project layout
@@ -142,23 +142,21 @@ python plot/manager.py thetaide/cartpole_ppo_baseline --wipe
 ```
 ├── run_pipeline.py            # Command-line entry point: compose, validate, train, plot
 ├── frontend/                  # The desktop IDE (PyQt6); run it with python -m frontend
-│   ├── plugins/core/          # Built-in plugins: documentation, TensorBoard, arXiv papers
-│   └── hub/                   # Theta Hub GUI client and compatibility imports
+│   └── hub/                   # Theta Hub GUI client
 ├── src/
 │   ├── app/                   # Framework
 │   │   ├── components/        # Headless installer, component development and CLI
-│   │   ├── workspace.py       # Shared paths for the existing checkout layout
+│   │   ├── workspace.py       # Shared workspace paths
 │   │   ├── pipeline/          # Config composition, validation and orchestration
 │   │   ├── core/              # Interfaces, registries, factories, callbacks
 │   │   ├── services/          # Shared run catalog, exports, metrics and job store
 │   │   ├── data/              # Offline replay data modules
 │   │   └── train.py           # PyTorch Lightning training driver
-│   ├── plugins/               # components/ and app/, each with bundled/ and installed/
+│   ├── plugins/               # components/ and app/, each with bundled/ and installed/;
+│   │                          #   built-in app plugins (documentation, TensorBoard, arXiv papers) are in app/bundled/
 │   └── usr/                   # User-authored implementations, environments and rules
-├── in/
-│   ├── config/                # Hydra configs: experiment/, agent/, model/, env/, paradigms/, site/, plot/
-│   └── datasets/              # Local datasets (not tracked)
-├── plot/                      # Compatibility imports/CLI for framework plotting
+│       ├── config/            # Your Hydra configs and profile overrides: experiment/, agent/, model/, env/, site/, plot/
+│       └── datasets/          # Local datasets (not tracked)
 ├── .thetaide/                 # IDE state, ownership records, retained packages and cache
 ├── tests/                     # pytest suite
 ├── docs/                      # Documentation index, guides, reference, plans and media

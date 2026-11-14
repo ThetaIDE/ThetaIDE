@@ -1,4 +1,4 @@
-# Theta SDK (version 1.1)
+# Theta SDK (version 2.0)
 
 Packages import host functionality only from `src.app.api`. That covers components, app plugins and authored user packages. Everything else under `src.app` or `frontend` is private host implementation and may change without notice. The SDK became the supported surface in phase 3 of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md). At consolidation it moves to `src.ide.api`, with forwarding modules.
 
@@ -13,13 +13,18 @@ Every export is the canonical host object, so identity checks and pickles behave
 | `src.app.api.tuning` | [Portable tuner execution](TUNER_EXECUTION_CONTRACT.md), objectives, trial artifacts | `ObjectiveResult`, `RunResult`, `TrialResults`, `TunerExecutionPlan`, `TunerArtifact`, `TunerLaunchBindings`, `prepare_plan`, `launch_bindings`, `apply_overrides`, `record_plan`, `record_config`, `record_overrides`, `sqlite_snapshot`, `check_artifact_admission`, `request_artifact_snapshot`, `commit_artifact`, `objective_metric`, `objective_value`, `get_sweep_direction`, `trial_log_version`, `trial_checkpoint_dir`, `finish_trial_runs` |
 | `src.app.api.sites` | Remote sites for [scheduler components](SCHEDULER_CONTRACT.md) | `profiles`, `site_name`, `load_site`, `defaults_path`, `connection`, `push`, `ssh_arguments`, `rsync_shell`, `safe_path`, `digest`, `read_json`, `write_json`, `record_lock`, `transfer_lock`, `freeze`, `extract`, `receipt_path`, `close_unfinished_runs`, `TERMINAL`, `pin_continuation`, `restore_continuation`, `resolve_policy`, `stage_inputs`, `own_work_root`, `assert_local_scratch`, `Publisher`, `site_cli_command`, `SITE_CLI_MODULE` |
 | `src.app.api.models` | Model provider registration and construction (loads PyTorch) | `register_model`, `build_model`, `get_model_class` |
+| `src.app.api.agents` | Lightning agents of the base paradigms (loads Lightning) | `OnlineAgentBase`, `OfflineAgentBase`, `register_agent`, `get_agent_class` |
+| `src.app.api.plotting` | Plotter capabilities and shared figure styling | `BasePlotter`, `PanelSpec`, `QUALITATIVE_PALETTE`, `clean_label`, `get_style`, `get_style_info`, `get_method_aliases`, `get_canonical_method_name`, `moving_average`, `deep_update` |
+| `src.app.api.packages` | [Declared cross-package exports](PLUGIN_STORAGE.md#cross-package-exports) | `provider_export` |
 | `src.app.api.desktop` | App plugins and contributed Qt widgets (loads Qt) | `Plugin`, `PluginManifest`, `PluginContext`, `label`, `ComboBox`, `SpinBox`, `DoubleSpinBox`, `svg_icon`, `theme_color`, `current_theme`, `style_tool_button`, `refresh_tool_icons`, `TreeHeaderWidget`, `DraggableToolButton`, `TreeToolbarPersistence` |
 
-Scheduler components own submission, polling and cancellation. The host keeps transport, snapshots, receipts, publication and the user's resource and site policy. Start host processes with the command helpers (`provider_worker_command`, `task_worker_command`, `site_cli_command`) rather than writing host module paths. Use the `run_pipeline.py site ssh SITE` command for interactive login shortcuts. Shortcuts created earlier with `-m src.app.sites.slurm` keep working through the API-1 adapter.
+Scheduler components own submission, polling and cancellation. The host keeps transport, snapshots, receipts, publication and the user's resource and site policy. Start host processes with the command helpers (`provider_worker_command`, `task_worker_command`, `site_cli_command`) rather than writing host module paths. Use the `run_pipeline.py site ssh SITE` command for interactive login shortcuts.
+
+Plotter constructors take the host's workspace and pass it on: `def __init__(self, *, paths): super().__init__("name", paths=paths)`. The host always supplies `paths`; `BasePlotter` has no default workspace.
 
 ## App plugin host facade
 
-`Plugin.activate(context)` receives a `PluginContext`. Use its services, never attributes of the host window. Everything registered through the context is withdrawn when the plugin is disabled. `context.window` remains for older third-party plugins but is unsupported, and bundled plugins do not use it.
+`Plugin.activate(context)` receives a `PluginContext`. Use its services, never attributes of the host window. Everything registered through the context is withdrawn when the plugin is disabled. The context does not expose the host window.
 
 | Services | Use |
 | --- | --- |
@@ -37,10 +42,10 @@ Scheduler components own submission, polling and cancellation. The host keeps tr
 
 ## Versioning and compatibility checks
 
-`src.app.api.SDK_VERSION` is `1.1`. Minor versions only add exports or context services; a major version may remove them. SDK 1.1 added `src.app.api.models` and the objective result types in `src.app.api.tuning`. An app plugin declares the range it was written for as `"sdk": ">=1.0,<2"`, in `plugin.json` or in its capability metadata. Before importing any plugin code, the host checks the range and refuses activation with a logged reason when the range is malformed or unsatisfied. A plugin without a declaration is treated as written for 1.0. All five bundled plugins declare `>=1.0,<2`.
+`src.app.api.SDK_VERSION` is `2.0`. Minor versions only add exports or context services; a major version may remove them. Every app plugin declares the range it was written for, such as `"sdk": ">=2.0,<3"`, in `plugin.json` or in its capability metadata. Before importing any plugin code, the host checks the range and refuses activation with a logged reason when it is missing, malformed or unsatisfied. All five bundled plugins declare `>=2.0,<3`.
 
 ## Enforcement
 
 `tests/test_sdk_boundary.py` parses every Python file in `optional_components/`, `src/plugins/components/bundled/` and `src/plugins/app/bundled/` and rejects private host imports. It covers function-local imports, `__import__`/`import_module` calls and string module paths such as `-m src.app.x`. It also rejects `context.window` and `context._window` access, and checks that the exports are canonical and that the headless modules stay free of Qt and optional libraries. `tests/test_app_plugin_sdk.py` installs an independent app plugin that imports only the SDK. It covers activation, settings, commands, editor routing, appearance listeners, workspace context, cleanup, refusal of an incompatible SDK range before import, and Qt-free headless discovery.
 
-Not yet covered: installed packages under `src/plugins/components/installed` and authored packages under `src/usr` are not checked, and several still import `src.app.core.model_registry` or `src.app.objectives` directly. Those modules keep working, because the SDK exports are the same objects, but new code should use the SDK. Phase 7 extends enforcement to every package and to declared package dependencies.
+Not yet covered: installed packages under `src/plugins/components/installed` and authored packages under `src/usr` are not checked, and some still import host modules directly (see the [exception register](LAYER_BOUNDARIES.md#public-integration-surface-and-exceptions)). New code uses the SDK. Phase 7 extends enforcement to every package and to declared package dependencies.

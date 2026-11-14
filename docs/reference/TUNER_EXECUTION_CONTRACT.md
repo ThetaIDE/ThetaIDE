@@ -104,8 +104,7 @@ now use the [contribution/readiness contract](EXTENSION_CONTRIBUTIONS.md).
 `paths` by keyword). Local summary reads import neither provider code nor Qt;
 they do not need an installed tuner. Queues use the same reader for every provider,
 including after a provider is removed, so process supervision remains available.
-The desktop's historical `frontend.monitor.sweep_view.study_summaries` name forwards
-to the headless function.
+The desktop imports the same function as `frontend.monitor.sweep_view.study_summaries`.
 
 Providers export `tuning_summary.json` under a method checkpoint directory or its
 `sweeps/<study>/` archive. A current method export wins over its archived copy of
@@ -144,33 +143,11 @@ Providers may use these exports from `src.app.pipeline.tuner_execution`:
   backup with a closed, integrity-checked result. Using this helper does not require
   Optuna. The scheduler implementation remains an internal detail.
 
-## Existing receipts
+## Receipts
 
-`src.app.pipeline.tuner_execution_compat` is the bounded, metadata-only reader for
-site schema-v1 receipts **without** `tuner_execution`. It preserves the historical
-Optuna path reservation, including fixed jobs, and honors the recorded external
-storage kind. Old fixed jobs retain their environment guard without enabling
-tuning. Legacy local-only non-Optuna jobs retain their original overrides and do
-not gain managed state or new remote hooks. Reading old receipt metadata executes
-no provider code.
-
-New jobs never use this fallback. Explicit `null` does not activate legacy defaults.
-`record_config(record)` returns a copy of saved configuration; only old receipts
-without the `tuner_execution` marker inherit the historical Optuna selector for an
-existing tuning mapping. It never adds tuning to old fixed jobs or changes explicit
-other-tuner selections. Receipts carrying a plan or explicit null never inherit a
-selector. Unknown old receipt schemas fail before adaptation.
-
-`record_overrides(record)` applies that bounded selection to replay arguments in a
-copy. Matching historical overrides are normalized; a contradictory provider
-override is rejected before allocation-worker preparation, requiring explicit
-resolution. Allocation bindings, interrupted-trial finalization, remote snapshot
-readiness and continuation comparison use the adapted configuration. Receipt bytes
-and scientific options are preserved, and continuation still checks objective,
-search space and source/dependency identity. Ordinary recipes do not enter this
-compatibility reader; older recipes must explicitly select their intended provider
-before starting a new job.
-
-Unknown portable plan schemas are rejected. The legacy reader remains until a
-separately gated old-job retirement; no archived job, installed package or research
-input is rewritten by introducing this contract.
+Every site receipt records `tuner_execution`: a serialized plan, or `null` for a
+fixed job. A receipt without it is refused as unsupported. `record_plan(record)`
+returns the plan or `None`, `record_config(record)` a copy of the saved
+configuration and `record_overrides(record)` the saved Hydra overrides for replay.
+Reading receipt metadata executes no provider code. Unknown portable plan schemas
+are rejected.

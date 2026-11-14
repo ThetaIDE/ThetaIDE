@@ -58,7 +58,7 @@
   <text x="425.0" y="444" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="middle">10 · stdout → Console</text>
   <polyline points="495,486 773,486" fill="none" stroke="{{muted}}" stroke-width="1.4"/>
   <polygon points="773.0,486.0 764.0,490.5 764.0,481.5" fill="{{muted}}"/>
-  <text x="635.0" y="480" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="middle">11 · plot/manager.py: plots + reports</text>
+  <text x="635.0" y="480" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="middle">11 · plotting manager: plots + reports</text>
   <polyline points="355,522 913,522" fill="none" stroke="{{muted}}" stroke-width="1.4" stroke-dasharray="5 4"/>
   <polygon points="913.0,522.0 904.0,526.5 904.0,517.5" fill="{{muted}}"/>
   <text x="635.0" y="516" font-family="sans-serif" font-size="12" fill="{{muted}}" text-anchor="middle">12 · exit code → completed or failed</text>

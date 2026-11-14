@@ -16,16 +16,16 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Reference
 
-- [Theta SDK](reference/SDK.md) — the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
-- [Layer ownership and configuration provenance](reference/LAYER_BOUNDARIES.md) — active architecture contract, source-aware resolution, compatibility exceptions and inventory command.
+- [Theta SDK](reference/SDK.md) — SDK 2.0: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
+- [Layer ownership and configuration provenance](reference/LAYER_BOUNDARIES.md) — active architecture contract, source-aware resolution, the exception register and inventory command.
 - [Method execution contract v1](reference/EXECUTION_CONTRACT.md) — provider features, preflight hooks, resource hints and tuner objective/pruning compatibility.
 - [Extension contributions and readiness v1](reference/EXTENSION_CONTRIBUTIONS.md) — metadata-only discovery, enablement, lifecycle cleanup and tuner controls/monitor availability.
-- [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership, compatibility adapters and installing the optional Slurm component.
-- [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and old-receipt readers.
+- [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership and installing the optional Slurm component.
+- [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and receipts.
 - [Execution refactor implementation status](development/EXECUTION_ABSTRACTIONS_STATUS.md)
 - [Saved result layout](reference/RESULT_STORAGE.md) — experiment folders, unique runs, and legacy compatibility.
 - [Pipeline and component service API](reference/API.md)
-- [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md) — including declared cross-package exports.
+- [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md) — package format v3, profile resolution and declared cross-package exports.
 - [Data loader ownership and selection](reference/DATA_LOADER_CONTRACT.md)
 - [Experiment monitor contract](reference/MONITOR_CONTRACT.md) — declarations, hover descriptions, nested chart sections, and stream selection.
 - [Configuration parameter form conventions](reference/CONFIG_PARAMETER_FORMS.md)
@@ -50,7 +50,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
 - [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — decisions settled; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
-- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–3 locally complete, phase 4 next); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
+- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–3 locally complete, phase 4 in progress); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
 
 - [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.
 

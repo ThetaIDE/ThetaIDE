@@ -283,7 +283,7 @@ python -m frontend</code></pre>
   <li><b>Components Tree &amp; Viewer:</b> Browse component configurations, including agent profiles, environment definitions, model architectures, data loaders, plotters, paradigms and site profiles. Hub-installed components are read-only in the IDE; make a component copy to edit its code and configurations. Components are grouped by package.</li>
   <li><b>Terminal development:</b> <code>python run_pipeline.py component --help</code> exposes shared headless inspection, model copying, configuration editing/validation, and export. Deep Copy and Copy YAML use the same services as terminal commands. Copying a model creates an independent implementation; copying YAML keeps its implementation shared. Active files remain in the existing research/configuration directories.</li>
   <li><b>Theta Hub:</b> the globe button opens the Hub in this tab. Category tabs filter the component catalog; <b>Sort</b> orders the list and <b>Refresh</b> reloads the registry. Each card has <b>Install</b> or <b>Uninstall</b>. A suite can install a curated set of components together. <b>Back to Parameters</b> returns to the tree.</li>
-  <li>When a component is uninstalled, its configuration files are hidden from the active tree and kept in the ignored <code>.thetaide/retained_configs/</code> store. Reinstalling that component restores its packaged profiles and user-created copies.</li>
+  <li>A component's profiles stay inside its package. Uninstalling it removes them from the tree; your own copies and overrides under <code>src/usr/config/</code> are kept.</li>
 </ul>
 
 <h3>7. Results Browser (<code>results</code>)</h3>
@@ -682,9 +682,9 @@ symbolic:
 
 <h3>Site Profiles (<code>site</code>)</h3>
 <ul>
-  <li><code>site=local</code> (default): Interactive local execution inside subprocesses.</li>
-  <li><code>site=ncshare</code> / <code>site=arc</code>: Slurm batch submission. These profiles ship with the optional Slurm scheduler component and are available only once it is installed in the workspace.</li>
-  <li><code>site=ncshare/gpu</code> / <code>site=ncshare/common</code> (aliases <code>ncshare_gpu</code> / <code>ncshare_common</code>): NCShare's GPU partition (all methods in one job), or its CPU common partition (one job per method).</li>
+  <li><code>site=local/default</code> (default): Interactive local execution inside subprocesses.</li>
+  <li><code>site=ncshare/default</code> / <code>site=arc/default</code>: Slurm batch submission. These profiles ship with the optional Slurm scheduler component and are available only once it is installed in the workspace.</li>
+  <li><code>site=ncshare/gpu</code> / <code>site=ncshare/common</code>: NCShare's GPU partition (all methods in one job), or its CPU common partition (one job per method).</li>
 </ul>
 <p>Every non-local site profile names its scheduler with <code>site.scheduler</code>. Edit a component's site template through Components; Theta saves the edit as your own copy under <code>src/usr/config/site/</code>. Add <code>consolidate=true</code> to ask the scheduler to put every method into one allocation.</p>
 
@@ -855,7 +855,7 @@ python run_pipeline.py component config --help</code></pre>
     <td><b><code>method</code></b> (or <code>algorithm</code>)</td>
     <td><code>src/usr/algorithms/&lt;id&gt;/</code></td>
     <td><code>agent/&lt;package&gt;/</code></td>
-    <td><code>@register_algorithm("&lt;prefix&gt;")</code> (alias of <code>register_agent</code>) from <code>src/usr/algorithms/agent_registry.py</code></td>
+    <td><code>@register_agent("&lt;prefix&gt;")</code> from <code>src.app.api.agents</code></td>
   </tr>
   <tr>
     <td><b><code>model</code></b></td>
@@ -971,10 +971,9 @@ class MyToolPlugin(Plugin):
 
 <h4>Python Implementation (<code>agent.py</code>)</h4>
 <pre><code>import torch
-from src.usr.algorithms.base_agent import OfflineAgentBase  # or OnlineAgentBase
-from src.usr.algorithms.agent_registry import register_algorithm, register_agent
+from src.app.api.agents import OfflineAgentBase, register_agent  # or OnlineAgentBase
 
-@register_algorithm("my_algo", "my_algo_variant")
+@register_agent("my_algo", "my_algo_variant")
 class MyCustomAlgorithm(OfflineAgentBase):
     def __init__(self, obs_dim, n_actions, cfg=None, **kwargs):
         super().__init__()
@@ -1185,7 +1184,7 @@ python run_pipeline.py <group>/<experiment></code></pre>
   <tr><td><code>no_plot=false</code></td><td>Enable plotting of configured figures and tables (disabled by default)</td></tr>
   <tr><td><code>no_online=true</code> / <code>no_offline=true</code></td><td>Skip the online or offline training phase</td></tr>
   <tr><td><code>experiment_id=&lt;name&gt;</code></td><td>Override the results directory name</td></tr>
-  <tr><td><code>site=ncshare</code> / <code>site=arc</code> (and <code>ncshare_gpu</code>, <code>ncshare_common</code>)</td><td>Submit to a Slurm cluster instead of running locally (see <a href="cluster_slurm">Cluster Execution</a>)</td></tr>
+  <tr><td><code>site=ncshare/default</code> / <code>site=arc/default</code> (and <code>ncshare/gpu</code>, <code>ncshare/common</code>)</td><td>Submit to a Slurm cluster instead of running locally (see <a href="cluster_slurm">Cluster Execution</a>)</td></tr>
   <tr><td><code>consolidate=true</code></td><td>Put every method into one Slurm GPU job</td></tr>
   <tr><td><code>remake=true</code></td><td>Recalculate summaries</td></tr>
 </table>
@@ -1196,10 +1195,10 @@ python run_pipeline.py <group>/<experiment></code></pre>
 python run_pipeline.py &lt;group&gt;/&lt;experiment&gt; plot_only=true
 
 # Or call the plot manager directly, with the run's ID (its folder under results/logs/&lt;group&gt;/)
-python plot/manager.py &lt;group&gt;/&lt;experiment_id&gt;
+python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt;
 
 # Start from an empty plot directory
-python plot/manager.py &lt;group&gt;/&lt;experiment_id&gt; --wipe</code></pre>
+python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt; --wipe</code></pre>
 
 <h3>Exporting</h3>
 <pre><code># An experiment and everything it depends on, as a Theta Hub archive

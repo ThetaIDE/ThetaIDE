@@ -4,8 +4,8 @@ The framework owns contracts, registries, execution and all four base paradigms.
 Bundled providers resolve from the application distribution. Installed packages
 resolve from the selected workspace under `src/plugins/components/installed/<id>`
 or `src/plugins/app/installed/<id>`. Authored packages live under `src/usr`.
-`in/config` holds active profiles, `in/datasets` holds input data, and `results`
-holds run output. A custom data directory holds state, never implementations.
+`src/usr/config` holds the user's configurations and explicit overrides of package
+profiles, `src/usr/datasets` holds input data, and `results` holds run output. A custom data directory holds state, never implementations.
 
 Use `THETA_WORKSPACE` and optionally `THETA_DATA_DIR` consistently in desktop,
 CLI and workers. `WorkspacePaths` supplies the shared policy. The installer
@@ -35,7 +35,7 @@ Publishing and pushing remain separate actions.
 
 ## Required declarations
 
-A root `.theta_component.json` explicitly declares `storage_version: 2`,
+A root `.theta_component.json` explicitly declares `storage_version: 3`,
 `api_version: 1`, capabilities, payload, and dependencies. Missing versions and
 older formats are rejected before writes. Native packages cannot declare
 `target_path`, `legacy_paths`, `module_aliases` or `legacy_archive`.
@@ -43,14 +43,14 @@ older formats are rejected before writes. Native packages cannot declare
 ```json
 {
   "id": "example-model", "name": "Example", "kind": "model", "version": "1.0.0",
-  "storage_version": 2, "api_version": 1,
+  "storage_version": 3, "api_version": 1,
   "capabilities": [
     {"id": "example", "kind": "model", "entry_point": "model.py:Model", "aliases": ["basics/example"]}
   ],
   "payload": {
     "implementations": ["__init__.py", "model.py"],
     "resources": ["resources"],
-    "configs": {"in/config/model/basics/example.yaml": "configs/model/basics/example.yaml"}
+    "configs": {"model/basics/example.yaml": "configs/model/basics/example.yaml"}
   },
   "dependencies": {"components": [], "pip": []}
 }
@@ -74,9 +74,11 @@ settings and defaults. The package ID may differ from the panel ID (`doom-sim`
 provides `doom`; `obsidian-notes` provides `obsidian`). Bundled privileges come
 from the distribution inventory, never `core: true` in a third-party manifest.
 
-Store packaged profiles under `configs/<group>/<profile>.yaml`. Explicit payload
-mappings control workspace materialization. Workspace configs override packaged
-profiles; framework defaults always supply the four base paradigms. Runtime
+Store packaged profiles under `configs/<group>/<profile>.yaml` and declare each one in
+`payload.configs`, keyed by its `<group>/<profile>.yaml` selector. Profiles resolve
+from the package and are never copied into the workspace. Resolution order is a
+`src/usr/config` file, then installed and bundled package profiles, then the
+framework defaults, which always supply the four base paradigms. Runtime
 listings and build validation read declarations without importing provider code.
 Dependencies load when a provider is selected. Preflight verifies selected
 providers can actually load; config files, decorators and directories alone
@@ -89,12 +91,11 @@ with ownership diagnostics. Authored overrides require an explicit owner in
 Use relative imports within a package. Resources use `package://ID/path`, `Package.resource`
 or `resolve_resource`. `environment_resource` resolves an exact declared
 environment capability and its explicit `resource_root`; it never searches
-`in/envs` or unrelated directories.
+unrelated directories.
 
 Declare `rules_root` for package-owned rules. Authored rules remain under
 `src/usr/rules/<environment>/<name>`. The rules service preserves environment
-scoping, symbolic-name overrides and ruleset-owned valuation modules.
-`in/rules` remains rejected. The maintained NSFR package owns shared CartPole
+scoping, symbolic-name overrides and ruleset-owned valuation modules. The maintained NSFR package owns shared CartPole
 rules; NEUMANN depends on NSFR. MIMIC rules belong to the MIMIC experiment package.
 
 Runners own their Hydra/workspace configuration. The generic worker establishes
@@ -119,7 +120,7 @@ the export by name:
 ```
 
 ```python
-from src.app.core.provider_loader import provider_export
+from src.app.api.packages import provider_export
 get_nsfr_model = provider_export('nsfr', 'get_nsfr_model')
 ```
 
@@ -127,13 +128,12 @@ When called from provider code, the caller's package is identified from its modu
 must declare the dependency; a declared version must match the installed one. Lookups
 resolve in the workspace that loaded the caller. Undeclared names, missing packages and
 version mismatches raise `ImportError` naming both packages. Host code may load any
-declared export. `provider_object('nsfr', 'common.py:get_nsfr_model')` remains a bounded
-adapter for installed packages that predate exports; it performs no requester validation.
+declared export. Undeclared objects of another package cannot be loaded.
 
 ## Ownership and lifecycle
 
-Install/update/uninstall stage complete native packages and materialize only
-explicit config destinations. Protected application, bundled and authored roots
+Install/update/uninstall stage complete native packages. They never write to
+`src/usr/config`; overrides there survive every update and uninstall. Protected application, bundled and authored roots
 are never installer destinations. Dependencies have independent ownership.
 Suites compose dependency packages instead of embedding duplicate providers.
 Uninstalling a suite leaves its dependency packages installed. Remove dependents
@@ -143,8 +143,8 @@ implementation; it does not register a second convergence/loss/report provider.
 
 Workspace locks, transaction journals and implementation leases protect active
 jobs, loaded app plugins and package/config updates. Failure recovery restores
-source, config bytes, modes and ownership records. Edited releases are retained
-before managed updates; user config values take precedence over added defaults.
+source, modes and ownership records. A managed package with local edits is copied
+to `retained_packages` in the state directory before an update replaces it.
 Python dependency installation uses the existing workflow, outside filesystem
 rollback. No dependency solver or per-plugin environments are introduced.
 
@@ -155,21 +155,14 @@ or historical aliases. Loose configs can still be edited; exporting an
 implementation requires its native manifest. Explicit authored archive/restore
 is a development operation, separate from ordinary installation.
 
-## Retained import support
+## Imports and checkpoints
 
-Automatic legacy discovery, decorator/AST discovery, old archive adaptation,
-resource alias lookup and generated module aliases are retired. Old package
-manifests in authored roots produce diagnostics and are not providers. Old
-`in/envs`, `plot`, frontend plugin and state-directory install roots are ignored.
-Bare `usr.*` provider imports are unsupported.
-
-Only the fixed distribution-owned forwarding modules/import map remains for
-API-1 saved targets: agent/base contracts, sequential-spec, Optuna, standard
-figures and the five moved bundled UI plugins. These preserve canonical object
-identity. Native workspace checkpoint namespaces have a separate finder that
-only resolves declared native packages. Retire each fixed adapter when provider
-API 2 is adopted and its saved-target/checkpoint fixtures and downstream callers
-have canonical imports; do not extend this map for maintained packages.
+Saved Hydra targets and pickled checkpoints name canonical modules. There are no
+forwarding modules or import aliases, so a checkpoint that pickled a module path
+that has since moved does not load. Native workspace checkpoint namespaces have a
+finder that resolves only declared native packages. Decorator or AST discovery and
+bare `usr.*` provider imports are unsupported. A manifest that fails v3 validation, in
+any root, produces a catalog diagnostic and is not a provider.
 
 Wheels/sdists include bundled providers, native manifests, runtime assets and
 framework defaults, and exclude installed/user payloads, datasets, state,

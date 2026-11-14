@@ -8,7 +8,7 @@ A site profile names its scheduler with `site.scheduler`: either `local`, or the
 
 - `site.scheduler: local` runs in the current process (also inside an allocation).
 - Any other nonempty string is resolved through the provider catalog when it is used. Absent, disabled, unconfigured or incompatible schedulers raise an error naming the selector and workspace; there is no fallback.
-- A non-local profile that omits `site.scheduler` is rejected. Before scheduler components existed it implied Slurm; Theta never runs it locally and never chooses an installed scheduler implicitly.
+- A non-local profile that omits `site.scheduler` is rejected. Theta never runs it locally and never chooses an installed scheduler implicitly.
 - `create(..., scheduler=…)` and `site configure SITE --scheduler ID` record the scheduler when a new site component is authored. Without one, the generated profile carries `scheduler: null` and launch reports the missing selection.
 
 New receipts record `scheduler_component`. Receipts with `schema_version: 1` and no `scheduler_component` predate scheduler components and are read as `slurm` by a bounded reader in `src/app/sites/scheduler_api.py`. Other receipts without an explicit owner are rejected.
@@ -42,9 +42,9 @@ New receipts record `scheduler_component`. Receipts with `schema_version: 1` and
 
 Core dispatch lives in `src/app/sites/execution.py`. An independently named scheduler fixture uses the same path (`tests/test_optional_component_extraction.py`).
 
-## Compatibility adapters
+## Receipts
 
-`src/app/sites/slurm.py`, `src/app/pipeline/slurm.py`, `src/app/sites/resources.py` and `execution.worker_threads/accounting_details` keep API-1 import names for existing scripts. They resolve only an installed, enabled `slurm` scheduler in the process workspace and raise an actionable error otherwise. They are listed in the [layer exception register](LAYER_BOUNDARIES.md#public-integration-surface-and-exceptions). Receipt storage keeps its historical `results/slurm/<execution>` directory for every scheduler, so existing jobs and synced results stay readable; a renamed layout needs a versioned receipt reader.
+Receipts live in `results/sites/<execution>` for every scheduler. Each records the `scheduler_component` that owns it and its `tuner_execution` plan (or `null`); a receipt without either is refused. Scripts use the installed scheduler through these runtime methods; SSH shortcuts use `run_pipeline.py site ssh`.
 
 ## Installing the Slurm component
 

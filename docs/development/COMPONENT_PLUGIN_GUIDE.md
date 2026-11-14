@@ -253,14 +253,16 @@ class EnvironmentWrapperProtocol(Protocol):
 
 ### 2.2 Agent & RL Algorithm Plugins
 
-Agents implement RL algorithms (e.g., SAC, TD3, AWAC, Offline Multi-Agent) as PyTorch Lightning Modules:
+Agents implement RL algorithms (e.g., SAC, TD3, AWAC, Offline Multi-Agent) as PyTorch Lightning Modules.
+Import the base classes and registration from the SDK, and declare the class as an `algorithm` capability
+(`entry_point: "agent.py:MyCustomAgent"`) in the package manifest. The protocols in this section are
+structural: implement the methods, with no import of the protocol class.
 
 ```python
-from src.usr.algorithms.agent_registry import register_algorithm, register_agent
-from src.app.core.protocols import AgentPluginProtocol
+from src.app.api.agents import OnlineAgentBase, register_agent
 
-@register_algorithm("my_algorithm", "my_algo")
-class MyCustomAgent(L.LightningModule):
+@register_agent("my_algorithm", "my_algo")
+class MyCustomAgent(OnlineAgentBase):
     """Custom reinforcement learning agent."""
 
     def training_step(self, batch, batch_idx):
@@ -280,11 +282,9 @@ class MyCustomAgent(L.LightningModule):
 
 ### 2.3 Environment & Grounding Plugins
 
-Environment plugins package Gymnasium simulators, vectorization hooks, domain logic rules, and potential-based reward shaping:
+Environment plugins package Gymnasium simulators, vectorization hooks, domain logic rules, and potential-based reward shaping. Declare the class as an `env` capability:
 
 ```python
-from src.app.core.protocols import EnvironmentPluginProtocol
-
 class RoboticsSimulatorPlugin:
     @classmethod
     def make_env(cls, env_id: str, **kwargs):
@@ -308,13 +308,10 @@ class RoboticsSimulatorPlugin:
 
 ### 2.4 DataModule & Trajectory Sampler Plugins
 
-DataModules manage offline datasets, clinical cohorts, and sequence window sampling:
+DataModules manage offline datasets, clinical cohorts, and sequence window sampling. Declare the class as a
+`datamodule` capability, with `aliases` for each selector it answers to:
 
 ```python
-from src.app.core.paradigm_loader import register_component
-from src.app.core.protocols import DataModulePluginProtocol, TrajectorySamplerProtocol
-
-@register_component("DecisionTransformerDataModule", "TrajectoryDataModule")
 class TrajectorySequenceDataModule:
     def setup(self, stage=None):
         self.dataset = load_trajectory_npz(...)
@@ -331,11 +328,9 @@ class TrajectorySequenceDataModule:
 
 ### 2.5 Evaluator, Safety & Verification Plugins
 
-Evaluator plugins log formal safety bounds, barrier certificates, and explainability attributions without altering the training loop:
+Evaluator plugins log formal safety bounds, barrier certificates, and explainability attributions without altering the training loop. Declare the class as an `evaluator` capability:
 
 ```python
-from src.app.core.protocols import EvaluationHookProtocol
-
 class SafetyVerificationEvaluator:
     def on_eval_start(self, agent, env, stage="val"):
         self.violations = 0
@@ -403,10 +398,9 @@ Entry-point declarations alone do not guarantee GUI discovery or runtime availab
 
 GUI plugins are discovered through `plugin.json` by `frontend/plugins/manager.py`.
 They import host code only from the [Theta SDK](../reference/SDK.md) (`src.app.api.desktop` for
-`Plugin`, `PluginContext` and shared widgets) and declare `"sdk": ">=1.0,<2"` in `plugin.json`.
-For the complete current install/config/discovery workflow, distribute a Hub package
-with the appropriate source, manifests, and YAML profiles; a `pip install` by itself
-does not create those workspace profiles.
+`Plugin`, `PluginContext` and shared widgets) and declare `"sdk": ">=2.0,<3"` in `plugin.json`.
+For the complete install/config/discovery workflow, distribute a Hub package with its
+source, manifest and YAML profiles; a `pip install` by itself provides no profiles.
 
 An environment entry point may be a class or factory. Theta-IDE calls it with the configured environment name and supported runtime options. It must return an object implementing `reset()` and `step()`; it does not need to inherit from an IDE environment class.
 
@@ -443,19 +437,19 @@ python run_pipeline.py cartpole/quick_test export=true
 
 The [`ExperimentExporter`](../../src/app/services/experiment_exporter.py) collects recognized recipe,
 profile, source and asset references. Declare additional resources and verify archive contents;
-arbitrary dynamically computed Python dependencies cannot be inferred reliably. A typical archive is:
+arbitrary dynamically computed Python dependencies cannot be inferred reliably. The archive is a
+storage-v3 package. Code owned by an installed or authored package is not copied: that package
+becomes a pinned dependency. A typical archive is:
 ```
 cartpole_quick_test_v1.0.0.zip
-├── .theta_component.json                      # Hub component manifest
-├── README.md                                  # Auto-generated reproduction guide
-├── in/config/experiment/cartpole/
-│   ├── quick_test.yaml                        # Experiment recipe
-│   └── _base.yaml                             # Group base template
-├── in/config/env/cartpole.yaml                # Environment configuration
-├── in/envs/cartpole/                          # Custom environment code & hooks
-├── in/rules/cartpole/                         # Domain logic rules
-├── src/usr/models/blendrl/                    # Referenced model architecture
-└── results/checkpoints/cartpole/quick_test/   # Checkpoint weights (optional)
+├── .theta_component.json                          # v3 manifest with dependencies on owning packages
+├── README.md                                      # Auto-generated reproduction guide
+├── configs/experiment/cartpole/
+│   ├── quick_test.yaml                            # Experiment recipe
+│   └── _base.yaml                                 # Group base template
+├── configs/env/cartpole.yaml                      # Environment profile
+├── resources/rules/cartpole/                      # Domain logic rules (rules_root)
+└── resources/results/checkpoints/cartpole/quick_test/   # Checkpoint weights (optional)
 ```
 
 ### 4.4 1-Click Roundtrip Installation via Theta Hub
@@ -464,15 +458,11 @@ Publish a release following [the production workflow](THETA_HUB_RELEASE_WORKFLOW
 then install it from the Hub in the receiving checkout. The GUI currently does not
 provide an **Install Local Package** action or archive drag-and-drop import.
 
-For local integration scripts, use the headless
-[`HubInstaller`](../../src/app/components/installer.py) with a
-[`HubComponent` and `ReleaseInfo`](../../src/app/components/models.py) whose release URL
-is the archive's `file://` URI and whose SHA-256 matches the archive. The installer
-deploys recorded source/config/assets into the existing checkout layout. Dependency
-installation and suite-child lookup must be supplied/configured by the caller.
-`python run_pipeline.py component export` exports a component; there is no matching
-terminal archive-install subcommand yet. After installation and dependency setup,
-run the installed recipe using its actual `group/experiment` name.
+From a terminal, install a local archive with
+`python run_pipeline.py component --root WORKSPACE install ARCHIVE.zip`. It installs into
+`src/plugins/components/installed/<id>`, and its profiles resolve from there. Install the
+packages it depends on first. Then run the installed recipe using its actual
+`group/experiment` name.
 
 ---
 
@@ -489,13 +479,23 @@ run the installed recipe using its actual `group/experiment` name.
   "kind": "model",
   "version": "1.0.0",
   "description": "BlendRL hybrid neural-symbolic policy architecture",
-  "author": {"name": "Theta Research"},
-  "target_path": "src/usr/models/blendrl",
-  "compatibility": {"theta": ">=0.1.0"}
+  "storage_version": 3, "api_version": 1,
+  "capabilities": [
+    {"id": "blendrl", "kind": "model", "entry_point": "model.py:BlenderActorCritic", "aliases": ["blendrl", "blender"]}
+  ],
+  "exports": {"symbolic_state": "symbolic_state.py:SymbolicState"},
+  "payload": {
+    "implementations": ["__init__.py", "model.py", "symbolic_state.py"],
+    "resources": [],
+    "configs": {"model/blendrl.yaml": "configs/model/blendrl.yaml"}
+  },
+  "dependencies": {"components": [{"id": "nsfr", "version": ">=1.0,<2"}], "pip": []}
 }
 ```
 
-The manifest's `target_path` is an example install location chosen by the plugin author; this directory is not present in the base IDE checkout.
+The package installs into `src/plugins/components/installed/blendrl`. Its profile resolves as
+`model/blendrl` from the package, and other packages load `symbolic_state` with
+`provider_export('blendrl', 'symbolic_state')` after declaring the dependency.
 
 ### 5.2 Implementation Highlights
 
@@ -532,11 +532,10 @@ class BlenderActorCritic(nn.Module):
 ## 6. Authoring Checklist
 
 1. **Choose your component archetype**: Model, Agent, Environment, DataModule, Evaluator, or Experiment.
-2. **Implement the matching runtime protocol** in [`src/app/core/protocols.py`](../../src/app/core/protocols.py).
-3. **Register your component**:
-   - Models: `@register_model("<name>")`
-   - Agents: `@register_agent("<name>")`
-   - DataModules: `@register_component("<Name>")`
+2. **Implement the matching runtime protocol** described in section 2. Protocols are structural; import host code only from the [SDK](../reference/SDK.md).
+3. **Declare your component** as a capability with an `entry_point` in `.theta_component.json`:
+   - Models also register with `@register_model("<name>")` from `src.app.api.models`
+   - Agents also register with `@register_agent("<name>")` from `src.app.api.agents`
 4. **Publishing options**:
    - **Component archive**: Include `.theta_component.json` and export with `python run_pipeline.py component export <id> --out package.zip`.
    - **Experiment archive**: Use `python run_pipeline.py export <group>/<experiment>`.
@@ -576,7 +575,7 @@ The experiment YAML contains the configured values; component manifests describe
 
 Validation applies JSON Schema draft 2020-12 to the selected method's composed agent or model configuration. An opted-in field's sweep choices and numeric bounds are checked against the same field schema. The pipeline also composes a representative Optuna trial before launching; this detects missing Hydra paths, but does not exhaustively test combinations of sweep dimensions or guarantee that training will succeed. Components without a validation schema continue to work with the shared pipeline checks.
 
-On component update or reinstall, existing user YAML values are retained and missing block-mapping defaults from the new component are added. Explicit nulls are values and are retained. Flow-style mappings and incompatible structures are preserved rather than rewritten; they may need manual reconciliation. Check the config and validation output after upgrading a component.
+A component's profiles resolve from its package, so an update changes them in place. An override you created under `src/usr/config` is a complete copy: updates and uninstall never touch it, and new defaults added by an update do not flow into it. Check the config and validation output after upgrading a component you override.
 
 Learning providers must follow [execution contract v1](../reference/EXECUTION_CONTRACT.md).
 Author new integrations in explicit editable dev components before a separate Hub release.
