@@ -110,12 +110,8 @@ def main():
         assert 'src/plugins/inventory.json' in files
         assert 'src/app/config_defaults/config.yaml' in files
         assert 'frontend/icons/play.svg' in files or any(n.startswith('frontend/icons/') for n in files)
-        # Fixed saved-target shims are the only allowed usr payload.
-        allowed = {'src/usr/__init__.py', 'src/usr/algorithms/__init__.py',
-                   'src/usr/algorithms/agent_registry.py', 'src/usr/algorithms/base_agent.py',
-                   'src/usr/models/__init__.py', 'src/usr/models/sequential_spec/__init__.py',
-                   'src/usr/models/sequential_spec/sequential_spec.py'}
-        assert not [n for n in files if n.startswith('src/usr/') and Path(n).suffix and n not in allowed]
+        # The distribution ships no user payload.
+        assert not [n for n in files if n.startswith('src/usr/') and Path(n).suffix]
     environment = {k: v for k, v in os.environ.items() if not k.startswith(('PYTHON', 'THETA_'))}
     with tempfile.TemporaryDirectory(prefix='theta-installed-probe-') as directory:
         run = subprocess.run([str(args.python.absolute()), '-I', '-c', PROBE], cwd=directory,

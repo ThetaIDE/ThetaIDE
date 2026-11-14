@@ -4,7 +4,7 @@ Branch: `implement/layer-boundaries`. The [implementation plan](../plans/LAYER_B
 
 ## Progress outline
 
-Snapshot as of 2026-11-14, after [phase 4 unit 4f](#phase-4-unit-4f--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
+Snapshot as of 2026-11-14, after [phase 4 units 4c, 4d and 4e](#phase-4-units-4c-4d-and-4e--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
 
 | Phase (delivery) | State | Local gate | What is left |
 | --- | --- | --- | --- |
@@ -12,12 +12,51 @@ Snapshot as of 2026-11-14, after [phase 4 unit 4f](#phase-4-unit-4f--2026-11-14)
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | **In progress**: 4a, 4b, the 4e test port and 4f landed | Not yet | 4c adapters and SDK 2.0, 4d guides, remaining 4e tests, 4g Hub preparation |
+| 4 — `in/` migration (F) | **In progress**: 4a–4f landed | Not yet | 4g Hub preparation (sibling packages as v3, exports for nsfr/neumann, SDK 2 check of third-party app plugins) |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
-| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages. Adapter retirement moved into phase 4 |
+| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages (`blendrl-dev` and `themes-dev` still import private host modules). Adapter retirement landed in phase 4 |
 
 Phase 4 depends on the phase 3 consumers being ready, which they now are. The user settled its decisions on 2026-11-14: no legacy support of any kind. That means package format v3 only (v2 retired on the Hub too), no detection of `in/`, a complete move of the user's workspace, and retirement of every compatibility adapter, including the checkpoint aliases (see the [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+
+## Phase 4 units 4c, 4d and 4e — 2026-11-14
+
+**Status:** every compatibility adapter is retired, SDK 2.0 is in place, the guides describe only the `src/usr` layout, and the installed-distribution probe passes. What still fails waits for the sibling packages to be republished as v3 (4g).
+
+### 4c — adapters retired
+
+- **Deleted.** `src/app/core/import_aliases.py`, the `src/usr` shims and markers, the `plot/` and `frontend/plugins/core/` forwarding trees, `frontend/tensorboard.py`, `src/app/objectives/builtins`, the Optuna alias modules, the API-1 Slurm adapters and `scheduler_object`, `tuner_execution_compat` and the schema-v1 receipt reader, `provider_object`, the plotter `ContextVar` (`create_plotter`) and every top-level site forwarding YAML (framework `site/local.yaml`, the Slurm component's four, the user's five). Also the three frontend forwarding modules `frontend/hub/installer.py`, `frontend/hub/models.py` and `frontend/plugins/dependencies.py`; callers import `src.app.components` directly.
+- **Receipts.** Live in `results/sites/<execution>`. A receipt without `scheduler_component` or `tuner_execution` is refused. Test receipts now record both, with a shared `optuna_plan` helper in `tests/component_fixtures.py`; tests of the old readers were deleted.
+- **Sites.** The default is `site: local/default`. Profiles are nested (`ncshare/common`, `ncshare/gpu`, `arc/default`); a bare site name still selects its `default` profile in the site CLI.
+- **SDK 2.0.** Adds `src.app.api.plotting`, `.packages` (`provider_export`) and `.agents`. An app plugin without an `sdk` requirement is refused; bundled plugins declare `>=2.0,<3`. `PluginContext` no longer exposes the window.
+- **Plotters.** Constructors take `paths`. `run_experiment_plots` resolves `WorkspacePaths.for_process()` when called without one, so `python -m src.app.core.plotting.manager` works. The `themes-dev` plotter reads its own workspace instead of the process one.
+- **Hydra Optuna sweeper.** Loads the Optuna component's `hydra_sweeper` export.
+- **`blendrl-dev`.** Loads nsfr and neumann helpers through `provider_export`, which fails until those packages declare exports (4g).
+- **Exception register.** Keeps Lightning and the base paradigms, the `hydra_plugins` namespace, the root launchers, the SDK 1.1 direct imports in installed Hub packages (until 4g) and direct host imports in authored `src/usr` packages (until phase 7).
+- **Test ports missed by 4b.** `test_experiment_delete_rename`, `test_folder_crud`, `test_filetree_toolbar`, `test_experiment_component_overrides` and `test_themes_source_port` built bare config roots; they now use `src/usr/config`.
+
+### 4d — documentation
+
+PLUGIN_STORAGE (v3, profile resolution, no import aliases), LAYER_BOUNDARIES, SDK (2.0), SCHEDULER_CONTRACT and TUNER_EXECUTION_CONTRACT (receipts), EXECUTION_CONTRACT, API, COMPONENT_PLUGIN_GUIDE (SDK imports, manifest capabilities, v3 export layout), COMPONENT_DEVELOPMENT, CLUSTER_JOBS, INSTALL and MECHANISTIC_MONITORS, the documentation panel, README, CONTRIBUTING and the docs index. `.gitignore` already ignores `src/usr/datasets`.
+
+### 4e — tests and distribution
+
+`tests/test_v3_workspace_layout.py` covers the v3 round trip, refusal of storage 2, composition from `src/usr/config` and dataset discovery; SDK refusal and `results/sites` receipts are covered by `test_app_plugin_sdk` and the site suites. The distribution probe now refuses any `src/usr` payload. Built with a fresh setuptools build base and installed with `--no-deps` into `/tmp/theta-boundary-baseline/env` after removing its stale `site-packages/src`, it passed: headless imports, an unchanged clean workspace, two-workspace agreement, relocated checkpoint reload, and no `in/`.
+
+### Evidence
+
+All 229 test files were run one at a time on the branch, and compared by test ID with the same files on a baseline worktree at `e3fdbcd` (227 files exist there). Totals: 2519 passed, 269 failed and 0 errors on the branch, against 2506 passed, 279 failed and 7 errors on the baseline. The only new failures wait for v3 sibling packages (4g):
+
+- `test_baselines_and_suites` (nsfr/neumann and dl-basics archives are storage 2) and `test_rulesets::test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process` (builds from the v2 `../theta-plugins` source);
+- `test_data_loader_bindings` (7) and `test_blendrl_rich_monitors::test_actual_blendrl_training_is_identical_with_and_without_rich_monitors`: nsfr does not yet export `get_nsfr_model`;
+- `test_wet_runs::test_preflight_blocks_supervised_without_dataset`: the installed `mlp` package still imports `provider_object`.
+
+Newly passing: `test_config_constraints` (8), `test_themes_reconstruction` (11), `test_experiment_snapshot` (4), `test_folder_crud` (4), and one each in `test_component_actions` and `test_experiment_component_overrides`. Other failures (the Optuna-dependent tuning suites, `test_job_manager`, `test_filetree_toolbar` and others) are unchanged from the baseline. `test_layout_guard` and `test_v3_workspace_layout` pass. Ruff reports no new undefined or unused names in the changed files.
+
+### Still open
+
+- **4g.** Reconcile `../theta-hub` and `../theta-plugins` with the user first: `../theta-plugins` has a large uncommitted storage-v2 migration (455 paths, dated 2026-11-03 to 11-07). Then rebuild the sibling packages as v3, declare exports for nsfr and neumann, move installed `provider_object` and `plot.base` users to SDK 2, and check the two third-party app plugins against SDK 2.
+- **Not retired, outside the 4c list.** Behavior that still reads older data: the monitor's CSV fallback, `legacy_flat` tuner fields, markerless tuning summaries and older result-folder names. Shared-workspace site execution records `publication_state: 'legacy'`. Several desktop widgets keep attribute aliases (`btn_new_group`, `self.tree`, `current_viewer` proxies).
 
 ## Phase 4 unit 4f — 2026-11-14
 

@@ -14,28 +14,18 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 5. `docs/reference/LAYER_BOUNDARIES.md` (contract and exception register) and `docs/reference/PLUGIN_STORAGE.md`.
 
 **Where things stand (2026-11-14):**
-- **Phases 0–3** are complete locally, including SDK 1.1 (now being bumped to 2.0 in 4c) (`src.app.api`). The only open items are external: a real cluster smoke run and an interactive check of the installed desktop. Both need the user.
-- **Phase 4 is in progress.** Every decision is settled: no legacy support of any kind (v3 only, no `in/` handling, every compatibility adapter retired including checkpoint aliases, historical results untouched, no readers or forwarders in phases 5 and 6). The user also chose the "stop copying" install model: package profiles resolve from the package, and `src/usr/config` holds only user files and overrides.
-  - **Committed:** `01df36f` (4a + 4b + the 4e test port) and `94d80a5` (4f: workspace moved, backup in `.thetaide/migrations/20261114T163513Z/`). Details and evidence are in the status doc.
-  - **4c is uncommitted and partly done in the working tree.** Done so far:
-    - deleted `import_aliases`, the `plot/` and `frontend/plugins/core/` forwarding trees, the `src/usr` shims and `__init__` markers, `frontend/tensorboard.py`, `src/app/objectives/builtins`, the Optuna alias modules, the Slurm adapters plus `scheduler_object`, `tuner_execution_compat`, the receipt schema-v1 reader, `provider_object`, the plotter ContextVar, and every top-level site forwarding YAML (framework `site/local.yaml`, the Slurm component's four, the user's five);
-    - config default is now `site: local/default`;
-    - receipts moved from `results/slurm` to `results/sites`;
-    - SDK 2.0 adds `src.app.api.plotting`, `.packages` (`provider_export`) and `.agents`, and an absent `sdk` requirement is refused;
-    - the Hydra Optuna sweeper loads the Optuna component's new `hydra_sweeper` export;
-    - `blendrl-dev` now uses `provider_export`, which fails until nsfr and neumann declare exports in 4g.
-  - **Next for 4c:**
-    - add `tuner_execution: None` and `scheduler_component` to the test receipt fixtures (`test_sites`, `test_results_sync_regression`, `test_synced_sweep_monitor`, `test_ncshare_hardening`, `test_cluster_error_logs`);
-    - delete the legacy-receipt tests in `test_tuner_execution`, `test_sites::test_legacy_live_sqlite_sync_is_rejected` and the regexes about "implied 'slurm'" and "owning compute node";
-    - rerun every test file against the baseline (`scratchpad` runs `base_b1` at `e3fdbcd`), then update the `LAYER_BOUNDARIES.md` exception register (keep only Lightning/base paradigms, `hydra_plugins`, root launchers; the SDK 1.1 direct-import row goes with 4g) and commit 4c.
-  - **Then:**
-    - 4d guides (COMPONENT_PLUGIN_GUIDE, CLUSTER_JOBS, COMPONENT_DEVELOPMENT, INSTALL, MECHANISTIC_MONITORS, API, EXECUTION_CONTRACT, LAYER_BOUNDARIES, PLUGIN_STORAGE, SCHEDULER_CONTRACT, SDK, CUSTOM_OBJECTIVES);
-    - commit the untracked `tests/test_v3_workspace_layout.py` (passes) with the rest of 4e, then run the distribution probe;
-    - 4g: republish the sibling packages as v3, declaring exports for nsfr and neumann, moving `plot.base` and `provider_object` users to SDK 2, bumping the Optuna and Slurm versions, and checking the two third-party app plugins against SDK 2.
+- **Phases 0–3** are complete locally, with SDK 2.0 (`src.app.api`). The only open items are external: a real cluster smoke run and an interactive check of the installed desktop. Both need the user.
+- **Phase 4 units 4a–4f have landed.** Every decision is settled: no legacy support of any kind (v3 only, no `in/` handling, every compatibility adapter retired including checkpoint aliases, historical results untouched, no readers or forwarders in phases 5 and 6). Package profiles resolve from the package; `src/usr/config` holds only user files and overrides. Details, commits and evidence are in the status doc.
+- **Next: 4g, Hub republish preparation (no publication).**
+  - **Ask the user first.** `../theta-plugins` is on `main` with a large uncommitted storage-v2 migration (455 paths, dated 2026-11-03 to 11-07), and `../theta-hub` tracks a fork with releases production lacks. Agree on the authoritative source before building anything.
+  - Rebuild the sibling packages as v3 archives with new versions. nsfr and neumann must declare `exports` for what `blendrl-dev` loads (`get_nsfr_model`, the neumann helpers). Move installed `provider_object` users (`blendrl`, `mlp`, `neumann`) and `plot.base` users to SDK 2 (`src.app.api.packages`, `src.app.api.plotting`, `paths` in plotter constructors). Bump the Optuna and Slurm versions.
+  - App plugins against SDK 2 (checked read-only on 2026-11-14 in `../theta-plugins/plugins`): none of `doom-sim`, `obsidian` or `antigravity` declares `sdk`, so SDK 2 refuses all three, and all import `frontend.plugins.base`/`.context` directly. `doom-sim` and `obsidian` need only `src.app.api.desktop` imports and `"sdk": ">=2.0,<3"`. `antigravity` (third-party author) uses `context.window`/`_window` to add a dock widget and read `settings_manager` shortcuts, which SDK 2 has no service for; ask the user whether to add a host service or change the plugin before touching it.
+  - Install every rebuilt archive into an isolated workspace with the branch IDE. The tests waiting on this: `test_baselines_and_suites` (nsfr/neumann, dl-basics), `test_rulesets::test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process`, `test_data_loader_bindings` (BlendRL), `test_blendrl_rich_monitors` and `test_wet_runs::test_preflight_blocks_supervised_without_dataset`.
+  - Then remove the register row for SDK 1.1 direct imports in installed packages.
 
   Do not reintroduce compatibility code, deprecation paths or messages about old formats.
 
-**Then implement** the plan's units in order (4a → 4e, with 4f in the same session as 4b, then 4g), committing each unit separately with the attribution trailer the session gives you. Keep the status doc's progress outline and a dated section current as units land. Add new documents to `docs/README.md`.
+**Then implement** 4g, committing separately with the attribution trailer the session gives you. Keep the status doc's progress outline and a dated section current as units land. Add new documents to `docs/README.md`.
 
 **Hard constraints:**
 - Do not publish to Theta Hub, push to any Hub repository, or merge to `main` unless the user asks. Unit 4g prepares releases only.
