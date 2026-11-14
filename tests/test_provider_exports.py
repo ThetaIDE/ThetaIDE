@@ -35,7 +35,7 @@ def workspace(tmp_path):
 
 
 def consumer(paths, components, call="provider_export('lattice-lib', 'double')"):
-    package(paths, 'consumer', {'use.py': 'from src.app.core.provider_loader import provider_export\n'
+    package(paths, 'consumer', {'use.py': 'from src.app.api.packages import configured_export, provider_export\n'
                                           f'VALUE = {call}\n'}, components=components)
     return load_module(get_catalog(paths).package('consumer'), 'use.py', paths=paths)
 
@@ -77,3 +77,19 @@ def test_exports_must_name_payload_implementations():
                              ('a.py:f', 'exports must map')]:
         valid, error = validate_manifest_data({**manifest, 'exports': exports})
         assert not valid and message in error
+
+
+def test_a_configured_export_needs_no_dependency_declaration(workspace):
+    assert consumer(workspace, [], "configured_export('export://lattice-lib/double')").VALUE(5) == 10
+
+
+def test_a_configured_export_is_still_limited_to_declared_exports(workspace):
+    with pytest.raises(ImportError, match=r"does not export 'PRIVATE'"):
+        consumer(workspace, [], "configured_export('export://lattice-lib/PRIVATE')")
+
+
+@pytest.mark.parametrize('reference', ['lattice-lib/double', 'export://lattice-lib', 'export:///double', 'package://x/a.py:f'])
+def test_configured_exports_must_use_the_export_scheme(workspace, reference):
+    from src.app.api.packages import configured_export
+    with pytest.raises(ValueError, match='export://<package>/<name>'):
+        configured_export(reference, paths=workspace)

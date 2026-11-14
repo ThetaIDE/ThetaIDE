@@ -224,6 +224,31 @@ def module_owner(module_name, paths=None):
     return None
 
 
+_CONFIGURED = object()  # requester marker: the configuration, not package code, chose the export
+
+
+def _caller_paths(caller):
+    """Provider code resolves packages in the workspace that loaded it."""
+    parts = caller.split(".") if isinstance(caller, str) else []
+    loaded = next((_CONTEXT[".".join(parts[:i])] for i in range(len(parts), 0, -1)
+                   if ".".join(parts[:i]) in _CONTEXT), None)
+    return loaded or WorkspacePaths.for_process()
+
+
+def configured_export(reference, *, paths=None):
+    """Load the declared export a configuration value names as `export://<package>/<name>`.
+
+    The configuration's author selected the package, so the calling package need not declare
+    it as a dependency. Missing packages and undeclared names raise ImportError.
+    """
+    package_id, _, name = str(reference).removeprefix("export://").partition("/")
+    if not str(reference).startswith("export://") or not package_id or not name:
+        raise ValueError(f"A configured export must be written 'export://<package>/<name>', not {reference!r}")
+    if paths is None:
+        paths = _caller_paths(sys._getframe(1).f_globals.get("__name__"))
+    return provider_export(package_id, name, paths=paths, requester=_CONFIGURED)
+
+
 def provider_export(package_id, name, *, paths=None, requester=None):
     """Load a dependency's declared public export (manifest `exports`).
 
@@ -234,12 +259,10 @@ def provider_export(package_id, name, *, paths=None, requester=None):
     from src.app.core.provider_catalog import get_catalog
     caller = sys._getframe(1).f_globals.get("__name__")
     if paths is None:
-        # Provider code resolves dependencies in the workspace that loaded it.
-        parts = caller.split(".") if isinstance(caller, str) else []
-        loaded = next((_CONTEXT[".".join(parts[:i])] for i in range(len(parts), 0, -1)
-                       if ".".join(parts[:i]) in _CONTEXT), None)
-        paths = loaded or WorkspacePaths.for_process()
-    if requester is None:
+        paths = _caller_paths(caller)
+    if requester is _CONFIGURED:
+        requester = None
+    elif requester is None:
         requester = module_owner(caller, paths)
     catalog = get_catalog(paths)
     package = catalog.package(package_id)

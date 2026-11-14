@@ -130,6 +130,12 @@ resolve in the workspace that loaded the caller. Undeclared names, missing packa
 version mismatches raise `ImportError` naming both packages. Host code may load any
 declared export. Undeclared objects of another package cannot be loaded.
 
+A profile may also name a declared export for a hook the user selects, such as a
+symbolic observation builder: `export://gym_classic_control/cartpole_symbolic_observation`.
+Package code loads it with `src.app.api.packages.configured_export(value)`. The profile's
+author chose the package, so the loading package need not declare it as a dependency;
+only declared exports of an installed package resolve.
+
 ## Ownership and lifecycle
 
 Install/update/uninstall stage complete native packages. They never write to

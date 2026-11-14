@@ -20,7 +20,7 @@ Every export is the canonical host object, so identity checks and pickles behave
 | `src.app.api.evaluation` | Evaluator providers | `register_evaluator` |
 | `src.app.api.rulesets` | Symbolic rulesets that model and environment packages own | `resolve_ruleset`, `available_rulesets`, `rules_folder_targets` |
 | `src.app.api.plotting` | Plotter capabilities and shared figure styling | `BasePlotter`, `PanelSpec`, `QUALITATIVE_PALETTE`, `clean_label`, `get_style`, `get_style_info`, `get_method_aliases`, `get_canonical_method_name`, `moving_average`, `deep_update` |
-| `src.app.api.packages` | [Declared cross-package exports](PLUGIN_STORAGE.md#cross-package-exports) and environment resources | `provider_export`, `environment_resource` |
+| `src.app.api.packages` | [Declared cross-package exports](PLUGIN_STORAGE.md#cross-package-exports), exports a configuration names (`export://<package>/<name>`) and environment resources | `provider_export`, `configured_export`, `environment_resource` |
 | `src.app.api.desktop` | App plugins and contributed Qt widgets (loads Qt) | `Plugin`, `PluginManifest`, `PluginContext`, `label`, `ComboBox`, `SpinBox`, `DoubleSpinBox`, `svg_icon`, `theme_color`, `current_theme`, `style_tool_button`, `refresh_tool_icons`, `TreeHeaderWidget`, `DraggableToolButton`, `TreeToolbarPersistence` |
 
 Scheduler components own submission, polling and cancellation. The host keeps transport, snapshots, receipts, publication and the user's resource and site policy. Start host processes with the command helpers (`provider_worker_command`, `task_worker_command`, `site_cli_command`) rather than writing host module paths. Use the `run_pipeline.py site ssh SITE` command for interactive login shortcuts.
