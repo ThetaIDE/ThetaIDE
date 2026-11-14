@@ -40,9 +40,336 @@ from frontend.widgets import DoubleSpinBox, ExpandingTextEdit, FlowLayout, Hiera
 app = QApplication.instance() or QApplication([])
 
 
+def test_long_parameter_label_reveals_only_over_its_original_hover_area(viewer):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from frontend.config_panel.controls import ParameterLabel
+
+    key = "a_very_long_parameter_name_that_extends_across_the_editor"
+    widget = load(viewer, {key: 123}, "model/test.yaml")
+    caption = next(w for w in widget.findChildren(ParameterLabel) if w.text() == key)
+    field = next(w for w in widget.findChildren(QAbstractSpinBox) if w.property("parameterPath") == key)
+    geometry = field.geometry()
+    assert not caption.wordWrap() and not caption.hasHeightForWidth()
+    assert caption.sizeHint().height() <= caption.fontMetrics().height() + 2
+    QTest.mouseMove(field, field.rect().center())
+    app.processEvents()
+    assert getattr(caption, "_hover_overlay", None) is None or caption._hover_overlay.isHidden()
+    QTest.mouseMove(caption, caption.rect().center())
+    app.processEvents()
+    overlay = caption._hover_overlay
+    assert overlay.isVisible() and overlay.text() == key
+    assert overlay.width() > caption.width()
+    assert overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    assert field.geometry() == geometry
+    QTest.mouseMove(field, field.rect().center())
+    app.processEvents()
+    assert overlay.isHidden() and field.value() == 123 and not widget.is_dirty
+
+
+def test_hidden_configure_sweep_button_collapses_its_spacing(viewer):
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"params": {"batch_size": 32}}})
+    button = widget.findChild(QToolButton, "sweepToggle_params_agent.batch_size")
+    assert button is not None and not button.sizePolicy().retainSizeWhenHidden()
+    hover = button.findChild(_RowHoverReveal)
+    row = hover._row()
+    hover._set_visible(False)
+    collapsed = row.sizeHint().width()
+    hover._set_visible(True)
+    expanded = row.sizeHint().width()
+    assert expanded == collapsed
+    assert row.indexOf(button) == -1
+
+
+def test_floating_action_hides_with_its_owner(viewer):
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"params": {"batch_size": 32}}})
+    button = widget.findChild(QToolButton, "sweepToggle_params_agent.batch_size")
+    hover = button.findChild(_RowHoverReveal)
+    hover._set_visible(True)
+    assert button.isVisible()
+    owner = hover._parent()
+    owner.hide()
+    assert button.isHidden()
+    with patch("frontend.config_viewer.QCursor.pos", return_value=button.mapToGlobal(button.rect().center())):
+        hover._update_visibility()
+    assert button.isHidden() and not widget.is_dirty
+
+
+def test_pointer_can_cross_the_gap_and_click_a_floating_action(viewer):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"agent.custom": {"type": "choice", "values": [11111]}}}}})
+    edit = widget.findChild(QLineEdit, "sweep_choice_m_agent.custom_0")
+    entry = edit.parentWidget()
+    button = next(w for w in widget.findChildren(QToolButton) if w.toolTip() == "Remove value"
+                  and w.findChild(_RowHoverReveal)._parent() is entry)
+    edit.clearFocus()
+    before = entry.geometry()
+    QTest.mouseMove(edit, edit.rect().center())
+    app.processEvents()
+    assert button.isVisible()
+    start = widget.mapFromGlobal(edit.mapToGlobal(edit.rect().center()))
+    end = widget.mapFromGlobal(button.mapToGlobal(button.rect().center()))
+    for x in range(start.x(), end.x() + 1):
+        QTest.mouseMove(widget, QPoint(x, end.y()))
+        app.processEvents()
+        assert button.isVisible()
+        assert entry.geometry() == before
+    QTest.mouseMove(widget, end + QPoint(0, 60))
+    app.processEvents()
+    assert button.isHidden()
+    QTest.mouseMove(edit, edit.rect().center())
+    app.processEvents()
+    QTest.mouseMove(button, button.rect().center())
+    app.processEvents()
+    assert button.isVisible()
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+    assert widget.raw_data["methods"]["m"]["tune"]["agent.custom"]["values"] == []
+
+
+@pytest.mark.parametrize("width", [450, 620, 850])
+def test_floating_sweep_actions_never_reflow_during_repeated_hover(viewer, width):
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+        "tune": {"agent.custom": {"type": "choice", "values": [11111, 22222, 33333]}}}}})
+    widget.resize(width, 1000)
+    app.processEvents()
+    edit = widget.findChild(QLineEdit, "sweep_choice_m_agent.custom_0")
+    entry = edit.parentWidget()
+    content = widget.findChild(QWidget, "sweepInline_m_agent.custom")
+    remove = next(w for w in widget.findChildren(QToolButton) if w.toolTip() == "Remove value"
+                  and w.findChild(_RowHoverReveal)._parent() is entry)
+    hover = remove.findChild(_RowHoverReveal)
+    before = (entry.sizeHint(), entry.geometry(), content.geometry(), content.minimumHeight())
+    for _ in range(50):
+        with patch("frontend.config_viewer.QCursor.pos", return_value=edit.mapToGlobal(edit.rect().center())):
+            hover._update_visibility()
+            app.processEvents()
+        assert remove.isVisible()
+        assert (entry.sizeHint(), entry.geometry(), content.geometry(), content.minimumHeight()) == before
+        hover._set_visible(False)
+        app.processEvents()
+        assert (entry.sizeHint(), entry.geometry(), content.geometry(), content.minimumHeight()) == before
+    remove.click()
+    assert widget.raw_data["methods"]["m"]["tune"]["agent.custom"]["values"] == [22222, 33333]
+
+
+@pytest.mark.parametrize("dimension", [
+    {"type": "int", "low": 1, "high": 5},
+    {"type": "choice", "values": [1, 2]},
+])
+def test_active_method_sweep_remove_stays_beside_its_contents(viewer, dimension):
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn", "custom": 1,
+        "tune": {"agent.custom": dimension}}}})
+    content = widget.findChild(QWidget, "sweepInline_m_agent.custom")
+    remove = widget.findChild(QToolButton, "sweepRemove_m_agent.custom")
+    assert content is not None and remove is not None
+    hover = remove.findChild(_RowHoverReveal)
+    for width in (1050, 1400):
+        widget.resize(width, 1000)
+        app.processEvents()
+        hover._set_visible(True)
+        app.processEvents()
+        last = content.layout().itemAt(content.layout().count() - 1)
+        right = content.mapTo(widget, QPoint()).x() + last.geometry().right() + 1
+        assert remove.mapTo(widget, QPoint()).x() - right == hover._row().spacing()
+
+
+def test_parameter_reveal_hover_is_limited_to_its_column():
+    from frontend.config_panel.controls import ParameterForm, ParameterRow, _make_subtle_tool_button
+    from frontend.config_panel.layout import two_column_form
+    host = QWidget()
+    form = ParameterForm()
+    fields, buttons = [], []
+    for key in ("left", "right"):
+        field = QLineEdit(key)
+        button = _make_subtle_tool_button("close", "Remove " + key)
+        form.add_parameter((key,), key, ParameterRow(field, remove=button))
+        fields.append(field)
+        buttons.append(button)
+    host.setLayout(two_column_form(form, identity="fixture.hover"))
+    host.resize(1000, 200)
+    host.show()
+    app.processEvents()
+    for field in fields:
+        field.clearFocus()
+    for index in (0, 1):
+        with patch("frontend.config_viewer.QCursor.pos", return_value=fields[index].mapToGlobal(fields[index].rect().center())):
+            for button in buttons:
+                button.findChild(_RowHoverReveal)._update_visibility()
+        assert buttons[index].isVisible()
+        assert buttons[1 - index].isHidden()
+    host.close()
+
+
+@pytest.mark.parametrize("text", ["123", "false", "null", ""])
+def test_typed_string_edits_save_and_reload_without_reinterpretation(viewer, text):
+    widget, tree, _ = viewer
+    tree.component_parameter_schemas["model/test.yaml"] = {"type": "object", "properties": {
+        "value": {"type": "string"}}}
+    widget = load(viewer, {"value": "before", "unknown": {"keep": False}}, "model/test.yaml")
+    field = next(w for w in widget.findChildren(QLineEdit) if w.property("parameterPath") == "value")
+    field.setText(text)
+    assert widget.raw_data["value"] == text and type(widget.raw_data["value"]) is str
+    assert widget.save_to_disk()
+    saved = yaml.safe_load(widget.current_path.read_text())
+    assert saved["value"] == text and saved["unknown"] == {"keep": False}
+    widget.load_file(widget.current_path, "model/test.yaml")
+    assert widget.raw_data["value"] == text and not widget.is_dirty
+
+
+def test_array_and_number_drafts_do_not_write_invalid_values(viewer):
+    widget, tree, _ = viewer
+    tree.component_parameter_schemas["model/test.yaml"] = {"type": "object", "properties": {
+        "values": {"type": "array", "items": {"type": "integer"}},
+        "small": {"type": "number", "minimum": 0}}}
+    widget = load(viewer, {"values": [1, 2], "small": 1e-9}, "model/test.yaml")
+    fields = {w.property("parameterPath"): w for w in widget.findChildren(QLineEdit)
+              if w.property("parameterPath") in ("values", "small")}
+    assert float(fields["small"].text()) == 1e-9 and not widget.is_dirty
+    for path, invalid in (("values", "[1,"), ("values", "[1, false]"), ("small", "1e"),
+                          ("small", "nan"), ("small", "-1")):
+        fields[path].setText(invalid)
+        fields[path].editingFinished.emit()
+        assert widget.raw_data == {"values": [1, 2], "small": 1e-9}
+        assert fields[path].property("parameterInvalid") and not widget.is_dirty
+    fields["small"].setText("1e100")
+    fields["small"].editingFinished.emit()
+    assert widget.raw_data["small"] == 1e100
+
+
+def test_loaded_invalid_schema_values_are_visible_and_correctable(viewer):
+    widget, tree, _ = viewer
+    tree.component_parameter_schemas["model/test.yaml"] = {"type": "object", "properties": {
+        "count": {"type": "integer", "minimum": 1}}}
+    widget = load(viewer, {"count": 0}, "model/test.yaml")
+    from frontend.widgets import IntegerField
+    field = next(w for w in widget.findChildren(IntegerField) if w.property("parameterPath") == "count")
+    assert field.text() == "0" and field.property("parameterInvalid") and not widget.is_dirty
+    field.setText("3")
+    field.editingFinished.emit()
+    assert widget.raw_data["count"] == 3 and not field.property("parameterInvalid")
+
+
+def test_runtime_integers_do_not_clamp_or_round_loaded_values(viewer):
+    exact = 2**60 + 1
+    widget = load(viewer, {"paradigm": "online_rl", "total_timesteps": exact, "seed": exact})
+    assert widget.field_widgets["total_timesteps"].value() == exact
+    assert widget.field_widgets["seed"].value() == exact
+    assert not widget.is_dirty
+    assert widget.save_to_disk()
+    assert yaml.safe_load(widget.current_path.read_text())["total_timesteps"] == exact
+
+
+def test_region_counts_child_slots_and_resizes_without_recreating_editors():
+    from frontend.config_panel.controls import ParameterForm, ParameterRow
+    from frontend.config_panel.layout import two_column_form, row_slots
+    host = QWidget()
+    form = ParameterForm()
+    left, right, site = QLineEdit("paradigm"), QLineEdit("environment"), QLineEdit("site")
+    child = IndentedHierarchyBlock()
+    for index in range(4):
+        child.form_layout.add_parameter(("env", str(index)), str(index), ParameterRow(QLineEdit(str(index))))
+    form.add_parameter(("paradigm",), "Paradigm", ParameterRow(left))
+    form.add_parameter(("env",), "Environment", ParameterRow(right), children=child)
+    form.add_parameter(("site",), "Site", ParameterRow(site))
+    region = two_column_form(form, identity="fixture.context", align_rows=True)
+    host.setLayout(region)
+    host.resize(1000, 500)
+    host.show()
+    app.processEvents()
+    assert row_slots(child) == 4
+    slot = region._parameter_rows.slots[id(child)]
+    assert (slot.column, slot.row, slot.span) == (1, 1, 4)
+    wide_order = list(region._parameter_rows.groups)
+    host.resize(450, 800)
+    app.processEvents()
+    assert region._narrow
+    host.resize(1200, 500)
+    app.processEvents()
+    assert not region._narrow and region._parameter_rows.groups == wide_order
+    assert left.text() == "paradigm" and right.text() == "environment" and site.text() == "site"
+    host.close()
+
+
+def test_autosave_failure_keeps_dirty_document_and_prevents_switching_files(viewer, monkeypatch):
+    widget = load(viewer, {"description": "before"}, "model/test.yaml")
+    old_path = widget.current_path
+    widget._on_field_edited("description", "edited")
+    widget.auto_save = True
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr("src.app.components.configuration.ConfigurationFiles.write", fail)
+    assert not widget.save_to_disk()
+    assert widget.is_dirty and widget.raw_data["description"] == "edited"
+    other = old_path.with_name("other.yaml")
+    other.write_text("description: other\n")
+    widget.load_file(other, "model/other.yaml")
+    assert widget.current_path == old_path and widget.is_dirty
+    assert widget.raw_data["description"] == "edited"
+    widget._autosave_timer.stop()
+    widget.auto_save = False
+
+
+def test_read_only_document_rejects_typed_edits_and_save(viewer, monkeypatch):
+    widget = load(viewer, {"value": "false"}, "model/test.yaml")
+    before = widget.current_path.read_text()
+    monkeypatch.setattr(widget, "_hub_read_only", lambda: True)
+    widget._on_generic_path_edited(("value",), "123")
+    widget._on_field_edited("description", "new")
+    widget._remove_generic_path(("value",))
+    assert widget.raw_data == {"value": "false"} and not widget.is_dirty
+    assert not widget.save_to_disk() and widget.current_path.read_text() == before
+
+
+def test_model_schema_fixture_uses_shared_groups_and_preserves_child_identity(viewer):
+    from frontend.config_model import Model
+    widget, tree, _ = viewer
+    schema = {"type": "object", "properties": {"options": {"type": "object", "required": ["kind"],
+        "properties": {"kind": {"type": "string", "enum": ["a", "b"]},
+                       "child": {"type": "string", "x-theta-domain": "model"}}}}}
+    tree.models["root"] = Model("root", "root", parameter_schema=schema)
+    tree.models["leaf"] = Model("leaf", "leaf", parameters={"depth": 2}, parameter_schema={
+        "type": "object", "properties": {"depth": {"type": "integer", "minimum": 1}}})
+    data = {"paradigm": "online_rl", "methods": {"m": {"model": {"root": {
+        "options": {"kind": "a", "child": "leaf"}}}}}}
+    widget = load(viewer, data)
+    rows = parameter_controller(widget, "kind", "child").rows
+    assert len([g for g in rows.groups if g.caption is not None]) == 2
+    assert not any(b.property("parameterRemove") and b.property("parameterPath") == "methods.m.model.options.kind"
+                   for b in widget.findChildren(QToolButton))
+    widget._on_method_model_parameter_edited("m", "root", ("options", "child", "depth"), 4, "leaf", ("depth",))
+    assert widget.raw_data["methods"]["m"]["model"]["root"]["options"]["child"] == {"name": "leaf", "depth": 4}
+    before = yaml.safe_dump(widget.raw_data)
+    widget._on_method_model_parameter_edited("m", "root", ("options", "child", "other"), "invalid", "leaf", ("depth",))
+    assert yaml.safe_dump(widget.raw_data) == before
+
+
+def test_legacy_display_order_migrates_without_overwriting_old_preferences(viewer):
+    import json
+    from frontend.settings import SettingsManager
+    widget, _, root = viewer
+    widget.settings_manager = SettingsManager(root / "preferences")
+    legacy_scope = json.dumps([json.dumps(["Parameters", [], "[]"]), 0])
+    legacy_order = [json.dumps([key, 1]) for key in ("Description", "beta", "optional", "alpha")]
+    widget.settings_manager.persist_key("config_viewer", "parameter_orders", [{
+        "path": str((root / "test.yaml").resolve()), "groups": {legacy_scope: legacy_order}}])
+    widget = load(viewer, {"alpha": 1, "beta": 2}, "model/test.yaml")
+    controller = parameter_controller(widget, "alpha", "beta")
+    assert [g.caption.text() for g in controller.rows.groups] == ["Description", "beta", "alpha"]
+    move_parameter(widget, controller, "alpha", "beta")
+    saved = widget.settings_manager.get("config_viewer", "parameter_orders")[0]["groups"]
+    assert saved[legacy_scope] == legacy_order
+    assert any(json.loads(scope)[0] == "parameters" for scope in saved if scope != legacy_scope)
+    assert not widget.is_dirty
+
+
 @pytest.fixture
-def viewer(tmp_path):
-    root = tmp_path / "config"
+def viewer(tmp_path, optional_tuner_metadata):
+    root = tmp_path / "in/config"
+    from component_fixtures import install_optional
+    install_optional(tmp_path, "optuna", tmp_path / "archives")
+    install_optional(tmp_path, "slurm", tmp_path / "archives")
     (root / "paradigms").mkdir(parents=True)
     (root / "paradigms" / "online_rl.yaml").write_text("budget_unit: timesteps\nallowed_agents: [ppo]\n")
     (root / "env").mkdir()
@@ -109,7 +436,7 @@ def test_declared_loader_roles_skip_metadata_fallback(viewer, monkeypatch):
     # The common fixture stubs choices; exercise the real filtering here.
     del widget._component_choices
     widget.raw_data = {"paradigm": "online_rl"}
-    monkeypatch.setattr("frontend.config_viewer._component_profiles", lambda *args: {
+    monkeypatch.setattr("frontend.config_viewer._component_profiles", lambda *args, **kwargs: {
         "train": {"role": "training"}, "state": {"role": "symbolic_state"},
     })
     monkeypatch.setattr("src.app.core.provider_metadata.selector_metadata", lambda *args: {})
@@ -319,16 +646,15 @@ def test_legacy_sweep_flag_does_not_show_a_slider_or_add_tuning(viewer, flag):
 def test_shared_method_parameter_drag_preserves_group_and_edit_callbacks(viewer):
     widget = load(viewer, {"methods": {"params": {"lr": 0.1, "nested": {"first": 1, "second": 2},
                                                     "batch_size": 32}}})
-    controller = parameter_controller(widget, "lr", "[nested]", "batch_size")
-    move_parameter(widget, controller, "[nested]", "lr")
+    controller = parameter_controller(widget, "lr", "nested", "batch_size")
+    move_parameter(widget, controller, "nested", "lr")
     assert [g.caption.text() for g in controller.rows.groups if isinstance(g.caption, QLabel)] == [
-        "[nested]", "lr", "batch_size"]
+        "nested", "lr", "batch_size"]
     nested = parameter_controller(widget, "first", "second")
     move_parameter(widget, nested, "first", "second")
     assert [g.caption.text() for g in nested.rows.groups if isinstance(g.caption, QLabel)] == [
         "second", "first"]
-    # The child header remains first; all edits still address the original keys.
-    assert nested.rows.groups[0].caption is None
+    # The parent header sits outside the child block; paths stay unchanged.
     widget._on_universal_param_edited("nested.first", 7)
     assert widget.raw_data["methods"]["params"]["nested"] == {"first": 7, "second": 2}
 
@@ -384,7 +710,7 @@ def test_objective_uses_shared_nested_forms_and_opens_source(viewer):
     from src.app.objectives.api import load_objective
     widget = load(viewer, {"methods": {}, "objective": {"component": "learning_curve", "params": {}},
                            "variability": {"training_runs": 20}, "eval_episodes": 10,
-                           "tuning": {"direction": "maximize", "metric": "eval/reward"}})
+                           "tuning": {"component": "optuna", "direction": "maximize", "metric": "eval/reward"}})
     opened = []
     widget.editor_service = SimpleNamespace(open_file=lambda path: opened.append(path) or True)
     action = next(b for b in widget.findChildren(QToolButton)
@@ -413,7 +739,7 @@ def test_objective_uses_shared_nested_forms_and_opens_source(viewer):
 
 
 def test_sweep_selects_objectives_and_replaces_their_children(viewer):
-    widget = load(viewer, {"methods": {}, "tuning": {"metric": "val/accuracy", "direction": "maximize"}})
+    widget = load(viewer, {"methods": {}, "tuning": {"component": "optuna", "metric": "val/accuracy", "direction": "maximize"}})
     assert "objective" not in widget.raw_data
     assert widget.findChild(QLineEdit, "sweepMetric").text() == "val/accuracy"
     assert all(action.text() != "Objective" for action in widget.btn_add_block.menu().actions())
@@ -703,7 +1029,7 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
     widget = load(viewer, {
         "paradigm": "online_rl", "env": {"name": "demo", "num_envs": 2}, "seed": 4,
         "trainer": {"accelerator": "cpu"}, "methods": {},
-        "checkpoint": {"monitor": "val/loss"}, "tuning": {"metric": "val/loss", "seed": 4},
+        "checkpoint": {"monitor": "val/loss"}, "tuning": {"component": "optuna", "metric": "val/loss", "seed": 4},
         "variability": {"training_runs": 2},
         "objective": {"component": "learning_curve", "params": {}},
         "data_module": {"name": "demo", "params": {"scale": 2}},
@@ -742,8 +1068,9 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
                     in_column = True
                     break
                 ancestor = ancestor.parentWidget()
-            assert field.maximumWidth() == field_width, (title(box), field.objectName())
-            assert field.minimumWidth() == (min(NUMBER_FIELD_WIDTH, field_width) if in_column else field_width)
+            row_width = NUMBER_FIELD_WIDTH if in_column else field_width
+            assert field.maximumWidth() == row_width, (title(box), field.objectName())
+            assert field.minimumWidth() == row_width
         for button in box.findChildren(QToolButton):
             if button.property("parameterRemove"):
                 assert button.property("parameterHoverBound"), (title(box), button.toolTip())
@@ -751,7 +1078,7 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
                 if item and isinstance(item.widget(), QLabel):
-                    assert item.widget().width() == label_width
+                    assert item.widget().width() == (120 if getattr(form, "compact", compact) else label_width)
     roots = [widget.findChild(QAbstractSpinBox, "sweep_n_trials")]
     roots += [field for field in widget.findChildren(QLineEdit) + widget.findChildren(QAbstractSpinBox)
               if field.property("parameterPath") in ("checkpoint.monitor", "custom.value")]
@@ -1287,7 +1614,7 @@ def test_real_component_monitors_show_individual_toggles_before_a_run(tmp_path):
 
 
 def test_sweep_and_variability_use_two_columns_without_seed_summary(viewer):
-    widget = load(viewer, {"methods": {}, "tuning": {"direction": "maximize"},
+    widget = load(viewer, {"methods": {}, "tuning": {"component": "optuna", "direction": "maximize"},
                            "variability": {"training_runs": 2, "starting_seed": 4,
                                            "evaluation_seed": 7}, "eval_episodes": 10})
     for name in ("Hyperparameter Sweep", "Training and Evaluation Variability"):
@@ -1321,7 +1648,7 @@ def test_variability_parallel_limit_uses_shared_optional_parameter_row(viewer):
 
 
 def test_sweep_parameters_fill_space_beside_objective_children(viewer):
-    widget = load(viewer, {"methods": {}, "tuning": {"direction": "maximize"},
+    widget = load(viewer, {"methods": {}, "tuning": {"component": "optuna", "direction": "maximize"},
                            "objective": {"component": "learning_curve", "params": {}}})
     sweep = next(box for box in boxes(widget) if title(box) == "Hyperparameter Sweep")
     group = next(group for group in sweep.findChildren(IndentedHierarchyBlock)
@@ -1721,7 +2048,7 @@ def test_external_dataset_browse_and_save_use_project_relative_path(viewer, tmp_
 
 
 def test_sweep_bounds_are_inline_with_type_below_caption(viewer):
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001,
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001,
         "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}}}})
     picker = widget.findChild(QComboBox, "sweepType_m_agent.lr")
     low = widget.findChild(QAbstractSpinBox, "sweep_low_m_agent.lr")
@@ -1749,7 +2076,7 @@ def test_sweep_bounds_are_inline_with_type_below_caption(viewer):
 
 
 def test_sweep_lists_resize_wrap_and_add_remove_values(viewer):
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
         "tune": {"model.hidden_sizes.0": {"type": "choice", "values": [32, 64, 128, 256]}}}}})
     target = "model.hidden_sizes.0"
     inline = widget.findChild(QWidget, f"sweepInline_m_{target}")
@@ -1771,7 +2098,7 @@ def test_sweep_lists_resize_wrap_and_add_remove_values(viewer):
 
 
 def test_sweep_choices_reuse_parameter_dropdown_options(viewer):
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn"}}})
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn"}}})
     widget.raw_data["methods"]["m"]["tune"] = {"model.activation": {"type": "choice", "values": ["relu", "tanh"]}}
     row = QHBoxLayout()
     original = QComboBox()
@@ -1796,7 +2123,7 @@ def test_sweep_choices_reuse_parameter_dropdown_options(viewer):
 def test_inline_sweep_numbers_preserve_precision_and_validate_edits(viewer, kind, low, high):
     from PyQt6.QtTest import QTest
     from PyQt6.QtCore import Qt
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
         "tune": {"agent.custom": {"type": kind, "low": low, "high": high}}}}})
     inline = widget.findChild(QWidget, "sweepInline_m_agent.custom")
     edit = next(w for w in inline.findChildren(QWidget) if w.objectName() == "sweep_low_m_agent.custom")
@@ -1821,11 +2148,12 @@ def test_inline_sweep_numbers_preserve_precision_and_validate_edits(viewer, kind
 
 def test_sweep_list_removal_collapses_until_hover(viewer):
     from PyQt6.QtCore import QEvent
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
         "tune": {"agent.custom": {"type": "choice", "values": ["one", "two"]}}}}})
     edit = widget.findChild(QLineEdit, "sweep_choice_m_agent.custom_0")
     entry = edit.parentWidget()
-    remove = next(w for w in entry.findChildren(QToolButton) if w.toolTip() == "Remove value")
+    remove = next(w for w in widget.findChildren(QToolButton) if w.toolTip() == "Remove value"
+                  and w.findChild(_RowHoverReveal)._parent() is entry)
     hover = remove.findChild(_RowHoverReveal)
     assert not remove.sizePolicy().retainSizeWhenHidden()
     with patch("frontend.config_viewer.QCursor.pos", return_value=entry.mapToGlobal(QPoint(-100, -100))):
@@ -1837,7 +2165,12 @@ def test_sweep_list_removal_collapses_until_hover(viewer):
         hover.eventFilter(edit, QEvent(QEvent.Type.Enter))
         app.processEvents()
     assert remove.isVisible()
-    assert entry.sizeHint().width() >= collapsed_width + remove.width()
+    assert entry.sizeHint().width() == collapsed_width
+    assert hover._row().indexOf(remove) == -1
+    assert remove.mapToGlobal(QPoint()).x() >= entry.mapToGlobal(QPoint(entry.width(), 0)).x()
+    with patch("frontend.config_viewer.QCursor.pos", return_value=remove.mapToGlobal(remove.rect().center())):
+        hover._update_visibility()
+    assert remove.isVisible()  # The overlay remains clickable outside the entry.
     with patch("frontend.config_viewer.QCursor.pos", return_value=entry.mapToGlobal(QPoint(-100, -100))):
         hover.eventFilter(edit, QEvent(QEvent.Type.Leave))
         app.processEvents()
@@ -1847,7 +2180,7 @@ def test_sweep_list_removal_collapses_until_hover(viewer):
 
 @pytest.mark.parametrize("width", [850, 1050])
 def test_sweep_additions_stay_in_their_wrapping_row(viewer, width):
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001, "gamma": 0.99,
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001, "gamma": 0.99,
         "tune": {"agent.lr": {"type": "float", "low": 0.0000001, "high": 0.1234567},
                  "agent.gamma": {"type": "choice", "values": ["long choice", "another choice", "third choice"]}}},
         "other": {"agent": "ppo", "model": "dnn"}}})
@@ -1889,7 +2222,7 @@ def test_sweep_additions_stay_in_their_wrapping_row(viewer, width):
 @pytest.mark.parametrize("key", ["low", "high", "step"])
 def test_sweep_numeric_fields_fit_the_text_while_typing(viewer, kind, text, key):
     from PyQt6.QtTest import QTest
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
         "tune": {"agent.custom": {"type": kind, "low": 1, "high": 2, "step": 1}}}}})
     inline = widget.findChild(QWidget, "sweepInline_m_agent.custom")
     control = next(w for w in inline.findChildren(QWidget) if w.objectName() == f"sweep_{key}_m_agent.custom")
@@ -1910,7 +2243,7 @@ def test_sweep_numeric_fields_fit_the_text_while_typing(viewer, kind, text, key)
 
 def test_sweep_list_numbers_fit_as_they_grow(viewer):
     from PyQt6.QtTest import QTest
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn",
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn",
         "tune": {"agent.custom": {"type": "choice", "values": [1, 2]}}}}})
     edit = widget.findChild(QLineEdit, "sweep_choice_m_agent.custom_0")
     width = edit.width()
@@ -1923,7 +2256,7 @@ def test_sweep_list_numbers_fit_as_they_grow(viewer):
 
 def test_sweep_hover_only_reveals_actions_for_the_live_row(viewer):
     from PyQt6.QtCore import QEvent
-    widget = load(viewer, {"tuning": {}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001, "gamma": 0.99,
+    widget = load(viewer, {"tuning": {"component": "optuna"}, "methods": {"m": {"agent": "ppo", "model": "dnn", "lr": 0.001, "gamma": 0.99,
         "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01},
                  "agent.gamma": {"type": "choice", "values": [0.9, 0.99]}}}}})
     low = widget.findChild(QAbstractSpinBox, "sweep_low_m_agent.lr")
@@ -1938,10 +2271,107 @@ def test_sweep_hover_only_reveals_actions_for_the_live_row(viewer):
     assert remove.isHidden()
     hover.eventFilter(choice, QEvent(QEvent.Type.FocusIn))
     assert remove.isHidden()
-    entry_remove = next(w for w in choice.parentWidget().findChildren(QToolButton) if w.toolTip() == "Remove value")
+    entry_remove = next(w for w in widget.findChildren(QToolButton) if w.toolTip() == "Remove value"
+                        and w.findChild(_RowHoverReveal)._parent() is choice.parentWidget())
     entry_hover = entry_remove.findChild(_RowHoverReveal)
     with patch("frontend.config_viewer.QCursor.pos", return_value=choice.mapToGlobal(choice.rect().center())):
         entry_hover._update_visibility()
     assert entry_remove.isVisible()
     # Reveal must lay the collapsing button out immediately, before painting.
-    assert entry_remove.x() >= choice.x() + choice.width()
+    assert entry_remove.mapToGlobal(QPoint()).x() >= choice.mapToGlobal(QPoint(choice.width(), 0)).x()
+
+
+def test_absent_tuner_hides_new_controls_and_preserves_saved_recipe(viewer):
+    import copy
+    from src.app.workspace import WorkspacePaths
+    widget, _, root = viewer
+    widget._loader_paths = lambda: WorkspacePaths(root / 'absent-workspace', application=root / 'empty-application')
+    widget = load(viewer, {'methods': {'params': {'batch_size': 32}}})
+    assert not any(a.text() == 'Hyperparameter Sweep' for a in widget.btn_add_block.menu().actions())
+    widget.add_block('tuning')
+    assert 'tuning' not in widget.raw_data
+    data = {'tuning': {'component': 'missing-tuner'}, 'methods': {'params': {
+        'batch_size': 32, 'tune': {'agent.batch_size': {'type': 'int', 'low': 1, 'high': 4}}}}}
+    widget = load(viewer, copy.deepcopy(data))
+    assert widget.raw_data == data
+    notice = widget.findChild(QLabel, 'tunerReadinessNotice')
+    assert notice is not None and 'install a compatible provider' in notice.text()
+    assert not any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+
+
+@pytest.mark.parametrize('selector', [None, '', 3])
+def test_unselected_saved_tuner_requires_explicit_choice_and_preserves_ranges(viewer, selector):
+    import copy
+    import shutil
+    from pathlib import Path
+    from src.app.workspace import WorkspacePaths
+    widget, _, root = viewer
+    paths = WorkspacePaths(root, application=root / 'empty-application')
+    shutil.copytree(Path(__file__).parent / 'fixtures/contribution_tuner', root / 'src/usr/tuners/lattice')
+    widget._loader_paths = lambda: paths
+    tuning = {'direction': 'maximize', 'options': {'lattice': {'token': 'configured'}}}
+    if selector is not None:
+        tuning['component'] = selector
+    data = {'tuning': tuning, 'methods': {'params': {'batch_size': 32,
+            'tune': {'agent.batch_size': {'type': 'int', 'low': 16, 'high': 64}}}}}
+    before = copy.deepcopy(data)
+    widget = load(viewer, copy.deepcopy(data))
+    assert widget.raw_data == before and not widget.is_dirty
+    assert not widget._tuner_ready()
+    assert not any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+    notice = widget.findChild(QLabel, 'tunerReadinessNotice')
+    assert 'tuning.component' in notice.text()
+    combo = widget.findChild(QComboBox, 'sweepComponent')
+    assert combo.currentText() == 'Select a tuner' and combo.currentData() is None
+    combo.setCurrentIndex(combo.findData('lattice'))
+    app.processEvents()
+    assert widget.raw_data['tuning']['component'] == 'lattice' and widget.is_dirty
+    assert widget.raw_data['tuning']['options'] == before['tuning']['options']
+    assert widget.raw_data['methods'] == before['methods'] and widget._tuner_ready()
+    assert widget.findChild(QComboBox, 'sweepType_params_agent.batch_size') is not None
+    assert not any(w.objectName() == 'tunerReadinessNotice' and w.isVisible() for w in widget.findChildren(QLabel))
+    widget.save_to_disk()
+    assert yaml.safe_load(widget.current_path.read_text())['tuning']['component'] == 'lattice'
+
+
+def test_independent_tuner_setup_readiness_defaults_and_required_children(viewer):
+    import shutil
+    from pathlib import Path
+    from src.app.workspace import WorkspacePaths
+    from src.app.core.contributions import ContributionRegistry
+    widget, _, root = viewer
+    paths = WorkspacePaths(root, application=root / 'empty-application')
+    # The independent provider must be the only tuner: remove the fixture's optional Optuna component.
+    from src.app.components.installer import HubInstaller
+    from src.app.components.models import HubComponent
+    from src.app.core.provider_catalog import get_catalog
+    installed = get_catalog(paths).package('optuna')
+    assert HubInstaller(paths.root, paths.data_dir).uninstall(HubComponent.from_dict(installed.manifest))
+    shutil.copytree(Path(__file__).parent / 'fixtures/contribution_tuner', root / 'src/usr/tuners/lattice')
+    widget._loader_paths = lambda: paths
+    widget = load(viewer, {'methods': {'params': {'batch_size': 32}}})
+    action = next(a for a in widget.btn_add_block.menu().actions() if a.text() == 'Hyperparameter Sweep')
+    action.trigger()
+    assert widget.raw_data['tuning']['component'] == 'lattice'
+    assert widget.raw_data['tuning']['options']['lattice']['attempts'] == 3
+    assert 'n_trials' not in widget.raw_data['tuning']
+    assert widget.findChild(QLabel, 'tunerReadinessNotice') is not None
+    assert not widget._tuner_ready()
+    widget.findChild(QLineEdit, 'sweep_token').setText('configured')
+    app.processEvents()
+    assert widget._tuner_ready()
+    assert widget.findChild(QLabel, 'tunerReadinessNotice') is None
+    assert any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+    widget.findChild(QComboBox, 'sweep_mode').setCurrentText('resume')
+    app.processEvents()
+    assert widget.findChild(QLineEdit, 'sweep_reference') is not None
+    assert widget.findChild(QToolButton, 'sweepRemoveOption_reference') is None
+    before = dict(widget.raw_data['tuning'])
+    ContributionRegistry(paths).set_enabled('tuner', 'lattice', False)
+    widget._render_boxes()
+    app.processEvents()
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert widget.raw_data['tuning'] == before
+    assert 'disabled' in widget.findChild(QLabel, 'tunerReadinessNotice').text()
+    assert not any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))

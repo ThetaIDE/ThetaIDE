@@ -62,6 +62,9 @@ class ParameterGroup:
 
 def form_groups(form):
     """Keep a header/selector and its following child block together."""
+    declared = getattr(form, "_declared_groups", None)
+    if declared is not None:
+        return declared
     groups = []
     for index in range(form.rowCount()):
         caption = _object(form.itemAt(index, QFormLayout.ItemRole.LabelRole))
@@ -102,80 +105,7 @@ class FormRows:
         self.layout.activate()
 
 
-class ColumnRows:
-    """Two-column presentation with logical siblings and optional shared rows."""
-    def __init__(self, grid, columns, groups):
-        self.layout, self.columns, self.groups = grid, columns, groups
-
-    def apply(self):
-        if not self.columns:
-            # Use physical rows so a later sibling can fill the cell beside a
-            # child block, without waiting for the whole parent group to end.
-            while self.layout.count():
-                self.layout.takeAt(0)
-            rows = [0, 0]
-            for group in self.groups:
-                column = 0 if rows[0] <= rows[1] else 1
-                for part in group.parts:
-                    if isinstance(part, QWidget):
-                        self.layout.addWidget(part, rows[column], column, Qt.AlignmentFlag.AlignTop)
-                    else:
-                        self.layout.addLayout(part, rows[column], column, Qt.AlignmentFlag.AlignTop)
-                    rows[column] += 1
-            self.layout.setVerticalSpacing(8)
-            self.layout.activate()
-            return
-        for column in self.columns:
-            while column.count():
-                column.takeAt(0)
-        heights = [0, 0]
-        for group in self.groups:
-            column = 0 if heights[0] <= heights[1] else 1
-            for part in group.parts:
-                if isinstance(part, QWidget):
-                    self.columns[column].addWidget(part)
-                else:
-                    self.columns[column].addLayout(part)
-                heights[column] += max(1, part.sizeHint().height())
-        for column in self.columns:
-            column.addStretch()
-        self.layout.activate()
-
-
-class ListRows:
-    """Shared method parameters retain their specialized horizontal rows."""
-    def __init__(self, layout):
-        self.layout = layout
-        self.groups = []
-        for i in range(layout.count()):
-            obj = _object(layout.itemAt(i))
-            if obj is None:
-                continue
-            own_caption = _group_caption(obj)
-            if _hierarchy(obj) and own_caption is None and self.groups and self.groups[-1].caption is not None:
-                self.groups[-1].parts.append(obj)
-                continue
-            caption = None
-            if i > 0:
-                if isinstance(obj, QLayout):
-                    caption = next((w for w in _widgets(obj) if isinstance(w, QLabel)), None)
-                elif _hierarchy(obj):
-                    caption = own_caption
-            self.groups.append(ParameterGroup([obj], caption))
-
-    def apply(self):
-        while self.layout.count():
-            self.layout.takeAt(0)
-        for group in self.groups:
-            for part in group.parts:
-                if isinstance(part, QWidget):
-                    self.layout.addWidget(part)
-                else:
-                    self.layout.addLayout(part)
-        self.layout.activate()
-
-
-class FlowRows(ListRows):
+class FlowRows:
     """A wrapping list of self-contained parameter controls."""
 
     def __init__(self, layout):
@@ -187,44 +117,12 @@ class FlowRows(ListRows):
             self.groups.append(ParameterGroup([widget], caption))
 
 
-class GridRows:
-    """Label/editor pairs in the experiment's two-column budget grid."""
-    def __init__(self, grid):
-        self.layout = grid
-        self.groups = []
-        pairs = {}
-        children = {}
-        for i in range(grid.count()):
-            item = grid.itemAt(i)
-            row, col, _, span = grid.getItemPosition(i)
-            obj = _object(item)
-            if span == 2 and _hierarchy(obj):
-                children[(row - 1, col)] = obj
-            elif span == 1:
-                pairs[(row, col)] = obj
-        for (row, col), caption in sorted(pairs.items()):
-            if col % 2 == 0 and isinstance(caption, QLabel) and (row, col + 1) in pairs:
-                parts = [(caption, pairs[(row, col + 1)])]
-                if (row, col) in children:
-                    parts.append((None, children[(row, col)]))
-                self.groups.append(ParameterGroup(parts, caption))
-
     def apply(self):
         while self.layout.count():
             self.layout.takeAt(0)
-        row = 0
-        for start in range(0, len(self.groups), 2):
-            pair = self.groups[start:start + 2]
-            for column, group in enumerate(pair):
-                caption, field = group.parts[0]
-                self.layout.addWidget(caption, row, column * 2)
-                if isinstance(field, QWidget):
-                    self.layout.addWidget(field, row, column * 2 + 1)
-                else:
-                    self.layout.addLayout(field, row, column * 2 + 1)
-                for _, child in group.parts[1:]:
-                    self.layout.addWidget(child, row + 1, column * 2, 1, 2)
-            row += 2 if any(len(group.parts) > 1 for group in pair) else 1
+        for group in self.groups:
+            for widget in group.parts:
+                self.layout.addWidget(widget)
         self.layout.activate()
 
 
@@ -286,6 +184,7 @@ class ParameterReorder(QObject):
         self._timer.setInterval(30)
         self._timer.timeout.connect(self._autoscroll)
         counts = {}
+        aliases = {}
         for group in rows.groups:
             caption = group.caption
             if caption is None:
@@ -293,10 +192,15 @@ class ParameterReorder(QObject):
             text = caption.text() if isinstance(caption, QLabel) else next(
                 (w.text() for w in caption.findChildren(QLabel)), "")
             counts[text] = counts.get(text, 0) + 1
-            group.key = json.dumps([text, counts[text]])
+            legacy_key = json.dumps([text, counts[text]])
+            if group.key:
+                aliases[legacy_key] = group.key
+            else:
+                group.key = legacy_key
             caption.installEventFilter(self)
             for child in caption.findChildren(QLabel):
                 child.installEventFilter(self)
+        order = [aliases.get(key, key) for key in order]
         self.order = list(order)
         if order:
             movable = sorted((g for g in rows.groups if g.caption is not None),

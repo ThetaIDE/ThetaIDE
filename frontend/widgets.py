@@ -1,6 +1,6 @@
 import math
 import re
-from PyQt6.QtCore import Qt, QEvent, QRect, QRectF, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QRect, QRectF, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QDoubleValidator, QPainter, QPen, QSyntaxHighlighter, QTextCharFormat, QTextOption
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QFrame, QAbstractButton,
@@ -203,12 +203,24 @@ class FlowLayout(QLayout):
 class WrappingFlowWidget(QWidget):
     """A flow row that reserves enough height inside nested forms and grids."""
 
-    def __init__(self, parent=None, *, spacing=12, vertical_alignment=Qt.AlignmentFlag.AlignTop):
+    def __init__(self, parent=None, *, spacing=12, vertical_alignment=Qt.AlignmentFlag.AlignTop, fit_contents=False):
         super().__init__(parent)
+        self._fit_contents = fit_contents
         FlowLayout(self, spacing=spacing, vertical_alignment=vertical_alignment)
-        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        policy = QSizePolicy(QSizePolicy.Policy.Maximum if fit_contents else QSizePolicy.Policy.Expanding,
+                             QSizePolicy.Policy.Preferred)
         policy.setHeightForWidth(True)
         self.setSizePolicy(policy)
+
+    def sizeHint(self):
+        if not self._fit_contents:
+            return super().sizeHint()
+        layout = self.layout()
+        items = [layout.itemAt(i) for i in range(layout.count()) if not layout.itemAt(i).isEmpty()]
+        margins = layout.contentsMargins()
+        width = sum(item.sizeHint().width() for item in items) + max(0, len(items) - 1) * layout.spacing()
+        width += margins.left() + margins.right()
+        return QSize(width, layout.heightForWidth(width))
 
     def _update_height(self):
         layout = self.layout()
@@ -236,9 +248,14 @@ class ComboBox(_WheelNeedsFocus, QComboBox):
 class ExpandingTextEdit(QTextEdit):
     """Plain text form editor that grows with wrapped lines instead of scrolling."""
 
+    contentHeightChanged = pyqtSignal(int)
+
     def __init__(self, text="", parent=None):
         super().__init__(parent)
         self._adjusting_height = False
+        self._height_layout_timer = QTimer(self)
+        self._height_layout_timer.setSingleShot(True)
+        self._height_layout_timer.timeout.connect(self._relayout_parent)
         self.setProperty("parameterText", True)
         self.setAcceptRichText(False)
         self.setTabChangesFocus(True)
@@ -262,8 +279,21 @@ class ExpandingTextEdit(QTextEdit):
             height = math.ceil(max(content, self.fontMetrics().lineSpacing()) + chrome)
             if self.height() != height:
                 self.setFixedHeight(height)
+                self.contentHeightChanged.emit(height)
+                # Cocoa can defer the containing form's LayoutRequest past
+                # the next paint. Commit this height before sibling regions
+                # are painted, so growing text never covers their editors.
+                self.updateGeometry()
+                self._height_layout_timer.start(0)
         finally:
             self._adjusting_height = False
+
+    def _relayout_parent(self):
+        parent = self.parentWidget()
+        layout = QWidget.layout(parent) if parent is not None else None
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

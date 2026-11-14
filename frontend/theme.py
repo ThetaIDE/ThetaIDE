@@ -146,6 +146,7 @@ QPushButton#primary:hover { background: #c7c94b; }
 QPushButton:disabled, QPushButton#primary:disabled { color: #665c54; background: #32302f; border-color: #3c3836; }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { background: #1d2021; border: 1px solid #504945; border-radius: 3px; padding: 6px; min-height: 18px; selection-background-color: #665c54; }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #d79921; }
+QLineEdit[parameterInvalid="true"], QComboBox[parameterInvalid="true"], QSpinBox[parameterInvalid="true"], QDoubleSpinBox[parameterInvalid="true"] { border-color: #d79921; }
 QComboBox { combobox-popup: 0; padding-right: 30px; }
 QComboBox::drop-down { subcontrol-origin: border; subcontrol-position: top right; width: 24px; background: #3c3836; border: 0; border-left: 1px solid #504945; border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 QComboBox::drop-down:hover { background: #504945; }

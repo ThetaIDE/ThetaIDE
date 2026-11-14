@@ -230,6 +230,7 @@ class TestRoundTrip(unittest.TestCase):
         fields = [w for w in self.viewer.findChildren(QLineEdit) if w.text() == "fixture_plot"]
         self.assertTrue(fields, "expected the custom list editor")
         fields[0].setText("fixture_plot, fixture_report")
+        fields[0].editingFinished.emit()
         self.assertEqual(self._save_and_reload()["custom_list"], ["fixture_plot", "fixture_report"])
 
     def test_deeply_nested_experiment_setting_is_rendered_and_round_trips(self):
