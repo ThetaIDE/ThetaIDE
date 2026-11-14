@@ -4,7 +4,7 @@ Branch: `implement/layer-boundaries`. The [implementation plan](../plans/LAYER_B
 
 ## Progress outline
 
-Snapshot as of 2026-11-14, after [phase 4 units 4a and 4b](#phase-4-units-4a-and-4b--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
+Snapshot as of 2026-11-14, after [phase 4 unit 4f](#phase-4-unit-4f--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
 
 | Phase (delivery) | State | Local gate | What is left |
 | --- | --- | --- | --- |
@@ -12,12 +12,26 @@ Snapshot as of 2026-11-14, after [phase 4 units 4a and 4b](#phase-4-units-4a-and
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | **In progress**: 4a, 4b and the 4e test port landed | Not yet | 4f (move this workspace; dry run ready, awaiting the user's go-ahead), 4c adapters and SDK 2.0, 4d guides, remaining 4e tests, 4g Hub preparation |
+| 4 — `in/` migration (F) | **In progress**: 4a, 4b, the 4e test port and 4f landed | Not yet | 4c adapters and SDK 2.0, 4d guides, remaining 4e tests, 4g Hub preparation |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
 | 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages. Adapter retirement moved into phase 4 |
 
 Phase 4 depends on the phase 3 consumers being ready, which they now are. The user settled its decisions on 2026-11-14: no legacy support of any kind. That means package format v3 only (v2 retired on the Hub too), no detection of `in/`, a complete move of the user's workspace, and retirement of every compatibility adapter, including the checkpoint aliases (see the [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+
+## Phase 4 unit 4f — 2026-11-14
+
+**Status:** this checkout's research workspace moved from `in/` to `src/usr` with the user's go-ahead, after they reviewed the dry run. `in/` no longer exists.
+
+- **Plan.** 107 files under `in/`. 42 moved: tracked files by `git mv`, the edited themes-dev experiment overrides, the user's experiments, the dataset NPZ files and the `mimic` dataset symlink (moved as a link, not followed). 62 were deleted as redundant: 58 are byte-identical to the profile their package provides. The other four are `agent/sb3/*.yaml`, which have the same YAML data as sb3-suite and differ only in key order; the user chose to drop them. 3 were junk (`.DS_Store`, a `.pyc`, `in/envs/.gitkeep`). There were no conflicts and nothing was unclassified.
+- **State.** 22 manifests (installed packages and two retained development packages) were converted to v3, dropping `config_hashes`, `config_backups` and `user_config_paths`. Two `settings.toml` lines were rewritten to `src/usr/config`. The retired `.thetaide/retained_configs` (5 files) and `.thetaide/config_backups` (9) were removed, and the Hub index cache was cleared. Run history, workspace cleanups and site objects still mention the old paths and were left as they are.
+- **Backup.** Everything removed or changed is in `.thetaide/migrations/20261114T163513Z/` (`in/` with links kept as links, the original manifests, state files and `plan.json`). Every file's hash was checked against the plan before anything moved.
+
+### Evidence
+
+- The migration's verify step passed: `in/` is gone, every moved file and the symlink match their recorded hashes, every redundant file's proof still holds, every manifest is v3 with no old paths, `git grep` finds no old paths outside `tests/`, `docs/` and `results/`, and no live state file mentions them.
+- Every experiment of this workspace was composed with the old code before the move and the new code after it. The effective configs are identical for all 14 experiments that composed both times. Dataset errors differ only in the path they name. Two outcomes changed, both because the new code recognizes authored v3 packages. `BlendRL/Cartpole/sweep_sustainedSolve` now composes, because `site/ncshare/common` resolves from the authored `src/usr/sites/ncshare`. Its dataset step then stops because optuna is not installed. The themes-dev datasets now resolve to files that exist in the authored package. Both `BlendRL/MountainCar` experiments still reference the missing `experiment/Belndrl Bench/_base`, as before.
+- The failures that depended on the workspace now pass: `test_data_loader_bindings` (16), `test_provider_organization` (31), `test_workspace_defaults`, `test_execution_contract::test_old_selected_hub_profile_fails` and the run guard in `test_baselines_and_suites`. What still fails in those files also fails on the baseline (`test_pipeline_sweep_invokes_worker_once_per_trial`, which needs optuna) or waits for the v3 sibling packages in 4g (nsfr/neumann, dl-basics).
 
 ## Phase 4 units 4a and 4b — 2026-11-14
 
