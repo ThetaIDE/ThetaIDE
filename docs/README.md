@@ -16,11 +16,16 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Reference
 
-- [Method execution contract v1](reference/EXECUTION_CONTRACT.md)
+- [Theta SDK](reference/SDK.md) — the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
+- [Layer ownership and configuration provenance](reference/LAYER_BOUNDARIES.md) — active architecture contract, source-aware resolution, compatibility exceptions and inventory command.
+- [Method execution contract v1](reference/EXECUTION_CONTRACT.md) — provider features, preflight hooks, resource hints and tuner objective/pruning compatibility.
+- [Extension contributions and readiness v1](reference/EXTENSION_CONTRIBUTIONS.md) — metadata-only discovery, enablement, lifecycle cleanup and tuner controls/monitor availability.
+- [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership, compatibility adapters and installing the optional Slurm component.
+- [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and old-receipt readers.
 - [Execution refactor implementation status](development/EXECUTION_ABSTRACTIONS_STATUS.md)
 - [Saved result layout](reference/RESULT_STORAGE.md) — experiment folders, unique runs, and legacy compatibility.
 - [Pipeline and component service API](reference/API.md)
-- [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md)
+- [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md) — including declared cross-package exports.
 - [Data loader ownership and selection](reference/DATA_LOADER_CONTRACT.md)
 - [Experiment monitor contract](reference/MONITOR_CONTRACT.md) — declarations, hover descriptions, nested chart sections, and stream selection.
 - [Configuration parameter form conventions](reference/CONFIG_PARAMETER_FORMS.md)
@@ -28,6 +33,8 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Development
 
+- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — per-phase progress outline, implemented changes, acceptance evidence and outstanding gates.
+- [Config panel implementation and extension guide](development/CONFIG_PANEL_IMPLEMENTATION_STATUS.md) — shared document, rows, regions, section adapters, verification and remaining integration gates.
 - [Measure startup and understand deferred services](development/STARTUP_PERFORMANCE.md)
 - [Author component plugins](development/COMPONENT_PLUGIN_GUIDE.md)
 - [Run native provider integration checks](development/PLUGIN_NATIVE_INTEGRATION.md)
@@ -41,6 +48,10 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
+- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–3 locally complete, phase 4 next); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
+
+- [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.
+
 - [Execution abstractions, THEMES components, and the AL group](plans/EXECUTION_ABSTRACTIONS_AND_THEMES_PLAN.md) — strict execution-contract migration using editable first-party dev components, then THEMES/AL; production Hub release and general workflows deferred. [Implementation prompt](plans/EXECUTION_ABSTRACTIONS_IMPLEMENTATION_PROMPT.md).
 - [Slurm hardening and NCShare CPU rollout](plans/SLURM_NCSHARE_HARDENING_PLAN.md) — storage/publication policy, parallelism and continuation boundaries, implementation sequence, and CPU acceptance gate.
 - [Project organization and workspace separation proposal](plans/PROJECT_ORGANIZATION_PLAN.md) — deferred architecture proposal.
@@ -50,6 +61,13 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Installed layer-boundary distribution evidence](reports/LAYER_BOUNDARY_DISTRIBUTION_20261113.json) — artifact hashes, bundled inventory, dependency versions, external-workspace/worker agreement and relocated checkpoint reload.
+
+- [IDE, plugin, and user layer boundary audit](reports/LAYER_BOUNDARY_AUDIT_20261113.md) — ownership gaps in `in/`, execution, desktop extensions, package APIs, distribution, and remote snapshots.
+
+- [Configuration panel architecture audit](reports/CONFIG_PANEL_AUDIT_20261113.md) — shared-control adoption gaps, column/nesting fragility, correctness findings, and verification baseline.
+
+- [Desktop startup regression and post-launch crash](reports/STARTUP_REGRESSION_20261114.md) — site-sync polling and per-call config resolvers on the layer-boundary branch.
 - [Desktop startup investigation](reports/STARTUP_PERFORMANCE_20261112.md)
 - [Monitor responsiveness investigation](reports/MONITOR_PERFORMANCE_20261112.md)
 - [Frontend performance diagnosis](reports/FRONTEND_PERFORMANCE_DIAGNOSIS_20261111.md)
