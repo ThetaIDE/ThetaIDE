@@ -4,8 +4,12 @@ import json
 import optuna
 from omegaconf import OmegaConf
 
-from src.app.tuners.optuna.component import OptunaTuner
-from src.app.tuners.optuna.utils import get_next_study_name
+from component_fixtures import optional_module
+_optuna_component = optional_module('optuna', 'component.py')
+OptunaTuner = _optuna_component.OptunaTuner
+from component_fixtures import optional_module
+_optuna_utils = optional_module('optuna', 'utils.py')
+get_next_study_name = _optuna_utils.get_next_study_name
 
 
 def test_new_sweep_skips_studies_without_training_output(tmp_path, monkeypatch):

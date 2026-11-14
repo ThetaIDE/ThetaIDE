@@ -2,7 +2,7 @@
 
 import optuna
 
-from src.plugins.components.bundled.optuna.policy import make_pruner
+from .policy import make_pruner
 
 
 class TrialPruned(optuna.TrialPruned):

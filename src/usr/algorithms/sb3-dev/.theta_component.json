@@ -291,7 +291,27 @@
         "catalog": "monitor_catalog.py:describe"
       },
       "execution_contract": 1,
-      "backend": "sb3"
+      "backend": "sb3",
+      "execution_features": {
+        "input_types": [
+          "live_environment"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "sb3.zip"
+        ],
+        "tuning": true,
+        "winner_promotion": true,
+        "episode_outcomes": true,
+        "intermediate_values": true
+      },
+      "resource_hints": {
+        "base_memory_gib": 0.55
+      },
+      "resource_hint_hook": "execution_hooks.py:resource_hints"
     },
     {
       "id": "sb3-dev/dqn",
@@ -316,7 +336,27 @@
         "catalog": "monitor_catalog.py:describe"
       },
       "execution_contract": 1,
-      "backend": "sb3"
+      "backend": "sb3",
+      "execution_features": {
+        "input_types": [
+          "live_environment"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "sb3.zip"
+        ],
+        "tuning": true,
+        "winner_promotion": true,
+        "episode_outcomes": true,
+        "intermediate_values": true
+      },
+      "resource_hints": {
+        "base_memory_gib": 0.55
+      },
+      "resource_hint_hook": "execution_hooks.py:resource_hints"
     },
     {
       "id": "sb3-dev/ppo",
@@ -341,7 +381,27 @@
         "catalog": "monitor_catalog.py:describe"
       },
       "execution_contract": 1,
-      "backend": "sb3"
+      "backend": "sb3",
+      "execution_features": {
+        "input_types": [
+          "live_environment"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "sb3.zip"
+        ],
+        "tuning": true,
+        "winner_promotion": true,
+        "episode_outcomes": true,
+        "intermediate_values": true
+      },
+      "resource_hints": {
+        "base_memory_gib": 0.55
+      },
+      "resource_hint_hook": "execution_hooks.py:resource_hints"
     },
     {
       "id": "sb3-dev/sac",
@@ -361,14 +421,35 @@
         "catalog": "monitor_catalog.py:describe"
       },
       "execution_contract": 1,
-      "backend": "sb3"
+      "backend": "sb3",
+      "execution_features": {
+        "input_types": [
+          "live_environment"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "sb3.zip"
+        ],
+        "tuning": true,
+        "winner_promotion": true,
+        "episode_outcomes": true,
+        "intermediate_values": true
+      },
+      "resource_hints": {
+        "base_memory_gib": 0.55
+      },
+      "resource_hint_hook": "execution_hooks.py:resource_hints"
     }
   ],
   "payload": {
     "implementations": [
       "sb3_runner.py",
       "theta_sb3_policy.py",
-      "monitor_catalog.py"
+      "monitor_catalog.py",
+      "execution_hooks.py"
     ],
     "resources": [
       "requirements.txt"

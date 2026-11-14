@@ -43,7 +43,9 @@ def test_local_runner_uses_tuning_component_instead_of_context_flags(monkeypatch
     }
     plans = []
     monkeypatch.setattr(local_runner, "run_experiment", lambda overrides, **kwargs: plans.append(overrides))
-    from src.app.pipeline.tuners_optuna import OptunaTuner
+    from component_fixtures import optional_module
+    _optuna_component = optional_module('optuna', 'component.py')
+    OptunaTuner = _optuna_component.OptunaTuner
     monkeypatch.setattr(OptunaTuner, "prepare", lambda *args, **kwargs: None)
     monkeypatch.setattr(OptunaTuner, "finalize", lambda *args, **kwargs: None)
     context = {"methods": methods, "sanitized_extra_args": [], "storage_url": "sqlite:///test.db", "is_sweep": False}
@@ -63,10 +65,12 @@ def test_method_preview_includes_the_search_space():
     from omegaconf import OmegaConf
     from src.app.pipeline.compose import ComposedExperiment, method_plans
 
-    cfg = OmegaConf.create({"paradigm": "online_rl", "tuning": {}, "methods": {
+    from component_fixtures import optional_workspace
+
+    cfg = OmegaConf.create({"paradigm": "online_rl", "tuning": {"component": "optuna"}, "methods": {
         "method": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}},
     }})
-    composed = ComposedExperiment("example", cfg, [], [], False)
+    composed = ComposedExperiment("example", cfg, [], [], False, workspace=optional_workspace("optuna"))
     overrides = method_plans(composed)["method"]["train_overrides"]
     assert "--multirun" in overrides
     assert "agent.lr=interval(0.1, 0.2)" in overrides
@@ -74,9 +78,11 @@ def test_method_preview_includes_the_search_space():
 
 def test_command_compiler_never_drops_a_method_search_space():
     from src.app.pipeline.commands import build_method_overrides
+    from component_fixtures import optional_workspace
 
     method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
-    overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl", "tuning": {}})
+    overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl", "tuning": {"component": "optuna"}},
+                                       workspace=optional_workspace("optuna"))
     assert "--multirun" in overrides
     assert "agent.lr=interval(0.1, 0.2)" in overrides
     from src.app.pipeline.exceptions import ConfigurationError

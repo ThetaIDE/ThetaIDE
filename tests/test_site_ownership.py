@@ -15,6 +15,9 @@ def component(root):
 
 def test_site_owns_shared_connection_and_variants(tmp_path):
     component(tmp_path)
+    assert 'arc/default' not in profiles(WorkspacePaths(tmp_path))  # templates belong to the optional component
+    from component_fixtures import install_optional
+    install_optional(tmp_path, 'slurm', tmp_path.parent / (tmp_path.name + '-archives'))
     assert connection(tmp_path, 'example/common')['host'] == 'shared-alias'
     assert connection(tmp_path, 'example/gpu')['host'] == 'shared-alias'
     assert load(tmp_path, 'example/gpu')['resources'] == {'cores': 4, 'gpus': 1}
@@ -43,7 +46,8 @@ def test_native_profiles_compose_through_hydra(tmp_path):
 
 
 def test_shortcuts_do_not_reconfigure_site(tmp_path):
-    from src.app.sites.slurm import shortcuts
+    from component_fixtures import optional_module
+    shortcuts = optional_module('slurm', 'commands.py').shortcuts
     component(tmp_path)
     path = defaults_path(tmp_path, 'example/gpu')
     original = path.read_bytes()
@@ -73,14 +77,20 @@ def test_components_tree_groups_site_profiles(tmp_path, monkeypatch):
     tree.close()
 
 
-def test_settings_selects_components_without_connection_editor(tmp_path, monkeypatch):
+def test_settings_selects_components_without_connection_editor(tmp_path):
     from PyQt6.QtWidgets import QApplication, QPushButton
     from frontend.site_launch import SiteSetup
+    from component_fixtures import install_optional
     app = QApplication.instance() or QApplication([])
+    paths = WorkspacePaths(tmp_path)
     component(tmp_path)
-    monkeypatch.setattr(WorkspacePaths, 'for_process', classmethod(lambda cls: cls(tmp_path)))
-    widget = SiteSetup()
-    assert widget.site.findText('example/common') >= 0
-    assert not widget.site.isEditable()
+    empty = SiteSetup(workspace=paths)
+    assert not empty.scope.active  # no installed scheduler contributes site setup
+    empty.close()
+    install_optional(paths, 'slurm', tmp_path.parent / (tmp_path.name + '-archives'))
+    widget = SiteSetup(workspace=paths)
+    setup = widget.layout().itemAt(0).widget()
+    assert setup.site.findText('example/common') >= 0
+    assert not setup.site.isEditable()
     assert not any('Configure' in button.text() for button in widget.findChildren(QPushButton))
     widget.close()

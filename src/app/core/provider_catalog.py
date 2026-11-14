@@ -24,7 +24,7 @@ KINDS = {"method": "algorithm", "agent": "algorithm", "data": "datamodule", "eva
          "plot": "plotter", "environment": "env"}
 GROUPS = {"model": "theta.models", "algorithm": "theta.agents", "env": "theta.environments",
           "datamodule": "theta.datamodules", "evaluator": "theta.evaluators", "plotter": "theta.plotters",
-          "monitor": "theta.monitors", "tuner": "theta.tuners", "run_logger": "thetaide.run_loggers", "component": "theta.components",
+          "monitor": "theta.monitors", "tuner": "theta.tuners", "scheduler": "theta.schedulers", "run_logger": "thetaide.run_loggers", "component": "theta.components",
           "plugin": "theta.plugins"}
 
 

@@ -14,6 +14,7 @@ from src.app.workspace import WorkspacePaths
 
 _LOADED = {}  # (workspace, package root, version, file) -> module
 _OWNED = {}   # module name -> (workspace, package root)
+_CONTEXT = {}  # module name -> WorkspacePaths it was loaded for
 _ACTIVE_WORKSPACE = None
 
 
@@ -79,18 +80,23 @@ def load_module(package, relative="__init__.py", *, paths=None, fresh=False):
         if spec is None or spec.loader is None: raise ImportError(str(source))
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
+        _CONTEXT[name] = paths  # module-level provider_export calls resolve in this workspace
         try:
             # Compile directly so an equal-size update within one timestamp tick cannot reuse pyc.
             exec(compile(source.read_bytes(), str(source), "exec"), module.__dict__)
         except BaseException:
             sys.modules.pop(name, None)
+            _CONTEXT.pop(name, None)
             raise
     _LOADED[key] = module
     _OWNED[name] = (str(paths.root), str(package.root))
+    _CONTEXT[name] = paths
     return module
 
 
 def load_capability(package, capability, *, paths=None):
+    from src.app.core.contributions import ensure_enabled
+    ensure_enabled(package, capability, paths=paths)
     if package.entrypoint is not None: return package.entrypoint.load()
     entry, _, attr = capability.entry_point.partition(":")
     if capability.kind == "objective":
@@ -133,6 +139,8 @@ def invalidate(paths=None, package_root=None, package_id=None):
                 remaining = [obj for obj in values if not any(getattr(obj, "__module__", "").startswith(prefix) for prefix in prefixes)]
                 if remaining: module._MODEL_CANDIDATES[key] = remaining
                 else: module._MODEL_CANDIDATES.pop(key, None)
+    for name in [name for name in _CONTEXT if name not in sys.modules]:
+        _CONTEXT.pop(name, None)
     for key in list(_LOADED):
         if key[0] == str(paths.root) and (package_root is None or key[2] == str(Path(package_root).resolve())) and (package_id is None or key[1] == package_id): _LOADED.pop(key)
     from src.app.core.provider_catalog import _CATALOGS, _entrypoint_metadata
@@ -196,8 +204,78 @@ def resolve_resource(value, paths=None):
     return candidate
 
 
+def _declared_dependencies(manifest):
+    for value in (manifest.get("dependencies") or {}).get("components", []) or []:
+        if isinstance(value, str): yield value, ""
+        elif isinstance(value, dict) and isinstance(value.get("id"), str): yield value["id"], value.get("version") or ""
+
+
+def module_owner(module_name, paths=None):
+    """The catalog package whose package-relative module tree contains `module_name`, if any."""
+    from src.app.core.provider_catalog import get_catalog
+    paths = paths or WorkspacePaths.for_process()
+    if not isinstance(module_name, str): return None
+    for package in get_catalog(paths).packages:
+        if package.entrypoint is not None: continue
+        try: prefix = module_prefix(package, paths)
+        except ValueError: continue
+        if module_name == prefix or module_name.startswith(prefix + "."):
+            return package
+    return None
+
+
+def provider_export(package_id, name, *, paths=None, requester=None):
+    """Load a dependency's declared public export (manifest `exports`).
+
+    When called from provider code, the calling package must declare `package_id` in
+    `dependencies.components`; a declared version constraint must match the installed
+    version. Host code (no owning package) may load any declared export.
+    """
+    from src.app.core.provider_catalog import get_catalog
+    caller = sys._getframe(1).f_globals.get("__name__")
+    if paths is None:
+        # Provider code resolves dependencies in the workspace that loaded it.
+        parts = caller.split(".") if isinstance(caller, str) else []
+        loaded = next((_CONTEXT[".".join(parts[:i])] for i in range(len(parts), 0, -1)
+                       if ".".join(parts[:i]) in _CONTEXT), None)
+        paths = loaded or WorkspacePaths.for_process()
+    if requester is None:
+        requester = module_owner(caller, paths)
+    catalog = get_catalog(paths)
+    package = catalog.package(package_id)
+    if requester is not None and requester.id != package_id:
+        declared = dict(_declared_dependencies(requester.manifest))
+        if package_id not in declared:
+            raise ImportError(f"Provider {requester.id!r} uses {package_id}:{name} but does not declare "
+                              f"{package_id!r} in dependencies.components")
+        if package is not None and declared[package_id]:
+            from packaging.specifiers import InvalidSpecifier, SpecifierSet
+            try: allowed = package.version in SpecifierSet(declared[package_id])
+            except InvalidSpecifier as exc:
+                raise ImportError(f"Provider {requester.id!r} declares an invalid version for {package_id!r}: {exc}") from exc
+            if not allowed:
+                raise ImportError(f"Provider {requester.id!r} requires {package_id} {declared[package_id]}, "
+                                  f"but {package.version} is installed")
+    if package is None:
+        raise ImportError(f"Required provider package {package_id!r} is not installed in {paths.root}")
+    exports = package.manifest.get("exports") or {}
+    target = exports.get(name) if isinstance(exports, dict) else None
+    if not isinstance(target, str) or ":" not in target:
+        available = ", ".join(sorted(exports)) if isinstance(exports, dict) and exports else "none"
+        raise ImportError(f"Package {package_id!r} does not export {name!r} (declared exports: {available})")
+    file, _, attribute = target.partition(":")
+    value = load_module(package, file, paths=paths)
+    for part in attribute.split("."):
+        value = getattr(value, part)
+    return value
+
+
 def provider_object(package_id, entry_point, paths=None):
-    """Load an explicit public helper from a declared dependency package."""
+    """Bounded API-1 adapter: load a file-path helper from another package.
+
+    Prefer `provider_export` with a declared manifest export; this adapter performs no
+    caller dependency validation and is retained for existing installed packages.
+    """
     from src.app.core.provider_catalog import get_catalog, Capability
     paths = paths or WorkspacePaths.for_process()
     package = get_catalog(paths).package(package_id)

@@ -47,6 +47,26 @@ def fixture_workspace(tmp_path):
     return tmp_path
 
 
+@pytest.fixture
+def tuner_monitor_workspace(tmp_path):
+    """A ready independent monitor contribution, with provider imports forbidden."""
+    from src.app.workspace import WorkspacePaths
+    root = tmp_path / 'src/usr/packages/lattice'
+    shutil.copytree(PROJECT_ROOT / 'tests/fixtures/contribution_tuner', root)
+    (root / 'provider.py').write_text('raise AssertionError("monitor imported tuner")')
+    return (WorkspacePaths(tmp_path, application=tmp_path / 'empty-app'),
+            {'tuning': {'component': 'lattice', 'options': {'lattice': {'token': 'configured'}}}})
+
+
+@pytest.fixture
+def optional_tuner_metadata(monkeypatch):
+    """Exercise bundled field metadata without requiring optional training libraries."""
+    from src.app.core import contributions
+    available = contributions._distribution_available
+    monkeypatch.setattr(contributions, '_distribution_available',
+                        lambda name: name in ('optuna', 'hydra-optuna-sweeper', 'sqlalchemy') or available(name))
+
+
 # Qt requires QtWebEngineWidgets to be imported before any QApplication exists.
 # Test modules build one at import time, so whichever module pytest collects
 # first would otherwise decide whether the web engine is usable for all of them

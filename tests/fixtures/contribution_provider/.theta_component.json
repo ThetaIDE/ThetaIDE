@@ -1,0 +1,13 @@
+{
+  "id": "independent-host-tools", "name": "Independent host tools", "version": "1.0.0",
+  "kind": "suite", "storage_version": 2, "api_version": 1,
+  "capabilities": [{
+    "id": "fixture-site", "kind": "site", "entry_point": "provider.py:activate", "contribution_api": 1,
+    "readiness": {"config": ["connection.host"]},
+    "contributions": [
+      {"id": "setup", "slot": "settings.site", "availability": "enabled", "entry_point": "provider.py:activate"},
+      {"id": "run", "slot": "commands.site", "availability": "ready", "entry_point": "provider.py:activate"}
+    ]
+  }],
+  "payload": {"implementations": ["provider.py"], "resources": [], "configs": {}}
+}

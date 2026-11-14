@@ -355,5 +355,7 @@ def available_monitors(cfg: dict, *, catalog=None, script: str | None = None,
         from src.app.pipeline.tuning_config import tuning_enabled
         if tuning_enabled(context) or context.get("theta_tuning"):
             tuning = context.get("theta_tuning") or context.get("tuning") or {}
-            visit("tuner", tuning.get("component", "optuna"))
+            selected = tuning.get("component") if hasattr(tuning, "get") else None
+            if isinstance(selected, str) and selected.strip():
+                visit("tuner", selected)
     return sorted(specs.values(), key=lambda spec: (spec.source, spec.group, spec.name))

@@ -9,7 +9,9 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from frontend import site_launch
 from src.app.sites import transfer
-from src.app.sites.slurm import launch_in_terminal
+from component_fixtures import install_optional, optional_module, optional_workspace
+_slurm_commands = optional_module('slurm', 'commands.py')
+launch_in_terminal = _slurm_commands.launch_in_terminal
 from src.app.workspace import WorkspacePaths
 
 app = QApplication.instance() or QApplication(['test-site-launch'])
@@ -23,9 +25,11 @@ def test_run_creates_and_selects_new_shell_in_existing_terminal_pane(tmp_path, m
     # Control readiness ourselves so the test never opens a real SSH connection.
     monkeypatch.setattr(QWebEngineView, 'load', lambda *_: None)
     monkeypatch.setattr(WorkspacePaths, 'for_process', classmethod(lambda cls: cls(tmp_path)))
+    install_optional(tmp_path, 'slurm', tmp_path.parent / (tmp_path.name + '-archives'))
     transfer.configure(tmp_path, 'cluster', 'fake', '/home/user/theta')
     monkeypatch.setattr(transfer, 'push', lambda *_a, **_k: pytest.fail('GUI thread started upload'))
     window = QWidget()
+    window.workspace_paths = WorkspacePaths(tmp_path)
     window.tabs = QTabWidget(window)
     window.tabs.addTab(QWidget(), 'Experiment')
     # A custom terminal start folder must not change the cluster upload root.
@@ -33,7 +37,9 @@ def test_run_creates_and_selects_new_shell_in_existing_terminal_pane(tmp_path, m
     window.tabs.addTab(window.terminal_panel, 'Terminal')
     first = window.terminal_panel.terminal
     window.compose_valid = True
-    window.composed_config = {'site': {'name': 'cluster', 'scheduler': 'slurm'}}
+    # A configured site composes its connection; Slurm's launch contribution requires it.
+    window.composed_config = {'site': {'name': 'cluster', 'scheduler': 'slurm',
+                                       'connection': {'host': 'fake', 'remote_root': '/home/user/theta'}}}
     window.current_experiment = 'cartpole/single'
     try:
         site_launch.launch(window)
@@ -132,7 +138,7 @@ def test_live_failure_retains_diagnostics_in_terminal(capfd):
 
 def test_minimal_command_uses_project_relative_interpreter_and_quotes_experiment():
     import shlex
-    from src.app.sites.slurm import submission_command
+    submission_command = _slurm_commands.submission_command
     config = {'remote_root': '/home/user/theta', 'python': '/home/user/theta/venv/bin/python3'}
     command = submission_command(config, 'cartpole/my run', 'ncshare/common')
     assert shlex.split(command) == ['venv/bin/python3', 'run_pipeline.py', 'cartpole/my run']
@@ -148,10 +154,17 @@ def test_upload_output_and_manual_ssh_input_share_one_real_pty(tmp_path):
     mock_ssh.write_text('print("SSH READY",flush=True)\ncommand=input()\nprint("USER COMMAND: "+command,flush=True)\n')
     driver = tmp_path / 'launch.py'
     project = Path(__file__).resolve().parents[1]
+    workspace = optional_workspace('slurm')
     driver.write_text(
         'import sys,time\n'
         f'sys.path.insert(0,{str(project)!r})\n'
-        'from src.app.sites import slurm,transfer\n'
+        'from pathlib import Path\n'
+        'from src.app.sites import transfer\n'
+        'from src.app.workspace import WorkspacePaths\n'
+        'from src.app.core.provider_catalog import get_catalog\n'
+        'from src.app.core.provider_loader import load_module\n'
+        f'paths = WorkspacePaths(Path({str(workspace.root)!r}), {str(workspace.data_dir)!r})\n'
+        "slurm = load_module(get_catalog(paths).package('slurm'), 'commands.py', paths=paths)\n"
         'transfer.connection=lambda *_: {"host":"mock","remote_root":"/home/user/theta","python":"venv/bin/python3"}\n'
         'def push(*args,**kwargs):\n'
         ' assert kwargs["live_output"]\n'

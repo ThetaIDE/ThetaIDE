@@ -1,0 +1,46 @@
+{
+  "id": "lattice-tools",
+  "name": "Lattice tuner",
+  "kind": "tuner",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "lattice",
+      "kind": "tuner",
+      "entry_point": "provider.py:Tuner",
+      "contribution_api": 1,
+      "readiness": {
+        "config": [
+          "tuning.options.lattice.token"
+        ]
+      },
+      "contributions": [
+        {
+          "id": "configure",
+          "slot": "configuration.tuning",
+          "availability": "enabled"
+        },
+        {
+          "id": "ranges",
+          "slot": "configuration.parameter_sweeps",
+          "availability": "ready"
+        },
+        {
+          "id": "study-monitor",
+          "slot": "monitor.tuning",
+          "label": "Tuning study",
+          "availability": "ready"
+        }
+      ]
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "provider.py"
+    ],
+    "resources": [],
+    "configs": {}
+  }
+}

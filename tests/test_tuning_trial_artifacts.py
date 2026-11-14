@@ -11,7 +11,9 @@ from pathlib import Path
 import optuna
 import pytest
 
-from src.app.pipeline.optuna_utils import promote_best_trial_checkpoint
+from component_fixtures import optional_module
+_optuna_utils = optional_module('optuna', 'utils.py')
+promote_best_trial_checkpoint = _optuna_utils.promote_best_trial_checkpoint
 from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
 
 
@@ -66,7 +68,9 @@ def test_plotman_reads_generic_tuning_summary_and_writes_table_and_figure(tmp_pa
     from plot.manager import run_experiment_plots
 
     (root.parent / "config.yaml").write_text("group: g\nplots:\n  tuning: {}\n")
-    run_experiment_plots("g/e")
+    from src.app.workspace import WorkspacePaths
+    # Plotting resolves configs and outputs in the selected workspace, never the CWD.
+    run_experiment_plots("g/e", paths=WorkspacePaths(tmp_path))
     assert Path("results/plots/g/e/tuning/m/trials.csv").is_file()
     assert Path("results/plots/g/e/tuning/m/objective.png").is_file()
     assert Path("results/plots/g/e/tuning/m/intermediate.png").is_file()
@@ -255,7 +259,9 @@ def test_qmc_sampler_runs_a_real_sweep(tmp_path):
 
 def test_interruption_marks_active_trial_and_exports_summary(tmp_path, monkeypatch):
     from omegaconf import OmegaConf
-    from src.app.tuners.optuna.sweeper import ThetaOptunaSweeper
+    from component_fixtures import optional_module
+    _optuna_sweeper = optional_module('optuna', 'sweeper.py')
+    ThetaOptunaSweeper = _optuna_sweeper.ThetaOptunaSweeper
 
     class InterruptedLauncher:
         def launch(self, jobs, initial_job_idx):
@@ -279,7 +285,9 @@ def test_interruption_marks_active_trial_and_exports_summary(tmp_path, monkeypat
 def test_resume_remains_compatible_with_legacy_optuna_distributions(tmp_path):
     import warnings
     from omegaconf import OmegaConf
-    from src.app.tuners.optuna.sweeper import ThetaOptunaSweeper
+    from component_fixtures import optional_module
+    _optuna_sweeper = optional_module('optuna', 'sweeper.py')
+    ThetaOptunaSweeper = _optuna_sweeper.ThetaOptunaSweeper
 
     class Result:
         return_value = 0.5

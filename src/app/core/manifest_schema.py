@@ -20,8 +20,40 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
             "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"type": "string"},
                            "entry_point": {"type": "string", "minLength": 1},
                            "aliases": {"type": "array", "items": {"type": "string"}},
+                           "contribution_api": {"type": "integer", "minimum": 1},
+                           "readiness": {"type": "object", "additionalProperties": False, "properties": {
+                               "config": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                               "distributions": {"type": "array", "items": {"type": "string", "minLength": 1}}}},
+                           "contributions": {"type": "array", "items": {"type": "object",
+                               "required": ["id", "slot"], "additionalProperties": False, "properties": {
+                                   "id": {"type": "string", "minLength": 1}, "slot": {"type": "string", "minLength": 1},
+                                   "label": {"type": "string"}, "availability": {"enum": ["enabled", "ready"]},
+                                   "entry_point": {"type": "string", "pattern": r"^.+\.py:.+$"}}}},
+                           "scheduler_api": {"type": "integer", "enum": [1]},
                            "execution_contract": {"type": "integer", "minimum": 1},
                            "backend": {"type": "string"},
+                           "tuning_features": {"type": "object", "additionalProperties": False, "properties": {
+                               "objective_modes": {"type": "array", "items": {"enum": ["metric", "component"]}},
+                               "pruning": {"type": "boolean"},
+                               "pruning_objectives": {"type": "boolean"},
+                               "pruning_repeated_runs": {"type": "boolean"}}},
+                           "execution_features": {
+                               "type": "object", "additionalProperties": False,
+                               "properties": {
+                                   "input_types": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                                   "evaluation": {"enum": ["provider", "configured", "both"]},
+                                   "resume_modes": {"type": "array", "items": {"enum": ["training", "inference"]}},
+                                   "checkpoint_formats": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                                   "tuning": {"type": "boolean"}, "winner_promotion": {"type": "boolean"},
+                                   "episode_outcomes": {"type": "boolean"},
+                                   "intermediate_values": {"type": "boolean"},
+                               }},
+                           "execution_preflight": {"type": "string", "pattern": r"^.+\.py:.+$"},
+                           "resource_hint_hook": {"type": "string", "pattern": r"^.+\.py:.+$"},
+                           "resource_hints": {"type": "object", "additionalProperties": False, "properties": {
+                               "base_memory_gib": {"type": "number", "exclusiveMinimum": 0},
+                               "cpu": {"type": "number", "exclusiveMinimum": 0},
+                               "accelerator": {"type": "boolean"}}},
                            "role": {"enum": ["training", "symbolic_state"]},
                            "output_contracts": {"type": "array", "items": {"type": "string", "minLength": 1}},
                            "parameter_schema": {"type": "object"},
@@ -31,6 +63,9 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                                    "contract": {"type": "string", "minLength": 1},
                                    "when": {"type": "object", "additionalProperties": {"type": "array"}}
                                }}}}}},
+        "exports": {"type": "object", "description": "Public cross-package objects: name -> 'file.py:attribute'.",
+                    "propertyNames": {"pattern": r"^[A-Za-z_][A-Za-z0-9_.]*$"},
+                    "additionalProperties": {"type": "string", "pattern": r"^[^:]+\.py:[A-Za-z_][A-Za-z0-9_.]*$"}},
         "payload": {"type": "object", "required":["implementations","resources","configs"], "properties": {
             "implementations": {"type": "array", "items": {"type": "string"}},
             "resources": {"type": "array", "items": {"type": "string"}},
@@ -264,6 +299,22 @@ def validate_manifest_data(data: Dict[str, Any]) -> Tuple[bool, str | None]:
     for cap in data['capabilities']:
         if not isinstance(cap,dict) or not all(isinstance(cap.get(k),str) and cap[k] for k in ('id','kind','entry_point')):
             return False, "Every capability requires id, kind and entry_point"
+        if "tuning_features" in cap:
+            from src.app.pipeline.tuning_features import TuningFeatures
+            try:
+                TuningFeatures.from_metadata(cap)
+            except ValueError as exc:
+                return False, str(exc)
+    exports = data.get("exports", {})
+    if not isinstance(exports, dict):
+        return False, "exports must map public names to 'file.py:attribute'"
+    implementations = set(data["payload"].get("implementations") or [])
+    for name, target in exports.items():
+        file, _, attribute = target.partition(":") if isinstance(target, str) else ("", "", "")
+        if not isinstance(name, str) or not name or not file.endswith(".py") or not attribute:
+            return False, f"Export {name!r} must name 'file.py:attribute'"
+        if file not in implementations:
+            return False, f"Export {name!r} must come from a declared payload implementation, not {file!r}"
     # Try standard jsonschema library first
     try:
         import jsonschema

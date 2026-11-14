@@ -32,6 +32,9 @@ def project(root):
     (root / 'in/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text('# runner\n')
     workspace_id(root)
+    from component_fixtures import install_optional
+    # Cluster contracts run through the optional Slurm scheduler, installed like any component.
+    install_optional(root, 'slurm', root.parent / (root.name + '-archives'))
     return root
 
 
@@ -72,8 +75,12 @@ def fake_pull(monkeypatch, remote_root, local_root):
 
 def test_explicit_scheduler_and_packaged_profiles(tmp_path):
     assert scheduler({'site': {'name': 'custom', 'scheduler': 'local'}}) == 'local'
-    assert scheduler({'site': {'name': 'legacy_cluster'}}) == 'slurm'
-    with pytest.raises(ValueError): scheduler({'site': {'scheduler': 'unsupported'}})
+    assert scheduler({'site': {'name': 'local'}}) == 'local'
+    with pytest.raises(ValueError, match="does not declare site.scheduler.*implied 'slurm'"):
+        scheduler({'site': {'name': 'legacy_cluster'}})
+    # Any nonempty selector is a capability name; installation is checked when it is resolved.
+    assert scheduler({'site': {'scheduler': 'lattice-batch'}}) == 'lattice-batch'
+    with pytest.raises(ValueError): scheduler({'site': {'scheduler': ' '}})
     paths = WorkspacePaths(tmp_path)
     assert 'local/default' in profiles(paths)
 
@@ -160,7 +167,7 @@ def test_unknown_submission_is_not_retried(tmp_path, monkeypatch):
         calls.append(args)
         raise subprocess.TimeoutExpired(args, 60)
     monkeypatch.setattr(subprocess, 'run', submit)
-    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'python_executable': sys.executable}, 'resources': {}})
+    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}})
     with pytest.raises(RuntimeError): execution.submit(root, 'demo/test', [], cfg)
     assert len(calls) == 1
     receipt = read_json(next((root / 'results/slurm').glob('*/submission.json')))
@@ -244,7 +251,7 @@ print('frozen source executed')
         assert args[0] == 'sbatch'
         return SimpleNamespace(returncode=0, stdout='321;cluster\n', stderr='')
     monkeypatch.setattr(subprocess, 'run', sbatch)
-    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'python_executable': sys.executable}, 'resources': {}})
+    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}})
     result = execution.submit(root, 'demo/test', [], cfg)
     script.write_text('raise RuntimeError("mutable project must not run")')
     monkeypatch.setenv('THETA_RESOURCE_POOL', '/unrelated/workstation-pool')
@@ -286,7 +293,7 @@ def test_default_batch_interpreter_preserves_virtualenv_path(tmp_path, monkeypat
     executable.parent.mkdir(parents=True)
     executable.symlink_to(sys.executable)
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=0, stdout='123\n', stderr=''))
-    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster'}, 'resources': {}})
+    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm'}, 'resources': {}})
     value = execution.submit(root, 'demo/test', [], cfg)
     script = (execution.receipt_path(root, value['execution_id']).parent / 'job.sbatch').read_text()
     assert str(executable) in script

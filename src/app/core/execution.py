@@ -111,28 +111,22 @@ def algorithm_selection(cfg, *, paths=None):
 
 def execution_backend(cfg, *, paths=None):
     """Component metadata owns backend choice. A supplied backend must match it."""
+    from src.app.workspace import WorkspacePaths
+    paths = paths or WorkspacePaths.for_process()
     reject_selectors(cfg, "execution")
     profile, selected = algorithm_selection(cfg, paths=paths)
-    if cfg.get("evaluator") and selected and selected[1].metadata.get("backend") in ("sb3", "d3rlpy"):
-        raise ValueError("This backend owns native evaluation; configured evaluator providers are currently supported only by Lightning")
     if selected:
         package, capability = selected
         version = capability.metadata.get("execution_contract")
-        if version != EXECUTION_CONTRACT:
+        if type(version) is not int or version != EXECUTION_CONTRACT:
             raise ValueError(f"Provider {package.id}@{package.version} ({capability.id}) declares execution_contract={version!r}; "
-                             f"requires {EXECUTION_CONTRACT}. Select the migrated sb3-dev/d3rlpy-dev component "
+                             f"requires {EXECUTION_CONTRACT}. Select a migrated component "
                              "or install a future compatible release.")
         backend = capability.metadata.get("backend")
-        if backend in ("sb3", "d3rlpy") and any(cfg.get(key) for key in ("resume", "recover", "resume_from")):
-            raise ValueError(f"{package.id}@{package.version}: exact {backend} training resume is unsupported; inference reload uses native checkpoints")
-        if backend == "d3rlpy" and cfg.get("data_module"):
-            raise ValueError("d3rlpy-dev currently requires DatasetWriter transitions via dataset_path; custom data_module selection is unsupported")
-        if backend == "d3rlpy":
-            from src.app.pipeline.tuning_config import tuning_enabled
-            if tuning_enabled(cfg):
-                raise ValueError("d3rlpy-dev tuning requires native .d3 winner-promotion support; use a direct run until that integration is migrated")
-        if backend not in ("lightning", "sb3", "d3rlpy", "numerical"):
-            raise ValueError(f"Provider {package.id}@{package.version}: unsupported backend {backend!r}")
+        if not isinstance(backend, str) or not backend.strip():
+            raise ValueError(f"Provider {package.id}@{package.version}: a nonempty backend is required")
+        from src.app.core.execution_features import selected_features, provider_hook
+        selected_features(selected, backend).validate(cfg, owner=f"{package.id}@{package.version}")
     elif cfg.get("agent"):
         raise ValueError(f"Unresolved selected algorithm: {cfg.get('agent')}")
     else:
@@ -140,11 +134,16 @@ def execution_backend(cfg, *, paths=None):
     explicit = cfg.get("backend") or profile.get("backend")
     if explicit and explicit != backend:
         raise ValueError(f"Selected backend {explicit!r} conflicts with component backend {backend!r}")
+    if selected:
+        provider_hook(selected, "execution_preflight", cfg, paths=paths)
     return backend, selected
 
 
 def execute_backend(cfg, context):
     backend, selected = execution_backend(cfg, paths=context.workspace)
+    from src.app.pipeline.tuning_features import validate_tuning_compatibility, validate_pruning_runner
+    if validate_tuning_compatibility(cfg, paths=context.workspace):
+        validate_pruning_runner(cfg, paths=context.workspace)
     context.metadata["backend"] = backend
     if selected:
         context.metadata["algorithm"] = {"id": selected[1].id, "package": selected[0].id, "version": selected[0].version}

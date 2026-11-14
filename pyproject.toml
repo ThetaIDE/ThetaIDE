@@ -35,13 +35,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-optuna = [
-    "hydra-optuna-sweeper<=1.1.2",
-    "optuna>=3.0,<5",
-    "sqlalchemy>=1.4.2,<2",
-]
 dev = [
-    "theta-ide[optuna]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     # Bounds a hung GUI test so CI fails in minutes rather than hours
@@ -70,7 +64,7 @@ tensorboard = [
     "tensorboard>=2.12",
 ]
 all = [
-    "theta-ide[dev,gui,video,tensorboard,optuna]",
+    "theta-ide[dev,gui,video,tensorboard]",
 ]
 
 # ── Package discovery ────────────────────────────────────────
@@ -166,3 +160,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
 ]
 
+
+# Web editor runtime bundles are shipped; npm dependency trees are build inputs.
+[tool.setuptools.exclude-package-data]
+"*" = ["**/node_modules/*", "**/node_modules/**/*"]

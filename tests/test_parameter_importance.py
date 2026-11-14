@@ -14,7 +14,9 @@ from PyQt6.QtWidgets import QApplication, QProgressBar
 
 from frontend.monitor.sweep_view import SweepView
 from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
-from src.app.tuners.optuna.utils import write_study_summary
+from component_fixtures import optional_module
+_optuna_utils = optional_module('optuna', 'utils.py')
+write_study_summary = _optuna_utils.write_study_summary
 
 app = QApplication.instance() or QApplication(sys.argv[:1])
 

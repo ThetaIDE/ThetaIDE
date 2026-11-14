@@ -27,14 +27,42 @@ class Tuner(Protocol):
     def storage(self, cfg: Any) -> str | None: ...
 
 
+class PruningTuner(Tuner, Protocol):
+    """Optional query required by the capability's tuning_features.pruning flag."""
+    def pruning_enabled(self, cfg: Any) -> bool: ...
+
+
+class PortableTuner(Tuner, Protocol):
+    """Optional remote contract; local-only tuner API v1 remains supported."""
+    remote_api_version: int
+    def execution_plan(self, cfg: Any, *, execution_id: str) -> Any: ...
+    def launch_bindings(self, cfg: Any, *, plan: Any, runtime: Any, continuation: Any = None) -> Any: ...
+    def snapshot_artifact(self, source: Any, target: Any, *, artifact: Any) -> None: ...
+    def restore_continuation(self, cfg: Any, *, plan: Any, runtime: Any, lineage: Any) -> None: ...
+    def continuation_config(self, tuning: Any) -> Any: ...
+
+
 def tuner_name(cfg: Any) -> str:
     tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
-    return str(tuning.get("component") or "optuna") if hasattr(tuning, "get") else "optuna"
+    selected = tuning.get("component") if hasattr(tuning, "get") else None
+    return _selector(selected)
 
 
-def available_tuners() -> list[str]:
+def _selector(value):
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ConfigurationError(
+            "Select a tuning provider explicitly with tuning.component (a nonempty capability selector). "
+            "Existing recipes without a selector must choose their intended installed tuner; "
+            "no default tuner is selected."
+        )
+    return value
+
+
+def available_tuners(*, paths=None) -> list[str]:
     from src.app.core.provider_catalog import get_catalog
-    return sorted({c.id for p in get_catalog().packages for c in p.capabilities if c.kind == "tuner"})
+    from src.app.core.contributions import capability_status
+    return sorted({c.id for p in get_catalog(paths).packages for c in p.capabilities
+                   if c.kind == "tuner" and capability_status(p, c, paths=paths).enabled})
 
 
 def training_callbacks(cfg: Any) -> list[Any]:
@@ -58,10 +86,18 @@ def trial_monitor(cfg: Any) -> Any:
     return factory(cfg) if callable(factory) else None
 
 
-def get_tuner(cfg: Any = None, *, name: str | None = None) -> Tuner:
-    selected = name or tuner_name(cfg)
+def get_tuner(cfg: Any = None, *, name: str | None = None, paths=None) -> Tuner:
+    selected = _selector(name) if name is not None else tuner_name(cfg)
+    if cfg is not None:
+        from src.app.core.provider_catalog import get_catalog
+        from src.app.core.contributions import capability_status
+        metadata = get_catalog(paths).resolve('tuner', selected)
+        if metadata is not None:
+            status = capability_status(*metadata, paths=paths, config=cfg)
+            if status.state != 'ready':
+                raise ConfigurationError(status.reason)
     from src.app.core.provider_loader import resolve_provider
-    factory = resolve_provider("tuner", selected)
+    factory = resolve_provider("tuner", selected, **({"paths": paths} if paths is not None else {}))
     if factory is None:
         raise ConfigurationError(f"Tuning component {selected!r} is not installed (entry point: theta.tuners).")
     component = factory() if callable(factory) else factory

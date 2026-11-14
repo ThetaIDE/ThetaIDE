@@ -16,29 +16,50 @@ from pathlib import Path
 import optuna
 from hydra.core.override_parser.overrides_parser import OverridesParser
 from hydra.plugins.sweeper import Sweeper
-from hydra_plugins.hydra_optuna_sweeper._impl import (
-    OptunaSweeperImpl,
-    create_optuna_distribution_from_override,
-)
 from omegaconf import OmegaConf
 from optuna.distributions import BaseDistribution, FloatDistribution
-from src.app.pipeline.trial_artifacts import trial_log_version
+from src.app.api.tuning import trial_log_version
 
 logger = logging.getLogger(__name__)
 
 
+def _distribution_from_config(config):
+    from optuna.distributions import CategoricalDistribution, IntDistribution
+    kind = config["type"]
+    if kind == "categorical":
+        return CategoricalDistribution(list(config["choices"]))
+    if kind == "int":
+        return IntDistribution(int(config["low"]), int(config["high"]),
+                               log=bool(config.get("log", False)), step=int(config.get("step") or 1))
+    if kind == "float":
+        return FloatDistribution(float(config["low"]), float(config["high"]),
+                                 log=bool(config.get("log", False)), step=config.get("step"))
+    raise ValueError(f"Unsupported Optuna distribution type: {kind!r}")
+
+
 def _distribution_from_override(override):
-    """Handle stepped floats, which the upstream adapter truncates to ints."""
+    """Translate the public Hydra override types into current Optuna distributions."""
+    from optuna.distributions import CategoricalDistribution, IntDistribution
+    if not override.is_sweep_override():
+        return override.get_value_element_as_str()
+    value = override.value()
+    if override.is_choice_sweep() or (override.is_range_sweep() and value.shuffle):
+        choices = list(override.sweep_iterator())
+        if any(not isinstance(item, (str, int, float, bool)) for item in choices):
+            raise ValueError('Optuna choices must be scalar values')
+        return CategoricalDistribution(choices)
     if override.is_range_sweep():
-        value = override.value()
-        if not value.shuffle and value.start is not None and value.stop is not None:
-            if any(isinstance(part, float) for part in (value.start, value.stop, value.step)):
-                return FloatDistribution(low=float(value.start), high=float(value.stop), step=float(value.step))
-    return create_optuna_distribution_from_override(override)
+        if any(isinstance(part, float) for part in (value.start, value.stop, value.step)):
+            return FloatDistribution(float(value.start), float(value.stop), step=float(value.step))
+        return IntDistribution(int(value.start), int(value.stop), step=int(value.step))
+    if override.is_interval_sweep():
+        cls = IntDistribution if isinstance(value.start, int) and isinstance(value.end, int) else FloatDistribution
+        return cls(value.start, value.end, log='log' in value.tags)
+    raise ValueError(f'Unsupported Optuna sweep override: {override}')
 
 
 def _export_summary(config, study):
-    from src.plugins.components.bundled.optuna.utils import write_study_summary
+    from .utils import write_study_summary
 
     agent = config.get("agent")
     model = config.get("model")
@@ -68,8 +89,11 @@ class ThetaOptunaSweeper(Sweeper):
             raise ValueError("Optuna timeout_seconds must be a nonnegative integer")
         if isinstance(max_failed_trials, bool) or not isinstance(max_failed_trials, int) or max_failed_trials < 0:
             raise ValueError("Optuna max_failed_trials must be a nonnegative integer")
-        self.impl = OptunaSweeperImpl(sampler, direction, storage, study_name, n_trials, n_jobs, search_space)
-        from src.plugins.components.bundled.optuna.policy import make_pruner
+        from types import SimpleNamespace
+        self.impl = SimpleNamespace(sampler=sampler, direction=direction, storage=storage, study_name=study_name,
+            n_trials=n_trials, n_jobs=n_jobs, job_idx=0,
+            search_space={str(key): _distribution_from_config(value) for key, value in (search_space or {}).items()})
+        from .policy import make_pruner
         self.pruner_name = pruner
         self.pruner_startup_trials = pruner_startup_trials
         self.pruner_warmup_steps = pruner_warmup_steps
@@ -84,7 +108,11 @@ class ThetaOptunaSweeper(Sweeper):
             if target != 'hydra._internal.core_plugins.basic_launcher.BasicLauncher':
                 raise ValueError('Resource-managed local sweeps require the basic Hydra launcher; '
                                  'parallelism is controlled by n_jobs and Settings → Training Pipeline.')
-        self.impl.setup(hydra_context=hydra_context, task_function=task_function, config=config)
+        from hydra.core.plugins import Plugins
+        self.impl.job_idx = 0
+        self.impl.config, self.impl.hydra_context = config, hydra_context
+        self.impl.launcher = Plugins.instance().instantiate_launcher(
+            config=config, hydra_context=hydra_context, task_function=task_function)
         self.impl.task_function = task_function
 
     def sweep(self, arguments):
@@ -116,7 +144,7 @@ class ThetaOptunaSweeper(Sweeper):
                                         sampler=impl.sampler, pruner=self.pruner,
                                         direction=direction, load_if_exists=True)
         tuning = impl.config.get("tuning")
-        from src.app.pipeline.objective import objective_metric
+        from src.app.api.tuning import objective_metric
         metric = objective_metric(impl.config, "") or None
         if self.pruner_name != "none" and (not impl.storage or not metric):
             raise ValueError("Optuna pruning requires persistent storage and an objective metric.")
@@ -132,7 +160,7 @@ class ThetaOptunaSweeper(Sweeper):
         failed_count = 0
         start = time.monotonic()
         while remaining > 0 and (not self.timeout_seconds or time.monotonic() - start < self.timeout_seconds):
-            from src.app.sites.publication import admission
+            from src.app.api.tuning import check_artifact_admission as admission
             admission()
             managed = bool(os.environ.get('THETA_RESOURCE_POOL'))
             batch = 1 if os.environ.get('THETA_MANAGED_SERIAL') == '1' else impl.n_jobs
@@ -201,17 +229,17 @@ class ThetaOptunaSweeper(Sweeper):
                     failure = failure or exc
                 state = study._storage.get_trial(trial._trial_id).state
                 if state in (optuna.trial.TrialState.PRUNED, optuna.trial.TrialState.FAIL):
-                    from src.app.pipeline.variability import finish_trial_runs
+                    from src.app.api.tuning import finish_trial_runs
                     finish_trial_runs(impl.config.get("group"), impl.config.get("experiment_id"),
                                       trial.user_attrs.get("theta_log_version"),
                                       "cancelled" if state == optuna.trial.TrialState.PRUNED else "failed")
-                from src.app.sites.publication import request_database_export
+                from src.app.api.tuning import request_artifact_snapshot as request_database_export
                 request_database_export({'study': study.study_name, 'trial': trial.number, 'state': state.name})
                 consumed.add(index)
                 _export_summary(impl.config, study)
 
             def can_start():
-                from src.app.sites.publication import admission
+                from src.app.api.tuning import check_artifact_admission as admission
                 admission()
                 return (not self.timeout_seconds or time.monotonic() - start < self.timeout_seconds) and failed_count <= self.max_failed_trials
 
@@ -240,7 +268,7 @@ class ThetaOptunaSweeper(Sweeper):
 
             try:
                 if os.environ.get('THETA_RESOURCE_POOL'):
-                    from src.plugins.components.bundled.optuna.parallel import launch_trials
+                    from .parallel import launch_trials
                     results = launch_trials(impl, on_result=consume, next_job=next_job, on_start=started, on_wait=waiting,
                                             can_start=can_start, total_jobs=remaining)
                 else:

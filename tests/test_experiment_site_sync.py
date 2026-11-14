@@ -73,3 +73,47 @@ def test_remote_display_uses_scheduler_status_for_unfinished_work():
     assert _remote_status({'remote': {'state': 'prepared', 'scheduler_state': 'running'}}) == 'running'
     assert _remote_status({'remote': {'state': 'running', 'scheduler_state': 'completed'}}) == 'completed'
     assert _remote_status({'remote': {'state': 'failed', 'status_error': 'query failed'}}) == 'failed'
+
+
+def test_replaced_default_button_never_strands_the_menu_and_nothing_polls():
+    """The experiment control deletes its default button; the menu must outlive it.
+
+    A 1 s availability poll once closed a menu owned by that deleted button,
+    raising inside a Qt slot and aborting the desktop shortly after launch.
+    """
+    from PyQt6.QtCore import QEvent, QTimer
+    control = ExperimentSiteSyncControl()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert control.menu.parent() is control
+    control.set_config({'site': {'name': 'cluster', 'scheduler': 'not_installed'}}, experiment='g/e')
+    assert control.refresh_availability() is False
+    assert not [timer for timer in control.findChildren(QTimer) if timer.isActive()]
+    control.close()
+
+
+def test_site_listing_builds_one_config_resolver(tmp_path, monkeypatch):
+    """Each resolver scans every installed manifest; listing N sites must not build N of them."""
+    from src.app.config_resolution import ConfigResolver
+    from src.app.core.provider_discovery import provider_discovery_snapshot
+    from src.app.sites import transfer
+    from src.app.workspace import WorkspacePaths
+    for name in ('alpha', 'beta', 'gamma'):
+        transfer.configure(tmp_path, name, 'h-' + name, '/scratch/' + name)
+    built = []
+    original = ConfigResolver.__init__
+    def counted(self, *args, **kwargs):
+        built.append(1)
+        original(self, *args, **kwargs)
+    monkeypatch.setattr(ConfigResolver, '__init__', counted)
+    found = transfer.connections(tmp_path)
+    assert {'alpha/default', 'beta/default', 'gamma/default'} <= set(found)
+    assert found['beta/default']['host'] == 'h-beta'
+    assert len(built) == 1
+    # A read operation shares one resolver across every resolve_config call.
+    built.clear()
+    paths = WorkspacePaths(tmp_path)
+    with provider_discovery_snapshot():
+        for name in ('alpha', 'beta', 'gamma'):
+            paths.resolve_config(f'site/{name}/default.yaml')
+        transfer.connections(tmp_path)
+    assert len(built) == 1

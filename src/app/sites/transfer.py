@@ -15,12 +15,12 @@ from pathlib import Path
 
 from .execution import TERMINAL, finalize, owned_files, receipt_path, refresh_status, refresh_many
 from .snapshot import archive, freeze, source_files
-from .slurm import rsync_shell
+from .transport import rsync_shell
 from . import transfer_output
 from .storage import digest, read_json, safe_path, transfer_lock, workspace_id, write_json
 
 
-def configure(root, site, host, remote_root, python='venv/bin/python3'):
+def configure(root, site, host, remote_root, python='venv/bin/python3', *, scheduler=None):
     if not re.fullmatch(r'[A-Za-z0-9_.@-]+', host) or host.startswith('-'):
         raise ValueError('Use an SSH config alias or user@hostname')
     if remote_root == '/' or not remote_root.startswith('/') or any(part in ('.', '..') for part in remote_root.split('/')):
@@ -28,14 +28,18 @@ def configure(root, site, host, remote_root, python='venv/bin/python3'):
     if any(c in remote_root + python for c in '\x00\n\r') or not python or python.startswith('-'):
         raise ValueError('Invalid remote path or Python command')
     from .catalog import configure as configure_component
-    return configure_component(root, site, {'host': host, 'remote_root': remote_root.rstrip('/'), 'python': python})
+    return configure_component(root, site, {'host': host, 'remote_root': remote_root.rstrip('/'), 'python': python},
+                               scheduler=scheduler)
 
 
 def connections(root):
     from . import profiles
-    from .catalog import load
+    from .catalog import all_profiles, load
     from src.app.workspace import WorkspacePaths
-    return {selector: load(root, selector).get('connection', {}) for selector in profiles(WorkspacePaths(root))}
+    paths = WorkspacePaths(root)
+    available = all_profiles(paths)
+    return {selector: load(paths, selector, available=available).get('connection', {})
+            for selector in profiles(paths, available=available)}
 
 
 def connection(root, site):
@@ -52,8 +56,8 @@ def connection(root, site):
 
 def ssh(config, arguments, *, input=None, log_stdout=True):
     command = 'cd ' + shlex.quote(config['remote_root']) + ' && ' + shlex.join(arguments)
-    from .slurm import ssh_arguments
-    arguments = [*ssh_arguments(config.get('_root', Path.cwd()), config), '--', config['host'], command]
+    from .transport import ssh_arguments
+    arguments = [*ssh_arguments(config['_root'], config), '--', config['host'], command]
     transfer_output.command(arguments)
     result = subprocess.run(arguments, input=input, capture_output=True, text=True, timeout=180)
     if log_stdout: transfer_output.emit(result.stdout)
@@ -90,12 +94,36 @@ def require_local_rsync(config):
     return executable
 
 
+def remote_requirements(root, site):
+    """Executables the selected scheduler needs remotely, as (command, missing-note) pairs.
+
+    A `None` note marks a required command; a string is printed when an optional one is absent.
+    """
+    from .catalog import load
+    from .scheduler_api import get_scheduler
+    from src.app.workspace import WorkspacePaths
+    site_config = load(root, site)
+    if (site_config.get('scheduler') or 'local') == 'local':
+        return []
+    provider = get_scheduler(cfg={'site': site_config}, paths=WorkspacePaths(root))
+    hook = getattr(provider, 'remote_requirements', None)
+    requirements = list(hook(site_config)) if callable(hook) else []
+    for item in requirements:
+        if (not isinstance(item, (list, tuple)) or len(item) != 2 or not isinstance(item[0], str)
+                or not re.fullmatch(r'[A-Za-z0-9_.+-]+', item[0]) or not (item[1] is None or isinstance(item[1], str))):
+            raise ValueError(f'Scheduler remote requirement {item!r} must be (command, None | note)')
+    return requirements
+
+
 def check(root, site):
     config = connection(root, site)
     require_local_rsync(config)
     # This check works before the first project upload and does not require Theta remotely.
-    check_script = "command -v sbatch && command -v squeue && {rsync} --version && test -w . && { command -v sacct || printf '%s\\n' 'sacct unavailable: accounting will be unknown'; }"
-    check_script = check_script.replace('{rsync}', shlex.quote(config.get('remote_rsync', 'rsync')))
+    requirements = remote_requirements(root, site)
+    required = [f'command -v {command}' for command, note in requirements if note is None]
+    optional = [f"{{ command -v {command} || printf '%s\\n' {shlex.quote(note)}; }}" for command, note in requirements if note is not None]
+    rsync = shlex.quote(config.get('remote_rsync', 'rsync'))
+    check_script = ' && '.join([*required, f'{rsync} --version', 'test -w .', *optional])
     output = ssh(config, ['bash', '-lc', check_script])
     if not re.search(r'version\s+[3-9]\.', output): raise ValueError('Remote rsync must be version 3 or newer')
     python_version = ssh(config, [config['python'], '--version']).strip()
@@ -281,7 +309,7 @@ def sync(root, site, mode='metrics', *, execution_id=None, experiment=None, diag
     if mode not in ('metrics', 'results'): raise ValueError('Unknown sync mode')
     root = Path(root).resolve()
     config = connection(root, site)
-    from .slurm import ssh_session
+    from .transport import ssh_session
     with ssh_session(root, config):
         return _sync(root, site, config, mode, execution_id=execution_id, experiment=experiment,
                      diagnostics=diagnostics, cancel_event=cancel_event, progress=progress)

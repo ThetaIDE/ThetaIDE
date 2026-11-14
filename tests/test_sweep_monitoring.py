@@ -92,7 +92,9 @@ def test_sweep_view_shows_future_pending_work_without_inventing_parameters():
 
 def test_tuning_summary_counts_pending_sampled_and_future_trials(tmp_path):
     import optuna
-    from src.app.tuners.optuna.utils import write_study_summary
+    from component_fixtures import optional_module
+    _optuna_utils = optional_module('optuna', 'utils.py')
+    write_study_summary = _optuna_utils.write_study_summary
     study = optuna.create_study()
     study.set_user_attr('theta_requested_trials', 10)
     study.set_user_attr('theta_initial_trials', 0)
@@ -141,7 +143,9 @@ def test_trial_feeds_keep_parallel_versions_separate(tmp_path):
 
 def test_summary_preserves_recorded_log_version_without_guessing_for_old_trials(tmp_path):
     import optuna
-    from src.app.tuners.optuna.utils import write_study_summary
+    from component_fixtures import optional_module
+    _optuna_utils = optional_module('optuna', 'utils.py')
+    write_study_summary = _optuna_utils.write_study_summary
 
     study = optuna.create_study()
     old = study.ask()

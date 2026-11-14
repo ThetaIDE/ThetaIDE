@@ -1,0 +1,79 @@
+{
+  "kind": "tuner",
+  "capabilities": [
+    {
+      "id": "optuna",
+      "kind": "tuner",
+      "entry_point": "component.py:OptunaTuner",
+      "contribution_api": 1,
+      "readiness": {
+        "distributions": [
+          "optuna",
+          "sqlalchemy"
+        ]
+      },
+      "contributions": [
+        {
+          "id": "configure",
+          "slot": "configuration.tuning",
+          "label": "Hyperparameter Sweep",
+          "availability": "enabled"
+        },
+        {
+          "id": "parameters",
+          "slot": "configuration.parameter_sweeps",
+          "availability": "ready"
+        },
+        {
+          "id": "study-monitor",
+          "slot": "monitor.tuning",
+          "label": "Tuning study",
+          "availability": "ready"
+        }
+      ],
+      "tuning_features": {
+        "objective_modes": [
+          "metric",
+          "component"
+        ],
+        "pruning": true,
+        "pruning_objectives": false,
+        "pruning_repeated_runs": false
+      }
+    }
+  ],
+  "id": "optuna",
+  "name": "optuna",
+  "version": "1.0.0",
+  "storage_version": 2,
+  "api_version": 1,
+  "payload": {
+    "implementations": [
+      "monitor.py",
+      "trial_worker.py",
+      "policy.py",
+      "pruning.py",
+      "__init__.py",
+      "utils.py",
+      "sweeper.py",
+      "parallel.py",
+      "component.py",
+      "remote.py"
+    ],
+    "resources": [],
+    "configs": {
+      "in/config/hydra/sweeper/optuna_online.yaml": "configs/hydra/sweeper/optuna_online.yaml",
+      "in/config/hydra/sweeper/optuna_offline.yaml": "configs/hydra/sweeper/optuna_offline.yaml"
+    }
+  },
+  "config_paths": [
+    "in/config/hydra/sweeper/optuna_online.yaml",
+    "in/config/hydra/sweeper/optuna_offline.yaml"
+  ],
+  "dependencies": {
+    "pip": [
+      "optuna>=3.0,<5",
+      "sqlalchemy>=1.4.2,<3"
+    ]
+  }
+}

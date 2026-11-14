@@ -197,7 +197,9 @@ def test_managed_optuna_batches_are_single_trials(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from omegaconf import OmegaConf
     optuna = pytest.importorskip('optuna')
-    from src.app.tuners.optuna.sweeper import ThetaOptunaSweeper
+    from component_fixtures import optional_module
+    _optuna_sweeper = optional_module('optuna', 'sweeper.py')
+    ThetaOptunaSweeper = _optuna_sweeper.ThetaOptunaSweeper
     batches = []
     def launch(jobs, initial_job_idx):
         batches.append(len(jobs))
@@ -216,7 +218,7 @@ def test_local_distributed_launch_is_rejected_before_process_start(monkeypatch):
     from omegaconf import OmegaConf
     from src.app.services import config_service
     composed = SimpleNamespace(cfg=OmegaConf.create({'trainer': {'devices': 2}}))
-    monkeypatch.setattr(config_service, 'compose_experiment', lambda *a: composed)
+    monkeypatch.setattr(config_service, 'compose_experiment', lambda *a, **kwargs: composed)
     monkeypatch.setattr(config_service, 'validate_composed', lambda c: None)
     monkeypatch.setattr(config_service, 'method_plans', lambda c: {})
     with pytest.raises(config_service.LaunchError, match='one training device'):

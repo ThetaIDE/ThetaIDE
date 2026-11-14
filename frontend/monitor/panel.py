@@ -162,6 +162,7 @@ class MonitorPanel(QWidget):
     def __init__(self, host: Window):
         super().__init__()
         self.host = host
+        self._closed = False
         # The runs list lives in the Plots tab (the window places it there): its ticks choose what the Plot
         # Viewer draws. This panel shows only the current or most recent run (host.selected).
         self.sidebar = RunsSidebar()
@@ -303,16 +304,21 @@ class MonitorPanel(QWidget):
         self.files_view = FilesView()
         from .visual_view import VisualsView
         self.visuals_view = VisualsView()
-        from .sweep_view import SweepView
-        self.sweep_view = SweepView()
-        self.sweep_view.trial_selected.connect(self._open_sweep_trial)
+        self.sweep_view = None
         self.views = QStackedWidget()
         self._views = {"Overview": self.charts_view, "Diagnostics": self.visuals_view, "System": self.system_view, "Logs": self.log_view,
-                       "Feed": self.feed_view, "Files": self.files_view, "Sweep": self.sweep_view}
+                       "Feed": self.feed_view, "Files": self.files_view}
         for view in self._views.values():
             self.views.addWidget(view)
         self.views.currentChanged.connect(lambda _: self.refresh_live())
         layout.addWidget(self.views, 1)
+        from .tuning import TuningMonitorSlot
+        self._tuning_monitors = TuningMonitorSlot(self)
+        self.tuning_notice = QLabel()
+        self.tuning_notice.setWordWrap(True)
+        self.tuning_notice.setObjectName('muted')
+        self.tuning_notice.hide()
+        layout.addWidget(self.tuning_notice)
 
         # Bottom row: the newest warning (with the log), or what the run is waiting for; plugin buttons.
         bottom = QHBoxLayout()
@@ -529,6 +535,10 @@ class MonitorPanel(QWidget):
 
     def show_view(self, name: str):
         """Show one of the views ("Overview" is the charts workspace) and mark its button."""
+        if name == 'Sweep':
+            self.refresh_live()
+            if name not in self._views:
+                return False
         self.views.setCurrentWidget(self._views[name])
         for each, button in self.view_buttons.items():
             button.setChecked(each == name)
@@ -684,7 +694,16 @@ class MonitorPanel(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._closed = False
+        self._clock.start()
         self.live_changed()
+
+    def closeEvent(self, event):
+        self._closed = True
+        self._clock.stop()
+        self._refresh_timer.stop()
+        self._tuning_monitors.close()
+        super().closeEvent(event)
 
     def _refresh_if_visible(self):
         # A pending update can outlive a switch to another pane.
@@ -696,6 +715,8 @@ class MonitorPanel(QWidget):
 
     def refresh_live(self):
         """Draw the status strip and the open live view for the selected run."""
+        if self._closed:
+            return
         run = self._current_run()
         if not run:
             self._refresh_run_selectors()
@@ -714,25 +735,42 @@ class MonitorPanel(QWidget):
             self.feed_view.show_lives({})
             self.files_view.show_lives({}, None)
             self.log_view.set_lines([], "Completed training is available in Results.")
-            self.sweep_view.set_studies([])
-            self.sweep_view.set_lives({})
+            self._tuning_monitors.close()
+            self.tuning_notice.clear()
+            self.tuning_notice.hide()
             self._log_run_id = None
             if self.yaml_overlay.isVisible():
                 self._refresh_run_yaml({})
             return
-        from .sweep_view import study_summaries
+        from src.app.pipeline.tuning_monitor import study_summaries
+        from src.app.workspace import WorkspacePaths
         jobs = getattr(self.host, "jobs", None)
-        project_root = getattr(jobs, "project_root", None)
+        paths = getattr(self.host, 'workspace_paths', None)
+        if not isinstance(paths, WorkspacePaths):
+            workspace = getattr(jobs, 'project_root', None)
+            paths = WorkspacePaths(workspace) if workspace is not None else WorkspacePaths.for_process()
+        project_root = paths.root
         lookup = getattr(jobs, "job", None)
         source = getattr(jobs, "_sweep_summaries", None)
         active_job = lookup((run.get("backend") or {}).get("job_id")) if callable(lookup) else None
         studies = (source(active_job) if active_job is not None and callable(source) else
-                   study_summaries(project_root, run) if project_root is not None else [])
+                   study_summaries(project_root, run, paths=paths))
+        lives = self.host.live_for_run(run, load=True)  # the Overview charts every metric
+        from .tuning import monitoring_config
+        folder = getattr(self.host, 'run_folder', None)
+        config = monitoring_config(run, lives, folder(run) if callable(folder) else None)
+        from src.app.pipeline.exceptions import ConfigurationError
+        try:
+            studies, reason = self._tuning_monitors.reconcile(paths, config, studies)
+        except (ValueError, ConfigurationError) as exc:
+            self._tuning_monitors.close()
+            studies, reason = [], str(exc)
+        self.tuning_notice.setText(reason)
+        self.tuning_notice.setVisible(bool(reason))
         studies = [(method, study) for method, study in studies
                    if study.get("stop_reason", "running") == "running"]
         dashboard_studies = studies
         view = self.views.currentWidget()
-        lives = self.host.live_for_run(run, load=True)  # the Overview charts every metric
         if run.get("simulated"):
             from ..live_run import LiveRun
             demo = LiveRun()
@@ -747,7 +785,7 @@ class MonitorPanel(QWidget):
         lives = {name: item for name, item in lives.items()
                  if (item.start or item.rows) and not item.is_finished()
                  and trial_states.get(parent_trial_label(name), "running") == "running"}
-        # Optuna also calls a sampled, resource-waiting trial "running".
+        # A tuner may call a sampled, resource-waiting trial "running".
         # Only a worker start or its actual telemetry admits it to this monitor.
         studies = [(method, {**study, "trials": [
             trial for trial in study.get("trials", [])
@@ -890,7 +928,9 @@ class MonitorPanel(QWidget):
         """Open the dashboard for the selected sweep job."""
         self._focused_sweep = key
         self._focus_run_id = (self._current_run() or {}).get("id")
-        self.show_view("Sweep")
+        if self.show_view("Sweep") is False:
+            self._focused_sweep = None
+            return
         self.refresh_live()
 
     def _open_sweep_trial(self, name):

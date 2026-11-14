@@ -116,8 +116,11 @@ def test_cancel_pending_trial_keeps_next_trial(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from omegaconf import OmegaConf
     from src.app.services.cancellation import request_path
-    from src.app.tuners.optuna.parallel import launch_trials
-    import src.app.tuners.optuna.parallel as parallel
+    from component_fixtures import optional_module
+    _optuna_parallel = optional_module('optuna', 'parallel.py')
+    launch_trials = _optuna_parallel.launch_trials
+    from component_fixtures import optional_module
+    parallel = optional_module('optuna', 'parallel.py')
 
     monkeypatch.setenv('THETA_CANCEL_DIR', str(tmp_path))
     monkeypatch.setenv('THETA_RESOURCE_POOL', str(tmp_path / 'pool.db'))

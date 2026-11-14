@@ -10,8 +10,8 @@ from pathlib import Path
 
 from omegaconf import OmegaConf, open_dict
 
-from src.app.services.resource_budget import ResourcePool, uses_accelerator, workload_estimate, host_capacity
-from src.app.services.processes import kill_process_tree
+from src.app.api.execution import ResourcePool, uses_accelerator, workload_estimate, host_capacity
+from src.app.api.execution import kill_process_tree, task_worker_command
 
 
 class TrialResult:
@@ -69,7 +69,7 @@ def launch_trials(impl, jobs=(), on_result=None, *, next_job=None, on_start=None
                 queue_parent = None
         try:
             while not exhausted or pending or active:
-                from src.app.services.cancellation import requested
+                from src.app.api.execution import cancellation_requested as requested
                 for item in list(pending):
                     index = item[0]
                     if requested([targets[index]]):
@@ -159,8 +159,7 @@ def launch_trials(impl, jobs=(), on_result=None, *, next_job=None, on_start=None
                             queue_parent = None
                             coordinator_tickets[index] = ticket
                             options['env'] = dict(os.environ, THETA_RESOURCE_QUEUE_PARENT=ticket)
-                        process = subprocess.Popen([sys.executable, '-u', '-m',
-                            'src.app.pipeline.task_worker', script, str(config_path), str(result_path)], **options)
+                        process = subprocess.Popen(task_worker_command(sys.executable, script, config_path, result_path), **options)
                         if token:
                             pool.attach(token, process.pid)
                     except BaseException:

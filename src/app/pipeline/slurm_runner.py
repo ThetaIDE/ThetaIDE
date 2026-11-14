@@ -4,6 +4,6 @@ from src.app.workspace import WorkspacePaths
 
 
 def run_slurm_training(cfg, context):
-    record = submit(WorkspacePaths.for_process().root, cfg.experiment_name,
+    record = submit((context.get("workspace") or WorkspacePaths.for_process()).root, cfg.experiment_name,
                     context.get("sanitized_extra_args", []), cfg)
     return [record["job_id"]], [], True

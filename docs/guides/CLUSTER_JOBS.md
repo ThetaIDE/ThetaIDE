@@ -1,6 +1,6 @@
 # Cluster jobs
 
-Theta submits one experiment per Slurm allocation. Project upload, submission, sync, and cleanup are explicit operations. Closing the desktop does not cancel a submitted job. OpenSSH owns authentication; Theta does not store passwords or silently retry ambiguous submissions.
+Theta submits one experiment per Slurm allocation. Slurm support, including the ARC/NCShare site templates and the cluster setup panel, is the optional `slurm` scheduler component; install it into the workspace first (see [the scheduler contract](../reference/SCHEDULER_CONTRACT.md#installing-the-slurm-component)). Without it, no cluster settings or commands appear and saved cluster recipes report the missing scheduler. Project upload, submission, sync, and cleanup are explicit operations. Closing the desktop does not cancel a submitted job. OpenSSH owns authentication; Theta does not store passwords or silently retry ambiguous submissions.
 
 The hardened CPU pilot is `site=ncshare/common`; `ncshare_common` remains an alias. Its code has local filesystem/subprocess coverage, including actual CPU training and tuning. **Live NCShare acceptance and the overnight gate are still pending.** See the [implementation status and validation commands](../development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md). GPU qualification, automatic requeue, and full training-checkpoint resume are separate work.
 
@@ -58,11 +58,11 @@ Install dependencies in the cluster's home environment after upload:
 
 ```bash
 cd /hpc/home/cegbert1/ThetaIDE
-venv/bin/python -m pip install -e '.[optuna]'
+venv/bin/python -m pip install -e .
 venv/bin/python -m pip check
 ```
 
-Install the selected research components' dependencies too. Settings → Terminal → Cluster sites generates a setup script from their native manifests; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop.
+Install the selected research and tuner components' dependencies too (for example Optuna's `optuna` and `sqlalchemy`). Settings → Terminal → Cluster sites generates a setup script from their native manifests; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop.
 
 Project push compares source files by checksum and reuses unchanged files from the remote checkout. A parameter-only YAML edit transfers that YAML plus small sync manifests, rather than reuploading components or a complete ZIP. New and changed files are uploaded; removed source files are removed during verified activation. The cluster builds and retains one immutable source archive per source identity. Submission pins that archive; later uploads cannot change queued/running source. Scratch execution requires a new-format archive from `site push`.
 

@@ -20,7 +20,25 @@
       "backend": "d3rlpy",
       "paradigms": [
         "offline_rl"
-      ]
+      ],
+      "execution_features": {
+        "input_types": [
+          "dataset_path"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "d3rlpy.d3"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
+      },
+      "resource_hints": {
+        "accelerator": false
+      }
     },
     {
       "id": "d3rlpy-dev/cql",
@@ -30,7 +48,25 @@
       "backend": "d3rlpy",
       "paradigms": [
         "offline_rl"
-      ]
+      ],
+      "execution_features": {
+        "input_types": [
+          "dataset_path"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "d3rlpy.d3"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
+      },
+      "resource_hints": {
+        "accelerator": false
+      }
     },
     {
       "id": "d3rlpy-dev/iql",
@@ -40,7 +76,25 @@
       "backend": "d3rlpy",
       "paradigms": [
         "offline_rl"
-      ]
+      ],
+      "execution_features": {
+        "input_types": [
+          "dataset_path"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "d3rlpy.d3"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
+      },
+      "resource_hints": {
+        "accelerator": false
+      }
     },
     {
       "id": "d3rlpy-dev/td3_bc",
@@ -50,7 +104,25 @@
       "backend": "d3rlpy",
       "paradigms": [
         "offline_rl"
-      ]
+      ],
+      "execution_features": {
+        "input_types": [
+          "dataset_path"
+        ],
+        "evaluation": "provider",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "d3rlpy.d3"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
+      },
+      "resource_hints": {
+        "accelerator": false
+      }
     },
     {
       "id": "d3rlpy-dev/vector",

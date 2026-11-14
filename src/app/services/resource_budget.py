@@ -104,8 +104,12 @@ def configure_worker_threads():
         os.environ.update(managed_environment(budget.threads(host_capacity()[0])))
 
 
-def workload_estimate(config):
-    """A rough initial estimate based on engine, model size and local dataset size."""
+def workload_estimate(config, *, paths=None):
+    """Estimate demand from model/data size and selected-provider hints."""
+    from src.app.core.execution_features import resource_hints
+    from src.app.workspace import WorkspacePaths
+    paths = paths or WorkspacePaths.for_process()
+    hints = resource_hints(config, paths=paths)
     model = config.get('model') or {}
     model = model if hasattr(model, 'get') else {'name': str(model)}
     agent = config.get('agent') or {}
@@ -123,7 +127,10 @@ def workload_estimate(config):
     dataset_bytes = 0
     if dataset:
         try:
-            dataset_bytes = Path(str(dataset)).stat().st_size * 3
+            dataset_file = Path(str(dataset))
+            if paths is not None and not dataset_file.is_absolute():
+                dataset_file = paths.root / dataset_file
+            dataset_bytes = dataset_file.stat().st_size * 3
         except OSError:
             pass
     engine = str(config.get('entrypoint') or agent.get('algorithm') or agent.get('name') or '')
@@ -138,14 +145,14 @@ def workload_estimate(config):
     except (ValueError, TypeError):
         pass
     variable_memory = params * 32 + dataset_bytes + replay + activations
-    memory = (.55 if 'sb3' in engine else .8) * GIB + variable_memory
-    identity = {'engine': engine, 'model': model, 'env': config.get('env'), 'dataset': dataset,
+    memory = hints.get('base_memory_gib', .8) * GIB + variable_memory
+    identity = {'hints': hints, 'workspace': paths.identity if paths is not None else None, 'engine': engine, 'model': model, 'env': config.get('env'), 'dataset': dataset,
                 'batch_size': agent.get('batch_size', config.get('batch_size')), 'buffer_size': agent.get('buffer_size')}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()[:24]
-    return {'key': key, 'memory': memory, 'minimum_memory': .1 * GIB + variable_memory, 'cpu': 1.0}
+    return {'key': key, 'memory': memory, 'minimum_memory': .1 * GIB + variable_memory, 'cpu': hints.get('cpu', 1.0)}
 
 
-def uses_accelerator(config):
+def uses_accelerator(config, *, paths=None):
     if (config.get('trainer') or {}).get('accelerator') == 'cpu':
         return False
     methods = config.get('methods')
@@ -153,14 +160,10 @@ def uses_accelerator(config):
         enabled = [method for name, method in methods.items()
                    if name != 'params' and hasattr(method, 'get') and method.get('enabled', True)]
         if enabled:
-            return any(uses_accelerator(method) for method in enabled)
-    agent, model = config.get('agent') or {}, config.get('model') or {}
-    algorithm = str(agent.get('algorithm') or agent.get('name') or '') if hasattr(agent, 'get') else str(agent)
-    native_policy = model.get('sb3_native_policy', False) if hasattr(model, 'get') else False
-    # Theta's SB3 adapter selects CPU inside the worker, without a user device request.
-    if 'sb3' in algorithm and not native_policy:
-        return False
-    return True
+            return any(uses_accelerator({**dict(config), 'methods': None, **dict(method)}, paths=paths)
+                       for method in enabled)
+    from src.app.core.execution_features import resource_hints
+    return resource_hints(config, paths=paths).get('accelerator', True)
 
 
 def load_training_settings(path):

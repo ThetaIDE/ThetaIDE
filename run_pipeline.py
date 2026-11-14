@@ -28,11 +28,10 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "site":
 
 from omegaconf import OmegaConf
 
-from src.app.pipeline.compose import CONFIG_DIR, compose_experiment, validate_composed
+from src.app.pipeline.compose import compose_experiment, validate_composed
 from src.app.pipeline.config import normalize_agent_name, parse_methods_dict, resolve_experiment_config_name
 from src.app.pipeline.datasets import run_plotting
 from src.app.pipeline.exceptions import ConfigurationError
-from src.app.pipeline.slurm import generate_sbatch_header, submit_sbatch
 
 
 def main():
@@ -45,20 +44,17 @@ def main():
         print(
             "  site=local            Interactive CLI execution (default, for local machine or cluster interactive node)"
         )
-        print("  site=ncshare          Slurm cluster execution on NCShare (GPU consolidated, default)")
-        print("  site=ncshare_gpu      Slurm cluster on NCShare GPU partition (consolidated)")
-        print("  site=ncshare_common   Slurm cluster on NCShare CPU common partition (one job per method)")
-        print("  site=arc              Slurm cluster execution on ARC")
-        print("  plot_only=true        Plot prior local results (Slurm plot_only is unavailable)")
+        print("  site=<profile>        Run through a site profile of an installed scheduler component")
+        print("  plot_only=true        Plot prior local results (unavailable for scheduler sites)")
         print("  no_plot=false         Enable plotting of configured figures and tables (opt-in)")
         print("  no_online=true        Skip online training phase")
         print("  no_offline=true       Skip offline training phase")
         print("  dry_run=true          Validate config and exit")
-        print("  ++tuning.component=optuna  Configure an Optuna hyperparameter sweep")
-        print("  dash=true             Launch Optuna dashboard during run")
-        print("  dash_only=true        Launch Optuna dashboard and exit")
+        print("  ++tuning.component=<tuner>  Sweep with an installed tuner component")
+        print("  dash=true             Launch the selected tuner's dashboard during the run")
+        print("  dash_only=true        Launch the selected tuner's dashboard and exit")
         print("  remake=true           Force recalculation of summaries")
-        print("  consolidate=true      Consolidate Slurm jobs into 1 single GPU job")
+        print("  consolidate=true      Ask the selected scheduler to consolidate methods into one allocation")
         print("  experiment_id=...     Override the experiment directory name")
         sys.exit(0)
 
@@ -173,8 +169,8 @@ def main():
 
     if cfg.get("plot_only", False):
         from src.app.sites import scheduler
-        if scheduler(cfg) == "slurm":
-            raise ConfigurationError("Slurm plot_only is unavailable; plot synced prior results locally with wipe=false")
+        if scheduler(cfg) != "local":
+            raise ConfigurationError("plot_only is unavailable for scheduler sites; plot synced prior results locally with wipe=false")
         from src.app.pipeline.plot_config import should_run_plotting
         if not should_run_plotting(cfg):
             print("No figures or tables configured; skipping plotting.")
@@ -185,13 +181,14 @@ def main():
             style=cfg.get("plot_style", None),
             wipe=cfg.get("wipe", False),
             use_cache=cfg.get("use_cache", False),
+            paths=composed.workspace,
         )
         sys.exit(0)
 
     # Load paradigm definition for component assembly
     paradigm_def = None
     from src.app.core.paradigm_loader import load_paradigm_definition
-    paradigm_def = load_paradigm_definition(cfg.get("paradigm"))
+    paradigm_def = load_paradigm_definition(cfg.get("paradigm"), paths=composed.workspace)
 
     # Keep the selected site while running the common pipeline inside a batch allocation.
     site_name = None
@@ -211,17 +208,17 @@ def main():
     from src.app.sites import scheduler
     in_allocation = os.environ.get("THETA_IN_ALLOCATION") == "1"
     is_interactive = scheduler(cfg) == "local" or in_allocation
-    if scheduler(cfg) == "slurm" and not in_allocation:
+    if scheduler(cfg) != "local" and not in_allocation:
         from src.app.sites.execution import submit
-        submit(_process_paths.root, composed.experiment, composed.extra_args, cfg)
+        submit(composed.workspace.root, composed.experiment, composed.extra_args, cfg)
         return
-    print(f"Execution Mode: {'Interactive (Local CLI)' if is_interactive else f'Slurm Cluster ({site_name})'}")
+    print(f"Execution Mode: {'Interactive (Local CLI)' if is_interactive else f'Remote site ({site_name})'}")
 
     methods_dict = parse_methods_dict(cfg)
     from src.app.pipeline.tuners import get_tuner, tuner_name
 
     uses_tuning = is_sweep
-    tuner = get_tuner(cfg) if uses_tuning or cfg.get("dash") or cfg.get("dash_only") else None
+    tuner = get_tuner(cfg, paths=composed.workspace) if uses_tuning or cfg.get("dash") or cfg.get("dash_only") else None
     storage_url = tuner.storage(cfg) if tuner else None
     if is_interactive and storage_url and (cfg.get("dash") or cfg.get("dash_only")):
         dashboard = getattr(tuner, "launch_dashboard", None)
@@ -264,7 +261,8 @@ def main():
 
     # Build context for tasks
     context = {
-        "experiment_yaml": (CONFIG_DIR / "experiment" / f"{composed.experiment}.yaml").read_bytes(),
+        "workspace": composed.workspace,
+        "experiment_yaml": composed.workspace.resolve_config(f"experiment/{composed.experiment}.yaml").read_bytes(),
         "is_interactive": is_interactive,
         "site_name": site_name,
         "sanitized_extra_args": sanitized_extra_args,
@@ -296,16 +294,13 @@ def main():
 
         from src.app.pipeline.experiment_snapshot import save_run_config
 
-        save_run_config(cfg)
+        save_run_config(cfg, paths=composed.workspace)
         run_workflow(workflow_id, cfg, context)
-    elif is_interactive:
+    else:
+        # Scheduler submissions returned above; this process is local or inside an allocation.
         from src.app.pipeline.local_runner import run_local_training
 
         run_local_training(cfg, context)
-    else:
-        from src.app.pipeline.slurm_runner import run_slurm_training
-
-        run_slurm_training(cfg, context)
 
 
 if __name__ == "__main__":

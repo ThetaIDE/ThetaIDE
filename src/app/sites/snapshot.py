@@ -9,7 +9,7 @@ from .storage import digest, safe_path, workspace_id, write_json
 
 SOURCE_ROOTS = ('src', 'frontend', 'hydra_plugins', 'plot', 'in/config')
 SOURCE_FILES = ('run_pipeline.py', 'pyproject.toml', 'setup.py', 'requirements.txt', 'README.md', 'LICENSE.md', 'MANIFEST.in',
-                '.thetaide/provider_overrides.json', '.thetaide/workspace.json')
+                '.thetaide/provider_overrides.json', '.thetaide/workspace.json', '.thetaide/extensions.json')
 EXCLUDED = {'__pycache__', '.git', 'node_modules', '.venv', 'venv', '.pytest_cache',
             '.DS_Store', '.env', '.aws', '.ssh'}
 

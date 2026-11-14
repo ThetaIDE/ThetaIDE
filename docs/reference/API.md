@@ -2,6 +2,8 @@
 
 This document describes shared headless component/configuration services and the detached training runner. Configuration composition and validation run in-process; the runner owns training child processes. There is no HTTP server to start.
 
+These are host-internal service interfaces for the desktop and CLI. Components and app plugins import host functionality only through the [Theta SDK](SDK.md) (`src.app.api`).
+
 ---
 
 ## 1. Quick Start for Team Members
@@ -157,6 +159,34 @@ storage paths and lifecycle semantics. Hub originals are read-only; edit an inde
 ## Single-method learning runtime
 
 See [execution contract v1](EXECUTION_CONTRACT.md) for registered runner invocation,
-backend selection, cancellation/results, removed selectors and editable migration.
+backend selection, execution features, selected-provider preflight/resource hooks,
+cancellation/results, removed selectors and editable migration.
 `BaseParadigmRunner.run(cfg, context)` executes one method; experiment and queue
 orchestration remain in the existing coordinator services.
+
+## Portable tuner execution
+
+Tuning requires an explicit nonempty string `tuning.component` capability selector.
+`tuning: null` disables tuning; an empty mapping remains an unselected, invalid
+sweep. `tuner_name(cfg)` and `get_tuner(cfg, paths=paths)` never guess a provider,
+even if exactly one is installed. `get_tuner(name=selector, paths=paths)` explicitly
+loads an enabled implementation for setup. Missing, blank and non-string selectors
+fail before provider resolution. Capability aliases and case use normal catalog
+resolution; portable plans record the canonical capability ID without editing the
+recipe. See the [contribution contract](EXTENSION_CONTRIBUTIONS.md) for saved-recipe
+diagnostics and the [portable contract](TUNER_EXECUTION_CONTRACT.md) for the bounded
+historical receipt adapter.
+
+The optional remote extension of the local tuner API is
+`PortableTuner.remote_api_version = 1`. Supported types and publication helpers
+are exported by `src.app.pipeline.tuner_execution`; see the
+[portable tuner execution contract](TUNER_EXECUTION_CONTRACT.md) for plan, binding,
+state snapshot, continuation and monitor interfaces. Core transports and verifies
+artifacts while the selected provider owns state formats and trial repair.
+
+## Extension contributions
+
+`src.app.core.contributions` provides metadata-only `ContributionRegistry`,
+workspace enablement/readiness, explicit factory loading and `ContributionScope`
+lifecycle reconciliation. See [extension contributions v1](EXTENSION_CONTRIBUTIONS.md)
+for supported slots, setup/operational states, cleanup and current host coverage.

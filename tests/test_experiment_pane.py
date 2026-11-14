@@ -594,7 +594,7 @@ class TestConfigViewer(unittest.TestCase):
         self.assertIn("++methods.params.cql_alpha=5.0", self.viewer.get_overrides())
 
         # Modifying universal parameter
-        self.viewer._on_universal_param_edited("cql_alpha", "10.0")
+        self.viewer._on_universal_param_edited("cql_alpha", 10.0)
         self.assertEqual(self.viewer.raw_data["methods"]["params"]["cql_alpha"], 10.0)
 
         # Removing universal parameter
@@ -725,9 +725,9 @@ class TestConfigViewer(unittest.TestCase):
         from PyQt6.QtWidgets import QLineEdit
 
         actions = self.viewer.btn_add_block.menu().actions()
-        action = next(a for a in actions if a.text() == "Hyperparameter Sweep (Optuna)")
+        action = next(a for a in actions if a.text() == "Hyperparameter Sweep")
         action.trigger()
-        self.assertEqual(self.viewer.raw_data["tuning"]["n_trials"], 40)
+        self.assertEqual(self.viewer.raw_data["tuning"]["options"]["optuna"]["n_trials"], 40)
         self.assertIsNotNone(self.viewer.findChild(QLineEdit, "sweepMetric"))
         from frontend.widgets import ToggleSlider
         enabled = self.viewer.findChild(ToggleSlider, "sweepEnabled")
@@ -781,7 +781,23 @@ class TestConfigViewer(unittest.TestCase):
             def finalize(self, group, experiment, method, storage, study): pass
             def storage(self, cfg): return None
 
-        with patch("src.app.core.plugin_discovery.discover_entry_points", return_value={"other": OtherTuner}):
+        import inspect
+        import json
+        import textwrap
+        from src.app.workspace import WorkspacePaths
+        paths = WorkspacePaths(Path(self.temp_dir.name))
+        provider = paths.research / "tuners/other"
+        provider.mkdir(parents=True)
+        (provider / "provider.py").write_text(textwrap.dedent(inspect.getsource(OtherTuner)))
+        (provider / ".theta_component.json").write_text(json.dumps({
+            "id": "other-tools", "name": "Other tuner", "kind": "tuner", "version": "1.0.0",
+            "storage_version": 2, "api_version": 1,
+            "capabilities": [{"id": "other", "kind": "tuner", "entry_point": "provider.py:OtherTuner",
+                "contribution_api": 1, "contributions": [
+                    {"id": "configure", "slot": "configuration.tuning", "availability": "enabled"},
+                    {"id": "ranges", "slot": "configuration.parameter_sweeps"}]}],
+            "payload": {"implementations": ["provider.py"], "resources": [], "configs": {}}}))
+        with patch.object(self.viewer, "_loader_paths", return_value=paths):
             self.viewer.add_block("tuning")
             self.viewer.findChild(QComboBox, "sweepComponent").setCurrentText("other")
             profile = self.viewer.findChild(QLineEdit, "sweep_profile")

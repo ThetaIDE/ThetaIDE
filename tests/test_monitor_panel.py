@@ -137,7 +137,7 @@ def test_config_preview_does_not_replace_missing_process_config_with_experiment(
     monitor.close()
 
 
-def test_config_preview_uses_process_from_focused_sweep():
+def test_config_preview_uses_process_from_focused_sweep(tuner_monitor_workspace):
     import yaml
     from frontend.live_run import LiveRun
 
@@ -145,9 +145,11 @@ def test_config_preview_uses_process_from_focused_sweep():
     first.add([{"type": "start", "config": {"model": "first"}}])
     second.add([{"type": "start", "config": {"model": "second"}}])
     lives = {"A · study-a · trial 1": first, "B · study-b · trial 2": second}
-    host = SimpleNamespace(selected={"id": "active", "status": "running"},
+    paths, config = tuner_monitor_workspace
+    host = SimpleNamespace(workspace_paths=paths, selected={"id": "active", "status": "running", "config": config},
                            live_for_run=lambda run, load=True: lives)
     monitor = MonitorPanel(host)
+    monitor.refresh_live()
     monitor.focused_agent = next(iter(lives))
     monitor._focus_run_id = "active"
     monitor._focused_sweep = "B:study-b"
@@ -342,15 +344,15 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     monitor.close()
 
 
-def test_method_and_trial_dropdowns_route_multiple_sweeps(tmp_path, monkeypatch):
+def test_method_and_trial_dropdowns_route_multiple_sweeps(tmp_path, monkeypatch, tuner_monitor_workspace):
     from unittest.mock import Mock
     from frontend.live_run import LiveRun
-    from frontend.monitor import sweep_view
+    from src.app.pipeline import tuning_monitor as sweep_view
 
     study = {"study": "search", "trials": [{"id": 1, "state": "running"},
                                              {"id": 2, "state": "complete"}]}
     other = {"study": "other", "trials": [{"id": 0, "state": "running", "execution_started": 1}]}
-    monkeypatch.setattr(sweep_view, "study_summaries", lambda *_: [("ppo", study), ("dqn", other)])
+    monkeypatch.setattr(sweep_view, "study_summaries", lambda *_, **kw: [("ppo", study), ("dqn", other)])
     active = "ppo · search · trial 1"
     completed = "ppo · search · trial 2"
     lives = {name: LiveRun() for name in (active, completed)}
@@ -358,6 +360,7 @@ def test_method_and_trial_dropdowns_route_multiple_sweeps(tmp_path, monkeypatch)
     host = SimpleNamespace(selected=sb3_run(), live_for_run=lambda *a, **kw: lives,
                            jobs=SimpleNamespace(project_root=tmp_path, queue_changed=Mock()))
     host.selected["status"] = "running"
+    host.workspace_paths, host.selected['config'] = tuner_monitor_workspace
     monitor = MonitorPanel(host)
     monitor.refresh_live()
     assert "Sweep" not in monitor.view_buttons

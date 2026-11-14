@@ -1999,8 +1999,8 @@ class SettingsView(QWidget):
         c_layout.addLayout(restart_row)
 
         layout.addWidget(card)
-        from .site_launch import SiteSetup
-        layout.addWidget(SiteSetup(self))
+        from .extension_settings import ExtensionSettings
+        layout.addWidget(ExtensionSettings("settings.site", self, workspace=self.window.workspace_paths))
         layout.addStretch()
 
         self._load_terminal_shell(sm.terminal_shell)

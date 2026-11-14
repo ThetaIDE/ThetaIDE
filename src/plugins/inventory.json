@@ -14,12 +14,6 @@
       "version": "1.0.0"
     },
     {
-      "id": "optuna",
-      "root": "src/plugins/components/bundled/optuna",
-      "kind": "tuner",
-      "version": "1.0.0"
-    },
-    {
       "id": "sequential_spec",
       "root": "src/plugins/components/bundled/sequential_spec",
       "kind": "model",

@@ -1,0 +1,74 @@
+{
+  "id": "slurm",
+  "name": "Slurm scheduler",
+  "version": "1.0.0",
+  "kind": "package",
+  "storage_version": 2,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "slurm",
+      "kind": "scheduler",
+      "entry_point": "execution.py:Scheduler",
+      "scheduler_api": 1,
+      "contribution_api": 1,
+      "readiness": {
+        "config": [
+          "site.connection.host",
+          "site.connection.remote_root"
+        ]
+      },
+      "contributions": [
+        {
+          "id": "setup",
+          "slot": "settings.site",
+          "availability": "enabled",
+          "entry_point": "settings.py:create_settings"
+        },
+        {
+          "id": "launch",
+          "slot": "commands.site",
+          "availability": "ready"
+        },
+        {
+          "id": "scheduler-monitor",
+          "slot": "monitor.scheduler",
+          "availability": "ready"
+        }
+      ]
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "__init__.py",
+      "execution.py",
+      "resources.py",
+      "headers.py",
+      "settings.py",
+      "commands.py"
+    ],
+    "resources": [],
+    "configs": {
+      "in/config/site/arc/_defaults.yaml": "configs/site/arc/_defaults.yaml",
+      "in/config/site/arc/default.yaml": "configs/site/arc/default.yaml",
+      "in/config/site/ncshare/_defaults.yaml": "configs/site/ncshare/_defaults.yaml",
+      "in/config/site/ncshare/common.yaml": "configs/site/ncshare/common.yaml",
+      "in/config/site/ncshare/default.yaml": "configs/site/ncshare/default.yaml",
+      "in/config/site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml",
+      "in/config/site/arc.yaml": "configs/site/arc.yaml",
+      "in/config/site/ncshare_gpu.yaml": "configs/site/ncshare_gpu.yaml",
+      "in/config/site/ncshare_common.yaml": "configs/site/ncshare_common.yaml",
+      "in/config/site/ncshare.yaml": "configs/site/ncshare.yaml"
+    }
+  },
+  "dependencies": {
+    "components": [],
+    "pip": []
+  },
+  "compatibility_selectors": [
+    "site/arc.yaml",
+    "site/ncshare_gpu.yaml",
+    "site/ncshare_common.yaml",
+    "site/ncshare.yaml"
+  ]
+}

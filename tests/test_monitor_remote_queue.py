@@ -36,7 +36,7 @@ def test_remote_queue_groups_replicates_and_keeps_sites_distinct():
     assert queue_id(unknown) not in {job["job_id"] for job in jobs}
     assert jobs[0]['agents'] == ['ppo', 'dqn']
     assert jobs[0]['job_id'] != jobs[1]['job_id']
-    assert 'Slurm job 123' in jobs[0]['description']
+    assert 'scheduler job 123' in jobs[0]['description']
     assert 'last synced 2026-11-10T12:00:00Z' in jobs[0]['description']
 
 

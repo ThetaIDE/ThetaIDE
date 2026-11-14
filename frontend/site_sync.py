@@ -1,9 +1,10 @@
 """Pull-only site controls, with network work on a dedicated background worker."""
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QMenu, QMessageBox, QPushButton, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QHBoxLayout, QMenu, QMessageBox, QPushButton, QWidget
 
+from src.app.core.provider_discovery import provider_discovery_snapshot
 from src.app.sites import transfer
 from src.app.workspace import WorkspacePaths
 from .local_backend import LocalBackend
@@ -16,17 +17,18 @@ class SiteSyncControl(QWidget):
     transfer_progress = pyqtSignal(object, object)
     console_output = pyqtSignal(str)
 
-    def __init__(self, mode, parent=None, *, run_provider=None):
+    def __init__(self, mode, parent=None, *, run_provider=None, workspace=None):
         super().__init__(parent)
         self.mode = mode
         self.run_provider = run_provider
         self.console_output.connect(self._console_log)
-        self.paths = WorkspacePaths.for_process()
-        self.backend = LocalBackend(self)  # separate pool: a transfer must not block chart/config reads
+        self.paths = workspace or getattr(self.window(), "workspace_paths", None) or WorkspacePaths.for_process()
+        self.backend = LocalBackend(self, workspace=self.paths)  # separate pool: a transfer must not block chart/config reads
         self.button = QPushButton('Sync Metrics' if mode == 'metrics' else 'Sync Results')
         self.button.setObjectName('siteSyncButton')
         self.button.setToolTip('Download metrics and status from the cluster. Choose diagnostics for monitor arrays.' if mode == 'metrics' else 'Download published results and monitor data from the cluster.')
-        self.menu = QMenu(self.button)
+        # Owned by the control: subclasses replace (and delete) the default button.
+        self.menu = QMenu(self)
         self.button.setMenu(self.menu)
         self.menu.aboutToShow.connect(self.populate)
         if self.run_provider is not None:
@@ -54,6 +56,60 @@ class SiteSyncControl(QWidget):
             layout.addWidget(self.button)
             layout.addWidget(self.status)
         layout.addWidget(self.cancel_button)
+        # Availability follows installed scheduler components and site profiles. Loading
+        # every site profile costs ~100 ms, so it is checked on events, never polled:
+        # when shown, when the app regains focus, before the menu opens, when the
+        # experiment config changes, and when the host reports component changes.
+        self._config = None
+        app = QApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._on_application_state)
+
+    def _ready_for(self, config):
+        from src.app.core.contributions import ContributionRegistry
+        from src.app.core.provider_catalog import get_catalog
+        selector = (config.get('site') or {}).get('scheduler')
+        selected = get_catalog(self.paths).resolve('scheduler', selector) if selector and selector != 'local' else None
+        return bool(selected and any(item.package == selected[0] and item.capability == selected[1]
+            for item in ContributionRegistry(self.paths).contributions('monitor.scheduler', config=config)))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_availability()
+
+    def _on_application_state(self, state):
+        if state == Qt.ApplicationState.ApplicationActive and (self.isVisible() or self._config is not None):
+            self.refresh_availability()
+
+    def refresh_availability(self):
+        """Show the sync button only while a ready scheduler serves the site(s)."""
+        return self._refresh_availability()
+
+    @provider_discovery_snapshot()
+    def _refresh_availability(self):
+        config = self._config
+        if config is None and self.run_provider is not None:
+            run = self.run_provider() or {}
+            config = ((run.get('remote') or {}).get('config') or run.get('config'))
+        if config is not None:
+            ready = self._ready_for(config)
+        else:
+            from src.app.sites import profiles
+            from src.app.sites.catalog import all_profiles, load
+            available = all_profiles(self.paths)
+            ready = any(self._ready_for({'site': load(self.paths, site, available=available)})
+                        for site in profiles(self.paths, available=available))
+        self.button.setVisible(ready)
+        if not ready:
+            self.menu.close()
+            if getattr(self, '_transferring', False): self.cancel_event.set()
+        return ready
+
+    def closeEvent(self, event):
+        if getattr(self, '_transferring', False): self.cancel_event.set()
+        self.backend.shutdown()
+        self.menu.close()
+        super().closeEvent(event)
 
     def _console_log(self, message):
         log = getattr(self.window(), 'log', None)
@@ -102,7 +158,12 @@ class SiteSyncControl(QWidget):
 
     def refresh_target(self):
         if self.run_provider is not None:
-            remote = (self.run_provider() or {}).get('remote') or {}
+            run = self.run_provider() or {}
+            remote = run.get('remote') or {}
+            target = (run.get('id'), remote.get('site'), remote.get('execution_id'))
+            if target != getattr(self, '_availability_target', None):
+                self._availability_target = target
+                self._refresh_availability()
             self.button.setEnabled(bool(remote.get('site') and remote.get('execution_id'))
                                    and not getattr(self, '_transferring', False))
 
@@ -111,11 +172,18 @@ class SiteSyncControl(QWidget):
         if remote.get('site') and remote.get('execution_id'):
             self.start(remote['site'], 'experiment', execution_id=remote['execution_id'])
 
+    @provider_discovery_snapshot()
     def populate(self):
         self.menu.clear()
         if self.run_provider is not None:
             return
-        for site, config in transfer.connections(self.paths.root).items():
+        from src.app.sites import profiles
+        from src.app.sites.catalog import all_profiles, load
+        available = all_profiles(self.paths)
+        for site in profiles(self.paths, available=available):
+            loaded = load(self.paths, site, available=available)
+            config = loaded.get('connection') or {}
+            if not self._ready_for({"site": loaded}): continue
             if not config.get('host') or not config.get('remote_root'): continue
             self.menu.addAction(('Pull metrics from ' if self.mode == 'metrics' else 'Pull results from ') + site, lambda checked=False, site=site: self.start(site, 'sync'))
             if self.mode == 'metrics':
@@ -207,6 +275,7 @@ class ExperimentSiteSyncControl(SiteSyncControl):
         self.hide()
 
     def set_config(self, config, experiment=None):
+        self._config = config or {}
         from src.app.sites import site_name
         site = site_name(config or {})
         local = site in ('local', 'local/default') or ((config or {}).get('site') or {}).get('scheduler') == 'local'
@@ -218,7 +287,7 @@ class ExperimentSiteSyncControl(SiteSyncControl):
         title = f'Sync {experiment or "experiment"} from {site}' if site else 'Sync'
         self.button.setAccessibleName(title)
         self.button.setToolTip(title + ': pull published results, metrics and monitor data.')
-        self.button.setVisible(site is not None)
+        self.button.setVisible(site is not None and self._refresh_availability())
         self.setVisible(site is not None and not self._toolbar_button)
 
     def sync_experiment(self):

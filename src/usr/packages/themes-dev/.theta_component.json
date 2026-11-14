@@ -36,6 +36,22 @@
           "numerical_round.v1"
         ],
         "catalog": "monitor_catalog.py:outputs"
+      },
+      "execution_features": {
+        "input_types": [
+          "data_module",
+          "dataset_path"
+        ],
+        "evaluation": "both",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "themes.inference/v1"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
       }
     },
     {
@@ -167,6 +183,22 @@
           "numerical_round.v1"
         ],
         "catalog": "monitor_catalog.py:outputs"
+      },
+      "execution_features": {
+        "input_types": [
+          "data_module",
+          "dataset_path"
+        ],
+        "evaluation": "both",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "themes.inference/v1"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
       }
     },
     {

@@ -6,18 +6,19 @@ import yaml
 pytest.importorskip("PyQt6")
 from PyQt6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QLineEdit, QToolButton
 from frontend.config_viewer import ConfigViewer
+from component_fixtures import optional_workspace
 
 app = QApplication.instance() or QApplication(sys.argv[:1])
 
 
-def test_sweeps_without_visible_parameter_rows_are_editable(tmp_path):
+def test_sweeps_without_visible_parameter_rows_are_editable(tmp_path, optional_tuner_metadata):
     path = tmp_path / "experiment.yaml"
-    data = {"tuning": {"metric": "eval/reward"}, "methods": {"m": {"agent": "ppo", "model": "dnn", "tune": {
+    data = {"tuning": {"component": "optuna", "metric": "eval/reward"}, "methods": {"m": {"agent": "ppo", "model": "dnn", "tune": {
         "agent.gae_lambda": {"type": "float", "low": 0.8, "high": 0.99},
         "model.hidden_sizes.0": {"type": "choice", "values": [32, 64]},
     }}}}
     path.write_text(yaml.safe_dump(data, sort_keys=False))
-    viewer = ConfigViewer()
+    viewer = ConfigViewer(workspace=optional_workspace("optuna"))
     viewer.load_file(path, "experiment/group/experiment.yaml")
     for target in data["methods"]["m"]["tune"]:
         assert viewer.findChild(QComboBox, f"sweepType_m_{target}") is not None
@@ -29,14 +30,14 @@ def test_sweeps_without_visible_parameter_rows_are_editable(tmp_path):
     viewer.close()
 
 
-def test_optional_sweep_controls_and_nested_overrides(tmp_path):
+def test_optional_sweep_controls_and_nested_overrides(tmp_path, optional_tuner_metadata):
     from PyQt6.QtGui import QAction
     from frontend.config_viewer import IndentedHierarchyBlock
     from frontend.widgets import SpinBox, ToggleSlider
 
     path = tmp_path / "experiment.yaml"
-    path.write_text("tuning:\n  metric: val/loss\n  seed: 17\nmethods: {}\n")
-    viewer = ConfigViewer()
+    path.write_text("tuning:\n  component: optuna\n  metric: val/loss\n  seed: 17\nmethods: {}\n")
+    viewer = ConfigViewer(workspace=optional_workspace("optuna"))
     viewer.load_file(path, "experiment/group/experiment.yaml")
     try:
         assert viewer.findChild(ToggleSlider, "sweepEnabled") is None
@@ -60,11 +61,11 @@ def test_optional_sweep_controls_and_nested_overrides(tmp_path):
         viewer.close()
 
 
-def test_card_order_survives_hidden_cards_and_restart(tmp_path):
+def test_card_order_survives_hidden_cards_and_restart(tmp_path, optional_tuner_metadata):
     from frontend.settings import SettingsManager
 
     path = tmp_path / "experiment.yaml"
-    path.write_text("tuning:\n  metric: val/loss\nmethods: {}\n")
+    path.write_text("tuning:\n  component: optuna\n  metric: val/loss\nmethods: {}\n")
     settings = SettingsManager(tmp_path / "workspace")
     viewer = ConfigViewer(settings_manager=settings)
     viewer.load_file(path, "experiment/group/experiment.yaml")
@@ -90,12 +91,12 @@ def test_card_order_survives_hidden_cards_and_restart(tmp_path):
         restarted.close()
 
 
-def test_legacy_enabled_flag_does_not_offer_a_separate_activation_control(tmp_path):
+def test_legacy_enabled_flag_does_not_offer_a_separate_activation_control(tmp_path, optional_tuner_metadata):
     from PyQt6.QtWidgets import QPushButton
 
     path = tmp_path / "experiment.yaml"
-    path.write_text("tuning:\n  enabled: false\n  metric: val/loss\n  study_mode: resume\nmethods: {}\n")
-    viewer = ConfigViewer()
+    path.write_text("tuning:\n  component: optuna\n  enabled: false\n  metric: val/loss\n  study_mode: resume\nmethods: {}\n")
+    viewer = ConfigViewer(workspace=optional_workspace("optuna"))
     viewer.load_file(path, "experiment/group/experiment.yaml")
     try:
         assert viewer.findChild(QLineEdit, "sweep_study_name") is not None

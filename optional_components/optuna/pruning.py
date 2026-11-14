@@ -2,9 +2,9 @@
 
 from lightning.pytorch.callbacks import Callback
 
-from src.app.pipeline.objective import objective_value
-from src.plugins.components.bundled.optuna.policy import make_pruner
-from src.plugins.components.bundled.optuna.monitor import OptunaTrialMonitor, TrialPruned
+from src.app.api.tuning import objective_value
+from .policy import make_pruner
+from .monitor import OptunaTrialMonitor, TrialPruned
 
 
 class OptunaPruningCallback(Callback):

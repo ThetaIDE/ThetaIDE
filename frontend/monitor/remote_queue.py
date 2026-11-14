@@ -21,7 +21,7 @@ def queue_jobs(runs):
         remote, backend = run['remote'], run.get('backend') or {}
         config = remote.get('config') or {}
         methods = list(backend.get('agents') or (config.get('methods') or {}).keys())
-        note = f'{remote.get("site")} · Slurm job {remote.get("job_id") or "unknown"}'
+        note = f'{remote.get("site")} · scheduler job {remote.get("job_id") or "unknown"}'
         note += f' · last synced {remote.get("last_sync") or "unknown"}'
         if run.get('description'): note += '\n' + run['description']
         job = jobs.setdefault(key, {

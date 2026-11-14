@@ -1,6 +1,29 @@
+from pathlib import Path
+
 from omegaconf import OmegaConf
 
-from src.app.pipeline.slurm import generate_sbatch_header, generate_sbatch_script
+from component_fixtures import optional_module
+
+# The scheduler implementation is the optional Slurm component, loaded from an installed copy.
+_headers = optional_module('slurm', 'headers.py')
+generate_sbatch_header, generate_sbatch_script = _headers.generate_sbatch_header, _headers.generate_sbatch_script
+
+
+def compose_site(site):
+    """Compose framework defaults with the installed Slurm component's site profiles."""
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+    from src.app.core.provider_catalog import get_catalog
+    from component_fixtures import optional_workspace
+    paths = optional_workspace('slurm')
+    configs = get_catalog(paths).package('slurm').root / 'configs'
+    defaults = Path(__file__).resolve().parents[1] / 'src/app/config_defaults'
+    GlobalHydra.instance().clear()
+    try:
+        with initialize_config_dir(config_dir=str(defaults), version_base=None):
+            return compose(config_name='config', overrides=[f'site={site}', f'hydra.searchpath=[file://{configs}]'])
+    finally:
+        GlobalHydra.instance().clear()
 
 
 def test_slurm_compute_node_defaults():
@@ -59,14 +82,8 @@ def test_slurm_compute_node_defaults():
 
 def test_slurm_ncshare_split_sites():
     """Verify live site=ncshare_common and site=ncshare_gpu Hydra profiles."""
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
-
     # 1. ncshare_common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
-    cfg_common = compose(config_name="config", overrides=["site=ncshare_common"])
+    cfg_common = compose_site("ncshare_common")
     header_common = generate_sbatch_header("test_common", "logs", cfg_common)
     assert "#SBATCH --partition=common" in header_common
     assert "#SBATCH --cpus-per-task=4" in header_common
@@ -75,11 +92,8 @@ def test_slurm_ncshare_split_sites():
     assert cfg_common.site.consolidate is False
     assert "#SBATCH --time=" not in header_common
 
-    GlobalHydra.instance().clear()
-    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
-
     # 2. ncshare_gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
-    cfg_gpu = compose(config_name="config", overrides=["site=ncshare_gpu"])
+    cfg_gpu = compose_site("ncshare_gpu")
     header_gpu = generate_sbatch_header("test_gpu", "logs", cfg_gpu)
     assert "#SBATCH --partition=gpu" in header_gpu
     assert "#SBATCH --cpus-per-task=16" in header_gpu
@@ -88,17 +102,10 @@ def test_slurm_ncshare_split_sites():
     assert cfg_gpu.site.consolidate is True
     assert "#SBATCH --time=" not in header_gpu
 
-    GlobalHydra.instance().clear()
-
 
 def test_slurm_script_is_depersonalized():
     """Verify that generated Slurm scripts contain no hardcoded home paths or user emails."""
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    initialize_config_dir(config_dir=str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src/app/config_defaults"), version_base=None)
-    cfg = compose(config_name="config", overrides=["site=ncshare"])
+    cfg = compose_site("ncshare")
     script = generate_sbatch_script(
         job_name="depersonalized_test",
         cmd_args=["+experiment=cartpole/test"],
@@ -109,8 +116,6 @@ def test_slurm_script_is_depersonalized():
     assert "/Users/" not in script
     assert "/home/" not in script
     assert "--mail-user" not in script
-
-    GlobalHydra.instance().clear()
 
 
 def test_slurm_allocation_account_and_qos():

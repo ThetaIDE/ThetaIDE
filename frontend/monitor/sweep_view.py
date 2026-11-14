@@ -1,9 +1,7 @@
 """Study-level tuning results from the portable tuner snapshots."""
 from __future__ import annotations
 
-import json
 import math
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QTableWidget,
@@ -15,45 +13,8 @@ from .importance_view import ImportanceView
 from .parallel_coordinates import ParallelCoordinates
 
 
-def study_summaries(project_root, run):
-    from src.app.pipeline.execution_data import study_execution_states
-    backend = (run or {}).get("backend") or {}
-    if not backend.get("group") or not backend.get("experiment_id"):
-        return []
-    root = Path(project_root) / "results" / "checkpoints" / backend["group"] / backend["experiment_id"]
-    executions = (Path(project_root) / 'results/executions' / backend['group'] / backend['experiment_id']
-                  if (run or {}).get('remote') else None)
-    found = {}
-    for path in sorted(root.glob("*/tuning_summary.json")) + sorted(root.glob("*/sweeps/*/tuning_summary.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if data.get("study") and isinstance(data.get("trials"), list):
-            method = path.relative_to(root).parts[0]
-            logs = Path(project_root) / "results/logs" / backend["group"] / backend["experiment_id"]
-            found[(method, data["study"])] = study_execution_states(
-                data, logs, data.get("log_method") or method, executions_root=executions)
-    # Older compute snapshots omitted commits for live tuning summaries. Recover
-    # study metadata from the downloaded database export, never the live database.
-    remote = (run or {}).get('remote') or {}
-    execution_id = remote.get('execution_id')
-    if not found and execution_id:
-        from src.app.sites.storage import safe_path
-        from src.app.pipeline.tuners import get_tuner
-        database = safe_path(project_root, 'results/optuna/' + execution_id + '/study.sqlite')
-        if database.is_file():
-            try:
-                config = remote.get('config') or {}
-                reader = getattr(get_tuner(config), 'read_study_snapshot', None)
-                if callable(reader):
-                    logs = Path(project_root) / 'results/logs' / backend['group'] / backend['experiment_id']
-                    for method, data in reader(database):
-                        found[(method, data['study'])] = study_execution_states(
-                            data, logs, data.get('log_method') or method, executions_root=executions)
-            except (OSError, ValueError, RuntimeError):
-                pass  # A partially pulled snapshot is retried after its stamp changes.
-    return [(method, data) for (method, _), data in found.items()]
+# Compatibility import for existing desktop callers. Reading summaries is headless.
+from src.app.pipeline.tuning_monitor import study_summaries
 
 
 class SweepView(QWidget):

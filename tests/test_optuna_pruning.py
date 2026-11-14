@@ -5,7 +5,10 @@ import pytest
 pytest.importorskip("optuna")
 pytest.importorskip("lightning")
 
-from src.app.tuners.optuna.pruning import OptunaPruningCallback, make_pruner
+from component_fixtures import optional_module
+_optuna_pruning = optional_module('optuna', 'pruning.py')
+OptunaPruningCallback = _optuna_pruning.OptunaPruningCallback
+make_pruner = _optuna_pruning.make_pruner
 
 
 def test_pruning_requires_an_objective_visible_during_validation():

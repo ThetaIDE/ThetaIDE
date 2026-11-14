@@ -41,7 +41,7 @@ def build_method_overrides(
         dataset_path: Resolved filesystem path to the offline dataset (offline only).
         extra_args:   Additional Hydra overrides forwarded from the CLI.
         cfg:          Full Hydra config (used for experiment_name, paradigm).
-        study_name:   Optuna study name (optional, for sweep runs).
+        study_name:   Selected tuner's study name (optional, for sweep runs).
         is_sweep:     Compatibility argument; composed cfg.tuning determines sweep mode.
 
     Returns:
@@ -63,8 +63,10 @@ def build_method_overrides(
     is_sweep = tuning_enabled(cfg)
 
     paradigm = cfg.get("paradigm", "offline_rl") if cfg is not None else "offline_rl"
+    from src.app.workspace import WorkspacePaths
+    paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir is not None else WorkspacePaths.for_process())
     # Asked once: a paradigm with no allowed agents drives its methods by model.
-    uses_agents = paradigm_uses_agents(paradigm)
+    uses_agents = paradigm_uses_agents(paradigm, paths=paths)
     agent_val = method_cfg.get("agent")
     if isinstance(agent_val, dict):
         agent_algo = (
@@ -99,7 +101,7 @@ def build_method_overrides(
     from src.app.workspace import WorkspacePaths
     paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir is not None else WorkspacePaths.for_process())
     model_config_dir = (Path(config_dir) if config_dir is not None else paths.config) / "model"
-    profile_defaults = load_model_base_config(str(model_arch), model_config_dir)
+    profile_defaults = load_model_base_config(str(model_arch), model_config_dir, paths=paths)
     runtime_arch = (profile_defaults.get("architecture") or profile_defaults.get("type")
                     or profile_defaults.get("name") or model_arch)
 
@@ -170,7 +172,7 @@ def build_method_overrides(
             ]
         )
 
-    if paradigm_uses_static_dataset(paradigm) and dataset_path is not None:
+    if paradigm_uses_static_dataset(paradigm, paths=paths) and dataset_path is not None:
         safe_ds_path = str(dataset_path)
         if any(c in safe_ds_path for c in "(), "):
             safe_ds_path = f'"{safe_ds_path}"'
@@ -222,7 +224,7 @@ def build_method_overrides(
     try:
         from src.app.pipeline.config import load_model_base_config
 
-        base_m_cfg = load_model_base_config(model_arch, model_config_dir)
+        base_m_cfg = load_model_base_config(model_arch, model_config_dir, paths=paths)
         if base_m_cfg and isinstance(base_m_cfg, dict):
             _MODEL_KEYS.update(base_m_cfg.keys())
     except Exception:
@@ -232,7 +234,7 @@ def build_method_overrides(
     from pathlib import Path
 
     from src.app.pipeline.component_validation import schemas_for_method
-    schema = schemas_for_method(paths.root, {"model": model_arch}, validation_only=False).get("model", {})
+    schema = schemas_for_method(paths, {"model": model_arch}, validation_only=False).get("model", {})
     _MODEL_KEYS.update(schema.get("properties", {}))
 
     for k, v in method_cfg.items():
@@ -265,7 +267,7 @@ def build_method_overrides(
     if is_sweep:
         from src.app.pipeline.tuners import get_tuner
 
-        overrides = get_tuner(cfg).compile(
+        overrides = get_tuner(cfg, paths=paths).compile(
             overrides, cfg=cfg, method_cfg=method_cfg, extra_args=extra_args,
             paradigm=paradigm, study_name=study_name, uses_agents=uses_agents, model_keys=_MODEL_KEYS,
         )
@@ -284,7 +286,7 @@ def build_method_overrides(
 
 
 def get_sweep_direction(cfg, paradigm: str) -> str:
-    """Single source of truth for Optuna sweep direction.
+    """Resolve the historical Hydra direction or the paradigm's default.
 
     Checks cfg.hydra.sweeper.direction first (explicit override).
     Defaults: online_rl → 'maximize' (reward), offline_rl → 'minimize' (loss).

@@ -20,7 +20,8 @@ from src.app.sites.publication import Publisher, sqlite_export
 from src.app.sites.snapshot import archive, extract
 from src.app.sites.storage import digest, read_json, workspace_id, write_json
 from src.app.pipeline.exceptions import ConfigurationError
-from src.app.pipeline.slurm import generate_sbatch_header
+from optional_components.slurm.headers import generate_sbatch_header
+from optional_components.slurm.execution import validate_allocation
 
 
 def cfg(**changes):
@@ -35,6 +36,9 @@ def managed(tmp_path, script=None):
     for path in (root, scratch, work): path.mkdir(parents=True)
     (root / 'run_pipeline.py').write_text(script or '# worker\n')
     workspace_id(root)
+    from component_fixtures import install_optional
+    install_optional(root, 'slurm', tmp_path / 'archives')
+    install_optional(root, 'optuna', tmp_path / 'archives')
     bundle = root / 'source.zip'
     source = archive(root, bundle)
     target = root / '.thetaide/sources' / (source['sha256'] + '.zip')
@@ -65,12 +69,14 @@ def fake_submit(monkeypatch):
 def test_reject_conflicting_actual_requests(resources, flags):
     config = cfg(resources=resources)
     config.site.extra_sbatch_flags = flags
-    with pytest.raises(ConfigurationError): execution.validate_allocation(config)
+    with pytest.raises(ConfigurationError): validate_allocation(config)
 
 
 def test_normalized_request_and_environment(monkeypatch, tmp_path):
+    from component_fixtures import install_optional
+    install_optional(tmp_path, 'slurm', tmp_path.parent / (tmp_path.name + '-archives'))
     config = cfg(resources={'cores': 3, 'memory': '6G'})
-    resources = execution.validate_allocation(config)
+    resources = validate_allocation(config)
     header = generate_sbatch_header('cpu', 'logs', config)
     assert f'--cpus-per-task={resources["cores"]}' in header
     assert '--ntasks=1' in header and '--gres' not in header
@@ -83,7 +89,7 @@ def test_normalized_request_and_environment(monkeypatch, tmp_path):
 @pytest.mark.parametrize('change', [{'tuning': {'options': {'optuna': {'n_jobs': 2}}}}, {'plot_only': True},
                                   {'variability': {'parallel_runs': 2}}])
 def test_unsupported_slurm_modes_are_explicit(change):
-    with pytest.raises(ConfigurationError): execution.validate_allocation(cfg(**change))
+    with pytest.raises(ConfigurationError): validate_allocation(cfg(**change))
 
 
 def test_archive_refuses_links_and_traversal_before_writing(tmp_path):
@@ -138,6 +144,13 @@ print(root)
     assert len(list((root / '.thetaide/sources').glob('*.zip'))) == 1
     assert not list((root / 'results/slurm').glob('*/workspace'))
     for record in (first, second):
+        # This synthetic producer writes a study without running a real tuner.
+        # Declare its state artifact explicitly; ordinary allocations own none.
+        from component_fixtures import optional_module
+        _optuna_component = optional_module('optuna', 'component.py')
+        OptunaTuner = _optuna_component.OptunaTuner
+        record['tuner_execution'] = OptunaTuner().execution_plan({}, execution_id=record['execution_id']).record()
+        write_json(execution.receipt_path(root, record['execution_id']), record)
         assert execution.run(root, record['execution_id']) == 0
         final = read_json(execution.receipt_path(root, record['execution_id']))
         assert final['publication_state'] == 'sealed' and not final['artifacts_finalized']
@@ -156,6 +169,9 @@ print(root)
 def publisher_fixture(tmp_path):
     runtime, work = tmp_path / 'runtime', tmp_path / 'work'
     runtime.mkdir(); work.mkdir()
+    from component_fixtures import install_optional
+    # Historical receipts without tuner_execution read through the installed Optuna provider.
+    install_optional(runtime, 'optuna', tmp_path / 'archives')
     record = {'execution_id': 'a' * 32, 'project_id': workspace_id(runtime), 'group': 'g', 'result_experiment_id': 'e__a'}
     (runtime / 'results/slurm' / record['execution_id']).mkdir(parents=True)
     logs = runtime / 'results/logs/g/e__a/m/version_0'
@@ -283,6 +299,9 @@ def test_continuation_history_reconciliation_ownership_and_compatibility(tmp_pat
     parent = execution.submit(root, 'g/e', [], config)
     runtime = scratch / 'prior'
     runtime.mkdir()
+    from component_fixtures import install_optional
+    # A real allocation runtime is the extracted snapshot, including its frozen providers.
+    install_optional(runtime, 'optuna', tmp_path / 'archives')
     (runtime / 'results/slurm' / parent['execution_id']).mkdir(parents=True)
     db = runtime / 'results/optuna' / parent['execution_id'] / 'study.sqlite'
     db.parent.mkdir(parents=True)
@@ -301,6 +320,7 @@ def test_continuation_history_reconciliation_ownership_and_compatibility(tmp_pat
     assert child['execution_id'] != parent['execution_id'] and child['result_experiment_id'] != parent['result_experiment_id']
     assert child['continuation']['training_resume'] is False
     fresh = scratch / 'new'; fresh.mkdir()
+    install_optional(fresh, 'optuna', tmp_path / 'archives')
     restore(fresh, child)
     url = 'sqlite:///' + str(fresh / 'results/optuna' / child['execution_id'] / 'study.sqlite')
     continued = optuna.load_study(storage=url, study_name='cpu')
@@ -343,10 +363,12 @@ def test_gc_preserves_active_unknown_and_legacy_and_releases_verified_payload(tm
 
 
 def test_scheduler_queries_are_batched_cached_and_preserve_training_outcome(tmp_path, monkeypatch):
+    from component_fixtures import install_optional
+    install_optional(tmp_path, 'slurm', tmp_path.parent / (tmp_path.name + '-archives'))
     records = []
     for index in range(3):
         record = {'execution_id': f'{index:032x}', 'project_id': workspace_id(tmp_path), 'job_id': str(index + 1),
-                  'state': 'failed' if index == 1 else 'running'}
+                  'scheduler_component': 'slurm', 'state': 'failed' if index == 1 else 'running'}
         write_json(execution.receipt_path(tmp_path, record['execution_id']), record)
         records.append(record)
     calls = []
@@ -479,7 +501,9 @@ def test_live_wal_backup_is_standalone_and_allocation_storage_is_exclusive(tmp_p
         assert exported.execute('SELECT score FROM trials').fetchone() == (9,)
         assert exported.execute('PRAGMA journal_mode').fetchone() == ('delete',)
     writer.close()
-    from src.plugins.components.bundled.optuna.utils import get_optuna_storage
+    from component_fixtures import optional_module
+    _optuna_utils = optional_module('optuna', 'utils.py')
+    get_optuna_storage = _optuna_utils.get_optuna_storage
     monkeypatch.setenv('THETA_SQLITE_ROOT', str(source.parent))
     with pytest.raises(ValueError, match='exclusively owned'):
         get_optuna_storage('sqlite:///' + str(tmp_path / 'shared/study.sqlite'))
@@ -640,7 +664,7 @@ def test_transient_wal_disappearance_does_not_cancel_publication(tmp_path, monke
 def test_site_gres_template_cannot_bypass_normalized_count():
     config = cfg(resources={'partition': 'gpu', 'gpus': 1, 'gpu_type': 'h200'})
     config.site.gres_format = 'gpu:{gpu_type}:8'
-    with pytest.raises(ConfigurationError, match='match'): execution.validate_allocation(config)
+    with pytest.raises(ConfigurationError, match='match'): validate_allocation(config)
 
 
 def test_oversized_monitor_metadata_leaves_no_partial_snapshot(tmp_path, monkeypatch):

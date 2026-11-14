@@ -172,17 +172,18 @@ def test_monitor_removes_finished_curves_and_clears_after_parent_finishes():
     assert app is not None
 
 
-def test_live_sweep_dashboard_keeps_completed_trials_in_results(tmp_path, monkeypatch):
-    from frontend.monitor import sweep_view
+def test_live_sweep_dashboard_keeps_completed_trials_in_results(tmp_path, monkeypatch, tuner_monitor_workspace):
+    from src.app.pipeline import tuning_monitor as sweep_view
 
     app = QApplication.instance() or QApplication([])
     run = new_run(Config(), simulated=False)
     study = {"study": "s", "stop_reason": "running", "best_trial_id": 0, "trials": [
         {"id": 0, "state": "complete", "value": 3},
         {"id": 1, "state": "running", "execution_started": 1}]}
-    monkeypatch.setattr(sweep_view, "study_summaries", lambda *_: [("m", study)])
+    monkeypatch.setattr(sweep_view, "study_summaries", lambda *_, **kw: [("m", study)])
     host = SimpleNamespace(selected=run, runs=[run], live_for_run=lambda *a, **kw: {},
                            jobs=SimpleNamespace(project_root=tmp_path, queue_changed=Mock()))
+    host.workspace_paths, run['config'] = tuner_monitor_workspace
     monitor = MonitorPanel(host)
     monitor.show_view("Sweep")
     monitor.refresh_live()

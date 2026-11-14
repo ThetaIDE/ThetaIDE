@@ -216,7 +216,9 @@ def test_stopped_trial_closes_only_its_unfinished_runs(tmp_path, monkeypatch):
 def test_cancelled_method_closes_only_current_launch_trials_and_seed_records(tmp_path, monkeypatch):
     import optuna
     from src.app.pipeline.variability import finish_trial_runs
-    from src.app.tuners.optuna.component import OptunaTuner
+    from component_fixtures import optional_module
+    _optuna_component = optional_module('optuna', 'component.py')
+    OptunaTuner = _optuna_component.OptunaTuner
     monkeypatch.chdir(tmp_path)
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     study = optuna.create_study(study_name="s", storage=storage)

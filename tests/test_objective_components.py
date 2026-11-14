@@ -126,9 +126,10 @@ def test_validation_requires_data_and_rejects_pruning():
     with pytest.raises(ValueError, match="eval_episodes"):
         validate_objective(cfg)
     cfg.eval_episodes = 2
-    cfg.tuning = {"options": {"optuna": {"pruner": "median"}}}
+    cfg.tuning = {"component": "optuna", "options": {"optuna": {"pruner": "median"}}}
+    from component_fixtures import optional_workspace
     with pytest.raises(ValueError, match="pruning disabled"):
-        validate_objective(cfg)
+        validate_objective(cfg, paths=optional_workspace("optuna"))
     cfg.tuning = None
     cfg.objective.params = {"aggregation": {"fraction": 0}}
     with pytest.raises(ValueError, match="fraction"):
@@ -190,7 +191,9 @@ def main(cfg):
         study = optuna.load_study(study_name="objectives", storage=storage)
         assert [trial.value for trial in study.trials] == pytest.approx([0.2, 0.2])
         assert study.user_attrs["theta_objective_metric"] == "objective/learning_curve"
-        from src.app.tuners.optuna.utils import promote_best_trial_checkpoint
+        from component_fixtures import optional_module
+        _optuna_utils = optional_module('optuna', 'utils.py')
+        promote_best_trial_checkpoint = _optuna_utils.promote_best_trial_checkpoint
         monkeypatch.chdir(tmp_path)
         promote_best_trial_checkpoint("g", "e", "m", storage, "objectives")
         summary = json.loads(Path("results/checkpoints/g/e/m/best_trial_summary.json").read_text())

@@ -1,6 +1,10 @@
 from pathlib import Path
 from src.app.sites import transfer
-from src.app.sites.slurm import bootstrap_command, submission_command, shortcuts, ssh_arguments
+from src.app.sites.transport import ssh_arguments
+from component_fixtures import optional_module
+_slurm_commands = optional_module('slurm', 'commands.py')
+bootstrap_command, submission_command, shortcuts = (
+    _slurm_commands.bootstrap_command, _slurm_commands.submission_command, _slurm_commands.shortcuts)
 
 
 def test_user_configuration_and_setup_are_offline(tmp_path, monkeypatch):

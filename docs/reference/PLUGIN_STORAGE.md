@@ -86,9 +86,7 @@ with ownership diagnostics. Authored overrides require an explicit owner in
 
 ## Imports and resources
 
-Use relative imports within a package. Cross-package helpers use explicit owned
-files, for example `provider_object('nsfr', 'common.py:get_nsfr_model')` from
-`src.app.core.provider_loader`. Resources use `package://ID/path`, `Package.resource`
+Use relative imports within a package. Resources use `package://ID/path`, `Package.resource`
 or `resolve_resource`. `environment_resource` resolves an exact declared
 environment capability and its explicit `resource_root`; it never searches
 `in/envs` or unrelated directories.
@@ -102,6 +100,35 @@ rules; NEUMANN depends on NSFR. MIMIC rules belong to the MIMIC experiment packa
 Runners own their Hydra/workspace configuration. The generic worker establishes
 workspace context, package-relative imports, leases and snapshot verification;
 it does not inspect source text or inject config arguments for historical depth.
+
+### Cross-package exports
+
+A package publishes objects for other packages with a manifest `exports` map. Each
+target must be a payload implementation file:
+
+```json
+"exports": {"get_nsfr_model": "common.py:get_nsfr_model"},
+"payload": {"implementations": ["common.py", "..."], "resources": [], "configs": {}}
+```
+
+Consumers declare the dependency (optionally with a PEP 440 version constraint) and load
+the export by name:
+
+```json
+"dependencies": {"components": [{"id": "nsfr", "version": ">=1.0,<2"}], "pip": []}
+```
+
+```python
+from src.app.core.provider_loader import provider_export
+get_nsfr_model = provider_export('nsfr', 'get_nsfr_model')
+```
+
+When called from provider code, the caller's package is identified from its module and
+must declare the dependency; a declared version must match the installed one. Lookups
+resolve in the workspace that loaded the caller. Undeclared names, missing packages and
+version mismatches raise `ImportError` naming both packages. Host code may load any
+declared export. `provider_object('nsfr', 'common.py:get_nsfr_model')` remains a bounded
+adapter for installed packages that predate exports; it performs no requester validation.
 
 ## Ownership and lifecycle
 

@@ -12,10 +12,15 @@ from frontend.live_run import LiveRunCache
 from frontend.monitor.sweep_view import study_summaries
 from src.app.sites.storage import write_json
 from src.app.pipeline.execution_data import synced_execution_sources
-from src.plugins.components.bundled.optuna.utils import write_study_summary
+from component_fixtures import install_optional, optional_module
+_optuna_utils = optional_module('optuna', 'utils.py')
+write_study_summary = _optuna_utils.write_study_summary
 
 
 def snapshot(root):
+    # Study summaries come from the run's selected tuner, so the monitored
+    # workspace needs the optional Optuna component installed and ready.
+    install_optional(root, "optuna", root.parent / (root.name + "-archives"))
     execution = "a" * 32
     experiment = "nested/sweep__" + execution
     database = root / "results/optuna" / execution / "study.sqlite"

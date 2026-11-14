@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.app.sites import transfer
-from src.app.sites.slurm import rsync_shell, ssh_arguments, ssh_session
+from src.app.sites.transport import rsync_shell, ssh_arguments, ssh_session
 from pathlib import Path
 import os
 
@@ -43,7 +43,7 @@ def test_interactive_shell_keeps_ssh_connection_preferences(tmp_path):
 def test_sync_connection_is_shared_scoped_and_closed_on_failure(tmp_path, monkeypatch):
     config = {'host': 'cluster', '_root': str(tmp_path), 'remote_root': '/project'}
     calls = []
-    monkeypatch.setattr('src.app.sites.slurm.subprocess.run', lambda args, **kw: calls.append(args))
+    monkeypatch.setattr('src.app.sites.transport.subprocess.run', lambda args, **kw: calls.append(args))
     with pytest.raises(RuntimeError, match='failed'):
         with ssh_session(tmp_path, config):
             args = ssh_arguments(tmp_path, config)

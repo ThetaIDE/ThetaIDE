@@ -5,8 +5,10 @@ import json
 from src.app.pipeline.execution_data import ExecutionData
 
 
-def list_executions(completed_only=False):
-    root = Path("results/executions")
+def list_executions(completed_only=False, *, workspace=None):
+    from src.app.workspace import WorkspacePaths
+    paths = workspace or WorkspacePaths.for_process()
+    root = (paths.results / "executions")
     paths = sorted(root.rglob("manifest.json"), reverse=True)
     if completed_only:
         completed = []
@@ -21,8 +23,10 @@ def list_executions(completed_only=False):
     return [str(path) for path in paths]
 
 
-def read_execution(path, completed_only=False):
-    root = Path("results/executions").resolve()
+def read_execution(path, completed_only=False, *, workspace=None):
+    from src.app.workspace import WorkspacePaths
+    paths = workspace or WorkspacePaths.for_process()
+    root = (paths.results / "executions").resolve()
     manifest = Path(path).resolve()
     if root not in manifest.parents or manifest.name != "manifest.json":
         raise ValueError("Invalid execution manifest path")

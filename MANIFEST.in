@@ -23,3 +23,5 @@ prune venv
 prune build
 
 prune src/plugins/app/bundled/text_editor/web/node_modules
+
+prune optional_components

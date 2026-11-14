@@ -8,14 +8,14 @@ from src.app.services.resource_budget import GIB, ResourceBudget, ResourcePool, 
 
 
 def test_cpu_adapter_is_detected_automatically_for_method_config():
-    config = {"methods": {"PPO": {"agent": "sb3/ppo", "model": "basics/mlp"},
-                          "rules": {"agent": "sb3/ppo", "model": "blendrl"}}}
+    config = {"methods": {"PPO": {"agent": "sb3-dev/ppo", "model": "basics/mlp"},
+                          "rules": {"agent": "sb3-dev/ppo", "model": "blendrl"}}}
     assert not uses_accelerator(config)
-    assert not uses_accelerator({"agent": {"algorithm": "sb3/ppo"}, "model": {}})
+    assert not uses_accelerator({"agent": {"algorithm": "sb3-dev/ppo"}, "model": {}})
 
 
 def test_same_method_seeds_share_learned_resource_profile():
-    first = {"agent": {"algorithm": "sb3/ppo", "seed": 1}, "model": {"hidden_sizes": [64, 64]}}
+    first = {"agent": {"algorithm": "sb3-dev/ppo", "seed": 1}, "model": {"hidden_sizes": [64, 64]}}
     second = {**first, "agent": {**first["agent"], "seed": 200}}
     assert workload_estimate(first)["key"] == workload_estimate(second)["key"]
 
@@ -111,7 +111,7 @@ def test_training_holds_one_slot_until_completion_without_capacity_rechecks(monk
         def should_retry(self, token):
             raise AssertionError('Running training must not be evicted for capacity')
 
-    monkeypatch.setattr(runtime, "get_subprocess_env", lambda _: {
+    monkeypatch.setattr(runtime, "get_subprocess_env", lambda _, **__: {
         "THETA_RESOURCE_POOL": "unused.db", "THETA_RESOURCE_SPEC": json.dumps({"memory": 1})})
     monkeypatch.setattr(resource_budget, "ResourcePool", Pool)
 
@@ -130,7 +130,8 @@ def test_trial_runs_once_without_capacity_restarts(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from pathlib import Path
     from omegaconf import OmegaConf
-    from src.app.tuners.optuna import parallel
+    from component_fixtures import optional_module
+    parallel = optional_module('optuna', 'parallel.py')
 
     monkeypatch.setenv('THETA_RESOURCE_POOL', str(tmp_path / 'pool.db'))
     processes, waiting, completed = [], [], []

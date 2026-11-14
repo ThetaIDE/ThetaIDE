@@ -32,12 +32,14 @@ def project(root, pipeline):
     (root / 'in/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text(pipeline)
     workspace_id(root)
+    from component_fixtures import install_optional
+    install_optional(root, 'slurm', root.parent / (root.name + '-archives'))
     return root
 
 
 def submit(root, monkeypatch, *, managed=None):
     cfg = {'group': 'demo', 'experiment_id': 'run',
-           'site': {'name': 'cluster', 'python_executable': sys.executable}, 'resources': {}}
+           'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}}
     if managed:
         cfg['site']['execution'] = managed
     # Submission is faked; workers and their output pipes are real local processes.
@@ -190,8 +192,8 @@ def test_remote_failed_run_opens_nonempty_log_without_local_job_id(tmp_path, mon
     from frontend.local_backend import LocalBackend
     from frontend.results.panel import ResultsPanel
     app = QApplication.instance() or QApplication([])
-    logs = tmp_path / 'results/logs'
-    monkeypatch.setattr(catalog, 'LOGS_DIR', logs)
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(tmp_path)
     directory = tmp_path / 'results/slurm/execution'
     directory.mkdir(parents=True)
     for name, text in files.items():
@@ -200,7 +202,7 @@ def test_remote_failed_run_opens_nonempty_log_without_local_job_id(tmp_path, mon
         execution_id='execution', group='demo', result_experiment_id='run', state='failed',
         publication_manifest={'sealed': True})]}})
     # Real catalog and backend dispatch, synchronous only to keep the UI check deterministic.
-    backend = LocalBackend()
+    backend = LocalBackend(workspace=paths)
     backend._submit = lambda function, *args, callback, **kwargs: callback(function(*args), None)
     panel = ResultsPanel(backend)
     try:
@@ -208,7 +210,7 @@ def test_remote_failed_run_opens_nonempty_log_without_local_job_id(tmp_path, mon
         browser = panel.browser('Files')
         assert browser.current[1]['path'] == f'slurm/execution/{expected}'
         assert files[expected] in browser.viewers['text'].browser.toPlainText()
-        assert catalog.run_manifest('demo', 'run', completed_only=True)['artifacts'][0]['kind'] == 'log'
+        assert catalog.run_manifest('demo', 'run', completed_only=True, workspace=paths)['artifacts'][0]['kind'] == 'log'
     finally:
         panel.close()
 

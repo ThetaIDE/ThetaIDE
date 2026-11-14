@@ -155,7 +155,7 @@ def create_objective(name: str, template="learning_curve", workspace=None):
     return load_objective(name, workspace)
 
 
-def validate_objective(cfg, *, workspace=None):
+def validate_objective(cfg, *, workspace=None, paths=None):
     """Validate parameters and declared data needs before starting training."""
     from omegaconf import OmegaConf
     spec = cfg.get("objective")
@@ -163,7 +163,11 @@ def validate_objective(cfg, *, workspace=None):
         raise ValueError("objective requires a component and optional params")
     if cfg.get("recover") or cfg.get("workflow"):
         raise ValueError("Objective sampling does not yet support recovery or workflow launches")
-    component = load_objective(str(spec["component"]), workspace)
+    from src.app.pipeline.tuning_features import validate_tuning_compatibility
+    from src.app.workspace import WorkspacePaths
+    paths = paths or (WorkspacePaths(workspace) if workspace is not None else WorkspacePaths.for_process())
+    validate_tuning_compatibility(cfg, paths=paths)
+    component = load_objective(str(spec["component"]), paths.root)
     try:
         compile(component.source.read_text(encoding="utf-8"), str(component.source), "exec")
     except SyntaxError as exc:
@@ -186,14 +190,8 @@ def validate_objective(cfg, *, workspace=None):
     if requirements.get("episode_outcomes"):
         from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
         from src.app.pipeline.config import parse_methods_dict
-        for name, method in parse_methods_dict(cfg).items():
-            resolve_engine(method, cfg)
-            if not runner_supports_episode_outcomes({**dict(cfg.items()), **method}):
+        for name, method in parse_methods_dict(cfg, paths=paths).items():
+            resolve_engine(method, cfg, paths=paths)
+            if not runner_supports_episode_outcomes({**dict(cfg.items()), **method}, paths=paths):
                 raise ValueError(f"Method {name!r} does not supply the episode outcomes required by this objective")
-    tuning = cfg.get("tuning") or {}
-    options = (tuning.get("options") or {}).get("optuna") or {}
-    runtime = cfg.get("theta_tuning") or {}
-    hydra_pruner = ((cfg.get("hydra") or {}).get("sweeper") or {}).get("pruner", "none")
-    if runtime.get("pruner", options.get("pruner", tuning.get("pruner", hydra_pruner))) != "none":
-        raise ValueError("Custom objectives currently require pruning disabled (pruner: none)")
     return component, params

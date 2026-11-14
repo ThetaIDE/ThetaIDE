@@ -67,17 +67,22 @@ class Publisher:
     def __init__(self, runtime, work, record, policy, *, clock=time.monotonic):
         self.runtime, self.work = Path(runtime), Path(work)
         self.record, self.policy, self.clock = record, policy, clock
+        from src.app.pipeline.tuner_execution import record_plan
+        from src.app.workspace import WorkspacePaths
+        self.paths = WorkspacePaths(self.runtime)
+        self.tuner_plan = record_plan(record, paths=self.paths)
         self.directory = self.work / 'results/slurm' / record['execution_id']
         self.directory.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.directory / 'publication.json'
         self.manifest = {'schema': SCHEMA, 'execution_id': record['execution_id'],
                          'project_id': record['project_id'], 'generation': 0, 'sealed': False,
-                         'files': [], 'durable': {}, 'dependencies': dependency_versions()}
+                         'files': [], 'durable': {}, 'dependencies': dependency_versions(record, paths=self.paths)}
         self.entries, self.stamps, self.pending = {}, {}, {}
         self.append_prefixes = {}
         self.last_metrics = self.last_database = -float('inf')
         self.last_request = None
-        self.finalizing = self.final_database = False
+        self.finalizing = False
+        self.final_artifacts = set()
         self.deferred = 0
         self.last_progress = self.clock()
         self.stop_path = self.runtime / '.thetaide/publication-stop'
@@ -100,7 +105,7 @@ class Publisher:
                 self.deferred += 1
                 return False
         limit = stamp[0]
-        if path.suffix in ('.jsonl', '.csv') and limit:
+        if category != 'database' and path.suffix in ('.jsonl', '.csv') and limit:
             with path.open('rb') as source:
                 source.seek(max(0, limit - 1024 * 1024))
                 tail = source.read(min(limit, 1024 * 1024))
@@ -176,6 +181,7 @@ class Publisher:
         paths.sort(key=lambda path: (2 if '/monitors/' in str(path) else 1 if 'checkpoints' in path.parts else 0, str(path)))
         for path in paths:
             relative = path.relative_to(self.runtime).as_posix()
+            if self.tuner_plan and relative in {item.path for item in self.tuner_plan.artifacts}: continue
             if path.name.startswith('.') or path.name.endswith(('-wal', '-shm', '-journal')): continue
             if path.suffix in ('.sqlite', '.db', '.sqlite3'): continue
             category = ('metrics' if path.name == 'tuning_summary.json' else
@@ -197,14 +203,33 @@ class Publisher:
         if due_metrics: self.last_metrics = now
         request = read_json(self.runtime / '.thetaide/db-export-request.json')
         requested = request.get('requested_ns') != self.last_request and bool(request)
-        database = self.runtime / 'results/optuna' / self.record['execution_id'] / 'study.sqlite'
-        due_db = (final and not self.final_database) or (not final and (now - self.last_database >= self.policy['database_seconds'] or (requested and now - self.last_database >= self.policy['database_min_seconds'])))
-        relative = f'results/optuna/{self.record["execution_id"]}/study.sqlite'
-        if due_db and database.exists() and relative not in self.pending:
-            target = self.runtime / '.thetaide' / ('export-' + uuid.uuid4().hex + '.sqlite')
-            sqlite_export(database.resolve(), target)
-            self._start(target, relative, 'database', request.get('position'))
-            if final: self.final_database = True
+        snapshot_started = False
+        from src.app.pipeline.tuner_execution import remote_tuner
+        for artifact in self.tuner_plan.artifacts if self.tuner_plan else ():
+            relative = artifact.path
+            source = safe_path(self.runtime, relative)
+            due = ((final and relative not in self.final_artifacts) or
+                   (not final and (now - self.last_database >= self.policy['database_seconds'] or
+                    (requested and now - self.last_database >= self.policy['database_min_seconds']))))
+            if not due or not source.is_file() or relative in self.pending:
+                continue
+            target = self.runtime / '.thetaide' / ('export-' + uuid.uuid4().hex + source.suffix)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                remote_tuner(self.tuner_plan, paths=self.paths).snapshot_artifact(source, target, artifact=artifact)
+                if not target.is_file() or target.is_symlink():
+                    raise ValueError('Tuner snapshot hook must create a regular snapshot file')
+                started = self._start(target, relative, 'database', request.get('position'))
+                if not started:
+                    target.unlink(missing_ok=True)
+                else:
+                    snapshot_started = True
+                    if final:
+                        self.final_artifacts.add(relative)
+            except BaseException:
+                target.unlink(missing_ok=True)
+                raise
+        if snapshot_started:
             self.last_database, self.last_request = now, request.get('requested_ns')
         pending_bytes = sum(max(0, item['stamp'][0] - item['size']) for item in self.pending.values())
         if pending_bytes > self.policy['max_pending_bytes'] or (self.pending and now - self.last_progress > self.policy['max_lag_seconds']):
@@ -328,7 +353,7 @@ class Publisher:
                 item['stream'].close()
                 item['path'].unlink(missing_ok=True)
                 del self.pending[relative]
-        self.final_database = False
+        self.final_artifacts.clear()
         self.tick(final=True)
         while self.pending or self.deferred:
             if self.clock() > deadline: raise TimeoutError('Final stage-out allowance exceeded')
@@ -340,11 +365,13 @@ class Publisher:
         for item in self.pending.values(): item['stream'].close()
 
 
-def dependency_versions():
+def dependency_versions(record=None, *, paths=None):
     from importlib.metadata import version, PackageNotFoundError
     import platform
+    from src.app.pipeline.tuner_execution import record_plan
+    plan = record_plan(record, paths=paths) if record else None
     versions = {'python': platform.python_version()}
-    for name in ('optuna', 'sqlalchemy', 'torch', 'numpy'):
+    for name in sorted({'torch', 'numpy', *(plan.distributions if plan else ())}):
         try: versions[name] = version(name)
         except PackageNotFoundError: versions[name] = None
     return versions

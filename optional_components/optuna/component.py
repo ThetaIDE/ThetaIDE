@@ -49,6 +49,28 @@ def _sweep_expression(target, dimension):
 
 
 class OptunaTuner:
+    remote_api_version = 1
+
+    def execution_plan(self, cfg, *, execution_id):
+        from .remote import execution_plan
+        return execution_plan(self, cfg, execution_id=execution_id)
+
+    def launch_bindings(self, cfg, **context):
+        from .remote import launch_bindings
+        return launch_bindings(cfg, **context)
+
+    def continuation_config(self, cfg):
+        from .remote import continuation_config
+        return continuation_config(cfg)
+
+    def snapshot_artifact(self, source, target, *, artifact):
+        from .remote import snapshot_artifact
+        return snapshot_artifact(source, target, artifact=artifact)
+
+    def restore_continuation(self, cfg, **context):
+        from .remote import restore_continuation
+        return restore_continuation(cfg, **context)
+
     def preview_override(self, override):
         from optuna.distributions import BaseDistribution, CategoricalDistribution
         from .sweeper import _distribution_from_override
@@ -92,6 +114,9 @@ class OptunaTuner:
         ]
         for field in fields:
             field["optional"] = field["key"] not in ("n_trials", "sampler")
+            field["legacy_flat"] = True
+            if field["key"] == "study_name":
+                field["required_when"] = {"study_mode": "resume"}
             if field["key"] == "seed" or field["key"].startswith("tpe_"):
                 field["parent"] = "sampler"
             elif field["key"].startswith("pruner_"):
@@ -115,15 +140,15 @@ class OptunaTuner:
     @staticmethod
     def _require_dependencies():
         from importlib.util import find_spec
-        from src.app.pipeline.exceptions import ConfigurationError
+        from src.app.api.errors import ConfigurationError
 
-        if find_spec("optuna") is None or find_spec("hydra_plugins.hydra_optuna_sweeper") is None:
-            raise ConfigurationError("The Optuna tuner is not installed. From the project directory, run: pip install -e '.[optuna]'.")
+        if find_spec("optuna") is None:
+            raise ConfigurationError("The Optuna tuner component needs its declared Python dependencies (optuna, sqlalchemy); install them, then retry.")
 
     def validate_config(self, cfg):
         self._require_dependencies()
         tuning = self._options(cfg)
-        if cfg.get("variability") is not None and tuning.get("pruner") != "none":
+        if cfg.get("variability") is not None and self.pruning_enabled(cfg):
             raise ValueError("Repeated tuning currently requires pruning disabled (pruner: none).")
         for key, default in (("n_trials", 40), ("n_jobs", 1)):
             value = tuning.get(key, default)
@@ -155,7 +180,7 @@ class OptunaTuner:
             raise ValueError("Resuming an Optuna study requires a study name.")
         explicit_name = str(tuning.get("study_name") or "").strip()
         if explicit_name:
-            from src.app.pipeline.config import parse_methods_dict
+            from src.app.api.config import parse_methods_dict
             if len(parse_methods_dict(cfg)) > 1 and "{method}" not in explicit_name:
                 raise ValueError("A study name shared by multiple methods must include {method}.")
             try:
@@ -166,31 +191,38 @@ class OptunaTuner:
         if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 or seed > 2147483647:
             raise ValueError("Optuna sampler seed must be a nonnegative integer.")
 
+    def pruning_enabled(self, cfg):
+        runtime = cfg.get("theta_tuning") or {}
+        tuning = cfg.get("tuning") or {}
+        options = (tuning.get("options") or {}).get("optuna") or {}
+        sweeper = ((cfg.get("hydra") or {}).get("sweeper") or {})
+        return runtime.get("pruner", options.get("pruner", tuning.get("pruner", sweeper.get("pruner", "none")))) != "none"
+
     def validate_dimension(self, target, dimension):
         if not isinstance(dimension, str) and not str(target).startswith(("agent.", "model.", "config.")):
             raise ValueError(f"Typed sweep dimension {target!r} requires an explicit agent, model, or config path")
         _sweep_expression(target, dimension)
 
     def launch_dashboard(self, storage):
-        from src.plugins.components.bundled.optuna.utils import launch_optuna_dashboard
+        from .utils import launch_optuna_dashboard
         return launch_optuna_dashboard(storage)
 
     def training_callbacks(self, cfg):
         runtime = cfg.get("theta_tuning")
         if not hasattr(runtime, "get") or runtime.get("optuna_trial_id") is None:
             return []
-        from src.plugins.components.bundled.optuna.pruning import OptunaPruningCallback
+        from .pruning import OptunaPruningCallback
         return [OptunaPruningCallback(runtime)]
 
     def trial_monitor(self, cfg):
         runtime = cfg.get("theta_tuning")
         if not hasattr(runtime, "get") or runtime.get("optuna_trial_id") is None:
             return None
-        from src.plugins.components.bundled.optuna.monitor import OptunaTrialMonitor
+        from .monitor import OptunaTrialMonitor
         return OptunaTrialMonitor(runtime)
 
     def compile(self, overrides: list[str], **context: Any) -> list[str]:
-        from src.app.pipeline.commands import get_sweep_direction
+        from src.app.api.tuning import get_sweep_direction
 
         cfg = context["cfg"]
         extra_args = context["extra_args"]
@@ -261,13 +293,13 @@ class OptunaTuner:
         return overrides
 
     def study_name(self, cfg, method_name):
-        from src.plugins.components.bundled.optuna.utils import get_next_study_name
+        from .utils import get_next_study_name
         explicit = str(self._options(cfg).get("study_name") or "").strip()
         return (explicit.format(method=method_name, experiment=cfg.experiment_id, group=cfg.group)
                 if explicit else get_next_study_name(cfg.group, cfg.experiment_id, method_name, self.storage(cfg)))
 
     def storage(self, cfg):
-        from src.plugins.components.bundled.optuna.utils import DEFAULT_OPTUNA_DB_URL
+        from .utils import DEFAULT_OPTUNA_DB_URL
         hydra = cfg.get("hydra", {}) if hasattr(cfg, "get") else {}
         sweeper = hydra.get("sweeper", {}) if hasattr(hydra, "get") else {}
         value = sweeper.get("storage") if hasattr(sweeper, "get") else None
@@ -278,9 +310,9 @@ class OptunaTuner:
     def prepare(self, cfg, storage, study_name):
         self._require_dependencies()
         import optuna
-        from src.app.pipeline.commands import get_sweep_direction
-        from src.plugins.components.bundled.optuna.utils import delete_optuna_study, get_optuna_storage
-        from src.app.pipeline.exceptions import ConfigurationError
+        from src.app.api.tuning import get_sweep_direction
+        from .utils import delete_optuna_study, get_optuna_storage
+        from src.app.api.errors import ConfigurationError
 
         mode = self._options(cfg)["study_mode"]
         if mode == "resume" and cfg.get("remake", False):
@@ -297,7 +329,7 @@ class OptunaTuner:
                 study = optuna.load_study(study_name=study_name, storage=target)
                 if study.direction.name.lower() != direction:
                     raise ConfigurationError(f"Study {study_name!r} has a different objective direction.")
-                from src.app.pipeline.objective import objective_metric
+                from src.app.api.tuning import objective_metric
                 metric = objective_metric(cfg, "") or None
                 recorded = study.user_attrs.get("theta_objective_metric")
                 if recorded and metric and recorded != metric:
@@ -308,6 +340,9 @@ class OptunaTuner:
             raise ConfigurationError(f"Study {study_name!r} already exists; choose another name or resume it.") from exc
         except KeyError as exc:
             raise ConfigurationError(f"Study {study_name!r} does not exist and cannot be resumed.") from exc
+
+    def read_artifact_snapshot(self, artifact, path):
+        return self.read_study_snapshot(path)
 
     def read_study_snapshot(self, database):
         from .utils import read_study_snapshot
@@ -333,14 +368,14 @@ class OptunaTuner:
             write_study_summary(study, summary.parent)
 
     def finalize(self, group, experiment, method, storage, study_name):
-        from src.plugins.components.bundled.optuna.utils import promote_best_trial_checkpoint
+        from .utils import promote_best_trial_checkpoint
         return promote_best_trial_checkpoint(group, experiment, method, storage, study_name)
 
     def cancel(self, cfg, method, storage, study_name):
         """The selected method stopped: close only this launch's outstanding trials."""
         import optuna
         from pathlib import Path
-        from src.plugins.components.bundled.optuna.utils import write_study_summary
+        from .utils import write_study_summary
         study = optuna.load_study(study_name=study_name, storage=storage)
         initial = int(study.user_attrs.get("theta_initial_trials", 0))
         for trial in study.trials[initial:]:
