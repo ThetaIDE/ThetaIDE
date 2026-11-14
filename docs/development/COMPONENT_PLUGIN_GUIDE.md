@@ -500,7 +500,7 @@ The manifest's `target_path` is an example install location chosen by the plugin
 ### 5.2 Implementation Highlights
 
 ```python
-from src.app.core.model_registry import register_model
+from src.app.api.models import register_model
 
 @register_model("blendrl", "blender")
 class BlenderActorCritic(nn.Module):

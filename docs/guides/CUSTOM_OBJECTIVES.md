@@ -82,7 +82,7 @@ arbitrary nested parameters added through the GUI or YAML. JSON Schema's
 `required` declarations protect required fields from GUI removal.
 
 ```python
-from src.app.objectives import ObjectiveResult
+from src.app.api.tuning import ObjectiveResult
 
 def evaluate(results, params):
     values = []

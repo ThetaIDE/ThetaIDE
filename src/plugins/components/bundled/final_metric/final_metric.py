@@ -1,5 +1,5 @@
 """Average the final recorded metric across independent training runs."""
-from src.app.objectives import ObjectiveResult
+from src.app.api.tuning import ObjectiveResult
 
 
 def evaluate(results, params):

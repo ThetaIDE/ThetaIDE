@@ -24,7 +24,7 @@ from typing import Any, Callable
 import torch
 import torch.nn as nn
 
-from src.app.core.model_registry import register_model
+from src.app.api.models import register_model
 
 Shape = tuple[int, ...]
 

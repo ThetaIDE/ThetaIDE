@@ -8,6 +8,7 @@ functionality from the modules of this package only:
 ``src.app.api.config``     method parsing and editable configuration files
 ``src.app.api.execution``  engines, worker processes, interpreters and resource admission
 ``src.app.api.tuning``     portable tuner execution, objectives and trial artifacts
+``src.app.api.models``     model provider registration and construction (loads PyTorch)
 ``src.app.api.sites``      remote sites: profiles, transport, receipts, policy and publication
 ``src.app.api.desktop``    app-plugin base classes, host context and shared Qt widgets
 
@@ -24,7 +25,7 @@ it. This namespace becomes ``src.ide.api`` at consolidation, with forwarding.
 """
 from __future__ import annotations
 
-SDK_VERSION = "1.0"
+SDK_VERSION = "1.1"
 
 
 def sdk_requirement_error(spec) -> str | None:

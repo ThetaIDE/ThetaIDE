@@ -396,7 +396,7 @@ python -m frontend</code></pre>
 <pre><code>import torch
 import torch.nn as nn
 
-from src.app.core.model_registry import build_model, register_model
+from src.app.api.models import build_model, register_model
 
 
 @register_model("blendrl")
@@ -1025,7 +1025,7 @@ in/config/model/my_model.yaml</code></pre>
 <p>Register a class with <code>@register_model</code>. The model factory supplies inferred <code>obs_dim</code>, <code>n_actions</code>, <code>device</code>, and <code>env</code> when available, then forwards configured model parameters:</p>
 <pre><code>import torch
 import torch.nn as nn
-from src.app.core.model_registry import register_model
+from src.app.api.models import register_model
 
 @register_model("my_model")
 class MyModel(nn.Module):

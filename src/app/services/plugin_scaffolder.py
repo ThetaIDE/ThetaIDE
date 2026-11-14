@@ -139,7 +139,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from src.app.core.model_registry import register_model
+from src.app.api.models import register_model
 
 
 @register_model("{name}")
@@ -251,7 +251,7 @@ import lightning as L
 import torch
 import torch.optim as optim
 
-from src.app.core.model_registry import build_model
+from src.app.api.models import build_model
 from src.app.core.protocols import AuxiliaryLossProtocol, OptimizerGroupsProtocol
 from src.app.core.agent_registry import register_agent, register_algorithm
 

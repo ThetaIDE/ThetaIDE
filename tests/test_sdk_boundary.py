@@ -1,4 +1,4 @@
-"""Optional components and bundled app plugins use only the supported Theta SDK."""
+"""Optional components, bundled component packages and bundled app plugins use only the supported Theta SDK."""
 import ast
 import importlib
 import re
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARDED = [ROOT / "optional_components", ROOT / "src/plugins/app/bundled"]
+GUARDED = [ROOT / "optional_components", ROOT / "src/plugins/components/bundled", ROOT / "src/plugins/app/bundled"]
 HOST = re.compile(r"^(src\.app|frontend)(\.|$)")
 SDK = re.compile(r"^src\.app\.api(\.|$)")
 # A string naming a private host module, e.g. a `python -m src.app.x` argument.
@@ -66,7 +66,9 @@ def test_the_checker_rejects_private_imports(tmp_path):
 
 
 def test_sdk_exports_are_canonical_host_objects():
-    from src.app.api import execution, sites, tuning, workspace
+    from src.app.api import execution, models, sites, tuning, workspace
+    from src.app.core import model_registry
+    from src.app.objectives import api as objectives
     from src.app.pipeline import tuner_execution
     from src.app.sites import storage
     from src.app.workspace import WorkspacePaths
@@ -74,8 +76,10 @@ def test_sdk_exports_are_canonical_host_objects():
     assert workspace.WorkspacePaths is WorkspacePaths
     assert sites.safe_path is storage.safe_path
     assert tuning.TunerExecutionPlan is tuner_execution.TunerExecutionPlan
+    assert tuning.ObjectiveResult is objectives.ObjectiveResult
+    assert models.register_model is model_registry.register_model
     assert execution.task_worker_command("py", "a", 1) == ["py", "-u", "-m", "src.app.pipeline.task_worker", "a", "1"]
-    for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "desktop"):
+    for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "desktop"):
         sdk = importlib.import_module(f"src.app.api.{module}")
         for name in sdk.__all__:
             assert getattr(sdk, name) is not None, f"src.app.api.{module}.{name}"
