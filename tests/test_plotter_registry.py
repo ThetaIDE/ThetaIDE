@@ -2,7 +2,7 @@
 from pathlib import Path
 import pytest
 
-from plot.base import BasePlotter
+from src.app.core.plotting.base import BasePlotter
 from src.app.core.plotter_registry import (
     PLOTTER_REGISTRY,
     auto_discover_plotters,
@@ -43,7 +43,7 @@ def test_auto_discover_plotters(tmp_path, monkeypatch):
     try:
         (subpkg / "__init__.py").write_text("", encoding="utf-8")
         (subpkg / "mock_plot.py").write_text(
-            "from plot.base import BasePlotter\n"
+            "from src.app.core.plotting.base import BasePlotter\n"
             "from src.app.core.plotter_registry import register_plotter\n"
             "@register_plotter('mock_suite_metric')\n"
             "class MockSuitePlotter(BasePlotter):\n"
@@ -76,16 +76,10 @@ def test_base_plotter_config_resolution(tmp_path):
     cfg_file.write_text("smoothing_window: 25\ndpi: 600\n", encoding="utf-8")
 
     class TestDiagPlotter(BasePlotter):
-        def __init__(self):
-            super().__init__("test_diag")
+        def __init__(self, *, paths):
+            super().__init__("test_diag", paths=paths)
 
-    # Mock project root to tmp_path
-    import plot.base
-    orig_root = plot.base.PROJECT_ROOT
-    try:
-        plot.base.PROJECT_ROOT = str(tmp_path)
-        inst = TestDiagPlotter()
-        assert inst.default_cfg.get("smoothing_window") == 25
-        assert inst.default_cfg.get("dpi") == 600
-    finally:
-        plot.base.PROJECT_ROOT = orig_root
+    from src.app.workspace import WorkspacePaths
+    inst = TestDiagPlotter(paths=WorkspacePaths(tmp_path))
+    assert inst.default_cfg.get("smoothing_window") == 25
+    assert inst.default_cfg.get("dpi") == 600

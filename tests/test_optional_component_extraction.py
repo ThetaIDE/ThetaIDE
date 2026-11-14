@@ -77,7 +77,7 @@ def test_native_slurm_install_status_cancel_disable_and_preserved_override(tmp_p
     assert not registry.contributions('settings.site')
 
 
-def test_optuna_archive_has_setup_and_saved_import_identity(tmp_path, monkeypatch):
+def test_optuna_archive_has_setup_and_hydra_sweeper_export(tmp_path, monkeypatch):
     from src.app.core.provider_loader import load_module
     paths = WorkspacePaths(tmp_path / 'workspace')
     install(paths, 'optuna', tmp_path / 'archives')
@@ -86,9 +86,12 @@ def test_optuna_archive_has_setup_and_saved_import_identity(tmp_path, monkeypatc
     assert registry.contributions('configuration.tuning')
     package = get_catalog(paths).package('optuna')
     current = load_module(package, 'component.py', paths=paths)
-    historical = importlib.import_module('src.app.tuners.optuna.component')
-    assert historical.OptunaTuner is current.OptunaTuner
     assert current.OptunaTuner().api_version == 1
+    from hydra_plugins.theta_optuna_sweeper import _implementation
+    assert _implementation() is load_module(package, 'sweeper.py', paths=paths).ThetaOptunaSweeper
+    for removed in ('src.app.tuners.optuna.component', 'src.app.pipeline.tuners_optuna'):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(removed)
 
 
 def test_independent_scheduler_uses_the_same_dispatch(tmp_path):
@@ -124,21 +127,21 @@ def test_installed_optuna_runs_a_real_study_without_upstream_sweeper(tmp_path, m
     assert study.best_value is not None
 
 
-def test_site_aliases_come_from_provider_forwarding_files(tmp_path):
+def test_site_profiles_are_nested_and_a_bare_name_selects_default(tmp_path):
     from src.app.sites import profiles
     from src.app.sites.catalog import create, defaults_path, load, normalize, all_profiles
     paths = WorkspacePaths(tmp_path / 'workspace')
     install(paths, 'slurm', tmp_path / 'archives')
     available = all_profiles(paths)
-    assert normalize('ncshare_common', available) == 'ncshare/common'
     assert normalize('arc', available) == 'arc/default'
-    assert 'ncshare_common' not in profiles(paths) and 'ncshare/common' in profiles(paths)
-    assert defaults_path(paths, 'ncshare_gpu') == defaults_path(paths, 'ncshare/gpu')
-    # An authored variant that only inherits its defaults is a real profile, not an alias.
+    assert 'ncshare/common' in profiles(paths) and 'ncshare_common' not in available
+    assert defaults_path(paths, 'ncshare') == defaults_path(paths, 'ncshare/gpu')
+    with pytest.raises(ValueError, match='Unknown site profile'):
+        load(paths, 'ncshare_common')
+    # An authored variant that only inherits its defaults is a real profile.
     create(paths.root, 'lab', {'scheduler': 'slurm'}, {'fast': {}})
     available = all_profiles(paths)
     assert normalize('lab/fast', available) == 'lab/fast' and 'lab/fast' in profiles(paths)
-    assert load(paths, 'ncshare_common') == load(paths, 'ncshare/common')
 
 
 def test_new_site_records_only_an_explicit_scheduler(tmp_path):

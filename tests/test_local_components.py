@@ -11,8 +11,8 @@ from src.app.workspace import WorkspacePaths
 import yaml
 
 from frontend.hub.client import HubClient
-from frontend.hub.installer import HubInstaller
-from frontend.hub.models import HubComponent
+from src.app.components.installer import HubInstaller
+from src.app.components.models import HubComponent
 from src.app.services.local_components import LocalComponents
 
 
@@ -312,8 +312,6 @@ def test_saved_experiment_profile_runs_its_declared_identity_after_restart(model
     experiment = config_root / 'experiment/check.yaml'
     experiment.write_text('methods:\n  parent_run:\n    agent: probe\n    model: parent/default\n  fork_run:\n    agent: probe\n    model: fork/default\n')
     code = f"""import json
-import src.usr.models
-src.usr.models.__path__.insert(0, {str(ws / 'src/usr/models')!r})
 from src.app.core import model_registry
 model_registry.__file__ = {str(ws / 'src/app/core/model_registry.py')!r}
 from src.app.pipeline.config import parse_methods_dict
@@ -464,7 +462,7 @@ def test_install_release_then_copy_saved_implementation(model_workspace, tmp_pat
     import hashlib
     import shutil
 
-    from frontend.hub.models import ReleaseInfo
+    from src.app.components.models import ReleaseInfo
     from src.app.services.component_exporter import ComponentExporter, ComponentExportOptions
     source_ws, config = model_workspace
     package = tmp_path / 'release'

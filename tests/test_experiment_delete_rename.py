@@ -110,7 +110,7 @@ class TestTreeDeleteAndRename(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        root = Path(self.tmp.name)
+        root = Path(self.tmp.name) / "src/usr/config"
         group = root / "experiment" / "demo"
         group.mkdir(parents=True)
         (group / "_base.yaml").write_text(BASE)

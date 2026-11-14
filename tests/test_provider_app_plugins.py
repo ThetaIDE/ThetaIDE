@@ -29,7 +29,7 @@ def test_managed_app_plugin_uses_catalog_identity_and_releases_contributions(tmp
           'capabilities':[{'id':'my_panel','kind':'plugin','entry_point':'__init__.py:Panel'}]}
     with ZipFile(archive,'w') as z:
         z.writestr('.theta_component.json',json.dumps(meta))
-        z.writestr('plugin.json',json.dumps({'id':'my_panel','entry_point':'Panel','core':True,'default_enabled':True}))
+        z.writestr('plugin.json',json.dumps({'id':'my_panel','entry_point':'Panel','core':True,'default_enabled':True,'sdk':'>=2.0,<3'}))
         z.writestr('helper.py','VALUE=7\n')
         z.writestr('__init__.py', '''from frontend.plugins.base import Plugin
 from .helper import VALUE

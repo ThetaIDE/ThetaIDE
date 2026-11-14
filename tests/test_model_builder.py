@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from frontend.plugins.core.model_builder.graph import ModelGraph, model_config_yaml
+from src.plugins.app.bundled.model_builder.graph import ModelGraph, model_config_yaml
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -23,7 +23,7 @@ try:
     from PyQt6.QtWidgets import QApplication, QDialogButtonBox
 
     _app = QApplication.instance() or QApplication(sys.argv[:1])
-    from frontend.plugins.core.model_builder.dialog import ModelBuilderDialog
+    from src.plugins.app.bundled.model_builder.dialog import ModelBuilderDialog
 
     HAS_QT = True
 except ImportError:  # pragma: no cover - exercised only without a GUI build
@@ -390,7 +390,7 @@ class TestModelBuilderPlugin:
     def test_the_slot_contribution_knows_which_method_its_row_serves(self):
         from PyQt6.QtWidgets import QPushButton
 
-        from frontend.plugins.core.model_builder import ACTION_ID, SLOT_ID, ModelBuilderPlugin
+        from src.plugins.app.bundled.model_builder import ACTION_ID, SLOT_ID, ModelBuilderPlugin
         from frontend.plugins.slots import ExtensionSlot, ExtensionSlotWidget
 
         slot = ExtensionSlot(SLOT_ID)
@@ -427,7 +427,7 @@ class TestModelBuilderPlugin:
         assert [b.text() for b in widget.findChildren(QPushButton)] == ["Plain"]
 
     def test_deactivate_removes_the_contribution(self):
-        from frontend.plugins.core.model_builder import ACTION_ID, SLOT_ID, ModelBuilderPlugin
+        from src.plugins.app.bundled.model_builder import ACTION_ID, SLOT_ID, ModelBuilderPlugin
         from frontend.plugins.slots import ExtensionSlot
 
         slot = ExtensionSlot(SLOT_ID)

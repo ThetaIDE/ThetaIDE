@@ -81,9 +81,9 @@ def test_slurm_compute_node_defaults():
 
 
 def test_slurm_ncshare_split_sites():
-    """Verify live site=ncshare_common and site=ncshare_gpu Hydra profiles."""
-    # 1. ncshare_common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
-    cfg_common = compose_site("ncshare_common")
+    """Verify the site=ncshare/common and site=ncshare/gpu Hydra profiles."""
+    # 1. ncshare/common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
+    cfg_common = compose_site("ncshare/common")
     header_common = generate_sbatch_header("test_common", "logs", cfg_common)
     assert "#SBATCH --partition=common" in header_common
     assert "#SBATCH --cpus-per-task=4" in header_common
@@ -92,8 +92,8 @@ def test_slurm_ncshare_split_sites():
     assert cfg_common.site.consolidate is False
     assert "#SBATCH --time=" not in header_common
 
-    # 2. ncshare_gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
-    cfg_gpu = compose_site("ncshare_gpu")
+    # 2. ncshare/gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
+    cfg_gpu = compose_site("ncshare/gpu")
     header_gpu = generate_sbatch_header("test_gpu", "logs", cfg_gpu)
     assert "#SBATCH --partition=gpu" in header_gpu
     assert "#SBATCH --cpus-per-task=16" in header_gpu
@@ -105,7 +105,7 @@ def test_slurm_ncshare_split_sites():
 
 def test_slurm_script_is_depersonalized():
     """Verify that generated Slurm scripts contain no hardcoded home paths or user emails."""
-    cfg = compose_site("ncshare")
+    cfg = compose_site("ncshare/default")
     script = generate_sbatch_script(
         job_name="depersonalized_test",
         cmd_args=["+experiment=cartpole/test"],

@@ -7,7 +7,7 @@ import importlib
 import pkgutil
 import shutil
 
-from plot.base import BasePlotter, deep_update, create_plotter
+from src.app.core.plotting.base import BasePlotter, deep_update
 from src.app.core.plotter_registry import (
     PLOTTER_REGISTRY,
     auto_discover_plotters,
@@ -40,8 +40,10 @@ def run_experiment_plots(
     print(f"=== Auto-Generating Plots for Experiment: {exp_id} ===")
     print("==================================================")
 
+    if paths is None:
+        from src.app.workspace import WorkspacePaths
+        paths = WorkspacePaths.for_process()
     dummy_plotter = BasePlotter("manager", paths=paths)
-    paths = dummy_plotter.workspace
     exp_cfg = dummy_plotter.get_experiment_config(exp_id, exp_config_name=exp_config_name)
     requested_modules = get_requested_plots(exp_cfg, exp_id)
     if not requested_modules:
@@ -75,7 +77,7 @@ def run_experiment_plots(
             print(f"Cannot resolve plotter '{module_name}': {exc}")
             continue
         if plotter_cls is not None:
-            plotter = create_plotter(plotter_cls, paths)
+            plotter = plotter_cls(paths=paths)
             try:
                 plot_overrides = dict(overrides) if isinstance(overrides, dict) else {}
                 configured = exp_cfg.get("plot_overrides", {})

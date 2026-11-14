@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("PyQt6")
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from frontend.tensorboard import TensorBoardServer  # noqa: E402
+from src.plugins.app.bundled.tensorboard.server import TensorBoardServer  # noqa: E402
 
 app = QApplication.instance() or QApplication(sys.argv[:1])
 

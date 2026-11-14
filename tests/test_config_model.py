@@ -220,7 +220,7 @@ def test_overrides_use_hydra_group_names():
 
 
 def test_site_defaults_to_local():
-    assert "site=local" in Selection(experiment="tests/cartpole").to_overrides()
+    assert "site=local/default" in Selection(experiment="tests/cartpole").to_overrides()
 
 
 def test_unset_scalars_are_omitted():

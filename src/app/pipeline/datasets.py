@@ -296,7 +296,7 @@ def _execute_training(cmd, env, output_log, on_start=None):
 
 
 def run_plotting(experiment, style=None, base_experiment=None, site_cfg=None, wipe=False, use_cache=False, *, paths=None):
-    """Run plot/manager.py for the given experiment."""
+    """Run the plot manager (`python -m src.app.core.plotting.manager`) for the given experiment."""
     from src.app.pipeline.runtime import get_subprocess_env
 
     paths = paths or WorkspacePaths.for_process()
@@ -304,7 +304,7 @@ def run_plotting(experiment, style=None, base_experiment=None, site_cfg=None, wi
     env.update(paths.process_environment())
 
     venv_python = get_python_executable(site_cfg, paths=paths)
-    cmd = [venv_python, str(paths.application / "plot/manager.py"), str(experiment)]
+    cmd = [venv_python, "-m", "src.app.core.plotting.manager", str(experiment)]
     if base_experiment and str(base_experiment) != str(experiment):
         cmd.extend(["--experiment", str(base_experiment)])
     if style:

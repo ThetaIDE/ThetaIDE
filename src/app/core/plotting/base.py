@@ -1,10 +1,6 @@
 import os
 import sys
 
-from src.app.workspace import WorkspacePaths
-from src.app.workspace import PROJECT_ROOT as APPLICATION_ROOT
-PROJECT_ROOT = str(APPLICATION_ROOT)
-_DEFAULT_PROJECT_ROOT = PROJECT_ROOT
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,30 +91,12 @@ class PanelSpec:
     `draw` takes an Axes the caller owns and returns whether anything was
     drawn. Plotters that cannot draw into a supplied Axes report no panels,
     and the Plots pane falls back to capturing the figures they make
-    themselves (see plot/capture.py).
+    themselves (see src/app/core/plotting/capture.py).
     """
 
     key: str
     label: str
     draw: Callable[[Any], bool]
-
-
-# Bounded API-1 adapter: older plotters have a no-argument constructor calling
-# BasePlotter.__init__. Scope the host's explicit workspace without changing CWD/env.
-from contextvars import ContextVar
-_PLOTTER_WORKSPACE = ContextVar("theta_plotter_workspace", default=None)
-
-
-def create_plotter(cls, paths):
-    import inspect
-    parameters = inspect.signature(cls).parameters
-    if "paths" in parameters:
-        return cls(paths=paths)
-    token = _PLOTTER_WORKSPACE.set(paths)
-    try:
-        return cls()
-    finally:
-        _PLOTTER_WORKSPACE.reset(token)
 
 
 class BasePlotter:
@@ -128,10 +106,9 @@ class BasePlotter:
     # draw_metric(), which is what makes them composable into a shared figure.
     draws_metric_series: bool = False
 
-    def __init__(self, name: str, *, paths=None):
+    def __init__(self, name: str, *, paths):
         self.name = name
         from src.app.core.provider_catalog import get_catalog
-        paths = paths or _PLOTTER_WORKSPACE.get() or (WorkspacePaths.for_process() if PROJECT_ROOT == _DEFAULT_PROJECT_ROOT else WorkspacePaths(PROJECT_ROOT))
         self.workspace = paths
         selected = get_catalog(paths).resolve("plotter", name)
         self.plot_dir = selected[0].root if selected else paths.user("plotter")

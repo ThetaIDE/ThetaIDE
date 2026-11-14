@@ -21,11 +21,10 @@ from captum.attr import (
 )
 from torch.distributions.categorical import Categorical
 
-from src.app.core.provider_loader import provider_object
-get_nsfr_model = provider_object('nsfr', 'common.py:get_nsfr_model')
-from src.app.core.provider_loader import provider_object
-load_module = provider_object('nsfr', 'utils/common.py:load_module')
-from src.app.core.model_registry import register_model
+from src.app.api.packages import provider_export
+get_nsfr_model = provider_export('nsfr', 'get_nsfr_model')
+load_module = provider_export('nsfr', 'load_module')
+from src.app.api.models import register_model
 from src.app.core.types import ActionResult
 
 
@@ -40,7 +39,7 @@ def _softor(xs, dim=0, gamma=0.015):
 
 def _build_neural_agent(env_name, n_actions, device, arch_name=None, hidden_sizes=None, num_in_features=None,
                         model_options=None):
-    from src.app.core.model_registry import build_model
+    from src.app.api.models import build_model
 
     return build_model(
         arch_name or "dnn",
@@ -449,18 +448,16 @@ def build_blender_module(
         model_params = dict(blender_model) if hasattr(blender_model, "items") else {}
         selected_rules = model_params.get("rules", blender_rules)
         if selected_reasoner == "nsfr":
-            from src.app.core.provider_loader import provider_object
-            get_blender_nsfr_model = provider_object('nsfr', 'common.py:get_blender_nsfr_model')
+            get_blender_nsfr_model = provider_export('nsfr', 'get_blender_nsfr_model')
 
             return get_blender_nsfr_model(env.name, selected_rules, device, train=train, explain=explain)
         elif selected_reasoner == "neumann":
-            from src.app.core.provider_loader import provider_object
-            get_blender_neumann_model = provider_object('neumann', 'common.py:get_blender_neumann_model')
-            get_neumann_model = provider_object('neumann', 'common.py:get_neumann_model')
+            get_blender_neumann_model = provider_export('neumann', 'get_blender_neumann_model')
+            get_neumann_model = provider_export('neumann', 'get_neumann_model')
 
             return get_blender_neumann_model(env.name, selected_rules, device, train=train, explain=explain)
         if blender_model is not None:
-            from src.app.core.model_registry import build_model
+            from src.app.api.models import build_model
 
             obs = env.reset()
             if isinstance(obs, tuple):
@@ -475,7 +472,7 @@ def build_blender_module(
 
     if blender_mode == "neural":
         if blender_model is not None:
-            from src.app.core.model_registry import build_model
+            from src.app.api.models import build_model
 
             obs = env.reset()
             if isinstance(obs, tuple):
@@ -775,8 +772,7 @@ class BlenderActorCritic(nn.Module):
                 if m_type == "nsfr" or m_type == "neumann":
                     m_rules = _get_val(m_cfg, "rules", self.get_cfg("rules", "default"))
                     if self.reasoner == "neumann" or m_type == "neumann":
-                        from src.app.core.provider_loader import provider_object
-                        get_neumann_model = provider_object('neumann', 'common.py:get_neumann_model')
+                        get_neumann_model = provider_export('neumann', 'get_neumann_model')
 
                         m = get_neumann_model(env.name, m_rules, device=device, train=True, explain=self.explain)
                     else:
@@ -787,7 +783,7 @@ class BlenderActorCritic(nn.Module):
                         blender_rules = m_rules
                 elif m_type not in ("nsfr", "neumann", "neural"):
                     # Dynamically instantiate from MODEL_REGISTRY without hardcoded classes
-                    from src.app.core.model_registry import build_model
+                    from src.app.api.models import build_model
 
                     m = build_model(
                         m_cfg,
@@ -841,8 +837,7 @@ class BlenderActorCritic(nn.Module):
             # Add Logic modules
             for r in rulesets:
                 if self.reasoner == "neumann":
-                    from src.app.core.provider_loader import provider_object
-                    get_neumann_model = provider_object('neumann', 'common.py:get_neumann_model')
+                    get_neumann_model = provider_export('neumann', 'get_neumann_model')
 
                     la = get_neumann_model(env.name, r, device=device, train=True, explain=self.explain)
                 else:

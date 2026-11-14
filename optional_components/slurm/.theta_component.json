@@ -54,21 +54,11 @@
       "site/ncshare/_defaults.yaml": "configs/site/ncshare/_defaults.yaml",
       "site/ncshare/common.yaml": "configs/site/ncshare/common.yaml",
       "site/ncshare/default.yaml": "configs/site/ncshare/default.yaml",
-      "site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml",
-      "site/arc.yaml": "configs/site/arc.yaml",
-      "site/ncshare_gpu.yaml": "configs/site/ncshare_gpu.yaml",
-      "site/ncshare_common.yaml": "configs/site/ncshare_common.yaml",
-      "site/ncshare.yaml": "configs/site/ncshare.yaml"
+      "site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml"
     }
   },
   "dependencies": {
     "components": [],
     "pip": []
-  },
-  "compatibility_selectors": [
-    "site/arc.yaml",
-    "site/ncshare_gpu.yaml",
-    "site/ncshare_common.yaml",
-    "site/ncshare.yaml"
-  ]
+  }
 }

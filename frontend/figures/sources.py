@@ -2,7 +2,7 @@
 
 Two tiers, because not every plotter can draw into an Axes someone else
 owns. Those that can (BasePlotter.panels()) become composable panels. Those
-that build their own figures are offered through plot.capture instead, as
+that build their own figures are offered through src.app.core.plotting.capture instead, as
 whole figures that can be restyled and exported but not merged into a grid.
 
 Discovery is cached per (plotter, experiment): panels() reloads every
@@ -54,7 +54,7 @@ class PanelSource:
 
     def registry(self) -> dict[str, Any]:
         if self._registry is None:
-            from plot.manager import discover_plotters
+            from src.app.core.plotting.manager import discover_plotters
 
             from src.app.core.plotter_registry import get_plotter_class
             self._registry = {}
@@ -95,8 +95,7 @@ class PanelSource:
             self._panels[cache_key] = []
             return []
         try:
-            from src.app.core.plotting.base import create_plotter
-            found = create_plotter(cls, self.paths).panels(exp_id)
+            found = cls(paths=self.paths).panels(exp_id)
         except Exception as exc:
             # One broken plotter must not empty the whole catalogue.
             self._errors[cache_key] = f"{type(exc).__name__}: {exc}"
@@ -186,16 +185,15 @@ class PanelSource:
     def capture(self, plotter_name: str, exp_id: str) -> list:
         """Figures from a plotter that cannot draw into a supplied Axes.
 
-        Nothing is written to disk; see plot/capture.py.
+        Nothing is written to disk; see src/app/core/plotting/capture.py.
         """
-        from plot.capture import figures_from
+        from src.app.core.plotting.capture import figures_from
 
         cls = self.registry().get(plotter_name)
         if cls is None:
             return []
         try:
-            from src.app.core.plotting.base import create_plotter
-            return figures_from(create_plotter(cls, self.paths), exp_id)
+            return figures_from(cls(paths=self.paths), exp_id)
         except Exception as exc:
             self._errors[(plotter_name, exp_id)] = f"{type(exc).__name__}: {exc}"
             return []

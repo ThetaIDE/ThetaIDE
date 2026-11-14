@@ -71,7 +71,7 @@ class Publisher:
         from src.app.workspace import WorkspacePaths
         self.paths = WorkspacePaths(self.runtime)
         self.tuner_plan = record_plan(record, paths=self.paths)
-        self.directory = self.work / 'results/slurm' / record['execution_id']
+        self.directory = self.work / 'results/sites' / record['execution_id']
         self.directory.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.directory / 'publication.json'
         self.manifest = {'schema': SCHEMA, 'execution_id': record['execution_id'],
@@ -130,7 +130,7 @@ class Publisher:
 
     def _object(self, data):
         sha = hashlib.sha256(data).hexdigest()
-        relative = f'results/slurm/{self.record["execution_id"]}/objects/{sha}'
+        relative = f'results/sites/{self.record["execution_id"]}/objects/{sha}'
         target = safe_path(self.work, relative)
         if not target.exists():
             if self.object_bytes + len(data) > self.policy['max_published_bytes']:
@@ -158,7 +158,7 @@ class Publisher:
         final = final or self.finalizing
         budget = self.runtime / '.thetaide/diagnostic-budget.json'
         if budget.exists() and budget.stat().st_mtime_ns != self.budget_stamp:
-            destination = self.runtime / 'results/slurm' / self.record['execution_id'] / 'diagnostic-budget.json'
+            destination = self.runtime / 'results/sites' / self.record['execution_id'] / 'diagnostic-budget.json'
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(budget, destination)
             self.budget_stamp = budget.stat().st_mtime_ns

@@ -11,7 +11,7 @@ from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QTreeView
 
-from frontend.plugins.core.text_editor.explorer import FileExplorer
+from src.plugins.app.bundled.text_editor.explorer import FileExplorer
 
 _app = None
 

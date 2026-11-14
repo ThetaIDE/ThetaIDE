@@ -33,8 +33,8 @@ def isolated_job_config(fixture_workspace, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _register_test_agents():
-    from src.usr.algorithms.agent_registry import AGENT_REGISTRY, register_agent
-    from src.usr.algorithms.base_agent import OfflineAgentBase
+    from src.app.core.agent_registry import AGENT_REGISTRY, register_agent
+    from src.app.core.base_agent import OfflineAgentBase
 
     @register_agent("cql")
     class MockCQL(OfflineAgentBase):

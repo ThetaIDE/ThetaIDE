@@ -45,7 +45,7 @@ def test_nested_recipe_identity_reaches_every_provider(fixture_workspace, monkey
 
 def test_nested_results_can_be_discovered_read_and_plotted(tmp_path, monkeypatch):
     from frontend.figures.model import available_experiments
-    from plot.base import BasePlotter
+    from src.app.core.plotting.base import BasePlotter
     from src.app import telemetry
     from src.app.pipeline.experiment_snapshot import save_experiment_snapshot, save_run_config
     from src.app.pipeline.local_runner import _setup_output_dirs
@@ -105,7 +105,7 @@ def test_slurm_nested_results_use_valid_script_names(tmp_path, monkeypatch, cons
                             "site": {"name": "cluster", "python_executable": sys.executable},
                             "paradigm": "online_rl", "consolidate": consolidate, "plots": ["losses"]})
     record = submit(tmp_path, "group/path/dir/run", [], cfg)
-    directory = tmp_path / "results/slurm" / record["execution_id"]
+    directory = tmp_path / "results/sites" / record["execution_id"]
     assert (directory / "job.sbatch").is_file()
     assert len(submitted) == 1
     assert record["result_experiment_id"] == "path/dir/run/" + record["execution_id"]

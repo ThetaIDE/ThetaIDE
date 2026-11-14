@@ -791,9 +791,9 @@ def _readable_run_dirs(group: str, experiment_id: str, *, workspace=None):
     if remote:
         execution = remote.get('execution_id', '')
         check_path_segment(execution)
-        directory = results_dir(workspace=workspace) / 'slurm' / execution
+        directory = results_dir(workspace=workspace) / 'sites' / execution
         if directory.is_dir():
-            dirs['slurm'] = directory
+            dirs['sites'] = directory
     return dirs
 
 

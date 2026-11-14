@@ -5,8 +5,6 @@ Separation:
 - usr: Installed or locally authored components (methods, models, environments, evaluators)
 """
 
-# Historical saved Python targets resolve to canonical bundled objects.
-from src.app.core.import_aliases import install as _install_aliases
-_install_aliases()
-from src.app.core.provider_loader import install_namespace_finder as _install_provider_aliases
-_install_provider_aliases()
+# Authored and installed package modules import under src.plugins._workspace.
+from src.app.core.provider_loader import install_namespace_finder as _install_namespace_finder
+_install_namespace_finder()

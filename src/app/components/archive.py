@@ -136,9 +136,6 @@ def validate_native_package(meta, source):
     for cap in meta['capabilities']:
         if 'resource_root' in cap and not resource(cap['resource_root']).is_dir():
             raise ValueError('resource_root must name a package directory')
-    aliases = meta.get("compatibility_selectors", [])
-    if not isinstance(aliases, list) or any(not isinstance(key, str) or key not in payload["configs"] for key in aliases):
-        raise ValueError("compatibility_selectors must name explicitly packaged config profiles")
     return dict(payload["configs"])
 
 

@@ -45,7 +45,9 @@ def test_scheduler_preserves_canceller_reason_and_time(tmp_path, monkeypatch, ba
 
 
 def test_shutdown_closes_seeds_and_trials_without_changing_completed_work(tmp_path, monkeypatch):
-    record = {"execution_id": "a" * 32, "group": "g", "result_experiment_id": "nested/e", "config": {"tuning": {}}}
+    from component_fixtures import optuna_plan
+    record = {"execution_id": "a" * 32, "group": "g", "result_experiment_id": "nested/e",
+              "config": {"tuning": {"component": "optuna"}}, "tuner_execution": optuna_plan("a" * 32)}
     manifest = tmp_path / "results/executions/g/nested/e/x/manifest.json"
     write_json(manifest, {"runs": [{"status": s} for s in ("completed", "running", "queued")]})
     database = tmp_path / "results/optuna" / record["execution_id"] / "study.sqlite"

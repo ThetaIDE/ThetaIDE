@@ -16,12 +16,16 @@ def opening_targets(action, *, value, context, workspace):
         targets = rules_folder_targets(value=value, context=context)
     elif "handler" in action:
         handler = action["handler"]
-        from src.app.core.provider_loader import provider_object, resolve_resource
+        from src.app.core.provider_catalog import get_catalog
+        from src.app.core.provider_loader import load_module, resolve_resource
         from src.app.workspace import WorkspacePaths
         paths = WorkspacePaths(root)
         if handler['path'].startswith('package://'):
             package_id, _, relative = handler['path'][10:].partition('/')
-            callback = provider_object(package_id, relative + ':' + handler['function'], paths)
+            package = get_catalog(paths).package(package_id)
+            if package is None:
+                raise ValueError(f"Action handler package {package_id!r} is not installed")
+            callback = getattr(load_module(package, relative, paths=paths), handler['function'])
         else:
             source = resolve_resource(handler['path'], paths).resolve()
             if not source.is_relative_to(root) or not source.is_file():

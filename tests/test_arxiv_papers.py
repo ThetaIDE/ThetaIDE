@@ -15,10 +15,10 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication.instance() or QApplication(sys.argv[:1])
 
-from frontend.plugins.core.arxiv_papers import search as search_module  # noqa: E402
-from frontend.plugins.core.arxiv_papers.catalog import build_catalog, config_selectors, tag_counts, tag_phrase  # noqa: E402
-from frontend.plugins.core.arxiv_papers.panel import ArxivPanel  # noqa: E402
-from frontend.plugins.core.arxiv_papers.search import ArxivSearcher, Paper, SearchError, build_query  # noqa: E402
+from src.plugins.app.bundled.arxiv_papers import search as search_module  # noqa: E402
+from src.plugins.app.bundled.arxiv_papers.catalog import build_catalog, config_selectors, tag_counts, tag_phrase  # noqa: E402
+from src.plugins.app.bundled.arxiv_papers.panel import ArxivPanel  # noqa: E402
+from src.plugins.app.bundled.arxiv_papers.search import ArxivSearcher, Paper, SearchError, build_query  # noqa: E402
 
 
 

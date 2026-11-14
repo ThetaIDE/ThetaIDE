@@ -130,8 +130,8 @@ def test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process(tmp_pat
 sys.path.insert(0, {str(project)!r})
 sys.path.insert(0, {str(tmp_path / "src/usr/models")!r})
 import torch
-from src.app.core.provider_loader import provider_object
-get_nsfr_model = provider_object("nsfr", "common.py:get_nsfr_model")
+from src.app.core.provider_loader import provider_export
+get_nsfr_model = provider_export("nsfr", "get_nsfr_model")
 from src.app.services.rulesets import resolve_ruleset
 m = get_nsfr_model("unmapped_simulator", "cartpole/anticipatory_v1", "cpu", train=True)
 x = torch.tensor([[[0., 0., .03, -.8], [0., 0., .03, -.8]]])

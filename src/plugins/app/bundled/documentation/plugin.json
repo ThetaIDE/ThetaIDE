@@ -10,5 +10,5 @@
   "entry_point": "DocumentationPlugin",
   "storage_version": 3,
   "api_version": 1,
-  "sdk": ">=1.0,<2"
+  "sdk": ">=2.0,<3"
 }

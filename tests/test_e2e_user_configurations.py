@@ -29,8 +29,8 @@ from src.app.core.plotter_registry import (
     get_plotter_class,
     register_plotter,
 )
-from src.usr.algorithms.agent_registry import AGENT_REGISTRY, register_agent
-from src.usr.algorithms.base_agent import OfflineAgentBase, OnlineAgentBase
+from src.app.core.agent_registry import AGENT_REGISTRY, register_agent
+from src.app.core.base_agent import OfflineAgentBase, OnlineAgentBase
 
 # Pipeline orchestration and command builders
 from src.app.pipeline.commands import build_method_overrides
@@ -42,7 +42,7 @@ from src.app.core.lightning_builder import build_trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 # Plotting utilities
-from plot.base import clean_label, get_style, get_style_info, moving_average, deep_update
+from src.app.core.plotting.base import clean_label, get_style, get_style_info, moving_average, deep_update
 
 
 # ==============================================================================

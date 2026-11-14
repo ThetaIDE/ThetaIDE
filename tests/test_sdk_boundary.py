@@ -98,8 +98,8 @@ def test_headless_sdk_imports_without_qt_or_optional_libraries():
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("spec,ok", [(None, True), (">=1.0,<2", True), ("~=1.0", True),
-                                     (">=2", False), ("not a range", False), ("", False), (3, False)])
+@pytest.mark.parametrize("spec,ok", [(">=2.0,<3", True), ("~=2.0", True), (">=2", True), (None, False),
+                                     (">=1.0,<2", False), ("~=1.0", False), ("not a range", False), ("", False), (3, False)])
 def test_sdk_requirement_check(spec, ok):
     from src.app.api import sdk_requirement_error
     assert (sdk_requirement_error(spec) is None) is ok

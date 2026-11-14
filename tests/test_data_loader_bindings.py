@@ -156,10 +156,11 @@ def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(tmp_
     from src.app.core.provider_loader import resolve_provider
 
     from types import SimpleNamespace
-    from src.app.core.provider_loader import provider_object
-    adapter = SimpleNamespace(
-        ThetaActorCriticPolicy=provider_object('sb3-suite', 'theta_sb3_policy.py:ThetaActorCriticPolicy'),
-        ThetaDQNPolicy=provider_object('sb3-suite', 'theta_sb3_policy.py:ThetaDQNPolicy'))
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.core.provider_loader import load_module
+    from src.app.workspace import WorkspacePaths
+    policies = load_module(get_catalog(WorkspacePaths.for_process()).package('sb3-suite'), 'theta_sb3_policy.py')
+    adapter = SimpleNamespace(ThetaActorCriticPolicy=policies.ThetaActorCriticPolicy, ThetaDQNPolicy=policies.ThetaDQNPolicy)
     selected_cfg = {
         'model': {'architecture': 'blendrl-dev', 'actor_mode': actor_mode, 'blend_function': 'softmax',
                   'neural': {'type': 'dnn', 'hidden_sizes': [16, 16]},

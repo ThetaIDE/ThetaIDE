@@ -2,7 +2,7 @@
 from pathlib import Path
 import pytest
 
-from frontend.plugins.dependencies import (
+from src.app.components.dependencies import (
     check_missing_dependencies,
     is_module_installed,
     load_requirements_from_file,

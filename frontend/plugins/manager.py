@@ -10,7 +10,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from .base import Plugin, PluginManifest
 from .context import PluginContext
-from .dependencies import check_missing_dependencies, load_requirements_from_file
+from src.app.components.dependencies import check_missing_dependencies, load_requirements_from_file
 
 if TYPE_CHECKING:
     from ..app import Window

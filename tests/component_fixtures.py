@@ -39,3 +39,12 @@ def optional_module(name, relative):
     from src.app.core.provider_loader import load_module
     paths = optional_workspace(name)
     return load_module(get_catalog(paths).package(name), relative, paths=paths)
+
+
+def optuna_plan(execution_id):
+    """The serialized managed-SQLite plan the Optuna component records for a study allocation."""
+    from src.app.pipeline.tuner_execution import TunerArtifact, TunerExecutionPlan
+    return TunerExecutionPlan('optuna', execution_id,
+        artifacts=(TunerArtifact('study', f'results/optuna/{execution_id}/study.sqlite', True),),
+        trials=40, storage_kind='managed', distributions=('optuna', 'sqlalchemy'),
+        continuation_notes='reinitialized from configured seed; suggestion sequence can differ').record()

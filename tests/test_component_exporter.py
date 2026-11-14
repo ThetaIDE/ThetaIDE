@@ -6,7 +6,7 @@ import zipfile
 
 import pytest
 
-from frontend.hub.installer import HubInstaller
+from src.app.components.installer import HubInstaller
 from src.app.core.manifest_schema import validate_manifest_file
 from src.app.services.component_exporter import (
     ComponentExporter,
@@ -139,7 +139,7 @@ def test_hub_installer_can_install_exported_component(tmp_path, sample_component
     installer = HubInstaller(workspace_dir=target_ws, data_dir=tmp_path / ".thetaide")
 
     # Install the exported archive
-    from frontend.hub.models import HubComponent, ReleaseInfo, AuthorInfo
+    from src.app.components.models import HubComponent, ReleaseInfo, AuthorInfo
     comp = HubComponent(
         id="dueling_resnet",
         name="Dueling ResNet",

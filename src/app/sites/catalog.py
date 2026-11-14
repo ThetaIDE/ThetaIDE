@@ -17,27 +17,8 @@ def all_profiles(paths):
             for selector in resolver.selectors("site")}
 
 
-def _forwarding_target(path):
-    """Target of a historical top-level selector file that only forwards to one site profile."""
-    try:
-        data = yaml.safe_load(Path(path).read_text(encoding='utf-8'))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        return None
-    if not isinstance(data, dict) or set(data) != {'defaults'} or not isinstance(data['defaults'], list):
-        return None
-    targets = [entry for entry in data['defaults'] if entry != '_self_']
-    if len(targets) != 1 or not isinstance(targets[0], str) or not targets[0].startswith('/site/'):
-        return None
-    return targets[0].removeprefix('/site/')
-
-
 def normalize(selector, available):
-    """Canonical profile for a selector; provider-owned forwarding files define compatibility aliases."""
-    if '/' not in selector and selector in available:
-        target = _forwarding_target(available[selector])
-        # Only nested, selectable profiles are forwarding targets; authored variants stay distinct.
-        if target and '/' in target and not Path(target).name.startswith('_') and target in available:
-            selector = target
+    """Profile for a selector; a bare site name selects that site's ``default`` profile."""
     if '/' not in selector and selector + '/default' in available:
         selector += '/default'
     return selector

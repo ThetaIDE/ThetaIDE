@@ -15,8 +15,8 @@ from frontend.app import Window
 from frontend.launcher import collect_items
 from frontend.plugins.commands import Command, CommandRegistry
 from frontend.plugins.context import PluginContext
-from frontend.plugins.core.tensorboard import TensorBoardPlugin
-from frontend.plugins.core.tensorboard.server import TensorBoardServer
+from src.plugins.app.bundled.tensorboard import TensorBoardPlugin
+from src.plugins.app.bundled.tensorboard.server import TensorBoardServer
 from frontend.plugins.slots import ExtensionSlot, ExtensionSlotRegistry, ExtensionSlotWidget
 
 app = QApplication.instance() or QApplication(sys.argv[:1])

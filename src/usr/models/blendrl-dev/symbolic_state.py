@@ -18,11 +18,10 @@ class SymbolicStateLoader:
         if isinstance(builder, str):
             module, separator, function = builder.rpartition(":")
             if not separator or not module or not function:
-                raise ValueError("A symbolic observation builder must use module:function format.")
-            if module.startswith("package://"):
-                from src.app.core.provider_loader import provider_object
-                package, _, relative = module[10:].partition("/")
-                builder = provider_object(package, relative + ":" + function)
+                raise ValueError("A symbolic observation builder must use module:function or export://package:name format.")
+            if module.startswith("export://"):
+                from src.app.api.packages import provider_export
+                builder = provider_export(module[len("export://"):], function)
             else:
                 builder = getattr(importlib.import_module(module), function)
         if builder is not None and not callable(builder):

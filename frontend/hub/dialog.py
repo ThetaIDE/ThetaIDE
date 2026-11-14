@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 from ..sidetabs import svg_icon
 from ..theme import current_theme, theme_color
 from .client import HubClient
-from .models import HubComponent
+from src.app.components.models import HubComponent
 
 # Uninstall/remove are destructive in every theme, so they keep one red (with white text, which
 # reads on it at 4.9:1) rather than borrowing a theme role that is orange or purple in some palettes.

@@ -135,10 +135,9 @@ def prepare_plan(cfg, execution_id, *, paths=None):
 
 
 def record_plan(record, *, paths=None):
-    """New receipts explicitly carry a plan or null. Older receipts use a bounded reader."""
+    """The receipt's tuner execution plan, or None for a fixed job."""
     if 'tuner_execution' not in record:
-        from .tuner_execution_compat import legacy_plan
-        return legacy_plan(record, paths=paths)
+        raise ValueError('Unsupported site receipt: it records no tuner_execution')
     value = record['tuner_execution']
     plan = TunerExecutionPlan.from_record(value) if value is not None else None
     if plan and plan.execution_id != record['execution_id']:
@@ -147,45 +146,22 @@ def record_plan(record, *, paths=None):
 
 
 def record_config(record):
-    """Read execution config; only pre-portable receipts inherit old selection."""
+    """A copy of the configuration a receipt was launched with."""
     if 'tuner_execution' not in record:
-        from .tuner_execution_compat import legacy_config
-        return legacy_config(record)
+        raise ValueError('Unsupported site receipt: it records no tuner_execution')
     from copy import deepcopy
     return deepcopy(record.get('config') or {})
 
 
 def record_overrides(record):
-    """Make a historical selection explicit for replay, rejecting conflicts."""
-    import json
-    overrides = list(record.get('overrides') or [])
-    config = record_config(record)
-    selected = (config.get('tuning') or {}).get('component')
-    original = ((record.get('config') or {}).get('tuning') or {}).get('component')
-    if not selected or selected == original:
-        return overrides
-    retained = []
-    for arg in overrides:
-        if arg.lstrip('+').split('=', 1)[0] != 'tuning.component':
-            retained.append(arg)
-            continue
-        from hydra.core.override_parser.overrides_parser import OverridesParser
-        try:
-            value = OverridesParser.create().parse_override(arg).value()
-        except Exception as exc:
-            raise ConfigurationError('Invalid tuner selection override in historical receipt') from exc
-        if not isinstance(value, str) or value.casefold() != selected.casefold():
-            raise ConfigurationError('Historical receipt has conflicting tuner selections; resolve its config/override identity before replay')
-    return retained + ['++tuning.component=' + json.dumps(selected)]
+    """The Hydra overrides a receipt was launched with, for replay."""
+    record_config(record)
+    return list(record.get('overrides') or [])
 
 
 def launch_bindings(cfg, plan, runtime, *, continuation=None, paths=None):
     if plan is None:
         return TunerLaunchBindings()
-    from .tuner_execution_compat import fixed_bindings
-    historical = fixed_bindings(cfg, plan, Path(runtime))
-    if historical is not None:
-        return historical
     result = remote_tuner(plan, paths=paths).launch_bindings(
         cfg, plan=plan, runtime=Path(runtime), continuation=continuation)
     if not isinstance(result, TunerLaunchBindings):

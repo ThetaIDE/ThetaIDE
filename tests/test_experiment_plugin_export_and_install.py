@@ -6,8 +6,8 @@ import tempfile
 import pytest
 
 from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions
-from frontend.hub.models import HubComponent
-from frontend.hub.installer import HubInstaller
+from src.app.components.models import HubComponent
+from src.app.components.installer import HubInstaller
 from frontend.hub.dialog import HubView
 from frontend.hub.client import HubClient
 from PyQt6.QtWidgets import QApplication

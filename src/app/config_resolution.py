@@ -79,10 +79,7 @@ class ConfigResolver:
         kind = GROUP_KINDS.get(group.split("/", 1)[0])
         # Capability selection also selects profile/schema ownership. This is
         # deliberately the same catalog and override mechanism as execution.
-        # Declared forwarding-only selectors preserve historical Hydra aliases.
-        # Their defaults resolve the actual profile/provider; they own no capability.
-        forwarding = bool(candidates) and all(relative in p.manifest.get("compatibility_selectors", []) for p, _ in candidates)
-        selected = self.catalog.resolve(kind, relative.split("/", 1)[1].rsplit(".", 1)[0]) if kind and not forwarding else None
+        selected = self.catalog.resolve(kind, relative.split("/", 1)[1].rsplit(".", 1)[0]) if kind else None
         # Named site variants inherit their site's explicit provider ownership.
         if selected is None and kind == "site" and "/" in relative.split("/", 1)[1]:
             selected = self.catalog.resolve(kind, relative.split("/")[1])

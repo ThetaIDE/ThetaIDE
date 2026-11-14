@@ -270,19 +270,6 @@ def provider_export(package_id, name, *, paths=None, requester=None):
     return value
 
 
-def provider_object(package_id, entry_point, paths=None):
-    """Bounded API-1 adapter: load a file-path helper from another package.
-
-    Prefer `provider_export` with a declared manifest export; this adapter performs no
-    caller dependency validation and is retained for existing installed packages.
-    """
-    from src.app.core.provider_catalog import get_catalog, Capability
-    paths = paths or WorkspacePaths.for_process()
-    package = get_catalog(paths).package(package_id)
-    if package is None: raise ImportError(f"Required provider package {package_id!r} is not installed")
-    return load_capability(package, Capability(entry_point, "resource", entry_point), paths=paths)
-
-
 class _NamespaceLoader(importlib.abc.Loader):
     def __init__(self, package, relative, paths): self.package, self.relative, self.paths = package, relative, paths
     def create_module(self, spec): return load_module(self.package, self.relative, paths=self.paths)

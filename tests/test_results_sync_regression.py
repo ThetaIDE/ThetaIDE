@@ -84,7 +84,7 @@ def test_sealed_failed_run_without_runtime_exposes_saved_metrics(tmp_path, monke
 def test_sealed_failure_before_metrics_still_has_readable_result_files(tmp_path, monkeypatch):
     logs = tmp_path / 'results/logs'
     monkeypatch.setattr(catalog, 'LOGS_DIR', logs)
-    directory = tmp_path / 'results/slurm/execution'
+    directory = tmp_path / 'results/sites/execution'
     directory.mkdir(parents=True)
     (directory / 'pipeline.log').write_text('Configuration failed')
     save_remote(tmp_path, dict(group='group', result_experiment_id='nested/run', execution_id='execution',
@@ -92,10 +92,10 @@ def test_sealed_failure_before_metrics_still_has_readable_result_files(tmp_path,
     entries = catalog.list_runs(completed_only=True)
     assert len(entries) == 1 and entries[0]['finished'] and entries[0]['has_run_logs']
     manifest = catalog.run_manifest('group', 'nested/run', completed_only=True)
-    assert manifest['artifacts'][0]['path'] == 'slurm/execution/pipeline.log'
-    assert catalog.read_run_file('group', 'nested/run', 'slurm/execution/pipeline.log') == b'Configuration failed'
+    assert manifest['artifacts'][0]['path'] == 'sites/execution/pipeline.log'
+    assert catalog.read_run_file('group', 'nested/run', 'sites/execution/pipeline.log') == b'Configuration failed'
     with pytest.raises(PermissionError):
-        catalog.read_run_file('group', 'nested/run', 'slurm/other/pipeline.log')
+        catalog.read_run_file('group', 'nested/run', 'sites/other/pipeline.log')
 
 
 @pytest.mark.parametrize('persisted', [False, True])
@@ -143,7 +143,7 @@ def test_managed_publication_must_be_sealed_even_with_old_finalized_receipt():
 @pytest.mark.parametrize('state', ['failed', 'cancelled', 'timeout', 'out_of_memory', 'node_fail', 'submission_failed'])
 def test_terminated_unsealed_run_without_metrics_exposes_failure_logs(tmp_path, monkeypatch, state):
     monkeypatch.setattr(catalog, 'LOGS_DIR', tmp_path / 'results/logs')
-    directory = tmp_path / 'results/slurm/execution'
+    directory = tmp_path / 'results/sites/execution'
     directory.mkdir(parents=True)
     (directory / 'pipeline.err').write_text('Worker stopped before final publication')
     record = dict(group='group', result_experiment_id='nested/run', execution_id='execution',
@@ -157,7 +157,7 @@ def test_terminated_unsealed_run_without_metrics_exposes_failure_logs(tmp_path, 
     assert not remote_run_is_active(disk_run(entry))
     manifest = catalog.run_manifest('group', 'nested/run', completed_only=True)
     assert manifest['incomplete_results']
-    assert manifest['artifacts'][0]['path'] == 'slurm/execution/pipeline.err'
+    assert manifest['artifacts'][0]['path'] == 'sites/execution/pipeline.err'
     assert not results_complete(record)
 
 

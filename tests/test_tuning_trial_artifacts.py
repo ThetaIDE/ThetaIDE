@@ -32,7 +32,7 @@ def test_slurm_winner_command_quotes_study_arguments():
 
 
 def test_plotman_reads_generic_tuning_summary_and_writes_table_and_figure(tmp_path, monkeypatch):
-    from plot.standard_figures.tuning import TuningPlotter
+    from src.plugins.components.bundled.standard_figures.tuning import TuningPlotter
     from src.app.core.plotter_registry import auto_discover_plotters, get_plotter_class
 
     monkeypatch.chdir(tmp_path)
@@ -58,7 +58,8 @@ def test_plotman_reads_generic_tuning_summary_and_writes_table_and_figure(tmp_pa
                     "intermediate_values": {"0": 2}}],
     }))
     output = tmp_path / "plots"
-    plotter = TuningPlotter()
+    from src.app.workspace import WorkspacePaths
+    plotter = TuningPlotter(paths=WorkspacePaths(tmp_path))
     monkeypatch.setattr(plotter, "get_effective_config", lambda *args: ({}, "g", output))
     plotter.run("e")
     assert "param.lr" in (output / "tuning/m/trials.csv").read_text()
@@ -66,7 +67,7 @@ def test_plotman_reads_generic_tuning_summary_and_writes_table_and_figure(tmp_pa
     assert (output / "tuning/m/intermediate.png").is_file()
     auto_discover_plotters()
     assert get_plotter_class("tuning") is TuningPlotter
-    from plot.manager import run_experiment_plots
+    from src.app.core.plotting.manager import run_experiment_plots
 
     (root.parent / "config.yaml").write_text("group: g\nplots:\n  tuning: {}\n")
     from src.app.workspace import WorkspacePaths
@@ -708,7 +709,8 @@ def test_full_lightning_pipeline_sweep(tmp_path, monkeypatch, pruning, capfd):
                    for stream in streams for line in stream.read_text().splitlines())
         _, stderr = capfd.readouterr()
         assert "Error executing job with overrides" not in stderr
-        from plot.standard_figures.tuning import TuningPlotter
+        from src.plugins.components.bundled.standard_figures.tuning import TuningPlotter
 
-        TuningPlotter().run("g/e")
+        from src.app.workspace import WorkspacePaths
+        TuningPlotter(paths=WorkspacePaths(tmp_path)).run("g/e")
         assert Path("results/plots/g/e/tuning/m/intermediate.png").is_file()

@@ -24,7 +24,7 @@ class TestFileTreeToolbar(unittest.TestCase):
     def setUp(self):
         QSettings("ThetaIDE", "ThetaIDE").clear()
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name) / "src/usr/config"
         (self.root / "experiment" / "cartpole").mkdir(parents=True)
         (self.root / "experiment" / "cartpole" / "exp1.yaml").write_text("experiment_id: exp1\n", encoding="utf-8")
         self.tree_exp = ConfigTreeWidget(root_dir=self.root, mode="experiments")

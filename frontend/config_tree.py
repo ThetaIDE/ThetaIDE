@@ -1971,7 +1971,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def _get_installer(self):
         try:
-            from frontend.hub.installer import HubInstaller
+            from src.app.components.installer import HubInstaller
             paths = self._workspace_paths()
             return HubInstaller(workspace_dir=paths.root, data_dir=paths.data_dir)
         except Exception:
@@ -1988,7 +1988,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         if comp_meta and comp_meta.get("kind") == "model":
             from .component_actions import ComponentDevelopmentActions
-            from .hub.models import HubComponent
+            from src.app.components.models import HubComponent
             actions = ComponentDevelopmentActions(installer.workspace_dir, self)
             component = HubComponent.from_dict(comp_meta)
             record = actions.service.state()["records"].get(component.id, {})
@@ -2004,7 +2004,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 return
             if dlg.choice == "uninstall":
                 if comp_meta.get("kind") == "model":
-                    from .hub.models import HubComponent
+                    from src.app.components.models import HubComponent
                     try:
                         installer.uninstall(HubComponent.from_dict(comp_meta))
                     except Exception as exc:

@@ -9,7 +9,7 @@ try:
     from PyQt6.QtWidgets import QApplication, QLabel
     app = QApplication.instance() or QApplication(sys.argv[:1])
     from frontend.hub.dialog import HubComponentCard
-    from frontend.hub.models import AuthorInfo, HubComponent
+    from src.app.components.models import AuthorInfo, HubComponent
     from frontend.theme import BUILTINS
     HAS_PYQT6 = True
 except ImportError:

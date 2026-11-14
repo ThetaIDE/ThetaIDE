@@ -40,7 +40,7 @@ def plots(tmp_path, monkeypatch):
         'policy_scored_steps':2, 'membership_probability':.8,
         'visit_start_row':3*(i%2),'source_start_slot':3*i, 'action_rate':.1 if i%2 else .8}
         for i in range(6)]).to_csv(bundle/'segments.csv',index=False)
-    return cls(), bundle
+    return cls(paths=WorkspacePaths(tmp_path)), bundle
 
 
 def test_plotman_discovers_real_provider_panels(plots):

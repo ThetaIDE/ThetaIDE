@@ -15,9 +15,9 @@ try:
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     app = QApplication.instance() or QApplication(sys.argv[:1])
     from frontend.app import Window
-    from frontend.plugins.core.documentation import DocumentationPlugin
-    from frontend.plugins.core.documentation.content import get_all_articles, get_article_by_id, search_articles
-    from frontend.plugins.core.documentation.panel import DocumentationPanel
+    from src.plugins.app.bundled.documentation import DocumentationPlugin
+    from src.plugins.app.bundled.documentation.content import get_all_articles, get_article_by_id, search_articles
+    from src.plugins.app.bundled.documentation.panel import DocumentationPanel
     HAS_PYQT6 = True
 except ImportError:
     HAS_PYQT6 = False
@@ -216,7 +216,7 @@ class TestDocumentationPlugin(unittest.TestCase):
 
     def test_code_blocks_render_as_one_box(self):
         """Qt paints a <pre> background per line (stripes); each block becomes a one-cell table."""
-        from frontend.plugins.core.documentation.panel import _boxed_code_blocks
+        from src.plugins.app.bundled.documentation.panel import _boxed_code_blocks
 
         article = get_article_by_id("cli_workflows")
         blocks = article.html_content.count("<pre><code>")
@@ -242,7 +242,7 @@ class TestDocumentationPlugin(unittest.TestCase):
         from PyQt6.QtCore import QUrl
         from PyQt6.QtGui import QTextDocument
 
-        from frontend.plugins.core.documentation.panel import DIAGRAM_DIR
+        from src.plugins.app.bundled.documentation.panel import DIAGRAM_DIR
 
         article = get_article_by_id("architecture")
         self.assertIsNotNone(article)
@@ -260,7 +260,7 @@ class TestDocumentationPlugin(unittest.TestCase):
         self.assertFalse(image.isNull())
 
     def test_diagrams_render_in_the_current_theme(self):
-        from frontend.plugins.core.documentation.panel import DIAGRAM_DIR, diagram_svg, render_diagram
+        from src.plugins.app.bundled.documentation.panel import DIAGRAM_DIR, diagram_svg, render_diagram
         from frontend.theme import BUILTINS
 
         names = sorted(p.stem for p in DIAGRAM_DIR.glob("*.svg"))
@@ -284,7 +284,7 @@ class TestDocumentationPlugin(unittest.TestCase):
     def test_clicking_a_diagram_opens_it_full_size(self):
         from PyQt6.QtCore import QUrl
 
-        from frontend.plugins.core.documentation.panel import DiagramDialog
+        from src.plugins.app.bundled.documentation.panel import DiagramDialog
 
         panel = DocumentationPanel(context=None)
         self.addCleanup(panel.deleteLater)
@@ -298,8 +298,8 @@ class TestDocumentationPlugin(unittest.TestCase):
         dialogs[0].close()
 
     def test_outline_is_categories_articles_and_sections(self):
-        from frontend.plugins.core.documentation.content import ARTICLES
-        from frontend.plugins.core.documentation.panel import ARTICLE, CATEGORY, SECTION, article_sections
+        from src.plugins.app.bundled.documentation.content import ARTICLES
+        from src.plugins.app.bundled.documentation.panel import ARTICLE, CATEGORY, SECTION, article_sections
 
         panel = DocumentationPanel(context=None)
         self.addCleanup(panel.deleteLater)
@@ -418,7 +418,7 @@ class TestDocumentationPlugin(unittest.TestCase):
         self.assertGreater(panel.browser.verticalScrollBar().value(), 0)
 
     def test_page_header_replaces_the_articles_own_title(self):
-        from frontend.plugins.core.documentation.panel import TEXT_WIDTH, article_body
+        from src.plugins.app.bundled.documentation.panel import TEXT_WIDTH, article_body
 
         article = get_article_by_id("overview")
         body = article_body(article)

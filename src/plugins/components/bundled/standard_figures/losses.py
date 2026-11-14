@@ -8,11 +8,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from plot.base import BasePlotter, clean_label, get_style_info, moving_average
+from src.app.api.plotting import BasePlotter, clean_label, get_style_info, moving_average
 
 
 class LossesPlotter(BasePlotter):
-    def __init__(self, *, paths=None):
+    def __init__(self, *, paths):
         super().__init__("losses", paths=paths)
 
     def run(self, exp_id: str, cli_overrides: dict | None = None):

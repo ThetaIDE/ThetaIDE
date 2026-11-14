@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.tuners import get_tuner, tuner_name
-from src.app.pipeline.tuner_execution import TunerExecutionPlan, prepare_plan, record_config, record_plan, record_overrides
+from src.app.pipeline.tuner_execution import TunerExecutionPlan, prepare_plan, record_config, record_overrides
 from src.app.workspace import WorkspacePaths
 
 
@@ -87,16 +87,6 @@ def test_unselected_sweep_rejected_by_validation_remote_and_worker(tmp_path):
             check()
 
 
-@pytest.mark.parametrize('tuning', [{}, {'component': None}, {'component': ''}])
-def test_old_receipt_config_is_adapted_without_mutation(tuning):
-    record = {'schema_version': 1, 'execution_id': 'a' * 32, 'config': {'tuning': tuning}}
-    before = copy.deepcopy(record)
-    cfg = record_config(record)
-    assert cfg['tuning']['component'] == 'optuna'
-    assert record == before
-    assert record_plan(record).component == tuner_name(cfg)
-
-
 @pytest.mark.parametrize('marker', [None, TunerExecutionPlan('optuna', 'a' * 32).record()])
 def test_new_receipts_never_inherit_historical_selection(marker):
     record = {'execution_id': 'a' * 32, 'tuner_execution': marker, 'config': {'tuning': {}}}
@@ -106,34 +96,27 @@ def test_new_receipts_never_inherit_historical_selection(marker):
         tuner_name(cfg)
 
 
-def test_fixed_and_other_tuner_receipts_keep_their_original_meaning():
+def test_receipt_config_is_returned_as_a_copy():
     for cfg in ({}, {'tuning': None}, {'tuning': {'component': 'another'}}):
-        record = {'execution_id': 'a' * 32, 'config': cfg}
+        record = {'execution_id': 'a' * 32, 'tuner_execution': None, 'config': cfg}
         assert record_config(record) == cfg
         assert record_config(record) is not cfg
-    with pytest.raises(ValueError, match='legacy site receipt schema'):
-        record_config({'schema_version': 99, 'execution_id': 'a' * 32, 'config': {'tuning': {}}})
+    with pytest.raises(ValueError, match='records no tuner_execution'):
+        record_config({'execution_id': 'a' * 32, 'config': {'tuning': {}}})
 
 
-@pytest.mark.parametrize('override', ['tuning.component=optuna', '++tuning.component="OPTUNA"'])
-def test_consistent_historical_overrides_are_normalized_in_a_copy(override):
-    record = {'execution_id': 'a' * 32, 'config': {'tuning': {}}, 'overrides': ['seed=3', override]}
-    before = copy.deepcopy(record)
+def test_receipt_overrides_are_replayed_unchanged():
+    record = {'execution_id': 'a' * 32, 'tuner_execution': None, 'config': {},
+              'overrides': ['seed=3', '++tuning.component="optuna"']}
     assert record_overrides(record) == ['seed=3', '++tuning.component="optuna"']
-    assert record == before
+    assert record_overrides(record) is not record['overrides']
 
 
-@pytest.mark.parametrize('override', ['tuning.component=another', '++tuning.component=42'])
-def test_conflicting_historical_selection_is_rejected(override):
-    record = {'execution_id': 'a' * 32, 'config': {'tuning': {}}, 'overrides': [override]}
-    with pytest.raises(ConfigurationError, match='conflicting tuner selections'):
-        record_overrides(record)
-
-
-def test_historical_continuation_identity_matches_explicit_recipe(tmp_path):
+def test_continuation_identity_ignores_the_trial_budget(tmp_path):
     from src.app.sites.continuation import compatibility
-    record = {'execution_id': 'a' * 32, 'config': {'tuning': {
-        'metric': 'score', 'direction': 'maximize', 'n_trials': 2}}}
+    from component_fixtures import optuna_plan
+    record = {'execution_id': 'a' * 32, 'tuner_execution': optuna_plan('a' * 32), 'config': {'tuning': {
+        'component': 'optuna', 'metric': 'score', 'direction': 'maximize', 'n_trials': 2}}}
     current = copy.deepcopy(record_config(record))
     current['tuning']['n_trials'] = 10
     from component_fixtures import install_optional

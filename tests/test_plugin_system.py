@@ -29,6 +29,7 @@ SAMPLE_PLUGIN_JSON = {
     "author": "ThetaIDE Test",
     "default_enabled": False,
     "entry_point": "SamplePlugin",
+    "sdk": ">=2.0,<3",
 }
 
 SAMPLE_PLUGIN_SOURCE = """
@@ -238,7 +239,7 @@ class TestPluginSystem(unittest.TestCase):
 
     def test_hub_dialog_sort_uninstalled_first(self):
         """HubDialog can sort components such that uninstalled items appear first."""
-        from frontend.hub.models import HubComponent
+        from src.app.components.models import HubComponent
         from frontend.hub.dialog import HubDialog
 
         client = self.window.hub_client

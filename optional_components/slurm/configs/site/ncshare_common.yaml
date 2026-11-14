@@ -1,5 +1,0 @@
-# @package site
-# Compatibility selector; edit the owning site component.
-defaults:
-  - /site/ncshare/common
-  - _self_

@@ -9,6 +9,9 @@ functionality from the modules of this package only:
 ``src.app.api.execution``  engines, worker processes, interpreters and resource admission
 ``src.app.api.tuning``     portable tuner execution, objectives and trial artifacts
 ``src.app.api.models``     model provider registration and construction (loads PyTorch)
+``src.app.api.agents``     Lightning agent base classes and registration (loads Lightning)
+``src.app.api.plotting``   plotter base class and shared figure styling
+``src.app.api.packages``   declared cross-package exports (``provider_export``)
 ``src.app.api.sites``      remote sites: profiles, transport, receipts, policy and publication
 ``src.app.api.desktop``    app-plugin base classes, host context and shared Qt widgets
 
@@ -19,31 +22,30 @@ implementation and may change without notice.
 
 The SDK is versioned independently of package storage formats. Minor versions
 only add exports or context services; a major version may remove them. App
-plugins declare the range they were written for as ``"sdk": ">=1.0,<2"`` in
+plugins declare the range they were written for as ``"sdk": ">=2.0,<3"`` in
 their capability metadata; the host refuses activation when it cannot satisfy
 it. This namespace becomes ``src.ide.api`` at consolidation, with forwarding.
 """
 from __future__ import annotations
 
-SDK_VERSION = "1.1"
+SDK_VERSION = "2.0"
 
 
 def sdk_requirement_error(spec) -> str | None:
     """Explain why an SDK requirement is unsatisfied, or return None.
 
-    An absent requirement is accepted: packages written before the SDK was
-    versioned target its first release.
+    Every app plugin must declare the range it was written for.
     """
     if spec is None:
-        return None
+        return "declares no sdk requirement; declare the range it was written for, such as '>=2.0,<3'"
     if not isinstance(spec, str) or not spec.strip():
-        return "declares an invalid sdk requirement; use a PEP 440 range such as '>=1.0,<2'"
+        return "declares an invalid sdk requirement; use a PEP 440 range such as '>=2.0,<3'"
     from packaging.specifiers import InvalidSpecifier, SpecifierSet
     from packaging.version import Version
     try:
         allowed = SpecifierSet(spec)
     except InvalidSpecifier:
-        return f"declares an invalid sdk requirement {spec!r}; use a PEP 440 range such as '>=1.0,<2'"
+        return f"declares an invalid sdk requirement {spec!r}; use a PEP 440 range such as '>=2.0,<3'"
     if Version(SDK_VERSION) not in allowed:
         return f"requires Theta SDK {spec}, but this host provides SDK {SDK_VERSION}; install a compatible release"
     return None

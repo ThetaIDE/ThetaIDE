@@ -6,8 +6,8 @@ import zipfile
 
 import pytest
 
-from frontend.hub.installer import HubInstaller
-from frontend.hub.models import AuthorInfo, HubComponent, ReleaseInfo
+from src.app.components.installer import HubInstaller
+from src.app.components.models import AuthorInfo, HubComponent, ReleaseInfo
 from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions, ExportResult
 
 

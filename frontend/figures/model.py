@@ -219,7 +219,7 @@ def render(
     """Draw *spec* into a Figure.
 
     *resolve* maps a PanelRef to something with a .draw(ax) -> bool, which is
-    what plot.base.PanelSpec provides. *dpi* is for export; leave it unset
+    what src.app.api.plotting.PanelSpec provides. *dpi* is for export; leave it unset
     for a preview and let the figure keep the screen resolution it has. A panel that cannot be resolved or
     draws nothing leaves a labelled empty Axes rather than vanishing, so a
     missing source is visible instead of silently changing the layout.

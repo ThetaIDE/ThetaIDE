@@ -10,8 +10,8 @@ from omegaconf import OmegaConf
 
 from src.app.pipeline.engine import resolve_engine
 from src.app.core.env_vectorized import VectorizedBaseEnv
-from frontend.hub.installer import HubInstaller
-from frontend.hub.models import AuthorInfo, HubComponent, ReleaseInfo
+from src.app.components.installer import HubInstaller
+from src.app.components.models import AuthorInfo, HubComponent, ReleaseInfo
 
 
 def test_benchmark_engine_resolution():

@@ -1949,7 +1949,7 @@ def test_data_loader_box_edits_method_bindings_and_preserves_inherited_selection
 def test_site_always_above_runtime_settings_without_creating_override(viewer, rel):
     widget = load(viewer, {'paradigm': 'online_rl', 'trainer': {'max_epochs': 3}}, rel)
     site = widget.field_widgets['site']
-    assert site.currentText() == 'local (default)'
+    assert site.currentText() == 'local/default (default)'
     assert widget._site_selection(widget.raw_data) is None
     site_label = next(item for item in boxes(widget)[0].findChildren(QLabel) if item.text() == 'Site')
     trainer_label = next(item for item in boxes(widget)[0].findChildren(QLabel) if item.text() == 'trainer')
@@ -1960,7 +1960,7 @@ def test_site_always_above_runtime_settings_without_creating_override(viewer, re
     assert 'site=ncshare/common' in widget.get_overrides()
     widget._set_experiment_site(None)
     assert widget._site_selection(widget.raw_data) is None
-    assert widget.field_widgets['site'].currentText() == 'local (default)'
+    assert widget.field_widgets['site'].currentText() == 'local/default (default)'
 
 
 def test_site_resources_use_shared_nested_controls(viewer):

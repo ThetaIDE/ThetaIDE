@@ -32,7 +32,7 @@ def pin(root, record, request):
     if not previous.get('execution_policy') or previous.get('remote_cleaned_at'):
         raise ValueError('Prior execution has no retained managed publication')
     work = Path(previous['execution_policy']['work_root'])
-    publication = read_json(work / 'results/slurm' / previous['execution_id'] / 'publication.json')
+    publication = read_json(work / 'results/sites' / previous['execution_id'] / 'publication.json')
     from src.app.pipeline.tuner_execution import record_plan, record_config
     from src.app.workspace import WorkspacePaths
     paths = WorkspacePaths(root)
@@ -49,7 +49,7 @@ def pin(root, record, request):
     if record['source_sha256'] != previous['source_sha256']:
         raise ValueError('Continuation requires identical source/dependency pins; migration is explicit')
     lineage = previous.get('continuation', {}).get('lineage_id', previous['execution_id'])
-    for path in (Path(root) / 'results/slurm').glob('*/submission.json'):
+    for path in (Path(root) / 'results/sites').glob('*/submission.json'):
         other = read_json(path)
         if other['execution_id'] == record['execution_id']: continue
         if other.get('continuation', {}).get('lineage_id') == lineage:
@@ -111,4 +111,4 @@ def restore(runtime, record):
         if digest(destination) != item['sha256']: raise ValueError('Checkpoint dependency checksum mismatch')
     remote_tuner(plan, paths=paths).restore_continuation(record['config'], plan=plan,
         runtime=Path(runtime), lineage=lineage)
-    write_json(Path(runtime) / 'results/slurm' / record['execution_id'] / 'lineage.json', lineage)
+    write_json(Path(runtime) / 'results/sites' / record['execution_id'] / 'lineage.json', lineage)

@@ -16,8 +16,8 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from frontend.editor_service import EditorService
-from frontend.plugins.core.text_editor.documents import Document, FileConflictError
-from frontend.plugins.core.text_editor.panel import TextEditorPanel
+from src.plugins.app.bundled.text_editor.documents import Document, FileConflictError
+from src.plugins.app.bundled.text_editor.panel import TextEditorPanel
 from frontend.settings import SettingsManager
 from src.app.workspace import WorkspacePaths
 from frontend.theme import ThemeManager
@@ -108,7 +108,7 @@ def test_failed_atomic_write_keeps_original_and_dirty_buffer(tmp_path):
     path.write_text("original")
     doc = Document.open(path)
     doc.text = "changes"
-    with patch("frontend.plugins.core.text_editor.documents.os.replace", side_effect=OSError("disk full")):
+    with patch("src.plugins.app.bundled.text_editor.documents.os.replace", side_effect=OSError("disk full")):
         with pytest.raises(OSError):
             doc.save()
     assert path.read_text() == "original"
@@ -257,7 +257,7 @@ def test_save_as_cancel_preserves_unsaved_buffer(panel):
     evaluate(
         panel, "document.querySelector('.cm-content').focus(); document.execCommand('insertText', false, 'new text')"
     )
-    with patch("frontend.plugins.core.text_editor.panel.QFileDialog.getSaveFileName", return_value=("", "")):
+    with patch("src.plugins.app.bundled.text_editor.panel.QFileDialog.getSaveFileName", return_value=("", "")):
         assert not panel.save_current()
     assert doc.dirty
     assert doc.path is None

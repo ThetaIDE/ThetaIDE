@@ -8,7 +8,7 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.app.pipeline.tuner_execution import (TunerArtifact, TunerExecutionPlan, TunerLaunchBindings,
-    prepare_plan, record_plan, read_remote_snapshots, launch_bindings)
+    prepare_plan, record_plan, read_remote_snapshots)
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.sites import execution
 from src.app.sites.continuation import compatibility, restore
@@ -61,7 +61,7 @@ p.write_text(json.dumps({'trials': [{'id': 0, 'state': 'complete', 'value': 7}, 
     assert 'optuna' not in json.dumps(parent['overrides'])
     assert execution.run(root, parent['execution_id']) == 0
     parent = read_json(execution.receipt_path(root, parent['execution_id']))
-    manifest = read_json(work / 'results/slurm' / parent['execution_id'] / 'publication.json')
+    manifest = read_json(work / 'results/sites' / parent['execution_id'] / 'publication.json')
     export = next(item for item in manifest['files'] if item['category'] == 'database')
     assert export['path'].endswith('/search.json')
     assert 'optuna' not in manifest['dependencies']
@@ -131,9 +131,9 @@ def test_bindings_cannot_override_host_resource_or_workspace_policy(bindings):
     with pytest.raises(ValueError): TunerLaunchBindings(**bindings)
 
 
-def test_legacy_receipts_have_a_bounded_reader():
-    plan = record_plan({'execution_id': 'a'*32})
-    assert plan.artifact('study').path == 'results/optuna/' + 'a'*32 + '/study.sqlite'
+def test_receipts_must_record_their_tuner_plan():
+    with pytest.raises(ValueError, match='records no tuner_execution'):
+        record_plan({'execution_id': 'a'*32})
     assert record_plan({'execution_id': 'a'*32, 'tuner_execution': None}) is None
 
 
@@ -146,7 +146,7 @@ def test_final_publication_drains_multiple_artifacts_with_one_queue_slot(tmp_pat
     plan = TunerExecutionPlan('fixture-grid', identity, artifacts=artifacts)
     record = {'execution_id': identity, 'project_id': 'fixture', 'group': 'g',
               'result_experiment_id': 'e', 'tuner_execution': plan.record()}
-    (runtime / 'results/slurm' / identity).mkdir(parents=True)
+    (runtime / 'results/sites' / identity).mkdir(parents=True)
     for artifact in artifacts:
         path = runtime / artifact.path; path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"trials": []}')  # Complete snapshot bytes need no trailing newline.
@@ -164,7 +164,7 @@ def test_snapshot_hook_must_publish_a_closed_file(tmp_path, monkeypatch):
     plan = prepare_plan({'tuning': {'component': 'fixture-grid'}}, 'a'*32, paths=WorkspacePaths(runtime))
     record = {'execution_id': 'a'*32, 'project_id': 'fixture', 'group': 'g',
               'result_experiment_id': 'e', 'tuner_execution': plan.record()}
-    (runtime / 'results/slurm' / ('a'*32)).mkdir(parents=True)
+    (runtime / 'results/sites' / ('a'*32)).mkdir(parents=True)
     state = runtime / plan.artifact('search').path; state.parent.mkdir(parents=True)
     state.write_text('{}')
     publisher = Publisher(runtime, tmp_path / 'work', record, DEFAULTS)
@@ -181,40 +181,6 @@ def test_serialized_plan_versions_and_collections_are_validated(change):
     with pytest.raises(ValueError): TunerExecutionPlan.from_record(value)
 
 
-def test_legacy_external_and_local_only_receipts_do_not_gain_managed_storage(monkeypatch):
-    monkeypatch.setattr('src.app.pipeline.tuners.get_tuner', lambda *a, **kw: pytest.fail('Legacy metadata reader executed a provider'))
-    external = record_plan({'execution_id': 'a'*32, 'tuning_storage_kind': 'external',
-                            'config': {'tuning': {'component': 'optuna'}}})
-    assert external.storage_kind == 'external' and not external.artifacts
-    assert record_plan({'execution_id': 'a'*32, 'config': {'tuning': {'component': 'old-local-only'}}}) is None
-
-
-def test_legacy_fixed_job_bindings_preserve_no_tuning(tmp_path):
-    plan = record_plan({'execution_id': 'a'*32})
-    bindings = launch_bindings({}, plan, tmp_path)
-    assert bindings.overrides == ()
-    assert bindings.environment['THETA_SQLITE_ROOT'].endswith('a'*32)
-
-
-def test_legacy_allocation_replay_makes_provider_explicit_without_rewriting_config(tmp_path, monkeypatch):
-    captured = tmp_path / 'captured.json'
-    script = f'import json,sys\nfrom pathlib import Path\nPath({str(captured)!r}).write_text(json.dumps(sys.argv[1:]))\n'
-    root, scratch, work, cfg = managed(tmp_path, script)
-    from component_fixtures import install_optional
-    install_optional(root, 'optuna', tmp_path / 'archives')
-    refresh_source(root)
-    fake_submit(monkeypatch)
-    record = execution.submit(root, 'g/e', [], cfg)
-    record.pop('tuner_execution')
-    record['config']['tuning'] = {}
-    write_json(execution.receipt_path(root, record['execution_id']), record)
-    assert execution.run(root, record['execution_id']) == 0
-    args = json.loads(captured.read_text())
-    assert '++tuning.component="optuna"' in args
-    saved = read_json(execution.receipt_path(root, record['execution_id']))
-    assert saved['config']['tuning'] == {}
-
-
 def test_legacy_allocation_layout_applies_portable_tuner_environment(tmp_path, monkeypatch):
     script = '''import os
 from pathlib import Path
@@ -229,8 +195,3 @@ p.write_text('{"trials": []}')
     record = execution.submit(root, 'g/e', [], cfg)
     assert execution.run(root, record['execution_id']) == 0
     assert (root / record_plan(record).artifact('search').path).is_file()
-
-
-def test_unknown_legacy_receipt_schema_is_rejected():
-    with pytest.raises(ValueError, match='legacy site receipt'):
-        record_plan({'execution_id': 'a'*32, 'schema_version': 99})

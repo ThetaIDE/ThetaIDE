@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from frontend.hub.client import HubClient
 from frontend.hub.dialog import HubView
-from frontend.hub.models import HubComponent
+from src.app.components.models import HubComponent
 
 
 class WindowShowRecorder(QObject):

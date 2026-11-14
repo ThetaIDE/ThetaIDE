@@ -41,7 +41,8 @@ def project(root):
 def record(root, state='completed'):
     project(root)
     execution_id = 'a' * 32
-    value = {'schema_version': 1, 'execution_id': execution_id, 'project_id': workspace_id(root),
+    value = {'schema_version': 1, 'scheduler_component': 'slurm', 'tuner_execution': None,
+             'execution_id': execution_id, 'project_id': workspace_id(root),
              'site': 'cluster', 'group': 'demo', 'result_experiment_id': 'nested/test__' + execution_id,
              'state': state, 'scheduler_state': state, 'job_id': '123', 'artifacts_finalized': False}
     path = execution.receipt_path(root, execution_id)
@@ -76,8 +77,8 @@ def fake_pull(monkeypatch, remote_root, local_root):
 def test_explicit_scheduler_and_packaged_profiles(tmp_path):
     assert scheduler({'site': {'name': 'custom', 'scheduler': 'local'}}) == 'local'
     assert scheduler({'site': {'name': 'local'}}) == 'local'
-    with pytest.raises(ValueError, match="does not declare site.scheduler.*implied 'slurm'"):
-        scheduler({'site': {'name': 'legacy_cluster'}})
+    with pytest.raises(ValueError, match="does not declare site.scheduler"):
+        scheduler({'site': {'name': 'cluster'}})
     # Any nonempty selector is a capability name; installation is checked when it is resolved.
     assert scheduler({'site': {'scheduler': 'lattice-batch'}}) == 'lattice-batch'
     with pytest.raises(ValueError): scheduler({'site': {'scheduler': ' '}})
@@ -170,10 +171,10 @@ def test_unknown_submission_is_not_retried(tmp_path, monkeypatch):
     cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}})
     with pytest.raises(RuntimeError): execution.submit(root, 'demo/test', [], cfg)
     assert len(calls) == 1
-    receipt = read_json(next((root / 'results/slurm').glob('*/submission.json')))
+    receipt = read_json(next((root / 'results/sites').glob('*/submission.json')))
     assert receipt['state'] == 'submission_unknown'
     assert receipt['result_experiment_id'] == 'test/' + receipt['execution_id']
-    script = next((root / 'results/slurm').glob('*/job.sbatch')).read_text()
+    script = next((root / 'results/sites').glob('*/job.sbatch')).read_text()
     assert 'unset THETA_RESOURCE_POOL' in script
     assert '_run' in script
 
@@ -271,19 +272,6 @@ def test_scheduler_finishing_is_distinct_from_submission_exit(tmp_path, monkeypa
     updated = execution.refresh_status(tmp_path, value)
     assert updated['state'] == 'timeout'
     assert updated['exit_code'] == '0:15'
-
-
-def test_legacy_live_sqlite_sync_is_rejected(tmp_path, monkeypatch):
-    import sqlite3
-    value, logs, _ = record(tmp_path, 'running')
-    with sqlite3.connect(logs / 'study.sqlite') as db:
-        db.execute('create table trials (score integer)')
-        db.execute('insert into trials values (7)')
-    monkeypatch.setattr(transfer, 'refresh_status', lambda root, value: value)
-    monkeypatch.setattr(sqlite3, 'connect', lambda *a, **k: pytest.fail('login helper opened live SQLite'))
-    with pytest.raises(ValueError, match='owning compute node'):
-        transfer.index(tmp_path, 'results')
-    assert not list((tmp_path / 'results/slurm/.sync').iterdir())
 
 
 def test_default_batch_interpreter_preserves_virtualenv_path(tmp_path, monkeypatch):

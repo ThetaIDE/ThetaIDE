@@ -30,7 +30,7 @@ def close_unfinished_runs(runtime, record, status, *, paths=None):
 
 def receipt_path(root, execution_id):
     if not re.fullmatch(r'[a-f0-9]{32}', execution_id): raise ValueError('Invalid execution ID')
-    return Path(root) / 'results/slurm' / execution_id / 'submission.json'
+    return Path(root) / 'results/sites' / execution_id / 'submission.json'
 
 
 def _regular_output(path):
@@ -73,7 +73,7 @@ def finalize(root, execution_id):
     if record.get('state') not in TERMINAL or record.get('scheduler_state') not in TERMINAL:
         raise ValueError('Finalization requires confirmed scheduler termination')
     if record.get('execution_policy'):
-        publication = read_json(Path(record['execution_policy']['work_root']) / 'results/slurm' / execution_id / 'publication.json')
+        publication = read_json(Path(record['execution_policy']['work_root']) / 'results/sites' / execution_id / 'publication.json')
         if not publication.get('sealed'):
             raise ValueError('Payload is unsealed; explicit scheduled repair is required')
         write_json(path.parent / 'artifacts.json', {'execution_id': execution_id, 'files': publication['files']})
@@ -90,8 +90,8 @@ def finalize(root, execution_id):
     return record
 
 
-# Provider-neutral execution entry points. Historic schema-v1 receipts use the
-# bounded scheduler selection reader in scheduler.py; new receipts name their owner.
+# Provider-neutral execution entry points. Every receipt names its scheduler
+# component; a receipt without one is refused.
 def validate_allocation(cfg, *, paths=None):
     from .scheduler_api import get_scheduler
     return get_scheduler(cfg=cfg, paths=paths).validate_allocation(cfg, paths=paths)
@@ -132,9 +132,3 @@ def cancel(root, record):
     from src.app.workspace import WorkspacePaths
     return get_scheduler(record=record, paths=WorkspacePaths(root)).cancel(root, record)
 
-
-def __getattr__(name):
-    if name in ('worker_threads', 'accounting_details'):
-        from .scheduler_api import scheduler_object
-        return scheduler_object('slurm', 'execution.py:' + name)
-    raise AttributeError(name)

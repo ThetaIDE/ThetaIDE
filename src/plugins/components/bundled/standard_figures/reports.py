@@ -9,7 +9,7 @@ from typing import Optional
 import pandas as pd
 import yaml
 
-from plot.base import BasePlotter, clean_label, get_method_aliases
+from src.app.api.plotting import BasePlotter, clean_label, get_method_aliases
 
 
 def format_duration(seconds: float) -> str:
@@ -30,7 +30,7 @@ def format_duration(seconds: float) -> str:
 
 
 class ReportsPlotter(BasePlotter):
-    def __init__(self, *, paths=None):
+    def __init__(self, *, paths):
         super().__init__("reports", paths=paths)
 
     def _find_hydra_config(self, group: str, exp_id: str, method: str) -> dict:

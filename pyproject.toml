@@ -76,8 +76,7 @@ where = ["."]
 include = [
     "src", "src.app", "src.app.*", "src.plugins", "src.plugins.components", "src.plugins.components.bundled", "src.plugins.components.bundled.*",
     "src.plugins.app", "src.plugins.app.bundled", "src.plugins.app.bundled.*",
-    "src.usr", "src.usr.algorithms", "src.usr.models", "src.usr.models.sequential_spec",
-    "frontend", "frontend.*", "plot", "plot.standard_figures", "hydra_plugins", "hydra_plugins.*",
+    "frontend", "frontend.*", "hydra_plugins", "hydra_plugins.*",
 ]
 exclude = ["*.installed", "*.installed.*", "*.node_modules", "*.node_modules.*"]
 

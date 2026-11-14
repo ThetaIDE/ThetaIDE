@@ -95,7 +95,7 @@ def test_complete_worker_round_replay_monitors_and_plotman(workspace):
     assert {'themes/outer_iteration','themes/irl_final_nll','themes/feedback_std'}<=set(logs)
     from src.app.core.provider_catalog import get_catalog
     from src.app.core.provider_loader import load_capability
-    plotter=load_capability(*get_catalog(workspace).resolve('plotter','themes-dev/themes_full'),paths=workspace)()
+    plotter=load_capability(*get_catalog(workspace).resolve('plotter','themes-dev/themes_full'),paths=workspace)(paths=workspace)
     panels=plotter.panels('AL/codex/themes_paper_synthetic')
     assert any(p.key.endswith('/reward_matrix') for p in panels)
     from matplotlib.figure import Figure

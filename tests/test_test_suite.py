@@ -13,8 +13,8 @@ from src.app.services.test_suite import (
     load_test_suite_manifest,
     parse_test_suite_manifest,
 )
-from frontend.hub.installer import HubInstaller
-from frontend.hub.models import HubComponent
+from src.app.components.installer import HubInstaller
+from src.app.components.models import HubComponent
 
 
 def _manifest():

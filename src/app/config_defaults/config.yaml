@@ -2,7 +2,7 @@ defaults:
   - optional agent: null
   - optional model: null
   - optional env: null
-  - site: local
+  - site: local/default
   - optional workflow: null
   - _self_
 

@@ -146,7 +146,7 @@ finally:
     final = read_json(directory / 'submission.json')
     assert final['state'] == 'cancelled' and final['ended_at']
     assert final['publication_state'] == 'sealed'
-    manifest = read_json(work / 'results/slurm' / record['execution_id'] / 'publication.json')
+    manifest = read_json(work / 'results/sites' / record['execution_id'] / 'publication.json')
     assert manifest['sealed']
     item = next(item for item in manifest['files'] if item['path'].endswith('/pipeline.err'))
     text = b''.join((work / chunk['source']).read_bytes()[chunk.get('offset', 0):chunk.get('offset', 0)+chunk.get('length', chunk['size'])]
@@ -194,7 +194,7 @@ def test_remote_failed_run_opens_nonempty_log_without_local_job_id(tmp_path, mon
     app = QApplication.instance() or QApplication([])
     from src.app.workspace import WorkspacePaths
     paths = WorkspacePaths(tmp_path)
-    directory = tmp_path / 'results/slurm/execution'
+    directory = tmp_path / 'results/sites/execution'
     directory.mkdir(parents=True)
     for name, text in files.items():
         (directory / name).write_text(text)
@@ -208,7 +208,7 @@ def test_remote_failed_run_opens_nonempty_log_without_local_job_id(tmp_path, mon
     try:
         panel.open_run('demo', 'run', failure=True)
         browser = panel.browser('Files')
-        assert browser.current[1]['path'] == f'slurm/execution/{expected}'
+        assert browser.current[1]['path'] == f'sites/execution/{expected}'
         assert files[expected] in browser.viewers['text'].browser.toPlainText()
         assert catalog.run_manifest('demo', 'run', completed_only=True, workspace=paths)['artifacts'][0]['kind'] == 'log'
     finally:

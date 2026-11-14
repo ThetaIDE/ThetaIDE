@@ -162,13 +162,11 @@ def test_abandoned_transaction_restores_config(tmp_path):
     assert target.read_text() == 'value: before'
 
 
-def test_legacy_import_contract_identity_and_paradigms():
-    from src.app.core import agent_registry as canonical
-    from src.usr.algorithms import agent_registry as legacy
-    assert canonical is legacy and canonical.AGENT_REGISTRY is legacy.AGENT_REGISTRY
-    old = importlib.import_module("src.usr.models.sequential_spec.sequential_spec")
-    new = importlib.import_module("src.plugins.components.bundled.sequential_spec.sequential_spec")
-    assert old is new
+def test_removed_import_aliases_and_base_paradigms():
+    for removed in ("src.app.core.import_aliases", "src.usr.algorithms.agent_registry", "plot.base",
+                    "src.usr.models.sequential_spec", "frontend.plugins.core"):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(removed)
     for name in ("online_rl", "offline_rl", "supervised", "unsupervised"):
         assert (PROJECT_ROOT / "src/usr/config/paradigms" / (name + ".yaml")).is_file()
         assert (PROJECT_ROOT / "src/app/core/paradigm_impls/base" / (name + ".py")).is_file()
@@ -231,14 +229,13 @@ def test_distribution_boundaries_and_bundled_assets():
 
 
 def test_core_import_boundaries_and_installer_policy():
-    allowed = {'src/app/core/import_aliases.py', 'src/app/pipeline/optuna_sweeper.py', 'src/app/pipeline/optuna_utils.py', 'src/app/pipeline/tuners_optuna.py'}
     import ast
     for path in (PROJECT_ROOT/'src/app').rglob('*.py'):
         if any(part in ('config_defaults','__pycache__') for part in path.parts): continue
         relative = path.relative_to(PROJECT_ROOT).as_posix()
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node,ast.ImportFrom) and node.module and node.module.startswith('src.plugins.'):
-                assert relative in allowed, f'Framework imports provider directly: {relative}:{node.lineno}'
+                raise AssertionError(f'Framework imports provider directly: {relative}:{node.lineno}')
     paths=WorkspacePaths(PROJECT_ROOT)
     for relative in ('src/app/x','frontend/x','src/plugins/components/bundled/x','src/usr/models/x','src/usr/datasets/x'):
         with pytest.raises(ValueError): paths.require_managed(PROJECT_ROOT/relative)

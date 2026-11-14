@@ -201,11 +201,11 @@ def _index(root, mode, execution_id=None, diagnostics=False):
     root = Path(root).resolve()
     records, files = [], []
     generation = uuid.uuid4().hex
-    cache = root / 'results/slurm/.sync' / generation
+    cache = root / 'results/sites/.sync' / generation
     cache.mkdir(parents=True, exist_ok=True)
     write_json(cache / '.theta-managed.json', {'project_id': workspace_id(root), 'expires_at': __import__('time').time() + 7200})
     try:
-        selected = [read_json(receipt) for receipt in sorted((root / 'results/slurm').glob('*/submission.json'))]
+        selected = [read_json(receipt) for receipt in sorted((root / 'results/sites').glob('*/submission.json'))]
         selected = [record for record in selected if not execution_id or record['execution_id'] == execution_id]
         managed = refresh_many(root, [record for record in selected if record.get('execution_policy')])
         by_id = {record['execution_id']: record for record in managed}
@@ -213,7 +213,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
             receipt = receipt_path(root, record['execution_id'])
             record = by_id[record['execution_id']] if record['execution_id'] in by_id else refresh_status(root, record)
             if record.get('execution_policy'):
-                publication = read_json(Path(record['execution_policy']['work_root']) / 'results/slurm' / record['execution_id'] / 'publication.json')
+                publication = read_json(Path(record['execution_policy']['work_root']) / 'results/sites' / record['execution_id'] / 'publication.json')
                 if publication and publication.get('schema') != 'theta.publication/v1': raise ValueError('Unknown publication schema')
                 if publication.get('sealed') and record.get('scheduler_state') in TERMINAL and not record.get('artifacts_finalized'):
                     record = finalize(root, record['execution_id'])
@@ -232,7 +232,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
                     with log.open('rb') as stream:
                         stream.seek(max(0, log.stat().st_size - 65536))
                         data = stream.read(65536)
-                    relative = f'results/slurm/{record["execution_id"]}/scheduler.{suffix}.preview.log'
+                    relative = f'results/sites/{record["execution_id"]}/scheduler.{suffix}.preview.log'
                     target = cache / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(data)
@@ -276,7 +276,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
                     backup = cache / relative
                     backup.parent.mkdir(parents=True, exist_ok=True)
                     if path.suffix.lower() in ('.db', '.sqlite', '.sqlite3'):
-                        raise ValueError('Legacy live SQLite cannot be synced on the login node; export on its owning compute node or migrate a closed study')
+                        raise ValueError('Live SQLite from a run without an execution policy cannot be synced on the login node; export it on its owning compute node or sync after its processes close')
                     else:
                         length = path.stat().st_size
                         with path.open('rb') as src, backup.open('wb') as dest:
@@ -440,11 +440,11 @@ def _clean_remote(root, execution_id, proof, *, preview=False):
             or not record.get('artifacts_finalized') or proof.get('files') != manifest.get('files')):
         raise ValueError('Cleanup requires a matching verified terminal execution')
     # Conservatively prevent cleanup while any other allocation is nonterminal.
-    for other in (root / 'results/slurm').glob('*/submission.json'):
+    for other in (root / 'results/sites').glob('*/submission.json'):
         value = refresh_status(root, read_json(other))
         if value.get('state') != 'submission_failed' and value.get('scheduler_state') not in TERMINAL:
             raise ValueError('Another execution may depend on these outputs; wait for it to finish')
-    for other in (root / 'results/slurm').glob('*/submission.json'):
+    for other in (root / 'results/sites').glob('*/submission.json'):
         value = read_json(other)
         if value.get('continuation', {}).get('parent_execution_id') == execution_id and not value.get('remote_cleaned_at'):
             raise ValueError('Continuation pins these study/checkpoint dependencies')
@@ -458,7 +458,7 @@ def _clean_remote(root, execution_id, proof, *, preview=False):
         from .maintenance import active_leases
         if active_leases(root): raise ValueError('Active transfer lease pins publication; retry after release/expiry')
         work = Path(record['execution_policy']['work_root'])
-        published = work / 'results/slurm' / execution_id
+        published = work / 'results/sites' / execution_id
         if published.exists() and published.is_symlink(): raise ValueError('Invalid publication ownership')
         # All proofs were compared above; immutable objects were verified locally.
         # Delete only this execution's namespace; retained receipt/manifests are tombstones.
@@ -535,7 +535,7 @@ def activate(root, source):
 
 def release(root, generation):
     if not re.fullmatch(r'[a-f0-9]{32}', generation): raise ValueError('Invalid transfer generation')
-    directory = safe_path(root, 'results/slurm/.sync/' + generation)
+    directory = safe_path(root, 'results/sites/.sync/' + generation)
     if directory.exists(): shutil.rmtree(directory)
     return {'released': generation}
 
@@ -543,7 +543,7 @@ def release(root, generation):
 def status_local(root):
     root = Path(root).resolve()
     return refresh_many(root, [read_json(path)
-            for path in sorted((root / 'results/slurm').glob('*/submission.json'))])
+            for path in sorted((root / 'results/sites').glob('*/submission.json'))])
 
 
 def sync_objects(root, site, config, listing, *, cancel_event=None, progress=None):
@@ -687,7 +687,7 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
 def renew(root, generation):
     if not re.fullmatch(r'[a-f0-9]{32}', generation): raise ValueError('Invalid transfer generation')
     with transfer_lock(root):
-        path = safe_path(root, 'results/slurm/.sync/' + generation + '/.theta-managed.json')
+        path = safe_path(root, 'results/sites/.sync/' + generation + '/.theta-managed.json')
         lease = read_json(path)
         if lease.get('project_id') != workspace_id(root): raise ValueError('Transfer lease is missing or owned by another project')
         lease['expires_at'] = __import__('time').time() + 7200

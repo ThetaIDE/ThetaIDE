@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from plot.base import BasePlotter
+from src.app.core.plotting.base import BasePlotter
 
 
 class DummyPlotter(BasePlotter):
@@ -74,7 +74,7 @@ def test_get_active_aliases_and_is_method_active():
 
 
 def test_styling_helpers():
-    from plot.base import clean_label, get_style, get_style_info
+    from src.app.core.plotting.base import clean_label, get_style, get_style_info
 
     # Default without overrides returns method name
     assert clean_label("my_algo") == "my_algo"

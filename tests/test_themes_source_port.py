@@ -169,7 +169,8 @@ def test_runner_accepts_any_selected_model_with_the_declared_contract(workspace)
     manifest['capabilities'].append(selected)
     manifest_path.write_text(json.dumps(manifest))
     model_profile=workspace.config/'model/themes-dev/alternative_bundle.yaml'
-    model_profile.write_text((workspace.config/'model/themes-dev/bundle.yaml').read_text().replace('architecture: themes-dev/bundle','architecture: themes-dev/alternative_bundle'))
+    model_profile.parent.mkdir(parents=True,exist_ok=True)
+    model_profile.write_text(workspace.resolve_config('model/themes-dev/bundle.yaml').read_text().replace('architecture: themes-dev/bundle','architecture: themes-dev/alternative_bundle'))
     launch(workspace,overrides=['++methods.ticc_em_edm.model=themes-dev/alternative_bundle'])
     record=json.loads(next(workspace.results.rglob('execution.json')).read_text())
     assert record['metadata']['model']=='themes-dev/alternative_bundle'

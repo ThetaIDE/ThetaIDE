@@ -4,13 +4,9 @@ from src.app.workspace import WorkspacePaths
 
 def scheduler_selector(*, cfg=None, record=None):
     if record is not None:
-        if 'scheduler_component' in record:
-            selector = record['scheduler_component']
-        elif record.get('schema_version') == 1:
-            # Bounded reader for already-created Slurm receipts, never new recipes.
-            selector = 'slurm'
-        else:
-            raise ValueError('Receipt needs an explicit compatible scheduler_component')
+        if 'scheduler_component' not in record:
+            raise ValueError('Unsupported site receipt: it records no scheduler_component')
+        selector = record['scheduler_component']
     else:
         selector = ((cfg or {}).get('site') or {}).get('scheduler')
     if not isinstance(selector, str) or not selector.strip() or selector == 'local':
@@ -38,19 +34,3 @@ def get_scheduler(*, cfg=None, record=None, paths=None):
     if getattr(provider, 'api_version', None) != 1:
         raise ValueError(f'Scheduler {selector!r} requires runtime api_version=1')
     return provider
-
-
-def scheduler_object(selector, entry, *, paths=None):
-    """Fixed API-1 compatibility imports, resolved through installed ownership."""
-    from src.app.core.provider_catalog import get_catalog
-    from src.app.core.provider_loader import load_module
-    from src.app.core.contributions import ensure_enabled
-    paths = paths or WorkspacePaths.for_process()
-    selected = get_catalog(paths).resolve('scheduler', selector)
-    if selected is None:
-        raise ImportError(f'Optional scheduler {selector!r} is unavailable; install its component')
-    package, capability = selected
-    ensure_enabled(package, capability, paths=paths)
-    file, attribute = entry.split(':', 1)
-    module = load_module(package, file, paths=paths)
-    return getattr(module, attribute)

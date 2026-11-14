@@ -309,7 +309,7 @@ def test_independently_installed_tuner_runs_and_produces_plotman_artifacts(tmp_p
         "from src.app.pipeline.tuners import available_tuners, get_tuner\n"
         "from src.app.pipeline.validation import _validate_tuning\n"
         "from src.app.pipeline.local_runner import _run_methods_sequential\n"
-        "from plot.manager import run_experiment_plots\n"
+        "from src.app.core.plotting.manager import run_experiment_plots\n"
         "cfg = OmegaConf.create({'group':'g','experiment_id':'e','paradigm':'online_rl',"
         "'tuning':{'component':'example','metric':'score','direction':'minimize',"
         "'options':{'example':{'count':2}}},'methods':{'m':{'agent':'ppo','model':'dnn',"

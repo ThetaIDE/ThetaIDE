@@ -254,7 +254,7 @@ def test_hub_view_modes_include_standalone_plugin_packages(qapp, tmp_path):
     """Verify Component Hub can manage standalone packages and Plugin Hub stays plugin-only."""
     from frontend.hub.client import HubClient
     from frontend.hub.dialog import HubView
-    from frontend.hub.models import HubComponent
+    from src.app.components.models import HubComponent
 
     client = HubClient(workspace_dir=tmp_path, data_dir=tmp_path / ".thetaide")
     # Mock components across all kinds

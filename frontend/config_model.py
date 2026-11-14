@@ -934,7 +934,7 @@ class Selection:
     environment: str | None = None
     agent: str | None = None
     model: str | None = None
-    site: str = "local"
+    site: str = "local/default"
     experiment_id: str | None = None
     seed: int | None = None
     total_timesteps: int | None = None

@@ -10,8 +10,8 @@ from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 
-from .installer import HubInstaller
-from .models import AuthorInfo, HubComponent, ReleaseInfo
+from src.app.components.installer import HubInstaller
+from src.app.components.models import AuthorInfo, HubComponent, ReleaseInfo
 
 DEFAULT_REGISTRY_URL = "https://raw.githubusercontent.com/ThetaIDE/ThetaHub/main/dist/index.json"
 

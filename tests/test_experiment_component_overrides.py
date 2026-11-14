@@ -138,7 +138,7 @@ def test_evaluation_hook_honors_frequency():
 
 
 def test_figure_options_do_not_become_figure_names():
-    from plot.manager import get_requested_plots
+    from src.app.core.plotting.manager import get_requested_plots
 
     assert get_requested_plots({"plots": {
         "losses": {"smoothing_window": 7}, "title": "Trial", "style": {"grid": True},
@@ -147,9 +147,10 @@ def test_figure_options_do_not_become_figure_names():
 
 
 def test_plotter_applies_separate_figure_override(monkeypatch, tmp_path):
-    from plot.base import BasePlotter
+    from src.app.core.plotting.base import BasePlotter
+    from src.app.workspace import WorkspacePaths
 
-    plotter = BasePlotter("losses")
+    plotter = BasePlotter("losses", paths=WorkspacePaths(tmp_path))
     plotter.default_cfg = {"smoothing_window": 10}
     monkeypatch.setattr(plotter, "get_experiment_config", lambda *args, **kwargs: {
         "group": "probe", "plots": ["losses"],
@@ -185,7 +186,7 @@ def test_panel_filters_components_by_declared_paradigm(qapp, tmp_path):
     from frontend.config_model import ConfigTree
     from frontend.config_viewer import ConfigViewer
 
-    root = tmp_path / "config"
+    root = tmp_path / "src/usr/config"
     (root / "paradigms").mkdir(parents=True)
     (root / "paradigms" / "unsupervised.yaml").write_text(
         "environment_source: static_dataset\nmethod: {algorithm: forbidden, model: required}\n",
@@ -237,7 +238,7 @@ def test_inherited_figure_list_accepts_parameter_override(qapp, isolated_compone
 
 def test_inherited_figure_mapping_can_remove_one_figure(qapp, isolated_component_workspace):
     from frontend.config_viewer import ConfigViewer
-    from plot.manager import get_requested_plots
+    from src.app.core.plotting.manager import get_requested_plots
 
     group = isolated_component_workspace / "src/usr/config/experiment/_pytest_plot_removal"
     group.mkdir()
@@ -262,7 +263,7 @@ def test_inherited_figure_mapping_can_remove_one_figure(qapp, isolated_component
 
 
 def test_all_inherited_figures_can_be_removed():
-    from plot.manager import get_requested_plots
+    from src.app.core.plotting.manager import get_requested_plots
 
     assert get_requested_plots({"plots": {"losses": None, "reports": None}}, "example") == {}
 
@@ -380,7 +381,7 @@ def test_remove_inherited_figures_masks_group_selection(qapp, tmp_path, monkeypa
 
 
 def test_plot_manager_without_selection_writes_no_output(tmp_path, monkeypatch):
-    from plot import manager
+    from src.app.core.plotting import manager
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(manager.BasePlotter, "get_experiment_config", lambda *args, **kwargs: {})
@@ -389,7 +390,7 @@ def test_plot_manager_without_selection_writes_no_output(tmp_path, monkeypatch):
 
 
 def test_plot_manager_preserves_parameter_override_precedence(tmp_path, monkeypatch):
-    from plot import manager
+    from src.app.core.plotting import manager
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(manager.BasePlotter, "get_experiment_config", lambda *args, **kwargs: {

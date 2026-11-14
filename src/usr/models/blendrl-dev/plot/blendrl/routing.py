@@ -4,12 +4,12 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from src.app.core.plotting.base import BasePlotter
+from src.app.api.plotting import BasePlotter
 
 
 class BlendRoutingPlotter(BasePlotter):
-    def __init__(self):
-        super().__init__('blendrl-dev/blend_routing')
+    def __init__(self, *, paths):
+        super().__init__('blendrl-dev/blend_routing', paths=paths)
 
     def run(self, exp_id, cli_overrides=None):
         cfg, group, output = self.get_effective_config(exp_id, cli_overrides)

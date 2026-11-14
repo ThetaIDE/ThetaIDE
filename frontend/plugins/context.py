@@ -39,7 +39,7 @@ class _SectionStore:
 class PluginContext:
     """The host execution context passed to a Plugin when it is activated.
 
-    This is the supported host facade of Theta SDK 1.0 (``src.app.api.desktop``).
+    This is the supported host facade of the Theta SDK (``src.app.api.desktop``).
     Plugins use its services rather than attributes of the host window; every
     registration made through it is undone by ``cleanup``.
     """
@@ -58,15 +58,6 @@ class PluginContext:
         self._tracked_processes: List[QProcess] = []
         self._contributed_actions: List[Tuple[str, str]] = []  # (slot_id, action_id)
         self._registered_commands: List[str] = []
-
-    @property
-    def window(self) -> Window:
-        """The main IDE window instance.
-
-        Transitional and unsupported: window attributes are private host
-        implementation. Use the context services instead; bundled plugins do.
-        """
-        return self._window
 
     @property
     def activated_explicitly(self) -> bool:

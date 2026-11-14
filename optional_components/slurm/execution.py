@@ -322,7 +322,7 @@ def run(root, execution_id):
             from src.app.api.sites import restore_continuation as restore
             restore(runtime, record)
         publisher = Publisher(runtime, policy['work_root'], record, policy)
-        controls = runtime / 'results/slurm' / execution_id
+        controls = runtime / 'results/sites' / execution_id
         controls.mkdir(parents=True, exist_ok=True)
         for name in ('config.json', 'job.sbatch'):
             shutil.copyfile(path.parent / name, controls / name)

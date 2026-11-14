@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.app.sites import transfer, transfer_output
-from src.app.sites.slurm import ssh_arguments
+from src.app.sites.transport import ssh_arguments
 from src.app.sites.storage import workspace_id
 
 
@@ -20,7 +20,7 @@ def fixture(tmp_path, *, roots=1, generation=None):
         origin = tmp_path / f'remote-{index % roots}'
         data = f'payload-{index}'.encode()
         sha = hashlib.sha256(data).hexdigest()
-        source = f'results/slurm/job/objects/{sha}'
+        source = f'results/sites/job/objects/{sha}'
         path = origin / source
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)

@@ -17,8 +17,9 @@ import pandas as pd
 import pytest
 from matplotlib.figure import Figure
 
-from plot.base import BasePlotter, PanelSpec
-from plot.capture import capture_figures, figures_from
+from src.app.core.plotting.base import BasePlotter, PanelSpec
+from src.app.workspace import WorkspacePaths
+from src.app.core.plotting.capture import capture_figures, figures_from
 
 
 def frame(n=40, metric="eval/reward", seed=0):
@@ -32,7 +33,7 @@ class StubPlotter(BasePlotter):
     draws_metric_series = True
 
     def __init__(self, runs=None, metrics=("eval/reward",)):
-        super().__init__("stub")
+        super().__init__("stub", paths=WorkspacePaths.for_process())
         self._runs = runs if runs is not None else {"a": {"version_0": frame()}}
         self._metrics = list(metrics)
 
@@ -142,7 +143,7 @@ def test_metrics_with_no_data_are_not_offered_as_panels():
 def test_plotters_that_build_their_own_figures_offer_no_panels():
     class Opaque(BasePlotter):
         def __init__(self):
-            super().__init__("opaque")
+            super().__init__("opaque", paths=WorkspacePaths.for_process())
 
     assert Opaque().panels("exp") == []
 
@@ -203,7 +204,7 @@ def test_capture_restores_pyplot_even_when_the_block_raises():
 def test_figures_from_swallows_the_untrue_saved_messages(capsys):
     class Noisy(BasePlotter):
         def __init__(self):
-            super().__init__("noisy")
+            super().__init__("noisy", paths=WorkspacePaths.for_process())
 
         def run(self, exp_id, cli_overrides=None):
             plt.figure()

@@ -282,7 +282,7 @@ class ComponentsPanel(QWidget):
         is_local = record.get("source") == "local"
         if is_local:
             from .component_actions import ComponentDevelopmentActions
-            from .hub.models import HubComponent
+            from src.app.components.models import HubComponent
             installer = self.components_tree._get_installer()
             component = HubComponent.from_dict(assets["meta"])
             if ComponentDevelopmentActions(lifecycle.workspace, self, self.hub_client).delete_local(component, installer):
@@ -312,7 +312,7 @@ class ComponentsPanel(QWidget):
         if is_hub and assets.get("meta") and installer:
             try:
                 if assets["kind"] in ("model", "method", "agent", "algorithm", "env", "data", "datamodule", "eval", "evaluator", "plot", "plotter", "monitor"):
-                    from .hub.models import HubComponent
+                    from src.app.components.models import HubComponent
                     lifecycle.uninstall(HubComponent.from_dict(assets["meta"]), installer)
                 else:
                     installer.uninstall_by_metadata(assets["meta"])

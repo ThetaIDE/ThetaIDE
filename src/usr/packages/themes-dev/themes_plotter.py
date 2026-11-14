@@ -3,8 +3,7 @@ from pathlib import Path, PurePosixPath
 import json
 import numpy as np
 import pandas as pd
-from plot.base import BasePlotter, PanelSpec
-from src.app.workspace import WorkspacePaths
+from src.app.api.plotting import BasePlotter, PanelSpec
 
 
 class ThemesPlotter(BasePlotter):
@@ -26,14 +25,14 @@ class ThemesPlotter(BasePlotter):
         'reward_feedback': 'Reward feedback across rounds',
     }
 
-    def __init__(self):
-        super().__init__(self.name)
+    def __init__(self, *, paths):
+        super().__init__(self.name, paths=paths)
 
     def _bundles(self, exp_id):
         parts = PurePosixPath(str(exp_id))
         if parts.is_absolute() or '..' in parts.parts or not parts.parts:
             raise ValueError('Experiment must be a relative result selector')
-        root = WorkspacePaths.for_process().results / 'checkpoints'
+        root = self.workspace.results / 'checkpoints'
         roots = [root.joinpath(*parts.parts)] if len(parts.parts) > 1 else sorted(root.glob('*/' + parts.name))
         for base in roots:
             for path in sorted(base.glob('**/bundle/manifest.json')):
@@ -177,7 +176,7 @@ class ThemesPlotter(BasePlotter):
     def run(self, exp_id, cli_overrides=None):
         import matplotlib.pyplot as plt
         config = {**self.default_cfg, **(cli_overrides or {})}
-        paths = WorkspacePaths.for_process()
+        paths = self.workspace
         selector = PurePosixPath(str(exp_id))
         if selector.is_absolute() or '..' in selector.parts: raise ValueError('Invalid experiment selector')
         directory = paths.results / 'plots' / str(selector) / 'themes'

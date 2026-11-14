@@ -184,13 +184,7 @@ def test_nonmodel_profile_uses_its_declared_validation_schema(installed_model):
     assert process.returncode == 2 and error["type"] == "ValidationError"
 
 
-def test_path_policy_and_compatibility_modules_share_class_identity(tmp_path):
-    from frontend.hub.installer import HubInstaller as LegacyInstaller
-    from frontend.hub.models import HubComponent as LegacyComponent
-    from src.app.components.models import HubComponent
-
-    assert LegacyInstaller is HubInstaller
-    assert LegacyComponent is HubComponent
+def test_path_policy(tmp_path):
     paths = WorkspacePaths(tmp_path)
     assert paths.config == tmp_path / "src/usr/config"
     assert paths.research == tmp_path / "src/usr"

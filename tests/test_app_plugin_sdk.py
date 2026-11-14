@@ -86,7 +86,7 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def install_fixture(tmp_path, *, sdk=">=1.0,<2", plugin_id="lattice_notes"):
+def install_fixture(tmp_path, *, sdk=">=2.0,<3", plugin_id="lattice_notes"):
     archive = tmp_path / f"{plugin_id}.zip"
     meta = {"id": plugin_id, "name": "Lattice notes", "kind": "plugin", "version": "0.3.0",
             "storage_version": 3, "api_version": 1,
@@ -176,7 +176,7 @@ def test_independent_plugin_lifecycle_through_the_facade(qapp, tmp_path, monkeyp
     assert manager.disable_plugin("lattice_notes")
 
 
-@pytest.mark.parametrize("sdk", [">=2", "definitely not a range"])
+@pytest.mark.parametrize("sdk", [">=1.0,<2", ">=3", "definitely not a range", None])
 def test_incompatible_sdk_requirement_is_refused_before_import(qapp, tmp_path, sdk):
     paths, package_root = install_fixture(tmp_path, sdk=sdk)
     window, manager, logs = host(paths, tmp_path)
@@ -195,7 +195,7 @@ def test_headless_catalog_lists_the_plugin_without_qt_or_its_code(tmp_path):
         f"paths = WorkspacePaths(Path({str(paths.root)!r}), {str(paths.data_dir)!r})\n"
         "caps = [c for p in get_catalog(paths).packages for c in p.capabilities if c.kind == 'plugin']\n"
         "plugin = next(c for c in caps if c.id == 'lattice_notes')\n"
-        "assert plugin.metadata['sdk'] == '>=1.0,<2', plugin.metadata\n"
+        "assert plugin.metadata['sdk'] == '>=2.0,<3', plugin.metadata\n"
         "assert not [k for k in sys.modules if k.startswith('PyQt6')]\n")
     result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr

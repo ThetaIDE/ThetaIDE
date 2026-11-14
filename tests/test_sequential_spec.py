@@ -11,7 +11,7 @@ import pytest
 import torch
 
 from src.app.core.model_registry import build_model, get_model_class
-from src.usr.models.sequential_spec.sequential_spec import (
+from src.plugins.components.bundled.sequential_spec.sequential_spec import (
     LAYER_KINDS,
     LayerSpecError,
     build_sequential,

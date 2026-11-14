@@ -1,6 +1,6 @@
 import pytest
 
-from src.usr.algorithms.agent_registry import (
+from src.app.core.agent_registry import (
     AGENT_REGISTRY,
     ALGORITHM_REGISTRY,
     auto_discover,

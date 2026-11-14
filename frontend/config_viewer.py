@@ -670,7 +670,7 @@ class ConfigViewer(QWidget):
             return False
         tree = self.tree
         workspace = tree.workspace if tree else WorkspacePaths.for_process()
-        from frontend.hub.installer import HubInstaller
+        from src.app.components.installer import HubInstaller
         return HubInstaller(workspace.root, workspace.data_dir).is_installed_file(self.current_path)
 
     @provider_discovery_snapshot()
@@ -1228,12 +1228,12 @@ class ConfigViewer(QWidget):
 
     def _add_experiment_site(self, form, data, resolved):
         tree = self.tree
-        inherited = self._site_selection(resolved) or "local"
+        inherited = self._site_selection(resolved) or "local/default"
         selected = self._site_selection(data)
         self.combo_site = ComboBox()
         self.combo_site.setObjectName("experimentSiteSelector")
         self.combo_site.addItem(f"{inherited} (default)", self.INHERIT)
-        choices = list(dict.fromkeys(["local", *(tree.sites if tree else ()), *([selected] if selected else [])]))
+        choices = list(dict.fromkeys(["local/default", *(tree.sites if tree else ()), *([selected] if selected else [])]))
         for name in choices: self.combo_site.addItem(name, name)
         self.combo_site.setCurrentIndex(self.combo_site.findData(selected) if selected else 0)
         self.combo_site.currentIndexChanged.connect(

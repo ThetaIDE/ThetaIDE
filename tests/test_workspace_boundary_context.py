@@ -102,19 +102,16 @@ def test_site_template_configuration_creates_user_override(tmp_path):
     assert not paths.user('site').exists()
 
 
-def test_api1_plotter_adapter_scopes_and_releases_workspace(tmp_path):
-    from src.app.core.plotting.base import BasePlotter, create_plotter
-    class OldPlotter(BasePlotter):
-        def __init__(self): super().__init__('manager')
+def test_plotters_receive_the_workspace_explicitly(tmp_path):
+    from src.app.core.plotting.base import BasePlotter
+    class Plotter(BasePlotter):
+        def __init__(self, *, paths): super().__init__('manager', paths=paths)
     paths = WorkspacePaths(tmp_path)
-    assert create_plotter(OldPlotter, paths).workspace == paths
-    from src.app.core.plotting.base import _PLOTTER_WORKSPACE
-    assert _PLOTTER_WORKSPACE.get() is None
-    class BrokenPlotter:
-        def __init__(self): raise RuntimeError('constructor failure')
-    with pytest.raises(RuntimeError, match='constructor failure'):
-        create_plotter(BrokenPlotter, paths)
-    assert _PLOTTER_WORKSPACE.get() is None
+    assert Plotter(paths=paths).workspace == paths
+    class NoWorkspace(BasePlotter):
+        def __init__(self): super().__init__('manager')
+    with pytest.raises(TypeError, match='paths'):
+        NoWorkspace()
 
 
 def test_plot_worker_environment_uses_explicit_workspace(tmp_path, monkeypatch):

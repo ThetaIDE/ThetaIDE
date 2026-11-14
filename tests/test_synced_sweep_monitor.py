@@ -12,7 +12,7 @@ from frontend.live_run import LiveRunCache
 from frontend.monitor.sweep_view import study_summaries
 from src.app.sites.storage import write_json
 from src.app.pipeline.execution_data import synced_execution_sources
-from component_fixtures import install_optional, optional_module
+from component_fixtures import install_optional, optional_module, optuna_plan
 _optuna_utils = optional_module('optuna', 'utils.py')
 write_study_summary = _optuna_utils.write_study_summary
 
@@ -43,7 +43,8 @@ def snapshot(root):
         events.write_text(json.dumps({"type": "start", "run": {"version": version}}) + "\n" +
                           json.dumps({"type": "metrics", "step": 10, "data": {"eval/reward": 123}}) + "\n")
     run = {"id": "r", "status": "running", "backend": {"group": "g", "experiment_id": experiment, "job_id": "remote", "agents": ["m"]},
-           "remote": {"execution_id": execution, "config": {"tuning": {"component": "optuna"}}}}
+           "remote": {"execution_id": execution, "config": {"tuning": {"component": "optuna"}},
+                      "tuner_execution": optuna_plan(execution)}}
     return run, database, path
 
 
@@ -168,8 +169,8 @@ def test_live_tuning_summary_is_published_as_metrics_without_weights(tmp_path):
     runtime, work = tmp_path / 'runtime', tmp_path / 'work'
     runtime.mkdir()
     work.mkdir()
-    record = {'execution_id': 'a' * 32, 'project_id': 'p', 'group': 'g', 'result_experiment_id': 'e'}
-    (runtime / 'results/slurm' / record['execution_id']).mkdir(parents=True)
+    record = {'execution_id': 'a' * 32, 'project_id': 'p', 'group': 'g', 'result_experiment_id': 'e', 'tuner_execution': None}
+    (runtime / 'results/sites' / record['execution_id']).mkdir(parents=True)
     summary = runtime / 'results/checkpoints/g/e/m/tuning_summary.json'
     write_json(summary, {'study': 's', 'trials': []})
     (summary.parent / 'model.zip').write_bytes(b'uncommitted weights')

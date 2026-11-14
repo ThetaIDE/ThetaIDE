@@ -7,11 +7,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from plot.base import BasePlotter
+from src.app.api.plotting import BasePlotter
 
 
 class TuningPlotter(BasePlotter):
-    def __init__(self, *, paths=None):
+    def __init__(self, *, paths):
         super().__init__("tuning", paths=paths)
 
     def run(self, exp_id: str, cli_overrides: dict | None = None):
