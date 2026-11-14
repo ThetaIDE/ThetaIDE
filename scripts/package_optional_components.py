@@ -2,7 +2,7 @@
 import argparse
 import json
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 def build(source, output):
@@ -11,10 +11,14 @@ def build(source, output):
     validate_native_package(metadata, source)
     output.mkdir(parents=True, exist_ok=True)
     target = output / f"{metadata['id']}-{metadata['version']}.zip"
+    # Fixed entry dates and modes make equal sources build byte-identical archives.
     with ZipFile(target, 'w', ZIP_DEFLATED) as archive:
         for path in sorted(source.rglob('*')):
             if path.is_file() and not any(part in ('__pycache__', '.git', 'node_modules') for part in path.parts):
-                archive.write(path, path.relative_to(source))
+                info = ZipInfo(path.relative_to(source).as_posix(), date_time=(2020, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                archive.writestr(info, path.read_bytes())
     return target
 
 

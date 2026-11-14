@@ -1,5 +1,23 @@
 {
+  "id": "optuna",
+  "name": "Optuna tuner",
   "kind": "tuner",
+  "version": "1.1.0",
+  "description": "Hyperparameter sweeps with Optuna: metric or objective-component studies, pruning, parallel and remote trials, and a study monitor.",
+  "author": {
+    "name": "Theta-IDE Team"
+  },
+  "repository": "https://github.com/ThetaIDE/ThetaIDE",
+  "license": "MIT",
+  "storage_version": 3,
+  "api_version": 1,
+  "dependencies": {
+    "pip": [
+      "optuna>=3.0,<5",
+      "sqlalchemy>=1.4.2,<3"
+    ],
+    "components": []
+  },
   "capabilities": [
     {
       "id": "optuna",
@@ -42,23 +60,18 @@
       }
     }
   ],
-  "id": "optuna",
-  "name": "optuna",
-  "version": "1.0.0",
-  "storage_version": 3,
-  "api_version": 1,
   "payload": {
     "implementations": [
+      "__init__.py",
+      "component.py",
       "monitor.py",
-      "trial_worker.py",
+      "parallel.py",
       "policy.py",
       "pruning.py",
-      "__init__.py",
-      "utils.py",
+      "remote.py",
       "sweeper.py",
-      "parallel.py",
-      "component.py",
-      "remote.py"
+      "trial_worker.py",
+      "utils.py"
     ],
     "resources": [],
     "configs": {
@@ -70,12 +83,6 @@
     "hydra/sweeper/optuna_online.yaml",
     "hydra/sweeper/optuna_offline.yaml"
   ],
-  "dependencies": {
-    "pip": [
-      "optuna>=3.0,<5",
-      "sqlalchemy>=1.4.2,<3"
-    ]
-  },
   "exports": {
     "hydra_sweeper": "sweeper.py:ThetaOptunaSweeper"
   }

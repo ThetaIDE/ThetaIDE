@@ -1,10 +1,20 @@
 {
   "id": "slurm",
   "name": "Slurm scheduler",
-  "version": "1.0.0",
   "kind": "package",
+  "version": "1.1.0",
+  "description": "Run experiments on Slurm clusters: site setup, job submission, resource headers and a scheduler monitor, with ARC and NCShare site templates.",
+  "author": {
+    "name": "Theta-IDE Team"
+  },
+  "repository": "https://github.com/ThetaIDE/ThetaIDE",
+  "license": "MIT",
   "storage_version": 3,
   "api_version": 1,
+  "dependencies": {
+    "components": [],
+    "pip": []
+  },
   "capabilities": [
     {
       "id": "slurm",
@@ -41,11 +51,11 @@
   "payload": {
     "implementations": [
       "__init__.py",
+      "commands.py",
       "execution.py",
-      "resources.py",
       "headers.py",
-      "settings.py",
-      "commands.py"
+      "resources.py",
+      "settings.py"
     ],
     "resources": [],
     "configs": {
@@ -56,9 +66,5 @@
       "site/ncshare/default.yaml": "configs/site/ncshare/default.yaml",
       "site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml"
     }
-  },
-  "dependencies": {
-    "components": [],
-    "pip": []
   }
 }
