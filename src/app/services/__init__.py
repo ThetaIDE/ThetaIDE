@@ -6,9 +6,10 @@ and runs training as a QProcess (frontend/job_manager.py), so there is no server
 
 from pathlib import Path
 
-from src.app.workspace import WorkspacePaths
+from src.app.workspace import WorkspacePaths, PROJECT_ROOT
 
-PROJECT_ROOT = WorkspacePaths.for_process().root
+# API-1 compatibility constants naming the application checkout's results; never rebound.
+# Use WorkspacePaths (explicit `workspace=` or the entry point's selection) for workspace data.
 LOGS_DIR = PROJECT_ROOT / "results" / "logs"
 PLOTS_DIR = PROJECT_ROOT / "results" / "plots"
 JOBS_DIR = PROJECT_ROOT / "results" / "jobs"
@@ -41,19 +42,14 @@ from .test_suite import (  # noqa: E402
 
 
 def configure_workspace(paths):
-    """Bind in-process desktop adapters to the explicitly selected workspace."""
-    import sys
-    values = {"PROJECT_ROOT": paths.root, "LOGS_DIR": paths.results / "logs", "PLOTS_DIR": paths.results / "plots",
-              "JOBS_DIR": paths.results / "jobs", "TENSORBOARD_DIR": paths.results / "tensorboard", "EXPORTS_DIR": paths.results / "exports"}
-    globals().update(values)
-    for name, module in list(sys.modules.items()):
-        if name.startswith("src.app.services.") and module:
-            for key, value in values.items():
-                if hasattr(module, key): setattr(module, key, value)
-    from src.app.pipeline import compose
-    compose.CONFIG_DIR = paths.config
-    config = sys.modules.get("src.app.services.config_service")
-    if config:
-        config.CONFIG_DIR = paths.config
-        config._USER_CODE_DIR = paths.research
-        config.clear_compose_cache()
+    """Select the process workspace for an entry point (desktop host, validation worker).
+
+    Reusable services receive `workspace=` explicitly; omitted context resolves through
+    `WorkspacePaths.for_process()`, which reads the selection made here. Module constants
+    above are application-root compatibility names and are never rebound.
+    """
+    import os
+    os.environ.update(paths.process_environment())
+    from .config_service import clear_compose_cache
+    clear_compose_cache()
+    return paths

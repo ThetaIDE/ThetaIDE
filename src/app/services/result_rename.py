@@ -11,17 +11,19 @@ from . import catalog
 
 
 
-def rename_results(kind: str, group: str, experiment_id: str, new_name: str) -> dict:
+def rename_results(kind: str, group: str, experiment_id: str, new_name: str, *, workspace=None) -> dict:
     catalog.check_path_segment(group)
     catalog.check_path_segment(new_name)
     if kind not in ("group", "experiment", "run"):
         raise ValueError("Only groups, experiments and runs can be renamed")
     if kind != "group":
         check_result_path(experiment_id)
-    base = catalog.results_dir().resolve()
+    base = catalog.results_dir(workspace=workspace).resolve()
+    logs_dir = base / "logs"
+    launch_root = catalog._workspace(workspace).root
     roots = (*catalog.RESULT_ROOTS, "executions")
-    known = [path.relative_to(catalog.LOGS_DIR / group).as_posix()
-             for path in iter_run_dirs(catalog.LOGS_DIR) if path.is_relative_to(catalog.LOGS_DIR / group)]
+    known = [path.relative_to(logs_dir / group).as_posix()
+             for path in iter_run_dirs(logs_dir) if path.is_relative_to(logs_dir / group)]
     new_group = new_name if kind == "group" else group
     if kind == "group":
         identities = {run: run for run in known}
@@ -105,12 +107,12 @@ def rename_results(kind: str, group: str, experiment_id: str, new_name: str) -> 
                 return [paths(v, key) for v in value]
             if isinstance(value, str) and key in ("logs", "checkpoints", "event_path", "output_log", "manifest"):
                 candidate = Path(value)
-                absolute = (path.parent / candidate if key == "manifest" else candidate).resolve()
+                absolute = (path.parent / candidate if key == "manifest" else launch_root / candidate).resolve()
                 replacement = moved(absolute)
                 if replacement != absolute or (key == "manifest" and moved(path) != path):
                     if candidate.is_absolute():
                         return str(replacement)
-                    start = moved(path).parent if key == "manifest" else Path.cwd()
+                    start = moved(path).parent if key == "manifest" else launch_root
                     return os.path.relpath(replacement, start)
             return value
 

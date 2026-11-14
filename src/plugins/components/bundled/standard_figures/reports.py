@@ -30,8 +30,8 @@ def format_duration(seconds: float) -> str:
 
 
 class ReportsPlotter(BasePlotter):
-    def __init__(self):
-        super().__init__("reports")
+    def __init__(self, *, paths=None):
+        super().__init__("reports", paths=paths)
 
     def _find_hydra_config(self, group: str, exp_id: str, method: str) -> dict:
         """Attempt to load the resolved config for a specific method run from checkpoints, logs, or Hydra outputs."""

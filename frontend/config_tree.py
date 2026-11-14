@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.app.core.provider_discovery import provider_discovery_snapshot
+
 from .config_model import (
     ConfigTree,
     default_method_model,
@@ -596,6 +598,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         _collect(self.tree)
         return expanded
 
+    @provider_discovery_snapshot()
     def populate(self, ensure_expanded: str | None = None):
         """Recursively scan root_dir and populate the tree based on mode."""
         if self.mode == "components":
@@ -2031,11 +2034,13 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 from src.app.services.local_components import LocalComponents
 
                 from .component_actions import find_component_assets, find_workspace_root
-                config = self.root_dir / data["rel_path"]
-                assets = find_component_assets(config, data["rel_path"])
+                config = Path(data.get("path") or self.root_dir / data["rel_path"])
+                from src.app.workspace import WorkspacePaths
+                paths = WorkspacePaths.from_config_root(self.root_dir)
+                assets = find_component_assets(config, data["rel_path"], workspace_dir=paths)
                 if assets.get("meta"):
                     def hide_component():
-                        LocalComponents(find_workspace_root(config)).set_hidden(assets["comp_id"])
+                        LocalComponents(paths.root).set_hidden(assets["comp_id"])
                         from .config_viewer import invalidate_config_tree
                         invalidate_config_tree()
                         client = getattr(self.window(), "hub_client", None)

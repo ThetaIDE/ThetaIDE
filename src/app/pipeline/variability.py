@@ -62,7 +62,7 @@ def make_plan(cfg, context):
     if cfg.get("workflow"):
         raise ConfigurationError("variability does not yet support workflow launches")
     if not context.get("is_interactive", True):
-        raise ConfigurationError("variability is not yet supported by the Slurm launcher")
+        raise ConfigurationError("variability is not yet supported for scheduler-site launches")
     if cfg.get("recover"):
         raise ConfigurationError("variability cannot yet be combined with recovery")
     capabilities = {}
@@ -143,7 +143,7 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     if dispatch is None:
         _setup_output_dirs(run_cfg_base)
         save_experiment_snapshot(run_cfg_base, context)
-        save_run_config(run_cfg_base)
+        save_run_config(run_cfg_base, paths=context.get("workspace"))
 
     resource_pool = None
     tickets = {}

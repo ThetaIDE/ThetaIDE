@@ -39,6 +39,31 @@ class WorkspacePaths:
     @property
     def config(self): return self.root / "in/config"
     @property
+    def user_config(self): return self.research / "config"
+    @property
+    def user_inputs(self): return self.research / "datasets"
+    @property
+    def framework_defaults(self): return self.framework_config
+
+    def provider_config(self, package): return package.root / "configs"
+
+    def config_resolver(self):
+        from src.app.config_resolution import ConfigResolver
+        from src.app.core.provider_discovery import current_snapshot
+        snapshot = current_snapshot()
+        if snapshot is None:
+            return ConfigResolver(self)
+        # One read operation shares one resolver; building it maps every package profile.
+        key = ("config_resolver", self)
+        if key not in snapshot.values:
+            snapshot.values[key] = ConfigResolver(self)
+        return snapshot.values[key]
+
+    def config_searchpath(self):
+        resolver = self.config_resolver()
+        resolver.validate()
+        return [resolver.search_uri()]
+    @property
     def identity(self):
         import hashlib, json
         identity = self.root / ".thetaide/workspace.json"
@@ -53,7 +78,7 @@ class WorkspacePaths:
 
     def config_roots(self):
         from src.app.core.provider_catalog import get_catalog
-        roots = [self.config]
+        roots = [self.user_config, self.config]
         for package in get_catalog(self).packages:
             root = package.root / "configs"
             if root.is_dir(): roots.append(root)
@@ -63,9 +88,8 @@ class WorkspacePaths:
     def resolve_config(self, relative):
         relative = Path(relative)
         if relative.is_absolute() or ".." in relative.parts: raise ValueError("Config selector must be relative")
-        for root in self.config_roots():
-            candidate = root / relative
-            if candidate.is_file(): return candidate
+        resolved = self.config_resolver().resolve(relative)
+        if resolved is not None: return resolved.file
         return self.config / relative
 
     @property
@@ -148,18 +172,24 @@ class WorkspacePaths:
     def config_file(self, value: str | Path) -> Path:
         path = Path(value).expanduser()
         if not path.is_absolute():
-            path = self.root / path if path.parts[:2] == ("in", "config") else self.config / path
+            path = self.root / path if path.parts[:2] == ("in", "config") or path.parts[:3] == ("src", "usr", "config") else self.config / path
         if not path.suffix: path = path.with_suffix(".yaml")
         path = path.resolve()
-        if not path.is_relative_to(self.config.resolve()) or path.suffix not in (".yaml", ".yml"):
-            raise ValueError("Configuration paths must be YAML files inside in/config/.")
+        if not any(path.is_relative_to(root.resolve()) for root in (self.config, self.user_config)) or path.suffix not in (".yaml", ".yml"):
+            raise ValueError("Configuration paths must be YAML files inside in/config/ (legacy) or src/usr/config/.")
         return path
 
     def process_environment(self):
         return {"THETA_WORKSPACE": str(self.root), "THETA_DATA_DIR": str(self.data_dir)}
 
     @classmethod
-    def from_config_root(cls, config_root): return cls(Path(config_root).resolve().parent.parent)
+    def from_config_root(cls, config_root):
+        root = Path(config_root).resolve()
+        if root.parts[-3:] == ("src", "usr", "config"):
+            return cls(root.parents[2])
+        if root.parts[-3:] == ("src", "app", "config_defaults"):
+            return cls(root.parents[2], application=root.parents[2])
+        return cls(root.parent.parent)
 
     @classmethod
     def for_process(cls):

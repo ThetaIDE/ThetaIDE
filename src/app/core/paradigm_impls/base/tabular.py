@@ -37,9 +37,11 @@ class TabularNpzDataModule(L.LightningDataModule, BaseDataModule):
     fail on a plain object.
     """
 
-    def __init__(self, cfg: Any = None):
+    def __init__(self, cfg: Any = None, *, paths=None):
         super().__init__()
         self.cfg = cfg
+        from src.app.workspace import WorkspacePaths
+        self.paths = paths or WorkspacePaths.for_process()
         self.input_dim = 0
         self.labels: np.ndarray | None = None
         self._train: DataLoader | None = None
@@ -61,8 +63,9 @@ class TabularNpzDataModule(L.LightningDataModule, BaseDataModule):
     def _resolve_path(self, cfg: Any) -> Path:
         """The dataset file, from an explicit override or the env's dataset_name."""
         explicit = self._get(cfg, "dataset_path")
-        if explicit and Path(explicit).is_file():
-            return Path(explicit)
+        if explicit:
+            from src.app.pipeline.datasets import resolve_dataset_for_method
+            return resolve_dataset_for_method("tabular", {}, cfg, paths=self.paths)
 
         env = self._get(cfg, "env")
         name = self._get(env, "dataset_name") or self._get(env, "name")
@@ -70,15 +73,15 @@ class TabularNpzDataModule(L.LightningDataModule, BaseDataModule):
             raise FileNotFoundError("TabularNpzDataModule needs dataset_path, or dataset_name on the env config.")
         stem = str(name).replace(".npz", "")
         for candidate in (
-            Path("in/datasets") / stem / f"{stem}.npz",
-            Path("in/datasets") / f"{stem}.npz",
-            Path("in/datasets") / stem,
+            self.paths.datasets / stem / f"{stem}.npz",
+            self.paths.datasets / f"{stem}.npz",
+            self.paths.datasets / stem,
         ):
             if candidate.is_file():
                 return candidate
         raise FileNotFoundError(
-            f"No dataset for '{stem}' under in/datasets/. "
-            f"Generate one with: python in/datasets/prepare_tabular.py {stem}"
+            f"No dataset for '{stem}' under {self.paths.datasets}. Set dataset_path to an existing input, "
+            f"or generate an example with {self.paths.application / 'in/datasets/prepare_tabular.py'}."
         )
 
     # -- BaseDataModule ---------------------------------------------------

@@ -20,9 +20,9 @@ def main():
             config_service.clear_compose_cache()
             operation = request["operation"]
             if operation == "compose":
-                data = config_service.compose_report(*request["args"])
+                data = config_service.compose_report(*request["args"], workspace=paths)
             elif operation == "schema":
-                data = config_service.config_schema()
+                data = config_service.config_schema(workspace=paths)
             else:
                 raise ValueError("Unknown validation operation")
             response = {"data": data, "error": None}

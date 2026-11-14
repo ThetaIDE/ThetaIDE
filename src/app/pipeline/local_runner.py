@@ -7,7 +7,7 @@ Each method in cfg.methods is dispatched individually with proper overrides.
 import sys
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
+from src.app.workspace import WorkspacePaths
 
 from src.app.pipeline.commands import build_method_overrides
 from src.app.pipeline.config import normalize_agent_name
@@ -24,8 +24,9 @@ from src.app.pipeline.tuning_config import require_runnable_tuning, tuning_enabl
 # ---------------------------------------------------------------------------
 
 
-def _setup_output_dirs(cfg) -> None:
+def _setup_output_dirs(cfg, *, paths=None) -> None:
     """Purge and recreate checkpoint, log, and plot directories unless recovering."""
+    paths = paths or WorkspacePaths.for_process()
     if cfg.get("variability_run_id"):
         # A replicate owns only its method/version subtree. Its parent prepares
         # the shared experiment roots once before launching any workers.
@@ -33,7 +34,7 @@ def _setup_output_dirs(cfg) -> None:
         agent_name = agent_cfg.get("name") if hasattr(agent_cfg, "get") else None
         agent_name = str(agent_name or cfg.get("variability_method", "agent")).replace("/", "_")
         version = str(cfg.get("variability_version", "version_0"))
-        for base in (Path("results/checkpoints"), Path("results/logs")):
+        for base in ((paths.results / "checkpoints"), (paths.results / "logs")):
             run_dir = base / str(cfg.group) / str(cfg.experiment_id) / agent_name / version
             fast_purge_dir(run_dir)
             run_dir.mkdir(parents=True, exist_ok=True)
@@ -42,7 +43,7 @@ def _setup_output_dirs(cfg) -> None:
         return
 
     from src.app.pipeline.result_paths import nested_run_names
-    saved = nested_run_names(Path("results/logs") / cfg.group / cfg.experiment_id)
+    saved = nested_run_names((paths.results / "logs") / cfg.group / cfg.experiment_id)
 
     def prepare(path):
         if saved and path.is_dir():
@@ -57,10 +58,10 @@ def _setup_output_dirs(cfg) -> None:
             fast_purge_dir(path)
         path.mkdir(parents=True, exist_ok=True)
 
-    prepare(Path("results/checkpoints") / cfg.group / cfg.experiment_id)
-    prepare(Path("results/logs") / cfg.group / cfg.experiment_id)
+    prepare((paths.results / "checkpoints") / cfg.group / cfg.experiment_id)
+    prepare((paths.results / "logs") / cfg.group / cfg.experiment_id)
     if should_run_plotting(cfg):
-        prepare(Path("results/plots") / cfg.group / cfg.experiment_id)
+        prepare((paths.results / "plots") / cfg.group / cfg.experiment_id)
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ def _setup_output_dirs(cfg) -> None:
 
 def run_methods(cfg, context) -> None:
     """Run methods one at a time, or launch one training process per method concurrently."""
+    context = {**context, "workspace": context.get("workspace") or WorkspacePaths.for_process()}
     methods = context["methods"]
     require_runnable_tuning(cfg, methods)
     parallel = bool(cfg.get("run_in_parallel", False) and len(methods) > 1)
@@ -110,6 +112,7 @@ def run_methods(cfg, context) -> None:
 
 def _run_methods_sequential(cfg, context) -> None:
     """Execute all methods declared in cfg.methods."""
+    paths = context.get("workspace") or WorkspacePaths.for_process()
     methods = context["methods"]
     require_runnable_tuning(cfg, methods)
     sanitized_extra_args = context["sanitized_extra_args"]
@@ -131,14 +134,14 @@ def _run_methods_sequential(cfg, context) -> None:
         study_name = None
         tuner = None
         if method_is_sweep:
-            tuner = get_tuner(cfg)
+            tuner = get_tuner(cfg, paths=paths)
             study_name = tuner.study_name(cfg, agent_name)
 
         # Resolve dataset for paradigms that train from a file rather than a simulator
         dataset_path = None
-        if paradigm_uses_static_dataset(paradigm):
+        if paradigm_uses_static_dataset(paradigm, paths=paths):
             try:
-                dataset_path = resolve_dataset_for_method(method_name, method_cfg, cfg)
+                dataset_path = resolve_dataset_for_method(method_name, method_cfg, cfg, paths=paths)
             except FileNotFoundError as e:
                 print(f"Error: {e}")
                 sys.exit(1)
@@ -156,12 +159,13 @@ def _run_methods_sequential(cfg, context) -> None:
             cfg=cfg,
             study_name=study_name,
             is_sweep=method_is_sweep,
+            workspace=paths,
         )
 
         if method_is_sweep:
             tuner.prepare(cfg, storage_url, study_name)
 
-        engine_script, engine_python = resolve_engine(method_cfg, cfg)
+        engine_script, engine_python = resolve_engine(method_cfg, cfg, paths=paths)
         if tuner is not None:
             engine_script, engine_python = tuner.job_entrypoint(cfg, method_cfg, engine_script, engine_python)
         repeated = cfg.get("objective") is not None or (method_is_sweep and cfg.get("variability") is not None)
@@ -192,6 +196,7 @@ def _run_methods_sequential(cfg, context) -> None:
         try:
             run_experiment(
                 overrides,
+                paths=paths,
                 site_cfg=getattr(cfg, "site", None),
                 script_entrypoint=engine_script,
                 coordinator=repeated,
@@ -239,6 +244,7 @@ def run_plotting_phase(cfg, context) -> None:
         style=cfg.get("plot_style", None),
         base_experiment=cfg.get("experiment_name", ""),
         site_cfg=site_cfg,
+        paths=context.get("workspace"),
     )
 
 
@@ -250,9 +256,12 @@ def run_plotting_phase(cfg, context) -> None:
 def run_local_training(cfg, context) -> None:
     """Execute all phases sequentially: setup → methods → plot."""
     require_runnable_tuning(cfg, context.get("methods", {}))
-    _setup_output_dirs(cfg)
+    paths = context.get("workspace") or WorkspacePaths.for_process()
+    # Every phase and worker uses the same selected workspace, never a later CWD guess.
+    context = {**context, "workspace": paths}
+    _setup_output_dirs(cfg, paths=paths)
     save_experiment_snapshot(cfg, context)
-    save_run_config(cfg)
+    save_run_config(cfg, paths=paths)
     run_methods(cfg, context)
 
     if should_run_plotting(cfg):

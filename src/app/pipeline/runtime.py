@@ -15,7 +15,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
-def get_python_executable(site_cfg=None) -> str:
+def get_python_executable(site_cfg=None, *, paths=None) -> str:
     """Resolve the Python executable, honoring site config.
 
     Resolution order:
@@ -31,33 +31,36 @@ def get_python_executable(site_cfg=None) -> str:
     if site_cfg and hasattr(site_cfg, "venv_dir"):
         venv_dir = str(getattr(site_cfg, "venv_dir", "venv"))
 
-    venv_python = PROJECT_ROOT / venv_dir / "bin" / "python3"
+    from src.app.workspace import WorkspacePaths
+    paths = paths or WorkspacePaths.for_process()
+    venv_python = paths.root / venv_dir / "bin" / "python3"
     if venv_python.exists():
         return str(venv_python)
     return sys.executable
 
 
-def get_pythonpath_entries(site_cfg=None) -> list:
+def get_pythonpath_entries(site_cfg=None, *, paths=None) -> list:
     """Build PYTHONPATH entries list.
 
     Always includes PROJECT_ROOT and src directories (app, usr, models, environments, eval).
     Adds site_cfg.extra_pythonpath entries (relative to PROJECT_ROOT).
     """
     from src.app.workspace import WorkspacePaths
-    paths = WorkspacePaths.for_process()
+    paths = paths or WorkspacePaths.for_process()
     entries = [str(paths.application)]
     if site_cfg:
         for extra in getattr(site_cfg, "extra_pythonpath", []) or []:
-            entries.append(str(PROJECT_ROOT / extra))
+            entries.append(str(paths.root / extra))
     return entries
 
 
-def get_subprocess_env(site_cfg=None) -> dict:
+def get_subprocess_env(site_cfg=None, *, paths=None) -> dict:
     """Build a subprocess environment dict with correct PYTHONPATH and extras."""
     env = os.environ.copy()
     from src.app.workspace import WorkspacePaths
-    env.update(WorkspacePaths.for_process().process_environment())
-    pp_entries = get_pythonpath_entries(site_cfg)
+    paths = paths or WorkspacePaths.for_process()
+    env.update(paths.process_environment())
+    pp_entries = get_pythonpath_entries(site_cfg, paths=paths)
     env["PYTHONPATH"] = ":".join(pp_entries) + ":" + env.get("PYTHONPATH", "")
     env["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
     if site_cfg:

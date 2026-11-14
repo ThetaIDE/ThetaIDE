@@ -147,5 +147,5 @@ def _run_experiment_node(node, cfg, context, is_interactive: bool) -> None:
         if result.returncode != 0:
             log.warning("Node '%s' exited with code %d.", node.id, result.returncode)
     else:
-        log.info("[Slurm mode] Workflow node '%s' Slurm submission not yet implemented.", node.id)
-        print("    [Slurm] Submission for workflow nodes is not yet automated.")
+        log.info("[Scheduler mode] Workflow node '%s' scheduler submission not yet implemented.", node.id)
+        print("    [Scheduler] Submission for workflow nodes is not yet automated.")

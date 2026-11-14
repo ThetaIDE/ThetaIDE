@@ -28,7 +28,7 @@ def test_scaffold_model_standard(tmp_path):
     assert (res.target_dir / "__init__.py").is_file()
     assert (res.target_dir / ".theta_component.json").is_file()
     assert (res.target_dir / "pyproject.toml").is_file()
-    assert (tmp_path / "in" / "config" / "model" / "simple_mlp.yaml").is_file()
+    assert (tmp_path / "src" / "usr" / "config" / "model" / "simple_mlp.yaml").is_file()
 
 
 def test_scaffold_agent(tmp_path):
@@ -37,7 +37,7 @@ def test_scaffold_agent(tmp_path):
     res = scaffolder.scaffold(opts)
     assert res.success is True
     assert (res.target_dir / "soft_actor_critic_agent.py").is_file()
-    assert (tmp_path / "in" / "config" / "agent" / "soft_actor_critic.yaml").is_file()
+    assert (tmp_path / "src" / "usr" / "config" / "agent" / "soft_actor_critic.yaml").is_file()
 
 
 def test_scaffold_environment(tmp_path):
@@ -46,7 +46,7 @@ def test_scaffold_environment(tmp_path):
     res = scaffolder.scaffold(opts)
     assert res.success is True
     assert (res.target_dir / "env.py").is_file()
-    assert (tmp_path / "in" / "config" / "env" / "quadrotor_sim.yaml").is_file()
+    assert (tmp_path / "src" / "usr" / "config" / "env" / "quadrotor_sim.yaml").is_file()
     assert (tmp_path / "src" / "usr" / "rules" / "quadrotor_sim" / "default.rules").is_file()
 
 
@@ -56,7 +56,7 @@ def test_scaffold_datamodule(tmp_path):
     res = scaffolder.scaffold(opts)
     assert res.success is True
     assert (res.target_dir / "trajectory_streamer_data_module.py").is_file()
-    assert (tmp_path / "in" / "config" / "data" / "trajectory_streamer.yaml").is_file()
+    assert (tmp_path / "src" / "usr" / "config" / "data" / "trajectory_streamer.yaml").is_file()
 
 
 def test_scaffold_evaluator(tmp_path):
@@ -65,7 +65,7 @@ def test_scaffold_evaluator(tmp_path):
     res = scaffolder.scaffold(opts)
     assert res.success is True
     assert (res.target_dir / "reachability_checker_evaluator.py").is_file()
-    assert (tmp_path / "in" / "config" / "eval" / "reachability_checker.yaml").is_file()
+    assert (tmp_path / "src" / "usr" / "config" / "eval" / "reachability_checker.yaml").is_file()
 
 
 def test_scaffold_plotter(tmp_path):
@@ -76,7 +76,7 @@ def test_scaffold_plotter(tmp_path):
     assert (res.target_dir / "pareto_frontier_plotter.py").is_file()
     assert (res.target_dir / "__init__.py").is_file()
     assert (res.target_dir / ".theta_component.json").is_file()
-    assert (tmp_path / "in" / "config" / "plot" / "pareto_frontier.yaml").is_file()
+    assert (tmp_path / "src" / "usr" / "config" / "plot" / "pareto_frontier.yaml").is_file()
 
 
 def test_scaffold_invalid_kind(tmp_path):
@@ -90,6 +90,7 @@ def test_scaffold_invalid_kind(tmp_path):
 def test_scaffold_dialog_gui(qapp, tmp_path):
     dialog = ScaffoldPluginDialog(workspace_root=tmp_path)
     dialog.edit_name.setText("test_dialog_model")
+    dialog.combo_kind.setCurrentIndex(dialog.combo_kind.findData("model"))
 
     # Trigger scaffolding
     dialog._on_scaffold_clicked()

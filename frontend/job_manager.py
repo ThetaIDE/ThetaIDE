@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from frontend.runner_manager import JobManager as RunnerManager, ACTIVE_STATUSES, FINAL_STATUSES
-from src.app.services import JOBS_DIR, LOGS_DIR, PROJECT_ROOT
+from src.app.workspace import WorkspacePaths
 from src.app.services.config_service import LaunchError, prepare_launch
 from frontend.job_runner import write_json
 
@@ -24,9 +24,10 @@ class JobManager(RunnerManager):
     def __init__(self, store_path=None, python=None, project_root=None, logs_dir=None,
                  parent=None, settings_path=None, enabled_plugins_provider=None, defer_telemetry=False):
         QObject.__init__(self, parent)
-        self.project_root = Path(project_root or PROJECT_ROOT).resolve()
-        self.logs_dir = Path(logs_dir or LOGS_DIR).resolve()
-        store_path = Path(store_path or JOBS_DIR / 'jobs.db').resolve()
+        paths = WorkspacePaths(project_root) if project_root else WorkspacePaths.for_process()
+        self.project_root = paths.root
+        self.logs_dir = Path(logs_dir or paths.results / 'logs').resolve()
+        store_path = Path(store_path or paths.results / 'jobs/jobs.db').resolve()
         self.jobs_dir = store_path.parent
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.ipc_dir = self.jobs_dir / 'runner'

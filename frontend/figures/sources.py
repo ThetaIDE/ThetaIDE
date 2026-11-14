@@ -42,7 +42,9 @@ class _CapturedPanel:
 class PanelSource:
     """The catalogue of panels available for an experiment."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, paths=None) -> None:
+        from src.app.workspace import WorkspacePaths
+        self.paths = paths or WorkspacePaths.for_process()
         self._registry: dict[str, Any] | None = None
         self._panels: dict[tuple[str, str], list] = {}
         self._figures: dict[tuple[str, str], list] = {}
@@ -56,9 +58,9 @@ class PanelSource:
 
             from src.app.core.plotter_registry import get_plotter_class
             self._registry = {}
-            for name, cls in discover_plotters().items():
+            for name, cls in discover_plotters(paths=self.paths).items():
                 try:
-                    cls = cls or get_plotter_class(name)
+                    cls = cls or get_plotter_class(name, paths=self.paths)
                     if cls is not None:
                         self._registry[name] = cls
                 except Exception as exc:
@@ -93,7 +95,8 @@ class PanelSource:
             self._panels[cache_key] = []
             return []
         try:
-            found = cls().panels(exp_id)
+            from src.app.core.plotting.base import create_plotter
+            found = create_plotter(cls, self.paths).panels(exp_id)
         except Exception as exc:
             # One broken plotter must not empty the whole catalogue.
             self._errors[cache_key] = f"{type(exc).__name__}: {exc}"
@@ -191,7 +194,8 @@ class PanelSource:
         if cls is None:
             return []
         try:
-            return figures_from(cls(), exp_id)
+            from src.app.core.plotting.base import create_plotter
+            return figures_from(create_plotter(cls, self.paths), exp_id)
         except Exception as exc:
             self._errors[(plotter_name, exp_id)] = f"{type(exc).__name__}: {exc}"
             return []

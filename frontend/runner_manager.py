@@ -18,7 +18,7 @@ from typing import Any
 
 from PyQt6.QtCore import QFileSystemWatcher, QObject, QProcess, QProcessEnvironment, pyqtSignal
 
-from src.app.services import JOBS_DIR, LOGS_DIR, PROJECT_ROOT
+from src.app.workspace import WorkspacePaths
 from src.app.services.config_service import LaunchError, prepare_launch
 from src.app.services.job_store import JobStore
 from src.app.services.metrics import AgentFeed
@@ -52,18 +52,20 @@ class JobManager(QObject):
                  project_root: Path | None = None, logs_dir: Path | None = None, parent=None,
                  settings_path: Path | None = None, enabled_plugins_provider=None):
         super().__init__(parent)
-        self.project_root = Path(project_root or PROJECT_ROOT)
+        # Omitted context is the entry point's selected workspace, never an import-time constant.
+        paths = WorkspacePaths(project_root) if project_root else WorkspacePaths.for_process()
+        self.project_root = paths.root
         if not python:
             venv_bin = self.project_root / "venv" / ("Scripts" if sys.platform == "win32" else "bin")
             venv_python = venv_bin / ("python.exe" if sys.platform == "win32" else "python")
             if venv_python.is_file():
                 python = str(venv_python)
         self.python = python or sys.executable
-        self.logs_dir = Path(logs_dir or LOGS_DIR)  # where run_pipeline.py writes results/logs/<group>/<id>
+        self.logs_dir = Path(logs_dir or paths.results / "logs")  # where run_pipeline.py writes results/logs/<group>/<id>
         self.settings_path = Path(settings_path) if settings_path else None
         self.enabled_plugins_provider = enabled_plugins_provider
-        self.jobs_dir = Path(store_path).parent if store_path else JOBS_DIR
-        self.store = JobStore(store_path or JOBS_DIR / "jobs.db")
+        self.jobs_dir = Path(store_path).parent if store_path else paths.results / "jobs"
+        self.store = JobStore(store_path or self.jobs_dir / "jobs.db")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.queue_order: list[str] = []
         self.queue_running = False  # queued jobs start only after start_queue(); it pauses itself when drained
@@ -343,18 +345,11 @@ class JobManager(QObject):
 
     def _sweep_summaries(self, job):
         from src.app.pipeline.execution_data import study_execution_states
-        root = self.project_root / "results" / "checkpoints" / str(job.get("group")) / str(job.get("experiment_id"))
+        from src.app.pipeline.tuning_monitor import local_study_summaries
         summaries = []
-        for path in sorted(root.glob("*/tuning_summary.json")):
-            try:
-                if job.get("started") and job.get("status") in ACTIVE_STATUSES and path.stat().st_mtime < job["started"]:
-                    continue
-                summary = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if summary.get("component") == "optuna":
-                method = summary.get("log_method") or path.parent.name
-                summaries.append((path.parent.name, study_execution_states(summary, self._run_dir(job), method)))
+        started = job.get('started') if job.get('status') in ACTIVE_STATUSES else None
+        for method, summary in local_study_summaries(self.project_root, job.get('group'), job.get('experiment_id'), started=started):
+            summaries.append((method, study_execution_states(summary, self._run_dir(job), summary.get('log_method') or method)))
         return summaries
 
     def replicate(self, job_id: str, replicate_label: str) -> dict[str, Any] | None:

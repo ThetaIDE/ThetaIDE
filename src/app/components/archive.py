@@ -65,6 +65,10 @@ def validate_native_package(meta, source):
             raise ValueError(f"Config profile must contain a mapping: {rel}")
     if set(meta.get("config_paths", payload["configs"])) != set(payload["configs"]):
         raise ValueError("config_paths must agree with payload.configs")
+    for name, target in (meta.get("exports") or {}).items():
+        # Public cross-package objects are ordinary payload files; nothing is imported here.
+        if not resource(target.partition(":")[0]).is_file():
+            raise ValueError(f"Export {name!r} must name a payload Python file")
     selectors = set()
     for cap in meta["capabilities"]:
         if cap.get("kind") == "monitor":
@@ -93,8 +97,30 @@ def validate_native_package(meta, source):
         if file.suffix == ".py" and not sep: raise ValueError(f"Executable entry point needs an explicit object: {entry}")
         if not any(file == root or file.is_relative_to(root) for root in declared):
             raise ValueError(f"Entry point is outside declared payload: {entry}")
+        for hook_name in ("execution_preflight", "resource_hint_hook"):
+            if hook_name not in cap:
+                continue
+            hook_entry, _, hook_attr = cap[hook_name].partition(":")
+            hook_file = resource(hook_entry)
+            if not hook_file.is_file() or hook_file.suffix != ".py" or not hook_attr:
+                raise ValueError(f"Invalid {hook_name}: {cap[hook_name]}")
+            if not any(hook_file == root or hook_file.is_relative_to(root) for root in declared):
+                raise ValueError(f"{hook_name} is outside declared payload: {hook_entry}")
+        contribution_ids = set()
+        if ('contributions' in cap or 'readiness' in cap) and 'contribution_api' not in cap:
+            raise ValueError('Contributions/readiness require an explicit contribution_api')
+        for contribution in cap.get('contributions', []):
+            if contribution['id'] in contribution_ids:
+                raise ValueError('Duplicate contribution ID in capability')
+            contribution_ids.add(contribution['id'])
+            if reference := contribution.get('entry_point'):
+                factory = resource(reference.split(':', 1)[0])
+                if not factory.is_file() or factory.suffix != '.py':
+                    raise ValueError('Contribution factories must name Python files')
+                if not any(factory == root or factory.is_relative_to(root) for root in declared):
+                    raise ValueError('Contribution factory is outside declared payload')
         from src.app.core.provider_catalog import kind_name
-        if kind_name(cap['kind']) not in {'site','monitor','model','algorithm','env','datamodule','evaluator','plotter','tuner','objective','component','plugin','run_logger'}:
+        if kind_name(cap['kind']) not in {'scheduler','site','monitor','model','algorithm','env','datamodule','evaluator','plotter','tuner','objective','component','plugin','run_logger'}:
             raise ValueError(f"Unknown capability kind: {cap['kind']}")
         if file.suffix == '.json' and cap['kind'] != 'objective':
             raise ValueError('Only objective capabilities use JSON entry points')
@@ -115,6 +141,9 @@ def validate_native_package(meta, source):
     for cap in meta['capabilities']:
         if 'resource_root' in cap and not resource(cap['resource_root']).is_dir():
             raise ValueError('resource_root must name a package directory')
+    aliases = meta.get("compatibility_selectors", [])
+    if not isinstance(aliases, list) or any(not isinstance(key, str) or "in/config/" + key not in payload["configs"] for key in aliases):
+        raise ValueError("compatibility_selectors must name explicitly packaged config profiles")
     return dict(payload["configs"])
 
 

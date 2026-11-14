@@ -39,7 +39,7 @@ def register_component(*names: str):
     return decorator
 
 
-def get_component(name: str | None) -> Type[Any] | None:
+def get_component(name: str | None, *, paths=None) -> Type[Any] | None:
     """Return a registered component class by name, or None if name is None/empty.
 
     Triggers auto-discovery of all paradigm_impls modules exactly once,
@@ -51,7 +51,7 @@ def get_component(name: str | None) -> Type[Any] | None:
         return None
     from src.app.core.provider_loader import resolve_provider
     for kind in ('component','datamodule','evaluator'):
-        selected = resolve_provider(kind, name)
+        selected = resolve_provider(kind, name, paths=paths)
         if selected is not None: return selected
     if not _discovered:
         _auto_discover_components()
@@ -108,7 +108,7 @@ class ParadigmDefinition:
     raw: dict = field(default_factory=dict)  # full raw YAML for access to extra keys
 
 
-def load_paradigm_definition(paradigm_name: str) -> ParadigmDefinition:
+def load_paradigm_definition(paradigm_name: str, *, paths=None) -> ParadigmDefinition:
     """Load a paradigm YAML and resolve class names to concrete implementations.
 
     Args:
@@ -123,9 +123,9 @@ def load_paradigm_definition(paradigm_name: str) -> ParadigmDefinition:
     """
     from src.app.pipeline.validation import load_paradigm
 
-    raw = load_paradigm(paradigm_name)
+    raw = load_paradigm(paradigm_name, paths=paths)
 
-    runner = get_component(raw.get("runner"))
+    runner = get_component(raw.get("runner"), paths=paths)
     version = getattr(runner, "execution_contract", None)
     if runner is not None and not runner.__module__.startswith("src.app."):
         version = runner.__dict__.get("execution_contract")
@@ -136,8 +136,8 @@ def load_paradigm_definition(paradigm_name: str) -> ParadigmDefinition:
         type=raw.get("type", "base"),
         description=raw.get("description", ""),
         runner_cls=runner,
-        data_module_cls=get_component(raw.get("data_module") or raw.get("default_data_module")),
-        eval_protocol_cls=get_component(raw.get("eval_protocol")),
+        data_module_cls=get_component(raw.get("data_module") or raw.get("default_data_module"), paths=paths),
+        eval_protocol_cls=get_component(raw.get("eval_protocol"), paths=paths),
         default_callback_names=raw.get("default_callbacks") or [],
         raw=raw,
     )

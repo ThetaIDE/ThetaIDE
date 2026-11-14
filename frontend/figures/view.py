@@ -53,9 +53,9 @@ MIN_PREVIEW_DPI = 24
 class FigureWorkspace(QWidget):
     """Compose several plots into one figure and export it."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, paths=None):
         super().__init__(parent)
-        self.source = PanelSource()
+        self.source = PanelSource(paths=paths)
         self.spec = FigureSpec(rows=1, cols=2)
         self._loading = False
 
@@ -219,7 +219,7 @@ class FigureWorkspace(QWidget):
     def _load_experiments(self) -> None:
         self._loading = True
         self.cmb_experiment.clear()
-        for group, exp_id in available_experiments():
+        for group, exp_id in available_experiments(self.source.paths.results / "logs"):
             self.cmb_experiment.addItem(f"{group} / {exp_id}", exp_id)
         self._loading = False
         if self.cmb_experiment.count():

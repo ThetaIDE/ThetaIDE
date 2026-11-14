@@ -27,6 +27,10 @@ def main(argv=None):
     commands.add_parser("archive-authored", help="Explicitly archive a user implementation").add_argument("component")
     commands.add_parser("restore-authored", help="Explicitly restore an archived user implementation").add_argument("component")
     commands.add_parser("list", help="List installed components without importing their Python code")
+    extension = commands.add_parser("extension", help="Inspect or change workspace extension enablement")
+    extension.add_argument("action", choices=("status", "enable", "disable"))
+    extension.add_argument("kind")
+    extension.add_argument("selector")
     inspect = commands.add_parser("inspect")
     inspect.add_argument("component", help="Component ID or workspace-relative source/config path")
     copy = commands.add_parser("copy", help="Create an independent editable model component")
@@ -38,10 +42,11 @@ def main(argv=None):
     export = commands.add_parser("export")
     export.add_argument("component")
     export.add_argument("--out", type=Path, required=True)
-    config = commands.add_parser("config", help="Manage YAML files inside in/config")
+    config = commands.add_parser("config", help="Manage user YAML and explicitly copy package defaults")
     config_commands = config.add_subparsers(dest="config_command", required=True)
     for command in ("show", "validate"):
         config_commands.add_parser(command).add_argument("path")
+    config_commands.add_parser("override", help="Create an editable full profile under src/usr/config").add_argument("selector")
     profile_copy = config_commands.add_parser("copy", help="Copy a YAML profile; implementation remains shared")
     profile_copy.add_argument("source")
     profile_copy.add_argument("destination")
@@ -88,6 +93,14 @@ def main(argv=None):
                 meta = json.loads((Path(record['package']) / '.theta_component.json').read_text())
                 local.restore_authored(HubComponent.from_dict(meta))
             result = {"id": args.component, "action": args.command}
+        elif args.command == "extension":
+            from dataclasses import asdict
+            from src.app.core.contributions import ContributionRegistry
+            registry = ContributionRegistry(service.paths)
+            if args.action != "status":
+                registry.set_enabled(args.kind, args.selector, args.action == "enable")
+            result = {"kind": args.kind, "selector": args.selector,
+                      **asdict(registry.status(args.kind, args.selector))}
         elif args.command == "inventory":
             from src.app.core.provider_catalog import ProviderCatalog
             result = ProviderCatalog(service.paths).inventory()
@@ -116,6 +129,8 @@ def main(argv=None):
                 result = {"archive": str(exported.export_path)}
         elif args.command == "validate-experiment":
             result = service.validate_experiment(args.experiment, args.overrides)
+        elif args.config_command == "override":
+            result = {"config": str(service.configs.create_override(args.selector))}
         elif args.config_command == "copy":
             result = {"config": str(service.configs.copy(args.source, args.destination))}
         elif args.config_command == "set":

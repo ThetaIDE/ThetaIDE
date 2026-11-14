@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Set
 
 import yaml
 
-from . import PROJECT_ROOT
 from src.app.workspace import WorkspacePaths
 
 log = logging.getLogger(__name__)
@@ -81,7 +80,9 @@ class ExperimentExporter:
     """Extracts, traces dependencies, and packages experiments into installable Hub components."""
 
     def __init__(self, workspace_root: Path | None = None):
-        self.workspace_root = Path(workspace_root) if workspace_root else PROJECT_ROOT
+        self.paths = (workspace_root if isinstance(workspace_root, WorkspacePaths) else
+                      WorkspacePaths(workspace_root) if workspace_root is not None else WorkspacePaths.for_process())
+        self.workspace_root = self.paths.root
 
     def export(
         self,
@@ -124,7 +125,7 @@ class ExperimentExporter:
             files_to_pack: Dict[str, Path] = {}
 
             # Add primary experiment config
-            exp_rel = exp_yaml_path.relative_to(self.workspace_root).as_posix()
+            exp_rel = self._config_key(exp_yaml_path)
             files_to_pack[exp_rel] = exp_yaml_path
 
             # 2. Trace base configs and method templates in the experiment group
@@ -244,63 +245,35 @@ class ExperimentExporter:
 
     def _resolve_experiment_path(self, target: str | Path) -> tuple[str, str, Path]:
         """Resolve group, experiment name, and file path from target."""
-        exp_dir = self.workspace_root / "in" / "config" / "experiment"
+        value = str(target).strip()
+        path = Path(value)
+        if path.is_absolute():
+            matches = [key for key in self.paths.config_resolver().selectors("experiment")
+                       if self.paths.resolve_config(key) == path.resolve()]
+            if len(matches) != 1:
+                raise ValueError(f"Recipe is not an effective workspace profile: {path}")
+            value = matches[0]
+        value = value.removeprefix("src/usr/config/").removeprefix("in/config/").removeprefix("experiment/")
+        relative = Path(value).with_suffix(".yaml")
+        source = self.paths.resolve_config(Path("experiment") / relative)
+        group = relative.parts[0] if len(relative.parts) > 1 else "general"
+        return group, relative.stem, source
 
-        if isinstance(target, Path):
-            if target.is_absolute():
-                rel = target.relative_to(exp_dir)
-            else:
-                rel = target
-        else:
-            s = str(target).strip()
-            if s.startswith("in/config/experiment/"):
-                s = s[len("in/config/experiment/") :]
-            rel = Path(s)
+    def _config_key(self, path):
+        for selector in self.paths.config_resolver().selectors():
+            if self.paths.resolve_config(selector) == path:
+                return "in/config/" + selector
+        return path.relative_to(self.workspace_root).as_posix()
 
-        parts = rel.parts
-        if len(parts) >= 2:
-            group = parts[0]
-            exp_stem = Path("/".join(parts[1:])).stem
-            exp_yaml = exp_dir / group / f"{exp_stem}.yaml"
-        else:
-            group = "general"
-            exp_stem = rel.stem
-            exp_yaml = exp_dir / f"{exp_stem}.yaml"
-
-        return group, exp_stem, exp_yaml
-
-    def _trace_group_templates(
-        self,
-        group: str,
-        cfg: Dict[str, Any],
-        files_to_pack: Dict[str, Path],
-    ) -> None:
-        """Trace _base.yaml and any referenced method templates in the group."""
-        group_dir = self.workspace_root / "in" / "config" / "experiment" / group
-        if not group_dir.is_dir():
-            return
-
-        base_yaml = group_dir / "_base.yaml"
-        if base_yaml.is_file():
-            rel = base_yaml.relative_to(self.workspace_root).as_posix()
-            files_to_pack[rel] = base_yaml
-
-        # Check defaults list for specific includes
-        defaults = cfg.get("defaults", [])
-        if isinstance(defaults, list):
-            for item in defaults:
-                if isinstance(item, str) and not item.startswith("override"):
-                    cand = group_dir / f"{item}.yaml"
-                    if cand.is_file():
-                        rel = cand.relative_to(self.workspace_root).as_posix()
-                        files_to_pack[rel] = cand
-
-        # Methods directory templates
-        methods_dir = group_dir / "methods"
-        if methods_dir.is_dir():
-            for mfile in sorted(methods_dir.glob("*.yaml")):
-                rel = mfile.relative_to(self.workspace_root).as_posix()
-                files_to_pack[rel] = mfile
+    def _trace_group_templates(self, group, cfg, files_to_pack):
+        prefix = f"experiment/{group}/"
+        defaults = {item for item in cfg.get("defaults", []) if isinstance(item, str)}
+        for selector in self.paths.config_resolver().selectors("experiment"):
+            if not selector.startswith(prefix):
+                continue
+            tail = selector.removeprefix(prefix)
+            if tail == "_base.yaml" or tail.startswith("methods/") or tail.removesuffix(".yaml") in defaults:
+                files_to_pack["in/config/" + selector] = self.paths.resolve_config(selector)
 
     def _resolve_env_name(self, cfg: Dict[str, Any], group: str) -> str | None:
         """Extract environment name from configuration or defaults."""
@@ -320,7 +293,7 @@ class ExperimentExporter:
                         return str(item["env"])
 
         # Check group _base.yaml if present
-        base_yaml = self.workspace_root / "in" / "config" / "experiment" / group / "_base.yaml"
+        base_yaml = self.paths.resolve_config(f"experiment/{group}/_base.yaml")
         if base_yaml.is_file():
             try:
                 base_cfg = yaml.safe_load(base_yaml.read_text(encoding="utf-8")) or {}
@@ -341,20 +314,15 @@ class ExperimentExporter:
 
     def _find_config_file(self, folder: str, name: str) -> Path | None:
         """Find a configuration file in in/config/<folder>/ directly or recursively."""
-        root = self.workspace_root / "in" / "config" / folder
-        if not root.is_dir():
-            return None
-        direct = root / f"{name}.yaml"
-        if direct.is_file():
-            return direct
-        direct_yml = root / f"{name}.yml"
-        if direct_yml.is_file():
-            return direct_yml
+        for suffix in (".yaml", ".yml"):
+            path = self.paths.resolve_config(f"{folder}/{name}{suffix}")
+            if path.is_file():
+                return path
         return None
 
     def _trace_declared_provider(self, kind, selector, files_to_pack):
         from src.app.core.provider_catalog import get_catalog
-        catalog = get_catalog(WorkspacePaths(self.workspace_root))
+        catalog = get_catalog(self.paths)
         selected = catalog.resolve(kind, str(selector))
         if selected is None and kind == 'datamodule':
             from src.app.core.data_loaders import loader_selection
@@ -412,23 +380,15 @@ class ExperimentExporter:
         raw_cfg: Dict[str, Any] | None = None,
     ) -> None:
         """Trace any associated DAG workflows in in/config/workflow/."""
-        wf_dir = self.workspace_root / "in" / "config" / "workflow"
-        if not wf_dir.is_dir():
-            return
-        workflow_names = set()
-        if raw_cfg and raw_cfg.get("workflow"):
-            workflow_names.add(str(raw_cfg["workflow"]))
+        names = {str(raw_cfg["workflow"])} if raw_cfg and raw_cfg.get("workflow") else set()
+        for selector in self.paths.config_resolver().selectors("workflow"):
+            if group in Path(selector).stem or Path(selector).stem in names:
+                files_to_pack["in/config/" + selector] = self.paths.resolve_config(selector)
 
-        for p in sorted(wf_dir.glob("*.yaml")):
-            if group in p.stem or p.stem in workflow_names:
-                files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
-
-    def _trace_all_group_experiments(self, group: str, files_to_pack: Dict[str, Path]) -> None:
-        """Trace all experiment recipe YAML files in the group directory."""
-        g_dir = self.workspace_root / "in" / "config" / "experiment" / group
-        if g_dir.is_dir():
-            for p in sorted(g_dir.rglob("*.yaml")):
-                files_to_pack[p.relative_to(self.workspace_root).as_posix()] = p
+    def _trace_all_group_experiments(self, group, files_to_pack):
+        for selector in self.paths.config_resolver().selectors("experiment"):
+            if selector.startswith(f"experiment/{group}/"):
+                files_to_pack["in/config/" + selector] = self.paths.resolve_config(selector)
 
     def export_group(
         self,
@@ -437,18 +397,10 @@ class ExperimentExporter:
     ) -> ExportResult:
         """Export an entire experiment group and its full component ecosystem as an installable Experiment Plugin."""
         opts = options or ExportOptions()
-        group_dir = self.workspace_root / "in" / "config" / "experiment" / group
-        if not group_dir.is_dir():
-            return ExportResult(
-                success=False,
-                error=f"Experiment group directory not found: {group_dir}",
-            )
-
         files_to_pack: Dict[str, Path] = {}
-        # 1. Pack all experiment configs in the group
-        for p in sorted(group_dir.rglob("*.yaml")):
-            rel = p.relative_to(self.workspace_root).as_posix()
-            files_to_pack[rel] = p
+        self._trace_all_group_experiments(group, files_to_pack)
+        if not files_to_pack:
+            return ExportResult(success=False, error=f"Experiment group not found: {group}")
 
         # 2. Extract configs to resolve env, agents, models, paradigms
         agents_found: Set[str] = set()
@@ -460,7 +412,7 @@ class ExperimentExporter:
         plotters_found: Set[str] = set()
         env_name: str | None = None
 
-        for exp_yaml in sorted(group_dir.rglob("*.yaml")):
+        for exp_yaml in list(files_to_pack.values()):
             cfg = yaml.safe_load(exp_yaml.read_text(encoding="utf-8")) or {}
             if not env_name:
                 env_name = self._resolve_env_name(cfg, group)
@@ -581,7 +533,7 @@ class ExperimentExporter:
                 # in/config/agent/<agent>.yaml (direct or recursive)
                 agent_yaml = self._find_config_file("agent", agent_name)
                 if agent_yaml and agent_yaml.is_file():
-                    rel = agent_yaml.relative_to(self.workspace_root).as_posix()
+                    rel = self._config_key(agent_yaml)
                     files_to_pack[rel] = agent_yaml
 
             # Extract model names (handle flat or nested composite specs)
@@ -633,7 +585,7 @@ class ExperimentExporter:
                 # in/config/model/<m>.yaml (direct or recursive)
                 model_yaml = self._find_config_file("model", m)
                 if model_yaml and model_yaml.is_file():
-                    rel = model_yaml.relative_to(self.workspace_root).as_posix()
+                    rel = self._config_key(model_yaml)
                     files_to_pack[rel] = model_yaml
 
                 if include_models:
@@ -666,7 +618,7 @@ class ExperimentExporter:
     def _managed_dependencies(self, files):
         from src.app.core.provider_catalog import get_catalog
         from src.app.workspace import WorkspacePaths
-        catalog = get_catalog(WorkspacePaths(self.workspace_root))
+        catalog = get_catalog(self.paths)
         dependencies = {}
         for relative, source in list(files.items()):
             owners = [p for p in catalog.packages if p.origin in ('bundled', 'hub', 'local_archive', 'user') and Path(source).resolve().is_relative_to(p.root)]

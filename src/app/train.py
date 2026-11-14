@@ -20,10 +20,12 @@ def main(cfg):
 
 def launch():
     paths = WorkspacePaths.for_process()
-    search = [f"file://{p}" for p in paths.config_roots() if p.is_dir() and p != paths.primary_config]
+    search = paths.config_searchpath()
     if not any(arg.lstrip('+').startswith('hydra.searchpath=') for arg in sys.argv[1:]):
         sys.argv.append('hydra.searchpath=[' + ','.join(search) + ']')
-    return main()
+    from src.app.config_resolution import configuration_context
+    with configuration_context(paths):
+        return main()
 
 
 if __name__ == "__main__":

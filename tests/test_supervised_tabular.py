@@ -382,13 +382,14 @@ def test_a_named_dataset_that_is_missing_is_reported(tmp_path, monkeypatch, capl
     import logging
 
     monkeypatch.chdir(tmp_path)  # no in/datasets here
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     with caplog.at_level(logging.WARNING, logger="src.app.core.paradigm_impls.base.supervised"):
         # Named but never written: no dataset_path, so it is looked up under in/datasets/.
         name = "breast_cancer"
         named = _Cfg(env=_Cfg(name=name, dataset_name=f"{name}.npz"), batch_size=32)
         dm = get_component("SupervisedDataModule")(named)
     assert dm._delegate is None
-    assert "No dataset for 'breast_cancer' under in/datasets/" in caplog.text
+    assert f"No dataset for 'breast_cancer' under {tmp_path / 'in/datasets'}" in caplog.text
 
 
 def test_a_config_naming_no_dataset_stays_quiet(caplog):

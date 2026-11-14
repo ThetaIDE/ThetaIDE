@@ -13,26 +13,28 @@ from uuid import uuid4
 
 
 class ValidationProcess:
-    def __init__(self):
+    def __init__(self, *, workspace=None):
         self._directory = tempfile.TemporaryDirectory(prefix="theta-validation-", ignore_cleanup_errors=True)
         self.directory = Path(self._directory.name)
         self._closed = threading.Event()
         self._process = None
-        self._environment = os.environ.copy()
+        from src.app.workspace import WorkspacePaths
+        self.paths = workspace or WorkspacePaths.for_process()
+        self._environment = {**os.environ, **self.paths.process_environment()}
 
     def call(self, operation, *args):
         if self._closed.is_set():
             raise RuntimeError("Validation service is closed")
         process = self._process
         if process is None or process.poll() is not None:
-            source = Path(__file__).resolve().parent.parent
+            source = self.paths.application
             env = dict(self._environment)
             env["PYTHONPATH"] = str(source) + os.pathsep + env.get("PYTHONPATH", "")
             # Keep provider output away from the protocol. Diagnostics survive
             # until this desktop closes, including native crashes in providers.
             with (self.directory / "worker.log").open("ab") as output:
                 process = subprocess.Popen(
-                    [sys.executable, "-m", "frontend.validation_worker"], cwd=source, env=env,
+                    [sys.executable, "-m", "frontend.validation_worker"], cwd=self.paths.root, env=env,
                     stdin=subprocess.PIPE, stdout=output, stderr=output,
                 )
             self._process = process

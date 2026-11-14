@@ -42,17 +42,17 @@ def register_plotter(*names: str) -> Callable[[Type[Any]], Type[Any]]:
     return decorator
 
 
-def get_plotter_class(name):
+def get_plotter_class(name, *, paths=None):
     """Load the selected declared provider; missing declarations never use registry fallbacks."""
     from src.app.core.provider_loader import resolve_provider
-    selected = resolve_provider("plotter", str(name))
+    selected = resolve_provider("plotter", str(name), paths)
     return selected
 
 
-def list_registered_plotters() -> List[str]:
+def list_registered_plotters(*, paths=None) -> List[str]:
     """List metadata selectors without loading optional plotting providers."""
     from src.app.core.provider_catalog import get_catalog
-    return sorted({key for p in get_catalog().packages for c in p.capabilities if c.kind == "plotter" for key in (c.id, *c.aliases)})
+    return sorted({key for p in get_catalog(paths).packages for c in p.capabilities if c.kind == "plotter" for key in (c.id, *c.aliases)})
 
 
 def auto_discover_plotters():

@@ -29,33 +29,42 @@ from src.app.pipeline.compose import (
 from src.app.pipeline.config import normalize_agent_name
 from src.app.workspace import WorkspacePaths
 
-from . import LOGS_DIR
 
 # A Hydra compose costs ~130-200 ms, and the GUI asks for the same one again and again: at startup,
 # on every Settings visit, on reopening an experiment, after an undo. The result depends only on its
 # arguments, the YAML under in/config, and the agent registry (auto-discovered from src/usr), so
 # results are reused while all of those are byte-for-byte unchanged (~3 ms to check).
-_USER_CODE_DIR = CONFIG_DIR.parents[1] / "src" / "usr"
+_DEFAULT_CONFIG_DIR = CONFIG_DIR
+
+
+def _workspace(workspace=None):
+    if workspace is not None:
+        return workspace
+    if CONFIG_DIR != _DEFAULT_CONFIG_DIR:
+        return WorkspacePaths.from_config_root(CONFIG_DIR)
+    return WorkspacePaths.for_process()
 _COMPOSE_CACHE: OrderedDict[tuple, tuple[bool, Any]] = OrderedDict()
 _COMPOSE_CACHE_SIZE = 64
 _COMPOSE_CACHE_LOCK = threading.Lock()
 
 
-def _inputs_fingerprint() -> int:
+def _inputs_fingerprint(workspace=None) -> int:
     """Hash of everything a compose can depend on: the files (paths and exact contents) and the
     agents registered in memory (hot reload and tests register agents without touching files)."""
     registry_module = sys.modules.get("src.app.core.agent_registry")  # don't import it just to look
     registry = getattr(registry_module, "AGENT_REGISTRY", None) or {}
     parts: list[Any] = [tuple(sorted((name, id(cls)) for name, cls in registry.items()))]
-    for root, pattern in ((CONFIG_DIR, "*.yaml"), (CONFIG_DIR, "*.yml"), (_USER_CODE_DIR, "*.py"),
-                          (_USER_CODE_DIR, ".theta_component.json"), (_USER_CODE_DIR, "plugin.json")):
+    paths = _workspace(workspace)
+    parts.append((str(paths.root), str(paths.application), str(paths.data_dir)))
+    sources = [(root, pattern) for root in paths.config_roots() for pattern in ("*.yaml", "*.yml")]
+    sources.extend((paths.research, pattern) for pattern in ("*.py", ".theta_component.json", "plugin.json"))
+    for root, pattern in sources:
         for path in sorted(root.rglob(pattern)):
             try:
                 parts.append((str(path), path.read_bytes()))
             except OSError:
                 continue
-    paths = WorkspacePaths.from_config_root(CONFIG_DIR)
-    for path in [*paths.manifests(), paths.data_dir / "provider_overrides.json"]:
+    for path in [*paths.manifests(), paths.data_dir / "provider_overrides.json", paths.data_dir / "extensions.json"]:
         if path.is_file(): parts.append((str(path), path.read_bytes()))
     return hash(tuple(parts))
 
@@ -65,15 +74,15 @@ def _cached_on_inputs(fn):
     same inputs a failed compose fails again. Callers get copies, so they can't alter the cache."""
 
     @functools.wraps(fn)
-    def wrapper(*args):
-        key = (fn.__name__, repr(args), _inputs_fingerprint())  # args are strings and lists of strings
+    def wrapper(*args, **kwargs):
+        key = (fn.__name__, repr(args), repr(sorted(kwargs.items())), _inputs_fingerprint(kwargs.get("workspace")))
         with _COMPOSE_CACHE_LOCK:
             hit = _COMPOSE_CACHE.get(key)
             if hit is not None:
                 _COMPOSE_CACHE.move_to_end(key)
         if hit is None:
             try:
-                hit = (True, fn(*args))
+                hit = (True, fn(*args, **kwargs))
             except Exception as exc:  # noqa: BLE001 - re-raised below, for this and later calls
                 hit = (False, exc)
             with _COMPOSE_CACHE_LOCK:
@@ -110,26 +119,19 @@ def effective_timesteps(plans: dict[str, dict], total_timesteps):
 
 
 @_cached_on_inputs
-def config_schema() -> dict[str, Any]:
+def config_schema(*, workspace=None) -> dict[str, Any]:
     """Describe one real workspace recipe for a backend-health check.
 
     The experiment editor owns its schema and reads paradigm/component metadata
     directly.  This service intentionally does not synthesize an algorithm/model form:
     doing so made a health check quietly dictate an unrelated experiment.
     """
-    exp_dir = CONFIG_DIR / "experiment"
-    candidates = (
-        sorted(
-            path
-            for path in exp_dir.rglob("*.yaml")
-            if path.is_file() and not path.name.startswith("_") and "/methods/" not in path.as_posix()
-        )
-        if exp_dir.is_dir()
-        else []
-    )
+    paths = _workspace(workspace)
+    candidates = [Path(selector).relative_to("experiment") for selector in paths.config_resolver().selectors("experiment")
+                  if not Path(selector).name.startswith("_") and "/methods/" not in selector]
     for candidate in candidates:
         try:
-            composed = compose_experiment(str(candidate.relative_to(exp_dir).with_suffix("")))
+            composed = compose_experiment(candidate.with_suffix("").as_posix(), workspace=paths)
             validate_composed(composed)
             method_plans(composed)
         except Exception:
@@ -146,9 +148,10 @@ def config_schema() -> dict[str, Any]:
         }
 
     # Clean setup fallback: verify Hydra composition without requiring recipes.
-    with _HYDRA_LOCK:
+    from src.app.config_resolution import configuration_context
+    with _HYDRA_LOCK, configuration_context(paths):
         GlobalHydra.instance().clear()
-        initialize_config_dir(version_base=None, config_dir=str(CONFIG_DIR))
+        initialize_config_dir(version_base=None, config_dir=str(paths.primary_config))
         compose(config_name="config", return_hydra_config=True)
 
     return {
@@ -160,25 +163,34 @@ def config_schema() -> dict[str, Any]:
 
 
 @_cached_on_inputs
-def compose_report(experiment: str, overrides: list[str] | None = None, draft_yaml: str | None = None) -> dict[str, Any]:
+def compose_report(experiment: str, overrides: list[str] | None = None, draft_yaml: str | None = None, *, workspace=None) -> dict[str, Any]:
     """Compose and validate an experiment exactly as `run_pipeline.py` would, without running it."""
     overrides = list(overrides or [])
+    paths = _workspace(workspace)
     if draft_yaml is not None:
         from src.app.pipeline.config import resolve_experiment_config_name
-        resolved = resolve_experiment_config_name(experiment)
+        resolved = resolve_experiment_config_name(experiment, paths=paths)
         with tempfile.TemporaryDirectory(prefix="theta-config-preview-") as directory:
             draft_dir = Path(directory) / "config"
-            shutil.copytree(CONFIG_DIR, draft_dir)
+            draft_dir.mkdir()
+            # Copy effective files, including provider defaults, without writing
+            # into their package or inferring a workspace from the draft path.
+            resolver = paths.config_resolver()
+            for selector in resolver.selectors():
+                target = draft_dir / selector
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(resolver.resolve(selector, required=True).file.read_bytes())
+            (draft_dir / "experiment" / f"{resolved}.yaml").parent.mkdir(parents=True, exist_ok=True)
             (draft_dir / "experiment" / f"{resolved}.yaml").write_text(draft_yaml, encoding="utf-8")
-            return _compose_report(experiment, overrides, draft_dir)
-    return _compose_report(experiment, overrides, None)
+            return _compose_report(experiment, overrides, draft_dir, workspace=paths)
+    return _compose_report(experiment, overrides, None, workspace=paths)
 
 
-def _compose_report(experiment, overrides, config_dir):
+def _compose_report(experiment, overrides, config_dir, *, workspace=None):
     argv = ["python", "run_pipeline.py", experiment, *overrides]
     try:
         composed = compose_experiment(experiment, overrides, config_dir=config_dir,
-                                      workspace=WorkspacePaths.from_config_root(CONFIG_DIR))
+                                      workspace=_workspace(workspace))
     except Exception as e:
         return {
             "valid": False,
@@ -217,7 +229,8 @@ def _compose_report(experiment, overrides, config_dir):
 
 
 def prepare_launch(
-    experiment: str, overrides: list[str] | None = None, overwrite: bool = False, active_jobs: list[dict] | None = None
+    experiment: str, overrides: list[str] | None = None, overwrite: bool = False, active_jobs: list[dict] | None = None,
+    *, workspace=None,
 ) -> dict[str, Any]:
     """Validate a launch exactly as the pipeline will and describe the job to create.
 
@@ -226,7 +239,7 @@ def prepare_launch(
     """
     overrides = list(overrides or [])
     try:
-        composed = compose_experiment(experiment, overrides)
+        composed = compose_experiment(experiment, overrides, workspace=_workspace(workspace))
         validate_composed(composed)
         plans = method_plans(composed)
     except Exception as e:
@@ -234,8 +247,8 @@ def prepare_launch(
 
     cfg = composed.cfg
     from src.app.sites import scheduler
-    if scheduler(cfg) == 'slurm':
-        raise LaunchError('This experiment targets a SLURM site. Use Run to upload project code and open the cluster terminal, '
+    if scheduler(cfg) != 'local':
+        raise LaunchError('This experiment targets a remote site. Use Run to upload project code and open the cluster terminal, '
                           'then submit run_pipeline.py there. Sync Metrics/Results pulls its outputs back.')
     local = str((cfg.get('hydra') or {}).get('runtime', {}).get('choices', {}).get('site')
                 or (cfg.get('site') or {}).get('name', 'local')) == 'local'
@@ -246,7 +259,7 @@ def prepare_launch(
     if local and (not single_device or trainer.get('num_nodes', 1) != 1):
         raise LaunchError('Resource-managed local launches support one training device and one node per job. '
                           'Use trainer.devices=1 and trainer.num_nodes=1, or submit through a cluster site.')
-    log_dir = LOGS_DIR / cfg.group / cfg.experiment_id
+    log_dir = composed.workspace.results / "logs" / cfg.group / cfg.experiment_id
     if cfg.get("variability") is None and log_dir.exists() and any(log_dir.iterdir()) and not overwrite and not cfg.get("recover", False):
         raise LaunchError(
             f"Results already exist for {cfg.group}/{cfg.experiment_id}; launching would delete them. "
@@ -276,6 +289,6 @@ def prepare_launch(
         "effective_timesteps": effective_timesteps(plans, cfg.get("total_timesteps")),
         "run_in_parallel": bool(cfg.get("run_in_parallel", False)),
         "local": local,
-        "accelerator": uses_accelerator(resource_config),
-        "resource_estimate": workload_estimate(resource_config),
+        "accelerator": uses_accelerator(resource_config, paths=composed.workspace),
+        "resource_estimate": workload_estimate(resource_config, paths=composed.workspace),
     }

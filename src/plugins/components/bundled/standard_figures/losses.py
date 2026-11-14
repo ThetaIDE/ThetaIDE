@@ -12,8 +12,8 @@ from plot.base import BasePlotter, clean_label, get_style_info, moving_average
 
 
 class LossesPlotter(BasePlotter):
-    def __init__(self):
-        super().__init__("losses")
+    def __init__(self, *, paths=None):
+        super().__init__("losses", paths=paths)
 
     def run(self, exp_id: str, cli_overrides: dict | None = None):
         cfg, group, output_dir = self.get_effective_config(exp_id, cli_overrides)

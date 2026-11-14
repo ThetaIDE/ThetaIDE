@@ -20,9 +20,20 @@ from src.app.pipeline.config import resolve_experiment_config_name
 from src.app.pipeline.result_paths import result_identity
 from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
 from src.app.pipeline.validation import validate_experiment_config
-from src.app.workspace import WorkspacePaths
+from src.app.workspace import WorkspacePaths, PROJECT_ROOT
 
-CONFIG_DIR = WorkspacePaths.for_process().config
+# Compatibility constant for older callers. Runtime workspace selection occurs
+# at the entry point, never while importing this reusable service.
+CONFIG_DIR = PROJECT_ROOT / "in/config"
+_DEFAULT_CONFIG_DIR = CONFIG_DIR
+
+
+def composition_workspace(config_dir=None, workspace=None):
+    if workspace is not None:
+        return workspace
+    if config_dir is not None or CONFIG_DIR != _DEFAULT_CONFIG_DIR:
+        return WorkspacePaths.from_config_root(config_dir or CONFIG_DIR)
+    return WorkspacePaths.for_process()
 
 # The compose API cannot parse Optuna sweep operators or hydra internal configs
 _SWEEP_MARKERS = ("interval(", "choice(", "range(", "hydra.", "hydra/")
@@ -55,10 +66,10 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
 
     Raises ValueError for an unknown experiment and Hydra exceptions for invalid overrides.
     """
-    experiment = resolve_experiment_config_name(raw_experiment)
     if config_dir is None and workspace is not None:
         config_dir = workspace.config
-    workspace = workspace or WorkspacePaths.from_config_root(config_dir or CONFIG_DIR)
+    workspace = composition_workspace(config_dir, workspace)
+    experiment = resolve_experiment_config_name(raw_experiment, paths=workspace, config_dir=config_dir)
     extra_args = list(extra_args)
 
     overrides = [f"+experiment={experiment}", f"++experiment_name={experiment}"]
@@ -74,13 +85,13 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
     from src.app.core.data_loaders import loader_override_args
     overrides = loader_override_args(overrides)
 
-    with _HYDRA_LOCK:
+    from src.app.config_resolution import configuration_context
+    with _HYDRA_LOCK, configuration_context(workspace, config_dir):
         GlobalHydra.instance().clear()
         primary = Path(config_dir or workspace.config)
-        search = [f"file://{root}" for root in workspace.config_roots() if root != primary and root.is_dir()]
+        search = workspace.config_searchpath()
         if not primary.is_dir():
             primary = workspace.framework_config
-            search = [value for value in search if value != f"file://{primary}"]
         if search and not any(arg.startswith("hydra.searchpath=") for arg in overrides):
             overrides.append("hydra.searchpath=" + str(search).replace("'", ""))
         initialize_config_dir(version_base=None, config_dir=str(primary))
@@ -111,9 +122,9 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
     )
     _validate_method_composition(composed)
     from src.app.sites import scheduler
-    if scheduler(composed.cfg) == "slurm":
+    if scheduler(composed.cfg) != "local":
         from src.app.sites.execution import validate_allocation
-        validate_allocation(composed.cfg)
+        validate_allocation(composed.cfg, paths=composed.workspace)
     if composed.cfg.get("variability") is not None:
         from src.app.pipeline.config import parse_methods_dict
         from src.app.pipeline.variability import make_plan
@@ -139,17 +150,17 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
     )
     from src.app.pipeline.config import parse_methods_dict
     from src.app.pipeline.exceptions import ConfigurationError
-    from src.app.pipeline.tuners import tuner_name
     from src.app.pipeline.tuning_config import tuning_disabled
-    methods = parse_methods_dict(composed.cfg)
-    workspace = (composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR)).root
+    paths = composition_workspace(composed.config_dir, composed.workspace)
+    methods = parse_methods_dict(composed.cfg, paths=paths)
+    workspace = composition_workspace(composed.config_dir, composed.workspace).root
     schemas = {name: schemas_for_method(workspace, settings) for name, settings in methods.items()}
     sweep = not tuning_disabled(composed.cfg) and composed.is_sweep
     import json
 
     from hydra.core.override_parser.overrides_parser import OverridesParser
     from src.app.pipeline.tuners import get_tuner
-    inspect_override = getattr(get_tuner(composed.cfg), "preview_override", None) if sweep else None
+    inspect_override = getattr(get_tuner(composed.cfg, paths=paths), "preview_override", None) if sweep else None
 
     parser = OverridesParser.create()
     for name, plan in method_plans(composed).items():
@@ -171,12 +182,12 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
                 sampled.pop(key, None)
             trial = compose_experiment(composed.experiment, [*fixed.values(), *sampled.values()], config_dir=composed.config_dir, workspace=composed.workspace)
             from src.app.core.execution import execution_backend
-            execution_backend(trial.cfg, paths=composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR))
+            execution_backend(trial.cfg, paths=composition_workspace(composed.config_dir, composed.workspace))
             from src.app.core.paradigm_loader import load_paradigm_definition
-            runner = load_paradigm_definition(trial.cfg.get("paradigm")).runner_cls
+            runner = load_paradigm_definition(trial.cfg.get("paradigm"), paths=paths).runner_cls
             validator = getattr(runner, "validate_config", None)
             if callable(validator):
-                validator(trial.cfg, paths=composed.workspace or WorkspacePaths.from_config_root(composed.config_dir or CONFIG_DIR))
+                validator(trial.cfg, paths=composition_workspace(composed.config_dir, composed.workspace))
             validate_method_components(trial.cfg, schemas.get(name, {}), name)
         except Exception as exc:
             raise ConfigurationError(f"Method '{name}' trial configuration cannot be composed: {exc}") from exc
@@ -191,14 +202,14 @@ def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
     from src.app.pipeline.config import parse_methods_dict
 
     plans = {}
-    for name, settings in parse_methods_dict(composed.cfg).items():
+    for name, settings in parse_methods_dict(composed.cfg, paths=composition_workspace(composed.config_dir, composed.workspace)).items():
         method_sweeps = tuning_enabled(composed.cfg)
         plans[name] = {
             "settings": settings,
             "train_overrides": build_method_overrides(
                 method_name=name, method_cfg=settings, extra_args=composed.launch_args, cfg=composed.cfg,
                 is_sweep=method_sweeps,
-                config_dir=composed.config_dir or CONFIG_DIR,
+                config_dir=composed.config_dir or composition_workspace(workspace=composed.workspace).config,
                 workspace=composed.workspace,
             ),
         }

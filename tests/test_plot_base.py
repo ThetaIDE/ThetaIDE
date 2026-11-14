@@ -16,7 +16,8 @@ class DummyPlotter(BasePlotter):
 
 def test_load_metrics_filters_by_structured_methods(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    plotter = DummyPlotter("dummy")
+    from src.app.workspace import WorkspacePaths
+    plotter = DummyPlotter("dummy", paths=WorkspacePaths(tmp_path))
 
     group = "test_grp"
     exp_id = "test_exp"
@@ -96,7 +97,8 @@ def test_styling_helpers():
 
 def test_distinct_colors_and_plot_overrides(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    plotter = DummyPlotter("convergence")
+    from src.app.workspace import WorkspacePaths
+    plotter = DummyPlotter("convergence", paths=WorkspacePaths(tmp_path))
 
     group = "test_grp"
     exp_id = "test_exp"
@@ -135,8 +137,9 @@ def test_distinct_colors_and_plot_overrides(tmp_path, monkeypatch):
     assert saved_plot.stat().st_size > 0
 
 
-def test_get_effective_config_general_and_plotter_overrides():
-    plotter = DummyPlotter("convergence")
+def test_get_effective_config_general_and_plotter_overrides(tmp_path):
+    from src.app.workspace import WorkspacePaths
+    plotter = DummyPlotter("convergence", paths=WorkspacePaths(tmp_path))
     plotter.default_cfg = {"smoothing_window": 10, "xlabel": "Default Steps", "dpi": 300}
 
     # Mock experiment config with general plot options and plotter-specific options

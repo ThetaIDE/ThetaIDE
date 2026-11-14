@@ -77,14 +77,19 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return copy.deepcopy(parsed)  # callers may mutate what they get; the cache must not change
 
 
-def config_fingerprint(config_root: Path) -> int:
+def config_fingerprint(config_root: Path, *, workspace=None) -> int:
     """Fingerprint configs, component schemas and workspace visibility preferences."""
     root = Path(config_root)
-    workspace = root.parent.parent
     candidates = set(root.rglob("*.yaml")) | set(root.rglob("*.yml"))
     from src.app.workspace import WorkspacePaths
-    candidates.update(WorkspacePaths(workspace).manifests())
-    candidates.add(workspace / ".thetaide/components/collection.json")
+    paths = workspace or WorkspacePaths.from_config_root(root)
+    candidates.update(paths.manifests())
+    candidates.add(paths.data_dir / "provider_overrides.json")
+    candidates.add(paths.data_dir / "extensions.json")
+    for source in paths.config_roots():
+        candidates.update(source.rglob("*.yaml"))
+        candidates.update(source.rglob("*.yml"))
+    candidates.add(paths.data_dir / "components/collection.json")
     entries = []
     for path in sorted(candidates):
         try:
@@ -420,35 +425,42 @@ class Paradigm:
 class ConfigTree:
     """The `in/config/` directory, parsed into queryable objects."""
 
-    def __init__(self, config_root: Path):
+    def __init__(self, config_root: Path, *, workspace=None):
         self.config_root = Path(config_root)
         self._experiment_groups: dict[str, ExperimentGroup] | None = None
         from src.app.workspace import WorkspacePaths
-        framework = WorkspacePaths.from_config_root(self.config_root).framework_config
-        self.paradigms = {p.stem: Paradigm.from_file(p) for p in _yaml_files(framework / "paradigms")}
-        self.paradigms.update({p.stem: Paradigm.from_file(p) for p in _yaml_files(self.config_root / "paradigms")})
+        self.workspace = workspace or WorkspacePaths.from_config_root(self.config_root)
+        self.resolver = self.workspace.config_resolver()
+        self.resolver.validate()
+        def profile_files(group):
+            for selector in self.resolver.selectors(group):
+                resolved = self.resolver.resolve(selector, required=True)
+                relative = Path(selector).relative_to(group)
+                if relative.name.startswith("_") or any(part.startswith(".") for part in relative.parts):
+                    continue
+                yield relative.with_suffix("").as_posix(), resolved.file
+        self.paradigms = {name: Paradigm.from_file(p) for name, p in profile_files("paradigms")}
         agent_dir = self.config_root / "agent"
         self.agents = {}
-        for a in _yaml_files(agent_dir):
-            rel_name = a.relative_to(agent_dir).with_suffix("").as_posix()
-            agent_obj = Agent.from_file(a, agent_dir)
+        from dataclasses import replace
+        for rel_name, a in profile_files("agent"):
+            agent_obj = replace(Agent.from_file(a), name=rel_name)
             self.agents[rel_name] = agent_obj
-            if a.stem not in self.agents:
-                self.agents[a.stem] = agent_obj
+            if Path(rel_name).name not in self.agents:
+                self.agents[Path(rel_name).name] = agent_obj
 
         model_dir = self.config_root / "model"
         self.models = {}
-        for m in _yaml_files(model_dir):
-            rel_name = m.relative_to(model_dir).with_suffix("").as_posix()
-            model_obj = Model.from_file(m, model_dir)
+        for rel_name, m in profile_files("model"):
+            model_obj = replace(Model.from_file(m), name=rel_name)
             self.models[rel_name] = model_obj
-            if m.stem not in self.models:
-                self.models[m.stem] = model_obj
+            if Path(rel_name).name not in self.models:
+                self.models[Path(rel_name).name] = model_obj
         # ``models`` keeps short-name aliases for backwards-compatible lookups
         # (e.g. ``profile`` for ``package/profile``). UI pickers should show each config
         # file once, under its canonical path.
         from src.app.services.local_components import LocalComponents
-        hidden_paths = LocalComponents(self.config_root.parent.parent).hidden_config_paths()
+        hidden_paths = LocalComponents(self.workspace).hidden_config_paths()
         hidden_model_names = {path.relative_to(model_dir.resolve()).with_suffix("").as_posix() for path in hidden_paths if path.is_relative_to(model_dir.resolve())}
         self._hidden_names = {
             kind: {path.relative_to((self.config_root / kind).resolve()).with_suffix("").as_posix()
@@ -462,26 +474,36 @@ class ConfigTree:
 
         env_dir = self.config_root / "env"
         self.environments = {}
-        for e in _yaml_files(env_dir):
-            rel_name = e.relative_to(env_dir).with_suffix("").as_posix()
+        for rel_name, e in profile_files("env"):
             env_obj = Environment.from_file(e, env_dir)
             self.environments[rel_name] = env_obj
             if e.stem not in self.environments:
                 self.environments[e.stem] = env_obj
 
         from src.app.sites import profiles
-        self.sites = tuple(profiles(WorkspacePaths.from_config_root(self.config_root)))
+        self.sites = tuple(profiles(self.workspace))
         self.component_parameter_schemas: dict[str, dict[str, Any]] = {}
 
         self._discover_plugin_manifests()
+        # Manifest scan order must never select a different owner's schema.
+        for selector in self.resolver.selectors():
+            resolved = self.resolver.resolve(selector, required=True)
+            if resolved.schema:
+                self.component_parameter_schemas[selector] = resolved.schema
+                self.component_parameter_schemas["in/config/" + selector] = resolved.schema
+                group, _, name = selector.partition("/")
+                name = str(Path(name).with_suffix(""))
+                collection = self.agents if group == "agent" else self.models if group == "model" else {}
+                for key in (name, Path(name).name):
+                    if key in collection and collection[key].name == name:
+                        collection[key] = replace(collection[key], parameter_schema=resolved.schema)
 
         experiment_root = self.config_root / "experiment"
         self.experiments: dict[str, Experiment] = {}
-        if experiment_root.is_dir():
-            for path in sorted(experiment_root.glob("**/*.yaml")):
+        for name, path in profile_files("experiment"):
                 if path.name.startswith("_") or path.parent.name == "methods" or "/methods/" in path.as_posix():
                     continue
-                experiment = Experiment.from_file(path, experiment_root)
+                experiment = Experiment(name=name, group=name.split("/", 1)[0] if "/" in name else "ungrouped", path=path, raw=_read_yaml(path))
                 self.experiments[experiment.name] = experiment
 
     def _discover_plugin_manifests(self) -> None:
@@ -498,7 +520,7 @@ class ConfigTree:
 
         from src.app.core.provider_catalog import get_catalog
         from src.app.workspace import WorkspacePaths
-        for package in get_catalog(WorkspacePaths(ws_root)).packages:
+        for package in get_catalog(self.workspace).packages:
                 try:
                     meta = package.manifest
                     default_kind = meta.get("kind", "component")
@@ -710,16 +732,17 @@ class ConfigTree:
         # Built once per tree: group() alone reads it up to three times. Folder edits through this
         # tree reset it; anything else that changes in/config invalidates the whole tree.
         if self._experiment_groups is None:
-            root = self.config_root / "experiment"
-            self._experiment_groups = (
-                {d.name: ExperimentGroup.from_dir(d) for d in sorted(root.iterdir()) if d.is_dir()}
-                if root.is_dir() else {}
-            )
+            names = {Path(key).parts[1] for key in self.resolver.selectors("experiment") if len(Path(key).parts) > 2}
+            self._experiment_groups = {
+                name: ExperimentGroup.from_profile(name, self.workspace.resolve_config(f"experiment/{name}/_base.yaml"))
+                for name in sorted(names)
+            }
         return self._experiment_groups
 
     def refresh_groups(self) -> None:
         """Re-read the experiment groups on next use (after writing a group's folder or _base.yaml)."""
         self._experiment_groups = None
+        self.resolver.invalidate_selectors()
 
     def group(self, name: str) -> ExperimentGroup:
         if not name:
@@ -813,9 +836,12 @@ class ExperimentGroup:
 
     @classmethod
     def from_dir(cls, directory: Path) -> ExperimentGroup:
-        base = directory / "_base.yaml"
+        return cls.from_profile(directory.name, directory / "_base.yaml")
+
+    @classmethod
+    def from_profile(cls, name: str, base: Path) -> ExperimentGroup:
         if not base.is_file():
-            return cls(name=directory.name)
+            return cls(name=name)
         raw = _read_yaml(base)
         env = raw.get("env")
         for entry in raw.get("defaults") or []:
@@ -823,7 +849,7 @@ class ExperimentGroup:
                 env = entry.get("override /env", env)
         methods = raw.get("methods")
         return cls(
-            name=directory.name,
+            name=name,
             paradigm=raw.get("paradigm"),
             env=env,
             has_base=True,

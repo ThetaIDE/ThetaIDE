@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import PROJECT_ROOT
 from src.app.workspace import WorkspacePaths
 
 log = logging.getLogger(__name__)
@@ -52,7 +51,8 @@ class PluginScaffolder:
     """Scaffolds new component plugins adhering to Theta-IDE protocols."""
 
     def __init__(self, workspace_root: Path | None = None):
-        self.paths = WorkspacePaths(workspace_root or PROJECT_ROOT)
+        self.paths = (workspace_root if isinstance(workspace_root, WorkspacePaths) else
+                      WorkspacePaths(workspace_root) if workspace_root is not None else WorkspacePaths.for_process())
         self.workspace_root = self.paths.root
 
     def scaffold(self, options: ScaffoldOptions) -> ScaffoldResult:
@@ -111,7 +111,7 @@ class PluginScaffolder:
     def _native_metadata(self, meta, target_dir, code_file, class_name, cfg_file):
         import shutil
         from src.app.core.provider_catalog import kind_name
-        relative = 'configs/' + cfg_file.relative_to(self.workspace_root / 'in/config').as_posix()
+        relative = 'configs/' + cfg_file.relative_to(self.paths.user_config).as_posix()
         packaged = target_dir / relative
         packaged.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(cfg_file, packaged)
@@ -187,7 +187,7 @@ from . import {name}_model  # noqa: F401
         # 3. Base config in in/config/model/<name>.yaml
         paradigms = opts.paradigms or ["online_rl", "offline_rl", "supervised"]
         paradigms_yaml = "\n".join(f"  - {p}" for p in paradigms)
-        cfg_file = self.workspace_root / "in" / "config" / "model" / f"{name}.yaml"
+        cfg_file = self.paths.user_config / "model" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 type: {name}
@@ -309,7 +309,7 @@ class {class_name}(L.LightningModule):
         created.append(init_file)
 
         # 3. Base config in in/config/agent/<name>.yaml
-        cfg_file = self.workspace_root / "in" / "config" / "agent" / f"{name}.yaml"
+        cfg_file = self.paths.user_config / "agent" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default algorithm hyperparameters for {name}
 algorithm: {name}
@@ -448,7 +448,7 @@ class VectorizedEnv(VectorizedBaseEnv):
         created.append(init_file)
 
         # 3. Base config in in/config/env/<name>.yaml
-        cfg_file = self.workspace_root / "in" / "config" / "env" / f"{name}.yaml"
+        cfg_file = self.paths.user_config / "env" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# @package _global_
 env:
@@ -562,7 +562,7 @@ class {class_name}(L.LightningDataModule, DataModulePluginProtocol, TrajectorySa
         created.append(init_file)
 
         # 3. Base config in in/config/data/<name>.yaml
-        cfg_file = self.workspace_root / "in" / "config" / "data" / f"{name}.yaml"
+        cfg_file = self.paths.user_config / "data" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 data_module: {name}
@@ -640,7 +640,7 @@ class {class_name}(EvaluationHookProtocol):
         created.append(init_file)
 
         # 3. Base config in in/config/eval/<name>.yaml
-        cfg_file = self.workspace_root / "in" / "config" / "eval" / f"{name}.yaml"
+        cfg_file = self.paths.user_config / "eval" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 evaluator: {name}
@@ -717,7 +717,7 @@ class {class_name}(BasePlotter):
         created.append(init_file)
 
         # Default configuration in in/config/plot/<name>.yaml
-        config_dir = self.workspace_root / "in" / "config" / "plot"
+        config_dir = self.paths.user_config / "plot"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / f"{name}.yaml"
         config_content = f"""# Default configuration profile for {name} plotter component
@@ -761,7 +761,7 @@ output_dir: null
         source = target / "monitor.py"
         source.write_text('from src.app.monitoring.api import Result\n\nclass Monitor:\n    def collect(self, context):\n        return Result({"samples": float(len(context.probes.observations))})\n')
         (target / "__init__.py").write_text("")
-        profile = self.workspace_root / "in/config/monitor" / (name + ".yaml")
+        profile = self.paths.user_config / "monitor" / (name + ".yaml")
         profile.parent.mkdir(parents=True, exist_ok=True)
         profile.write_text("component: " + name + "\nparams: {}\n")
         meta = {"id": name, "name": opts.name, "kind": "monitor", "version": opts.version,

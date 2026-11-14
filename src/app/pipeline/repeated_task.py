@@ -131,14 +131,16 @@ def main(cfg):
 def launch():
     """Expose component configs when Hydra composes and launches sweep trials."""
     paths = WorkspacePaths.for_process()
-    search = [f"file://{p}" for p in paths.config_roots() if p.is_dir() and p != paths.primary_config]
+    search = paths.config_searchpath()
     if not any(arg.lstrip('+').startswith('hydra.searchpath=') for arg in sys.argv[1:]):
         # Keep overrides together: argparse cannot resume positional arguments
         # after a flag such as --multirun splits them.
         index = next((i for i, arg in enumerate(sys.argv[1:], 1)
                       if not arg.startswith('-') and '=' in arg), len(sys.argv))
         sys.argv.insert(index, 'hydra.searchpath=[' + ','.join(search) + ']')
-    main()
+    from src.app.config_resolution import configuration_context
+    with configuration_context(paths):
+        return main()
 
 
 if __name__ == "__main__":

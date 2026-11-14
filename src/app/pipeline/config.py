@@ -147,10 +147,10 @@ def find_group_method_config(method_name: str, group: str | None = None, *, path
     clean_name = normalize_agent_name(method_name)
     paths = paths or WorkspacePaths.for_process()
     candidates = [
-        paths.config / "experiment" / group / "methods" / f"{clean_name}.yaml",
+        paths.resolve_config(f"experiment/{group}/methods/{clean_name}.yaml"),
     ]
     if method_name != clean_name:
-        candidates.append(paths.config / "experiment" / group / "methods" / f"{method_name}.yaml")
+        candidates.append(paths.resolve_config(f"experiment/{group}/methods/{method_name}.yaml"))
 
     for path in candidates:
         if path.is_file():
@@ -170,6 +170,7 @@ def _extract_name_and_subparams(
     val,
     name_keys=("name", "algorithm", "type", "algo", "architecture", "base"),
     known_names=None,
+    paths=None,
 ):
     """Extract string identifier and subparameters from a string or dict value.
 
@@ -186,7 +187,7 @@ def _extract_name_and_subparams(
                 subparams = {k: v for k, v in val.items() if k not in name_keys}
                 return ident, subparams
 
-        all_known = get_known_algorithms() | get_known_models()
+        all_known = get_known_algorithms(paths) | get_known_models(paths)
         if known_names:
             all_known.update(known_names)
 
@@ -216,7 +217,7 @@ def _extract_name_and_subparams(
     return None, {}
 
 
-def load_model_base_config(model_name: str, config_dir=None) -> dict:
+def load_model_base_config(model_name: str, config_dir=None, *, paths=None) -> dict:
     """Load the base YAML configuration for a model architecture from in/config/model/<model_name>.yaml
     or from installed component manifests in src/usr/models/<model_name>.
     """
@@ -228,14 +229,17 @@ def load_model_base_config(model_name: str, config_dir=None) -> dict:
     import yaml
 
     from src.app.workspace import WorkspacePaths
-    paths = WorkspacePaths.for_process() if config_dir is None else WorkspacePaths.from_config_root(Path(config_dir).parent)
-    if config_dir is None:
-        config_dir = paths.config / "model"
-    target = Path(config_dir) / f"{model_name}.yaml"
-    if not target.exists():
-        found = list(Path(config_dir).rglob(f"{model_name}.yaml"))
-        if found:
-            target = found[0]
+    paths = paths or (WorkspacePaths.for_process() if config_dir is None else WorkspacePaths.from_config_root(Path(config_dir).parent))
+    from src.app.config_resolution import ConfigResolver
+    resolver = ConfigResolver(paths, config_root=Path(config_dir).parent if config_dir else None)
+    resolved = resolver.resolve(f"model/{model_name}.yaml")
+    if resolved is None:
+        matches = [selector for selector in resolver.selectors("model") if Path(selector).stem == model_name]
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous model profile {model_name}: {matches}")
+        if matches:
+            resolved = resolver.resolve(matches[0])
+    target = resolved.file if resolved else paths.config / "model" / f"{model_name}.yaml"
 
     if target.exists():
         try:
@@ -364,7 +368,7 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
         default_agent_algo = shared_agent
     elif isinstance(shared_agent, dict):
         if any(nk in shared_agent for nk in ("name", "algorithm", "type", "algo")):
-            default_agent_algo, default_agent_sub = _extract_name_and_subparams(shared_agent)
+            default_agent_algo, default_agent_sub = _extract_name_and_subparams(shared_agent, paths=paths)
         else:
             known_in_agent = [k for k in shared_agent if k in known_algos]
             if len(known_in_agent) == 1:
@@ -375,7 +379,7 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
         default_model_arch = shared_model
     elif isinstance(shared_model, dict):
         if any(nk in shared_model for nk in ("name", "architecture", "type", "base")):
-            default_model_arch, default_model_sub = _extract_name_and_subparams(shared_model)
+            default_model_arch, default_model_sub = _extract_name_and_subparams(shared_model, paths=paths)
 
     # Infer group for group-level method loading
     group = getattr(cfg, "group", None) if not isinstance(cfg, dict) else cfg.get("group")
@@ -421,13 +425,13 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
 
         # Resolve method's agent algo and subparams
         raw_m_agent = m_dict.get("agent", default_agent_algo)
-        m_agent_algo, m_agent_sub = _extract_name_and_subparams(raw_m_agent)
+        m_agent_algo, m_agent_sub = _extract_name_and_subparams(raw_m_agent, paths=paths)
         if not m_agent_algo and default_agent_algo:
             m_agent_algo = default_agent_algo
 
         # Resolve method's model arch and subparams
         raw_m_model = m_dict.get("model", default_model_arch)
-        m_model_arch, m_model_sub = _extract_name_and_subparams(raw_m_model)
+        m_model_arch, m_model_sub = _extract_name_and_subparams(raw_m_model, paths=paths)
         if not m_model_arch and default_model_arch:
             m_model_arch = default_model_arch
 
@@ -587,26 +591,27 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
     return result
 
 
-def resolve_experiment_config_name(exp_input: str) -> str:
+def resolve_experiment_config_name(exp_input: str, *, paths=None, config_dir=None) -> str:
     """Resolve an experiment name (e.g. 'group_run' or 'group/run')
     to its relative Hydra config path inside in/config/experiment/."""
-    exp_dir = WorkspacePaths.for_process().config / "experiment"
-    if not exp_dir.exists():
-        return exp_input
-
+    paths = paths or WorkspacePaths.for_process()
+    from src.app.config_resolution import ConfigResolver
+    resolver = ConfigResolver(paths, config_root=config_dir)
     clean_input = exp_input[:-5] if exp_input.endswith(".yaml") else exp_input
-    direct_path = exp_dir / f"{clean_input}.yaml"
-    if direct_path.exists():
+    if resolver.resolve(f"experiment/{clean_input}.yaml"):
         return clean_input
 
     # Search recursively in group subdirectories
-    matches = list(exp_dir.glob(f"**/{clean_input}.yaml"))
+    selectors = resolver.selectors("experiment")
+    if not selectors:
+        return clean_input
+    matches = [Path(name).relative_to("experiment") for name in selectors
+               if name.endswith("/" + clean_input + ".yaml")]
     if not matches:
-        raise ValueError(f"Experiment config '{clean_input}.yaml' not found in {exp_dir}")
+        raise ValueError(f"Experiment config '{clean_input}.yaml' not found in workspace {paths.root}")
     if len(matches) > 1:
         raise ValueError(
             f"Ambiguous experiment name '{clean_input}'. Found multiple matches: {[str(m) for m in matches]}. Please specify the exact group/experiment path."
         )
 
-    rel = matches[0].relative_to(exp_dir)
-    return str(rel.with_suffix(""))
+    return matches[0].with_suffix("").as_posix()

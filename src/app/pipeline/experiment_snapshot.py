@@ -1,14 +1,15 @@
 """Keep the experiment recipe used for each launch alongside its results."""
 
-from pathlib import Path
 from time import time_ns
+from src.app.workspace import WorkspacePaths
 
 
 def save_experiment_snapshot(cfg, context):
     recipe = context.get("experiment_yaml")
     if recipe is None:
         return
-    directory = Path("results/logs") / cfg.group / cfg.experiment_id
+    paths = context.get("workspace") or WorkspacePaths.for_process()
+    directory = paths.results / "logs" / cfg.group / cfg.experiment_id
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / "experiment.yaml"
     if target.exists():
@@ -16,7 +17,7 @@ def save_experiment_snapshot(cfg, context):
     target.write_bytes(recipe)
 
 
-def save_run_config(cfg):
+def save_run_config(cfg, *, paths=None):
     """Save the composed launch configuration before any training begins."""
     from omegaconf import OmegaConf
     from omegaconf.errors import InterpolationResolutionError
@@ -39,7 +40,8 @@ def save_run_config(cfg):
             snapshot[key] = (OmegaConf.to_container(value, resolve=False, enum_to_str=True)
                              if OmegaConf.is_config(value) else value)
 
-    directory = Path("results/logs") / cfg.group / cfg.experiment_id
+    paths = paths or WorkspacePaths.for_process()
+    directory = paths.results / "logs" / cfg.group / cfg.experiment_id
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / "config.yaml"
     temporary = directory / "config.yaml.tmp"
@@ -50,6 +52,6 @@ def save_run_config(cfg):
     from src.app.components.transactions import write_json
     providers = directory / "providers.json"
     if providers.exists(): providers = directory / f"providers_{time_ns()}.json"
-    write_json(providers, provider_snapshot())
+    write_json(providers, provider_snapshot(paths))
     import os
     os.environ["THETA_PROVIDER_SNAPSHOT"] = str(providers.resolve())

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from src.app.pipeline.runtime import get_python_executable
+from src.app.workspace import WorkspacePaths
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,15 @@ def fast_purge_dir(path: Path):
         shutil.rmtree(path, ignore_errors=True)
 
 
-def ensure_online_dataset_path(group: str, experiment_id: str, agent_name_internal: str, is_sweep: bool = False):
+def ensure_online_dataset_path(group: str, experiment_id: str, agent_name_internal: str, is_sweep: bool = False, *, paths=None):
     """Determine expected online dataset path and ensure it exists.
 
     Returns:
         tuple[str, bool]: (dataset_path, has_existing_dataset)
     """
-    if is_sweep:
-        dataset_path = f"in/datasets/{experiment_id}/{agent_name_internal}"
-    else:
-        dataset_path = f"in/datasets/{group}/{experiment_id}/{agent_name_internal}"
+    from src.app.workspace import WorkspacePaths
+    root = (paths or WorkspacePaths.for_process()).datasets
+    dataset_path = str(root / experiment_id / agent_name_internal if is_sweep else root / group / experiment_id / agent_name_internal)
 
     has_pkl = False
     if os.path.exists(dataset_path):
@@ -56,9 +56,8 @@ def ensure_online_dataset_path(group: str, experiment_id: str, agent_name_intern
     return dataset_path, has_pkl
 
 
-@functools.lru_cache(maxsize=128)
 def resolve_dataset_path(
-    dataset_id: str, group: str = "", experiment_id: str = "", yaml_ds_path: str | None = None
+    dataset_id: str, group: str = "", experiment_id: str = "", yaml_ds_path: str | None = None, *, paths=None
 ) -> Path:
     """Robustly resolve the filesystem path for an offline dataset.
 
@@ -70,6 +69,12 @@ def resolve_dataset_path(
     5. yaml_ds_path (if explicitly configured and valid)
     6. Shallowest global match under in/datasets/
     """
+    from src.app.workspace import WorkspacePaths
+    paths = paths or WorkspacePaths.for_process()
+    root = paths.datasets
+    for value in (dataset_id, group, experiment_id):
+        if Path(value).is_absolute() or ".." in Path(value).parts:
+            raise ValueError("Dataset selectors must be workspace-relative; use dataset_path for external inputs")
     dataset_name_internal = dataset_id.replace("/", "_")
     alt_ids = [dataset_id, dataset_name_internal]
     if not dataset_id.endswith("(w)"):
@@ -79,21 +84,25 @@ def resolve_dataset_path(
     for aid in alt_ids:
         aid_clean = aid.replace("/", "_")
         if group and experiment_id:
-            candidates.append(Path("in/datasets") / group / experiment_id / aid_clean)
-            candidates.append(Path("in/datasets") / group / experiment_id / aid)
+            candidates.append(root / group / experiment_id / aid_clean)
+            candidates.append(root / group / experiment_id / aid)
         if group:
-            candidates.append(Path("in/datasets") / group / "per_problem" / aid)
-            candidates.append(Path("in/datasets") / group / "per_problem" / aid_clean)
-            candidates.append(Path("in/datasets") / group / aid_clean)
-            candidates.append(Path("in/datasets") / group / aid)
+            candidates.append(root / group / "per_problem" / aid)
+            candidates.append(root / group / "per_problem" / aid_clean)
+            candidates.append(root / group / aid_clean)
+            candidates.append(root / group / aid)
         candidates.extend(
             [
-                Path("in/datasets") / aid_clean,
-                Path("in/datasets") / aid,
+                root / aid_clean,
+                root / aid,
             ]
         )
     if yaml_ds_path:
-        candidates.append(Path(yaml_ds_path))
+        explicit = Path(yaml_ds_path).expanduser()
+        explicit = explicit if explicit.is_absolute() else paths.root / explicit
+        if explicit.exists():
+            return explicit
+        candidates.insert(0, explicit)
 
     for cand in candidates:
         if cand.exists() and any(cand.glob("*.pkl")):
@@ -105,17 +114,16 @@ def resolve_dataset_path(
         if (cand.parent / f"{cand.name}.npz").exists():
             return cand.parent / f"{cand.name}.npz"
 
-    if yaml_ds_path and Path(yaml_ds_path).exists():
-        return Path(yaml_ds_path)
-
     if group:
-        return Path("in/datasets") / group / dataset_name_internal
+        return root / group / dataset_name_internal
 
-    return Path("in/datasets") / dataset_name_internal
+    return root / dataset_name_internal
 
 
 def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any, *, paths=None) -> Path:
     """Resolve a dataset; explicit relative paths are anchored to the workspace."""
+    from src.app.workspace import WorkspacePaths
+    paths = paths or WorkspacePaths.for_process()
     explicit_ds = method_cfg.get("dataset_path") or (cfg.get("dataset_path") if hasattr(cfg, "get") else None)
     if explicit_ds and str(explicit_ds).startswith("package://"):
         from src.app.core.provider_loader import resolve_resource
@@ -148,6 +156,7 @@ def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any, *, 
                     group=group_val,
                     experiment_id=exp_val,
                     yaml_ds_path=str(explicit_ds) if explicit_ds else None,
+                    paths=paths,
                 )
             except FileNotFoundError:
                 pass
@@ -155,7 +164,7 @@ def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any, *, 
     # Fallback: look in standard dataset directories
     group = str(cfg.get("group", "") if hasattr(cfg, "get") else getattr(cfg, "group", ""))
     exp_id = str(cfg.get("experiment_id", "") if hasattr(cfg, "get") else getattr(cfg, "experiment_id", ""))
-    ds_root = Path("in/datasets") / group / exp_id
+    ds_root = paths.datasets / group / exp_id
     if ds_root.exists():
         return ds_root
 
@@ -168,19 +177,20 @@ def resolve_dataset_for_method(method_name: str, method_cfg: dict, cfg: Any, *, 
 def run_experiment(
     overrides, site_cfg=None, script_entrypoint: str | None = None, python_executable: str | None = None,
     output_log: str | Path | None = None, cancel_targets=(), on_start=None, on_wait=None,
-    task_config=None, coordinator=False, resource_ticket=None,
+    task_config=None, coordinator=False, resource_ticket=None, paths=None,
 ):
     """Run target training script as a subprocess with the given Hydra overrides."""
     from src.app.pipeline.runtime import get_subprocess_env
 
-    env = get_subprocess_env(site_cfg)
+    paths = paths or WorkspacePaths.for_process()
+    env = get_subprocess_env(site_cfg, paths=paths)
     import json
     env["THETA_CANCEL_TARGETS"] = json.dumps(cancel_targets)
     from src.app.services.cancellation import requested, TrainingCancelled
     if requested(cancel_targets, env.get("THETA_CANCEL_DIR")):
         raise TrainingCancelled()
 
-    venv_python = python_executable or get_python_executable(site_cfg)
+    venv_python = python_executable or get_python_executable(site_cfg, paths=paths)
     target_script = script_entrypoint or "src/app/train.py"
     cmd = ([venv_python, "-u", "-m"] + list(overrides) if target_script == "-m" else
            [venv_python, "-u", "-m", "src.app.pipeline.provider_worker", str(target_script)] + list(overrides))
@@ -200,14 +210,15 @@ def run_experiment(
                 group = next((arg.split('=', 1)[1] for arg in overrides if arg.lstrip('+').startswith(name + '=')), None)
                 if group:
                     task_config.setdefault(name, {})['name'] = group
-        spec = workload_estimate(task_config)
+        resource_paths = WorkspacePaths(Path(env["THETA_WORKSPACE"])) if env.get("THETA_WORKSPACE") else WorkspacePaths.for_process()
+        spec = workload_estimate(task_config, paths=resource_paths)
         # Keep dataset/architecture hints discovered by the experiment preflight.
         spec['memory'] = max(spec['memory'], inherited.get('memory', 0))
         spec['minimum_memory'] = max(spec['minimum_memory'], inherited.get('minimum_memory', 0))
         def check_cancel():
             if requested(cancel_targets, env.get('THETA_CANCEL_DIR')):
                 raise TrainingCancelled()
-        with pool.slot(spec, accelerator=uses_accelerator(task_config), check_cancel=check_cancel,
+        with pool.slot(spec, accelerator=uses_accelerator(task_config, paths=resource_paths), check_cancel=check_cancel,
                        ticket=resource_ticket, **({'on_wait': on_wait} if on_wait else {})) as token:
             def started(pid):
                 pool.attach(token, pid)
@@ -238,7 +249,7 @@ def _execute_training(cmd, env, output_log, on_start=None):
         raise TrainingCancelled()
     # A watcher also handles silent workers whose output pipe is blocked.
     if output_log is None:
-        process = subprocess.Popen(cmd, env=env)
+        process = subprocess.Popen(cmd, env=env, cwd=env.get("THETA_WORKSPACE"))
         if on_start:
             on_start(process.pid)
         watcher = threading.Thread(target=watch, daemon=True)
@@ -260,7 +271,7 @@ def _execute_training(cmd, env, output_log, on_start=None):
     from src.app.services.process_output import ProcessOutput
     with output_path.open("w", encoding="utf-8", errors="replace") as log_file, output_path.with_suffix('.err').open('w', encoding='utf-8', errors='replace') as errors:
         process = subprocess.Popen(
-            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd, env=env, cwd=env.get("THETA_WORKSPACE"), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
         )
         capture = ProcessOutput(process, log_file, errors, stdout=sys.stdout, stderr=sys.stderr)
@@ -284,14 +295,16 @@ def _execute_training(cmd, env, output_log, on_start=None):
         raise subprocess.CalledProcessError(return_code, cmd)
 
 
-def run_plotting(experiment, style=None, base_experiment=None, site_cfg=None, wipe=False, use_cache=False):
+def run_plotting(experiment, style=None, base_experiment=None, site_cfg=None, wipe=False, use_cache=False, *, paths=None):
     """Run plot/manager.py for the given experiment."""
     from src.app.pipeline.runtime import get_subprocess_env
 
-    env = get_subprocess_env(site_cfg)
+    paths = paths or WorkspacePaths.for_process()
+    env = get_subprocess_env(site_cfg, paths=paths)
+    env.update(paths.process_environment())
 
-    venv_python = get_python_executable()
-    cmd = [venv_python, "plot/manager.py", str(experiment)]
+    venv_python = get_python_executable(site_cfg, paths=paths)
+    cmd = [venv_python, str(paths.application / "plot/manager.py"), str(experiment)]
     if base_experiment and str(base_experiment) != str(experiment):
         cmd.extend(["--experiment", str(base_experiment)])
     if style:
@@ -302,4 +315,4 @@ def run_plotting(experiment, style=None, base_experiment=None, site_cfg=None, wi
         cmd.append("--use-cache")
 
     print(f"\n=== Auto-Generating Modular Plots for experiment: {experiment} ===")
-    subprocess.run(cmd, check=True, env=env)
+    subprocess.run(cmd, check=True, env=env, cwd=paths.root)

@@ -64,7 +64,7 @@ def test_local_launch_reaches_methods_with_hydra_runtime_placeholder(tmp_path, m
                             "hydra": {"job": {"num": "???"},
                                       "sweep": {"subdir": "${hydra.job.num}"}}})
     calls = []
-    monkeypatch.setattr(local_runner, "_setup_output_dirs", lambda cfg: None)
+    monkeypatch.setattr(local_runner, "_setup_output_dirs", lambda cfg, **kwargs: None)
     monkeypatch.setattr(local_runner, "run_methods", lambda cfg, context: calls.append("methods"))
     local_runner.run_local_training(cfg, {})
     assert calls == ["methods"]

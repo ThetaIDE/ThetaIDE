@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.app.workspace import WorkspacePaths
+
 from .config_tree import ConfigTreeWidget
 from .config_viewer import ConfigViewer
 from .hub import HubClient, HubView
@@ -92,7 +94,7 @@ class ComponentsPanel(QWidget):
         # Page 0: Parameters configuring panels (Viewer + Raw YAML Preview)
         self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        self.viewer = ConfigViewer()
+        self.viewer = ConfigViewer(workspace=WorkspacePaths.from_config_root(self.components_tree.root_dir))
         self.viewer.is_component_mode = True
         self.viewer.auto_save = True
         self.viewer.btn_save = self.btn_save
@@ -179,7 +181,7 @@ class ComponentsPanel(QWidget):
             return
         try:
             from .component_actions import find_component_assets
-            assets = find_component_assets(self.active_path, self.active_rel_path)
+            assets = find_component_assets(self.active_path, self.active_rel_path, workspace_dir=WorkspacePaths.from_config_root(self.components_tree.root_dir))
             comp_name = assets["comp_name"]
             is_comp = assets["is_component"]
             target_code = assets["primary_code_file"]
@@ -225,7 +227,7 @@ class ComponentsPanel(QWidget):
             return
 
         from .component_actions import ComponentDevelopmentActions, find_workspace_root
-        ComponentDevelopmentActions(find_workspace_root(target_cfg), self, self.hub_client).edit(target_cfg)
+        ComponentDevelopmentActions(WorkspacePaths.from_config_root(self.components_tree.root_dir).root, self, self.hub_client).edit(target_cfg)
 
     def prompt_export_active_component(self, file_path=None, rel_path=None):
         """Export the active component as a Theta Hub package (.zip) or standalone directory."""
@@ -238,7 +240,7 @@ class ComponentsPanel(QWidget):
             self.save_current()
 
         from .export_dialog import ExportComponentDialog
-        workspace_root = self.components_tree.root_dir.parent
+        workspace_root = WorkspacePaths.from_config_root(self.components_tree.root_dir).root
         dlg = ExportComponentDialog(
             config_path=target_cfg,
             rel_path=target_rel,
@@ -267,7 +269,7 @@ class ComponentsPanel(QWidget):
             return
 
         from .component_actions import DeleteComponentDialog, find_component_assets
-        assets = find_component_assets(target_cfg, target_rel)
+        assets = find_component_assets(target_cfg, target_rel, workspace_dir=WorkspacePaths.from_config_root(self.components_tree.root_dir))
         comp_name = assets["comp_name"]
         files_to_delete = assets["files_to_delete"]
         is_comp = assets["is_component"]
@@ -275,7 +277,7 @@ class ComponentsPanel(QWidget):
         from src.app.services.local_components import LocalComponents
 
         from .component_actions import find_workspace_root
-        lifecycle = LocalComponents(find_workspace_root(target_cfg))
+        lifecycle = LocalComponents(WorkspacePaths.from_config_root(self.components_tree.root_dir).root)
         record = lifecycle.state()["records"].get(assets["comp_id"], {})
         is_local = record.get("source") == "local"
         if is_local:

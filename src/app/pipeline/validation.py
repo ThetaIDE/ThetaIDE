@@ -34,7 +34,7 @@ from src.app.telemetry.selection import selection_errors
 from src.app.workspace import WorkspacePaths
 
 
-def _load_all_paradigms() -> dict[str, dict]:
+def _load_all_paradigms(*, paths=None) -> dict[str, dict]:
     """Load all paradigm YAML files from in/config/paradigms/.
 
     Returns a dict mapping paradigm name → paradigm definition dict.
@@ -42,26 +42,24 @@ def _load_all_paradigms() -> dict[str, dict]:
     paradigms: dict[str, dict] = {}
     # Workspace definitions override provider/framework defaults individually.
     # A partial workspace must retain the framework's four base paradigms.
-    for root in reversed(WorkspacePaths.for_process().config_roots()):
-        for yaml_path in sorted((root / "paradigms").glob("**/*.yaml")):
-            name = yaml_path.stem
-            with open(yaml_path) as f:
-                defn = yaml.safe_load(f) or {}
-            paradigms[name] = defn
+    resolver = (paths or WorkspacePaths.for_process()).config_resolver()
+    for selector in resolver.selectors("paradigms"):
+        resolved = resolver.resolve(selector, required=True)
+        paradigms[Path(selector).relative_to("paradigms").with_suffix("").as_posix()] = yaml.safe_load(resolved.file.read_text()) or {}
     return paradigms
 
 
-def list_paradigms() -> list[str]:
+def list_paradigms(*, paths=None) -> list[str]:
     """Return sorted list of registered paradigm names."""
-    return sorted(_load_all_paradigms().keys())
+    return sorted(_load_all_paradigms(paths=paths).keys())
 
 
-def load_paradigm(paradigm_name: str) -> dict:
+def load_paradigm(paradigm_name: str, *, paths=None) -> dict:
     """Load and return the definition dict for a named paradigm.
 
     Raises ConfigurationError if the paradigm is not found.
     """
-    paradigms = _load_all_paradigms()
+    paradigms = _load_all_paradigms(paths=paths)
     if paradigm_name not in paradigms:
         raise ConfigurationError(
             f"[ConfigurationError] Unknown paradigm '{paradigm_name}'. "
@@ -82,7 +80,7 @@ def load_paradigm(paradigm_name: str) -> dict:
 # answered by the paradigm YAML, so a new file is enough to answer them.
 
 
-def paradigm_uses_agents(paradigm_name: str | None) -> bool:
+def paradigm_uses_agents(paradigm_name: str | None, *, paths=None) -> bool:
     """Whether methods in this paradigm name an RL agent harness.
 
     An `allowed_agents: []` declaration means no agent is permitted at all, so
@@ -91,17 +89,17 @@ def paradigm_uses_agents(paradigm_name: str | None) -> bool:
     no restriction, which is treated as the RL default.
     """
     try:
-        defn = load_paradigm(paradigm_name or "")
+        defn = load_paradigm(paradigm_name or "", paths=paths)
     except ConfigurationError:
         return True  # Unknown paradigm: leave the RL assumption in place.
     requirement = _algorithm_requirement(defn)
     return requirement != "forbidden"
 
 
-def paradigm_uses_static_dataset(paradigm_name: str | None) -> bool:
+def paradigm_uses_static_dataset(paradigm_name: str | None, *, paths=None) -> bool:
     """Whether this paradigm trains from a dataset file rather than a live simulator."""
     try:
-        defn = load_paradigm(paradigm_name or "")
+        defn = load_paradigm(paradigm_name or "", paths=paths)
     except ConfigurationError:
         return False
     declared = defn.get("environment_source")
@@ -111,16 +109,16 @@ def paradigm_uses_static_dataset(paradigm_name: str | None) -> bool:
     return bool(data_module and data_module != "SimulatorDataModule")
 
 
-def paradigm_uses_live_environment(paradigm_name: str | None) -> bool:
+def paradigm_uses_live_environment(paradigm_name: str | None, *, paths=None) -> bool:
     """Whether a paradigm requires a live environment rather than static data."""
     try:
-        defn = load_paradigm(paradigm_name or "")
+        defn = load_paradigm(paradigm_name or "", paths=paths)
     except ConfigurationError:
         return True
     declared = defn.get("environment_source")
     if isinstance(declared, str) and declared:
         return declared == "live_environment"
-    return not paradigm_uses_static_dataset(paradigm_name)
+    return not paradigm_uses_static_dataset(paradigm_name, paths=paths)
 
 
 def _algorithm_requirement(paradigm_def: dict[str, Any]) -> str:
@@ -209,10 +207,13 @@ def _check_paradigm_constraints(cfg: Any, paradigm_name: str, constraints: dict,
 # ---------------------------------------------------------------------------
 
 
-def _load_raw_experiment_yaml(experiment_name: str, config_dir: Path | None = None) -> dict:
+def _load_raw_experiment_yaml(experiment_name: str, config_dir: Path | None = None, *, paths=None) -> dict:
     """Return the raw (pre-Hydra-composition) experiment YAML as a dict, or {} on failure."""
-    rel_path = resolve_experiment_config_name(experiment_name)
-    exp_path = (config_dir or WorkspacePaths.for_process().config) / "experiment" / f"{rel_path}.yaml"
+    paths = paths or (WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process())
+    rel_path = resolve_experiment_config_name(experiment_name, paths=paths, config_dir=config_dir)
+    from src.app.config_resolution import ConfigResolver
+    selected = ConfigResolver(paths, config_root=config_dir).resolve(f"experiment/{rel_path}.yaml")
+    exp_path = selected.file if selected else paths.config / "experiment" / f"{rel_path}.yaml"
     if not exp_path.exists():
         return {}
     with open(exp_path) as f:
@@ -235,11 +236,12 @@ def validate_experiment_config(
     """
     from src.app.pipeline.tuning_config import require_runnable_tuning
 
-    require_runnable_tuning(cfg, parse_methods_dict(cfg))
+    paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process())
+    require_runnable_tuning(cfg, parse_methods_dict(cfg, paths=paths))
     notices: list[str] = []
 
     env_name = getattr(cfg.env, "name", "unknown") if hasattr(cfg, "env") else "unknown"
-    raw_exp = _load_raw_experiment_yaml(experiment_name, config_dir)
+    raw_exp = _load_raw_experiment_yaml(experiment_name, config_dir, paths=paths)
 
     # --- Paradigm lookup ---
     paradigm_name = cfg.get("paradigm", None)
@@ -247,20 +249,20 @@ def validate_experiment_config(
         raise ConfigurationError(
             f"[ConfigurationError] Experiment '{experiment_name}' has no 'paradigm' declared. "
             f"Add 'paradigm: <name>' to its group _base.yaml. "
-            f"Available paradigms: {list_paradigms()}."
+            f"Available paradigms: {list_paradigms(paths=paths)}."
         )
 
     from src.app.core.execution import execution_backend, reject_selectors
     from src.app.core.paradigm_loader import load_paradigm_definition
     reject_selectors(cfg, "experiment")
-    load_paradigm_definition(paradigm_name)
-    for method_name, method in parse_methods_dict(cfg).items():
+    load_paradigm_definition(paradigm_name, paths=paths)
+    for method_name, method in parse_methods_dict(cfg, paths=paths).items():
         reject_selectors(method, f"method {method_name}")
         effective = dict(cfg.items())
         effective.update(method)
-        execution_backend(effective)
+        execution_backend(effective, paths=paths)
 
-    paradigm_def = load_paradigm(paradigm_name)  # raises ConfigurationError if unknown
+    paradigm_def = load_paradigm(paradigm_name, paths=paths)  # raises ConfigurationError if unknown
     constraints = paradigm_def.get("constraints", {})
 
     # --- eval_episodes: check raw YAML for explicit override ---
@@ -291,7 +293,7 @@ def validate_experiment_config(
     if cfg.get("objective") is not None:
         from src.app.objectives.api import validate_objective
         try:
-            validate_objective(cfg)
+            validate_objective(cfg, paths=paths)
         except (ValueError, TypeError, KeyError) as exc:
             raise ConfigurationError(f"Invalid objective: {exc}") from exc
         monitor = None  # The component validates its own input metrics above.
@@ -310,7 +312,7 @@ def validate_experiment_config(
         raise ConfigurationError(f"Invalid monitoring configuration: {exc}") from exc
 
     # --- Paradigm-Method/Agent Validation ---
-    _validate_methods_for_paradigm(cfg, paradigm_name, paradigm_def)
+    _validate_methods_for_paradigm(cfg, paradigm_name, paradigm_def, paths=paths)
 
     from src.app.core.data_loaders import data_loader_errors
     paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process())
@@ -324,7 +326,7 @@ def validate_experiment_config(
     _validate_offline_dataset_paths(cfg, notices, paths=paths)
 
     # --- Missing Components Validation ---
-    missing_comps = find_missing_components(cfg)
+    missing_comps = find_missing_components(cfg, paths=paths)
     if missing_comps:
         raise ConfigurationError(
             f"[ConfigurationError] Experiment '{experiment_name}' references missing component(s): "
@@ -335,17 +337,16 @@ def validate_experiment_config(
     from src.app.pipeline.tuning_config import tuning_enabled
 
     if tuning_enabled(cfg):
-        _validate_tuning(cfg)
+        _validate_tuning(cfg, paths=paths)
 
-    # --- Optuna sweep direction notice ---
+    # --- Metric direction notice ---
     if is_sweep:
         try:
-            sweeper = cfg.get("hydra", {}).get("sweeper", {})
-            direction = sweeper.get("direction", None)
+            direction = (cfg.get("tuning") or {}).get("direction")
             monitor = paradigm_def.get("monitor_metric", None)
             if direction == "maximize" and monitor and "loss" in monitor:
                 notices.append(
-                    f"Notice: Optuna direction is 'maximize' on paradigm '{paradigm_name}' "
+                    f"Notice: Tuning direction is 'maximize' on paradigm '{paradigm_name}' "
                     f"which monitors '{monitor}'. Consider using 'direction: minimize'."
                 )
         except Exception:
@@ -354,23 +355,32 @@ def validate_experiment_config(
     return notices
 
 
-def _validate_tuning(cfg: Any) -> None:
-    from src.app.pipeline.tuners import get_tuner
+def _validate_tuning(cfg: Any, *, paths=None) -> None:
+    from src.app.pipeline.tuners import get_tuner, tuner_name
 
     tuning = cfg.get("tuning")
     if not hasattr(tuning, "get"):
         raise ConfigurationError("Sweep tuning must be a mapping.")
+    tuner_name(cfg)  # Reject an unselected recipe before inspecting provider options.
     if cfg.get("objective") is None and (not isinstance(tuning.get("metric"), str) or not tuning.get("metric").strip()):
         raise ConfigurationError("Sweep tuning requires an objective metric.")
     if tuning.get("direction") not in ("minimize", "maximize"):
         raise ConfigurationError("Sweep direction must be 'minimize' or 'maximize'.")
-    tuner = get_tuner(cfg)
+    tuner = get_tuner(cfg, paths=paths)
     try:
+        from src.app.pipeline.tuning_features import validate_tuning_compatibility
+        pruning = validate_tuning_compatibility(cfg, paths=paths, tuner=tuner)
         tuner.validate_config(cfg)
     except ValueError as exc:
         raise ConfigurationError(str(exc)) from exc
     missing = []
-    for name, method in parse_methods_dict(cfg).items():
+    for name, method in parse_methods_dict(cfg, paths=paths).items():
+        if pruning:
+            from src.app.pipeline.tuning_features import validate_pruning_runner
+            try:
+                validate_pruning_runner({**dict(cfg.items()), **method}, paths=paths)
+            except ValueError as exc:
+                raise ConfigurationError(f"Method '{name}': {exc}") from exc
         validate_method = getattr(tuner, "validate_method", None)
         if callable(validate_method):
             try:
@@ -389,7 +399,7 @@ def _validate_tuning(cfg: Any) -> None:
                     if isinstance(agent, dict):
                         agent = agent.get("name") or agent.get("algorithm") or agent.get("type")
                     if isinstance(agent, str):
-                        path = WorkspacePaths.for_process().resolve_config("agent/" + agent + ".yaml")
+                        path = (paths or WorkspacePaths.for_process()).resolve_config("agent/" + agent + ".yaml")
                         if path.is_file():
                             base = yaml.safe_load(path.read_text()) or {}
                             if isinstance(base, dict) and "defaults" not in base:
@@ -407,13 +417,13 @@ def _validate_tuning(cfg: Any) -> None:
         raise ConfigurationError("Sweep methods require at least one dimension: " + ", ".join(missing))
 
 
-def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: dict) -> None:
+def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: dict, *, paths=None) -> None:
     """Validate that methods declared in config match the paradigm's agent and model requirements.
 
     Raises:
         ConfigurationError: If any method is incompatible with the selected paradigm.
     """
-    methods = parse_methods_dict(cfg)
+    methods = parse_methods_dict(cfg, paths=paths)
     if not methods:
         return
 
@@ -479,7 +489,7 @@ def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: d
 
         if agent_algo:
             # 1. Query agent-declared supported paradigms
-            agent_paradigms = _get_agent_supported_paradigms(agent_algo)
+            agent_paradigms = _get_agent_supported_paradigms(agent_algo, paths=paths)
             if agent_paradigms is not None:
                 if paradigm_name.lower() not in agent_paradigms:
                     raise ConfigurationError(
@@ -503,20 +513,20 @@ def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: d
                     )
 
 
-def _get_agent_supported_paradigms(agent_algo: str) -> list[str] | None:
+def _get_agent_supported_paradigms(agent_algo: str, *, paths=None) -> list[str] | None:
     from src.app.core.provider_catalog import get_catalog
-    selected = get_catalog().resolve("algorithm", agent_algo)
+    selected = get_catalog(paths).resolve("algorithm", agent_algo)
     if selected is None: return None
     package, cap = selected
     paradigms = cap.metadata.get("paradigms", package.manifest.get("paradigms"))
     return [str(p).lower() for p in paradigms] if paradigms else None
 
 
-def _provider_exists(kind, selector):
+def _provider_exists(kind, selector, *, paths=None):
     if not selector: return False
     from src.app.core.provider_loader import resolve_provider
     try:
-        return resolve_provider(kind, str(selector)) is not None
+        return resolve_provider(kind, str(selector), paths=paths) is not None
     except Exception as exc:
         raise ConfigurationError(f"Cannot load declared {kind} provider {selector!r}: {exc}") from exc
 
@@ -532,13 +542,13 @@ def _model_exists(name: str) -> bool:
 def _env_exists(env_name: str) -> bool:
     return _provider_exists("env", env_name)
 
-def find_missing_components(cfg_or_dict: Any) -> list[str]:
+def find_missing_components(cfg_or_dict: Any, *, paths=None) -> list[str]:
     """Inspect an experiment configuration and return a list of all missing components.
 
     Checks environment, agent and model references against executable declared
     providers, and checks required static datasets.
     """
-    return _find_missing_components(cfg_or_dict, _provider_exists)
+    return _find_missing_components(cfg_or_dict, lambda kind, selector: _provider_exists(kind, selector, paths=paths), paths=paths)
 
 
 def find_unavailable_components(cfg_or_dict: Any, *, paths=None) -> list[str]:
@@ -548,11 +558,11 @@ def find_unavailable_components(cfg_or_dict: Any, *, paths=None) -> list[str]:
 
     with provider_discovery_snapshot():
         return _find_missing_components(
-            cfg_or_dict, lambda kind, selector: bool(selector) and find_provider(kind, str(selector), paths) is not None
+            cfg_or_dict, lambda kind, selector: bool(selector) and find_provider(kind, str(selector), paths) is not None, paths=paths
         )
 
 
-def _find_missing_components(cfg_or_dict: Any, provider_exists: Callable[[str, str], bool]) -> list[str]:
+def _find_missing_components(cfg_or_dict: Any, provider_exists: Callable[[str, str], bool], *, paths=None) -> list[str]:
     if not cfg_or_dict or "MagicMock" in type(cfg_or_dict).__name__:
         return []
     missing: list[str] = []
@@ -604,11 +614,11 @@ def _find_missing_components(cfg_or_dict: Any, provider_exists: Callable[[str, s
 
     if env_val and env_val != "unknown" and not provider_exists("env", str(env_val)):
         missing.append(f"environment: {env_val}")
-    elif not env_val and paradigm_uses_live_environment(str(paradigm) if paradigm else None):
+    elif not env_val and paradigm_uses_live_environment(str(paradigm) if paradigm else None, paths=paths):
         missing.append("environment: (none configured)")
 
     # Check static datasets for offline paradigms
-    if paradigm and paradigm_uses_static_dataset(str(paradigm)):
+    if paradigm and paradigm_uses_static_dataset(str(paradigm), paths=paths):
         is_wf = (
             getattr(cfg_or_dict, "workflow", None)
             if hasattr(cfg_or_dict, "workflow")
@@ -624,7 +634,7 @@ def _find_missing_components(cfg_or_dict: Any, provider_exists: Callable[[str, s
                     if not method_is_enabled(m_spec):
                         continue
                     try:
-                        ds = resolve_dataset_for_method(m_name, m_spec, cfg_or_dict)
+                        ds = resolve_dataset_for_method(m_name, m_spec, cfg_or_dict, paths=paths)
                         if not ds.exists():
                             missing.append(f"dataset: {ds}")
                     except Exception:
@@ -680,7 +690,7 @@ def _find_missing_components(cfg_or_dict: Any, provider_exists: Callable[[str, s
 def _validate_offline_dataset_paths(cfg: Any, notices: list[str], *, paths=None) -> None:
     """Ensure static dataset paradigms have resolvable dataset files before launching."""
     paradigm_name = cfg.get("paradigm") if hasattr(cfg, "get") else getattr(cfg, "paradigm", None)
-    if not paradigm_uses_static_dataset(paradigm_name):
+    if not paradigm_uses_static_dataset(paradigm_name, paths=paths):
         return
     is_wf = cfg.get("workflow") if hasattr(cfg, "get") else getattr(cfg, "workflow", None)
     if is_wf:
@@ -688,7 +698,7 @@ def _validate_offline_dataset_paths(cfg: Any, notices: list[str], *, paths=None)
 
     from src.app.pipeline.datasets import resolve_dataset_for_method
 
-    methods = parse_methods_dict(cfg)
+    methods = parse_methods_dict(cfg, paths=paths)
     for method_name, method_cfg in methods.items():
         try:
             ds_path = resolve_dataset_for_method(method_name, method_cfg, cfg, paths=paths)

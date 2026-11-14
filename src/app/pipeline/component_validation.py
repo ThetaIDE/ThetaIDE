@@ -25,9 +25,14 @@ def schemas_for_method(workspace: Path, settings: dict, *, validation_only: bool
         if isinstance(selected, str) and selected:
             wanted[f"in/config/{kind}/{selected}.yaml"] = kind
     result = {}
-    from src.app.core.provider_catalog import get_catalog
     from src.app.workspace import WorkspacePaths
-    for package in get_catalog(WorkspacePaths(workspace)).packages:
+    paths = workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(workspace)
+    resolver = paths.config_resolver()
+    for config_path, kind in wanted.items():
+        relative = config_path.removeprefix("in/config/")
+        package, _ = resolver.owner(relative)
+        if package is None:
+            continue
         data = package.manifest
         schema = data.get("parameter_schema")
         if not isinstance(schema, dict):
@@ -36,16 +41,11 @@ def schemas_for_method(workspace: Path, settings: dict, *, validation_only: bool
         declared = list(data.get("config_paths") or [])
         if data.get("config_path"):
             declared.append(data["config_path"])
-        for config_path, kind in wanted.items():
-            if config_path not in declared and config_path not in profiles:
-                continue
-            selected_schema = profiles.get(config_path, schema)
-            if not isinstance(selected_schema, dict):
-                continue
-            if not validation_only or selected_schema.get("x-theta-validate", schema.get("x-theta-validate")) is True:
-                if kind in result and result[kind] != selected_schema:
-                    raise ConfigurationError(f"Multiple validation schemas claim {config_path}.")
-                result[kind] = selected_schema
+        selected_schema = profiles.get(config_path, schema)
+        if not isinstance(selected_schema, dict):
+            continue
+        if not validation_only or selected_schema.get("x-theta-validate", schema.get("x-theta-validate")) is True:
+            result[kind] = selected_schema
     return result
 
 

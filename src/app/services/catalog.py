@@ -23,7 +23,7 @@ import yaml
 
 from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, nested_run_names, SAVED_RUN_NAME
 
-from . import LOGS_DIR, PLOTS_DIR, PROJECT_ROOT
+from . import LOGS_DIR, PROJECT_ROOT
 from .metrics import latest_version_file, read_metrics_table
 
 try:
@@ -35,6 +35,31 @@ except ImportError:  # pragma: no cover - registry is optional
 
 
 CONFIG_DIR = PROJECT_ROOT / "in" / "config"
+_DEFAULT_CONFIG_DIR = CONFIG_DIR
+
+
+_DEFAULT_LOGS_DIR = LOGS_DIR
+
+
+def _workspace(workspace=None):
+    """Explicit service context; omitted context is the legacy desktop adapter."""
+    from src.app.workspace import WorkspacePaths
+    if workspace is not None:
+        return workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(workspace)
+    if LOGS_DIR != _DEFAULT_LOGS_DIR:
+        return WorkspacePaths(LOGS_DIR.parent.parent)
+    return WorkspacePaths.for_process()
+
+
+def _logs_dir(workspace=None):
+    # Preserve the old explicitly rebound LOGS_DIR adapter for existing hosts/tests.
+    return LOGS_DIR if workspace is None and LOGS_DIR != _DEFAULT_LOGS_DIR else _workspace(workspace).results / "logs"
+
+
+def _config_resolver(workspace=None):
+    from src.app.workspace import WorkspacePaths
+    paths = workspace or (WorkspacePaths.from_config_root(CONFIG_DIR) if CONFIG_DIR != _DEFAULT_CONFIG_DIR else WorkspacePaths.for_process())
+    return paths.config_resolver()
 
 
 def _float(value) -> float | None:
@@ -44,16 +69,15 @@ def _float(value) -> float | None:
         return None
 
 
-def list_environments() -> list[dict[str, Any]]:
+def list_environments(*, workspace=None) -> list[dict[str, Any]]:
     envs = []
-    env_dir = CONFIG_DIR / "env"
-    if not env_dir.is_dir():
-        return envs
-    for f in sorted(env_dir.rglob("*.yaml")):
-        if f.name.startswith("_") or "/_" in f.as_posix():
+    resolver = _config_resolver(workspace)
+    for selector in resolver.selectors("env"):
+        f = resolver.resolve(selector, required=True).file
+        if Path(selector).name.startswith("_") or "/_" in selector:
             continue
         try:
-            rel_name = f.relative_to(env_dir).with_suffix("").as_posix()
+            rel_name = Path(selector).relative_to("env").with_suffix("").as_posix()
             envs.append({"name": rel_name, "stem": f.stem, "config": yaml.safe_load(f.read_text(encoding="utf-8"))})
         except (OSError, yaml.YAMLError):
             pass
@@ -64,14 +88,15 @@ def list_methods() -> dict[str, Any]:
     return {"registered_agents": list_registered_agents(), "method_styles": {}}
 
 
-def list_experiments() -> list[dict[str, Any]]:
+def list_experiments(*, workspace=None) -> list[dict[str, Any]]:
     """Experiment configs, skipping internal _base / template files."""
-    exp_dir = CONFIG_DIR / "experiment"
+    resolver = _config_resolver(workspace)
     exps = []
-    for f in sorted(exp_dir.glob("**/*.yaml")):
+    for selector in resolver.selectors("experiment"):
+        f = resolver.resolve(selector, required=True).file
         if f.name.startswith("_") or f.parent.name == "methods" or "/methods/" in f.as_posix():
             continue
-        rel_path = f.relative_to(exp_dir)
+        rel_path = Path(selector).relative_to("experiment")
         try:
             exps.append(
                 {
@@ -86,6 +111,7 @@ def list_experiments() -> list[dict[str, Any]]:
 
 
 # agent_summary results by agent folder, valid while the files they were read from are unchanged.
+_CATALOG_CACHE_LOCK = threading.RLock()
 _SUMMARY_CACHE: dict[Path, tuple[tuple, dict[str, Any] | None]] = {}
 # Per-run files, keyed by path and reused until their stamp changes (see _cached_by_stamp)
 _CONFIG_SUMMARY_CACHE: dict[Path, tuple[tuple, dict[str, Any]]] = {}
@@ -101,8 +127,9 @@ _persisted_loaded_for: Path | None = None  # the LOGS_DIR whose cache file has b
 _cache_dirty = False  # an entry was computed since the cache file was last written
 
 
-def _summary_cache_file() -> Path:
-    return LOGS_DIR.parent / ".cache" / "catalog-summaries.json"
+def _summary_cache_file(*, workspace=None) -> Path:
+    logs_dir = _logs_dir(workspace)
+    return logs_dir.parent / ".cache" / "catalog-summaries.json"
 
 
 def _as_tuples(value):
@@ -110,16 +137,17 @@ def _as_tuples(value):
     return tuple(_as_tuples(v) for v in value) if isinstance(value, list) else value
 
 
-def _load_persisted_summaries() -> None:
+def _load_persisted_summaries(*, workspace=None) -> None:
+    logs_dir = _logs_dir(workspace)
     global _persisted_loaded_for
-    if _persisted_loaded_for == LOGS_DIR:
+    if _persisted_loaded_for == logs_dir:
         return
-    _persisted_loaded_for = LOGS_DIR
+    _persisted_loaded_for = logs_dir
     try:
-        data = json.loads(_summary_cache_file().read_text(encoding="utf-8"))
+        data = json.loads(_summary_cache_file(workspace=workspace).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return
-    if not isinstance(data, dict) or data.get("format") != _PERSISTED_FORMAT or data.get("logs_dir") != str(LOGS_DIR):
+    if not isinstance(data, dict) or data.get("format") != _PERSISTED_FORMAT or data.get("logs_dir") != str(logs_dir):
         return
     for name, cache in _PERSISTED_CACHES.items():
         entries = data.get(name)
@@ -130,28 +158,31 @@ def _load_persisted_summaries() -> None:
                 cache.setdefault(Path(key), (_as_tuples(entry[0]), entry[1]))  # this session's entries win
 
 
-def _save_persisted_summaries(seen: dict[str, set[Path]]) -> None:
+def _save_persisted_summaries(seen: dict[str, set[Path]], *, workspace=None) -> None:
     """Keep only entries for paths this listing saw (runs deleted since drop out), and write the file
     if anything changed. Written to a temporary file and renamed, so a reader never sees half of it."""
+    logs_dir = _logs_dir(workspace)
     global _cache_dirty
     pruned = False
     for name, cache in _PERSISTED_CACHES.items():
-        for key in [k for k in cache if k not in seen[name]]:
+        for key in [k for k in cache if k.is_relative_to(logs_dir) and k not in seen[name]]:
             del cache[key]
             pruned = True
     if not (_cache_dirty or pruned):
         return
-    data: dict[str, Any] = {"format": _PERSISTED_FORMAT, "logs_dir": str(LOGS_DIR)}
+    data: dict[str, Any] = {"format": _PERSISTED_FORMAT, "logs_dir": str(logs_dir)}
     for name, cache in _PERSISTED_CACHES.items():
         entries = {}
         for key, (stamp, value) in cache.items():
+            if not key.is_relative_to(logs_dir):
+                continue
             try:
                 json.dumps(value, allow_nan=True)  # values JSON can't hold (a YAML date) stay in memory only
             except (TypeError, ValueError):
                 continue
             entries[str(key)] = [stamp, value]
         data[name] = entries
-    target = _summary_cache_file()
+    target = _summary_cache_file(workspace=workspace)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
@@ -294,12 +325,13 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
-def _result_replicates(run_dir: Path):
+def _result_replicates(run_dir: Path, *, workspace=None):
     """Execution records identify seed versions separately from a trial's objective version."""
+    logs_dir = _logs_dir(workspace)
     found = {}
-    relative = run_dir.relative_to(LOGS_DIR)
+    relative = run_dir.relative_to(logs_dir)
     experiment_id = Path(*relative.parts[1:]).as_posix()
-    root = LOGS_DIR.parent / "executions" / relative
+    root = logs_dir.parent / "executions" / relative
     for path in sorted(root.glob("*/manifest.json")):
         manifest = _read_json(path)
         parent = manifest.get("parent") or {}
@@ -317,29 +349,31 @@ def _result_replicates(run_dir: Path):
     return found
 
 
-def _remote_result_record(run_dir: Path):
+def _remote_result_record(run_dir: Path, *, workspace=None):
     """Find the exact remote execution owning this downloaded result directory."""
-    relative = run_dir.relative_to(LOGS_DIR)
+    logs_dir = _logs_dir(workspace)
+    relative = run_dir.relative_to(logs_dir)
     group, experiment = relative.parts[0], Path(*relative.parts[1:]).as_posix()
-    state = _read_json(LOGS_DIR.parent.parent / '.thetaide/site_sync.json')
+    state = _read_json(_workspace(workspace).data_dir / 'site_sync.json')
     return next(({**record, 'site': site, 'last_sync': sync.get('last_sync')}
                  for site, sync in state.items() for record in sync.get('executions', [])
                  if record.get('group') == group and record.get('result_experiment_id') == experiment), None)
 
 
-def _result_snapshot(run_dir: Path, replicates=None):
+def _result_snapshot(run_dir: Path, replicates=None, *, workspace=None):
     """Published versions and checkpoint folders; active trials never enter Results."""
+    logs_dir = _logs_dir(workspace)
     from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
 
     from src.app.sites.result_state import results_available
-    remote = _remote_result_record(run_dir)
+    remote = _remote_result_record(run_dir, workspace=workspace)
     remote_available = remote is not None and results_available(remote)
     if remote is not None and not remote_available:
         return {}, set(), set(), True
     versions, terminal_trials, trial_states = {}, set(), {}
     if replicates is None:
-        replicates = _result_replicates(run_dir)
-    checkpoint_root = LOGS_DIR.parent / "checkpoints" / run_dir.relative_to(LOGS_DIR)
+        replicates = _result_replicates(run_dir, workspace=workspace)
+    checkpoint_root = logs_dir.parent / "checkpoints" / run_dir.relative_to(logs_dir)
     active_methods = set()
     for path in [*checkpoint_root.glob("*/tuning_summary.json"),
                  *checkpoint_root.glob("*/sweeps/*/tuning_summary.json")]:
@@ -384,7 +418,7 @@ def _result_snapshot(run_dir: Path, replicates=None):
     return versions, complete_methods, terminal_trials, in_progress
 
 
-def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
+def list_runs(completed_only: bool = False, *, workspace=None) -> list[dict[str, Any]]:
     """Every experiment folder under results/logs, however it was launched (GUI, CLI or SLURM).
 
     `agents` lists each agent that logged something, with its timing and reward summary;
@@ -393,87 +427,89 @@ def list_runs(completed_only: bool = False) -> list[dict[str, Any]]:
     expose only finalized versions; terminated remote runs expose the downloaded
     snapshot, with `incomplete_results` distinguishing failed publication.
     """
-    from src.app.sites.result_state import results_available, results_complete
+    with _CATALOG_CACHE_LOCK:
+        logs_dir = _logs_dir(workspace)
+        from src.app.sites.result_state import results_available, results_complete
 
-    runs = []
-    # Older repeated executions gave every replicate its own experiment ID.
-    # They remain available in the Executions browser, but should not flood the
-    # ordinary experiment list as if every seed were a separate experiment.
-    replicate_experiments = set()
-    execution_root = LOGS_DIR.parent / "executions"
-    for manifest_path in execution_root.rglob("manifest.json"):
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            result_id = manifest.get("result_experiment_id")
-            if result_id:
-                continue
-            group = manifest.get("group")
-            for replicate in manifest.get("runs", []):
-                experiment_id = replicate.get("experiment_id")
-                if experiment_id and experiment_id != manifest.get("experiment_id"):
-                    replicate_experiments.add((group, experiment_id))
-        except (OSError, ValueError):
-            continue
-    _load_persisted_summaries()
-    seen: dict[str, set[Path]] = {name: set() for name in _PERSISTED_CACHES}
-    for run_dir in iter_run_dirs(LOGS_DIR):
-        group, experiment_id = run_dir.relative_to(LOGS_DIR).as_posix().split("/", 1)
-        if (group, experiment_id) in replicate_experiments:
-            continue
-        metadata = _cached_by_stamp(_RUN_METADATA_CACHE, run_dir / "runtime.json", _read_run_metadata)
-        agent_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir())
-        seen["metadata"].add(run_dir / "runtime.json")
-        seen["configs"].add(run_dir / "config.yaml")
-        seen["agents"].update(agent_dirs)
-        remote = _remote_result_record(run_dir)
-        remote_available = remote is not None and results_available(remote)
-        if completed_only:
-            versions, _, _, in_progress = _result_snapshot(run_dir)
-            agents = []
-            for name, names in versions.items():
-                version = run_dir / name / names[-1]
-                if not (version / "metrics.csv").is_file():
+        runs = []
+        # Older repeated executions gave every replicate its own experiment ID.
+        # They remain available in the Executions browser, but should not flood the
+        # ordinary experiment list as if every seed were a separate experiment.
+        replicate_experiments = set()
+        execution_root = logs_dir.parent / "executions"
+        for manifest_path in execution_root.rglob("manifest.json"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                result_id = manifest.get("result_experiment_id")
+                if result_id:
                     continue
-                summary = _read_agent_summary(run_dir / name, version / "runtime.json", version / "metrics.csv")
-                summary["finished"] = summary["finished"] or _read_json(version / "runtime.json").get("completed_at") or True
-                agents.append(summary)
-            if not agents and not remote_available:
+                group = manifest.get("group")
+                for replicate in manifest.get("runs", []):
+                    experiment_id = replicate.get("experiment_id")
+                    if experiment_id and experiment_id != manifest.get("experiment_id"):
+                        replicate_experiments.add((group, experiment_id))
+            except (OSError, ValueError):
                 continue
-        else:
-            agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
-        runs.append(
-            {
-                "group": group,
-                "experiment_id": experiment_id,
-                "metadata": metadata,
-                "config": run_config_summary(run_dir),
-                "agents": agents,
-                **({"completed_versions": versions, "in_progress": in_progress} if completed_only else {}),
-                **({"has_run_logs": True} if any(run_dir.glob("*.stderr.log")) or
-                   any(run_dir.glob("*.combined.log")) or remote_available else {}),
-                "finished": remote_available or (bool(agents) and all(agent["finished"] for agent in agents)),
-            }
-        )
-    _save_persisted_summaries(seen)
-    from src.app.sites.storage import read_json
-    sync_state = read_json(LOGS_DIR.parent.parent / '.thetaide/site_sync.json')
-    matched = set()
-    for site, sync in sync_state.items():
-        for remote in sync.get('executions', []):
-            identity = remote.get('result_experiment_id', '')
-            for entry in runs:
-                if entry['group'] == remote.get('group') and entry['experiment_id'] == identity:
-                    entry['remote'] = {**remote, 'site': site, 'last_sync': sync.get('last_sync')}
-                    entry['incomplete_results'] = results_available(remote) and not results_complete(remote)
-                    matched.add(remote['execution_id'])
-            if remote['execution_id'] not in matched and (not completed_only or results_available(remote)):
-                runs.append({'group': remote['group'], 'experiment_id': identity, 'config': {}, 'metadata': {},
-                             'agents': [], 'finished': results_available(remote),
-                             'incomplete_results': results_available(remote) and not results_complete(remote),
-                             **({'has_run_logs': True, 'completed_versions': {}, 'in_progress': False}
-                                if results_available(remote) else {}),
-                             'remote': {**remote, 'site': site, 'last_sync': sync.get('last_sync')}})
-    return runs
+        _load_persisted_summaries(workspace=workspace)
+        seen: dict[str, set[Path]] = {name: set() for name in _PERSISTED_CACHES}
+        for run_dir in iter_run_dirs(logs_dir):
+            group, experiment_id = run_dir.relative_to(logs_dir).as_posix().split("/", 1)
+            if (group, experiment_id) in replicate_experiments:
+                continue
+            metadata = _cached_by_stamp(_RUN_METADATA_CACHE, run_dir / "runtime.json", _read_run_metadata)
+            agent_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir())
+            seen["metadata"].add(run_dir / "runtime.json")
+            seen["configs"].add(run_dir / "config.yaml")
+            seen["agents"].update(agent_dirs)
+            remote = _remote_result_record(run_dir, workspace=workspace)
+            remote_available = remote is not None and results_available(remote)
+            if completed_only:
+                versions, _, _, in_progress = _result_snapshot(run_dir, workspace=workspace)
+                agents = []
+                for name, names in versions.items():
+                    version = run_dir / name / names[-1]
+                    if not (version / "metrics.csv").is_file():
+                        continue
+                    summary = _read_agent_summary(run_dir / name, version / "runtime.json", version / "metrics.csv")
+                    summary["finished"] = summary["finished"] or _read_json(version / "runtime.json").get("completed_at") or True
+                    agents.append(summary)
+                if not agents and not remote_available:
+                    continue
+            else:
+                agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
+            runs.append(
+                {
+                    "group": group,
+                    "experiment_id": experiment_id,
+                    "metadata": metadata,
+                    "config": run_config_summary(run_dir),
+                    "agents": agents,
+                    **({"completed_versions": versions, "in_progress": in_progress} if completed_only else {}),
+                    **({"has_run_logs": True} if any(run_dir.glob("*.stderr.log")) or
+                       any(run_dir.glob("*.combined.log")) or remote_available else {}),
+                    "finished": remote_available or (bool(agents) and all(agent["finished"] for agent in agents)),
+                }
+            )
+        _save_persisted_summaries(seen, workspace=workspace)
+        from src.app.sites.storage import read_json
+        sync_state = read_json(_workspace(workspace).data_dir / 'site_sync.json')
+        matched = set()
+        for site, sync in sync_state.items():
+            for remote in sync.get('executions', []):
+                identity = remote.get('result_experiment_id', '')
+                for entry in runs:
+                    if entry['group'] == remote.get('group') and entry['experiment_id'] == identity:
+                        entry['remote'] = {**remote, 'site': site, 'last_sync': sync.get('last_sync')}
+                        entry['incomplete_results'] = results_available(remote) and not results_complete(remote)
+                        matched.add(remote['execution_id'])
+                if remote['execution_id'] not in matched and (not completed_only or results_available(remote)):
+                    runs.append({'group': remote['group'], 'experiment_id': identity, 'config': {}, 'metadata': {},
+                                 'agents': [], 'finished': results_available(remote),
+                                 'incomplete_results': results_available(remote) and not results_complete(remote),
+                                 **({'has_run_logs': True, 'completed_versions': {}, 'in_progress': False}
+                                    if results_available(remote) else {}),
+                                 'remote': {**remote, 'site': site, 'last_sync': sync.get('last_sync')}})
+        return runs
 
 
 def check_path_segment(part: str) -> None:
@@ -490,22 +526,23 @@ def _version_number(name: str) -> int:
 def run_metrics(
     group: str, experiment_id: str, agent: str, version: str | None = None, since: int = 0,
     completed_only: bool = False,
-) -> dict[str, Any]:
+*, workspace=None) -> dict[str, Any]:
     """Every row of an agent's metrics.csv (as text), with every column the engine logged.
 
     `version` picks a version_N folder (default: the newest). `since` skips rows the caller already has,
     so a client following a run that is still training reads only new rows; `total_rows` says where to
     resume. Raises FileNotFoundError if there are no such metrics, ValueError for a bad name.
     """
+    logs_dir = _logs_dir(workspace)
     check_result_path(experiment_id)
     for part in (group, agent):
         check_path_segment(part)
-    agent_dir = LOGS_DIR / group / experiment_id / agent
+    agent_dir = logs_dir / group / experiment_id / agent
     versions = sorted(
         (p.name for p in agent_dir.glob("version_*") if (p / "metrics.csv").is_file()), key=_version_number
     )
     if completed_only:
-        published, _, _, _ = _result_snapshot(agent_dir.parent)
+        published, _, _, _ = _result_snapshot(agent_dir.parent, workspace=workspace)
         versions = [name for name in versions if name in published.get(agent, [])]
         if version is None:
             version = versions[-1] if versions else None
@@ -642,9 +679,10 @@ _KIND_BY_SUFFIX = {
 }
 
 
-def results_dir() -> Path:
+def results_dir(*, workspace=None) -> Path:
     """results/, the parent of results/logs (follows LOGS_DIR, so tests can point it elsewhere)."""
-    return LOGS_DIR.parent
+    logs_dir = _logs_dir(workspace)
+    return logs_dir.parent
 
 
 def _artifact_kind(root: str, path: Path) -> str:
@@ -655,20 +693,20 @@ def _artifact_kind(root: str, path: Path) -> str:
     return _KIND_BY_SUFFIX.get(path.suffix.lower(), "other")
 
 
-def _run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
+def _run_dirs(group: str, experiment_id: str, *, workspace=None) -> dict[str, Path]:
     """The existing results/<root>/<group>/<experiment_id> folders of one run, by root."""
     check_path_segment(group)
     check_result_path(experiment_id)
-    base = results_dir()
+    base = results_dir(workspace=workspace)
     dirs = {root: base / root / group / experiment_id for root in RESULT_ROOTS}
     return {root: path for root, path in dirs.items() if path.is_dir()}
 
 
 
-def _mutable_run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
+def _mutable_run_dirs(group: str, experiment_id: str, *, workspace=None) -> dict[str, Path]:
     """Locate run folders without following links outside the results tree."""
-    dirs = _run_dirs(group, experiment_id)
-    base = results_dir().resolve()
+    dirs = _run_dirs(group, experiment_id, workspace=workspace)
+    base = results_dir(workspace=workspace).resolve()
     for path in dirs.values():
         ancestors = (path, *path.parents)
         linked = any(part.is_symlink() for part in ancestors if part != base and part.is_relative_to(base))
@@ -679,7 +717,7 @@ def _mutable_run_dirs(group: str, experiment_id: str) -> dict[str, Path]:
     return dirs
 
 
-def _archive_dirs(dirs: dict[str, Path], destination: str, *, exclude=frozenset()) -> None:
+def _archive_dirs(dirs: dict[str, Path], destination: str, *, exclude=frozenset(), workspace=None) -> None:
     """Write an archive atomically, preserving paths relative to results/."""
     target = Path(destination).absolute()
     if any(target.resolve().is_relative_to(path.resolve()) for path in dirs.values()):
@@ -695,22 +733,23 @@ def _archive_dirs(dirs: dict[str, Path], destination: str, *, exclude=frozenset(
                     if path.is_symlink():
                         raise ValueError(f"Cannot archive symbolic link: {path}")
                     if path.is_file():
-                        archive.write(path, path.relative_to(results_dir()))
+                        archive.write(path, path.relative_to(results_dir(workspace=workspace)))
         os.replace(temporary, target)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
 
 
-def archive_run(group: str, experiment_id: str, destination: str) -> None:
+def archive_run(group: str, experiment_id: str, destination: str, *, workspace=None) -> None:
     """Write a ZIP of all results folders for a run, without removing the originals."""
-    _archive_dirs(_mutable_run_dirs(group, experiment_id), destination,
-                  exclude=nested_run_names(LOGS_DIR / group / experiment_id))
+    logs_dir = _logs_dir(workspace)
+    _archive_dirs(_mutable_run_dirs(group, experiment_id, workspace=workspace), destination,
+                  exclude=nested_run_names(logs_dir / group / experiment_id), workspace=workspace)
 
 
-def _mutable_group_dirs(group: str) -> dict[str, Path]:
+def _mutable_group_dirs(group: str, *, workspace=None) -> dict[str, Path]:
     check_path_segment(group)
-    base = results_dir()
+    base = results_dir(workspace=workspace)
     dirs = {root: base / root / group for root in RESULT_ROOTS}
     dirs = {root: path for root, path in dirs.items() if path.is_dir()}
     if not dirs:
@@ -722,21 +761,22 @@ def _mutable_group_dirs(group: str) -> dict[str, Path]:
     return dirs
 
 
-def archive_group(group: str, destination: str) -> None:
+def archive_group(group: str, destination: str, *, workspace=None) -> None:
     """Archive all of a group's results, including runs not shown in the tree."""
-    _archive_dirs(_mutable_group_dirs(group), destination)
+    _archive_dirs(_mutable_group_dirs(group, workspace=workspace), destination, workspace=workspace)
 
 
-def delete_group(group: str) -> None:
+def delete_group(group: str, *, workspace=None) -> None:
     """Delete all of a group's folders across the results roots."""
-    for path in _mutable_group_dirs(group).values():
+    for path in _mutable_group_dirs(group, workspace=workspace).values():
         shutil.rmtree(path)
 
 
-def delete_run(group: str, experiment_id: str) -> None:
+def delete_run(group: str, experiment_id: str, *, workspace=None) -> None:
     """Delete the run's folders across the results roots."""
-    dirs = _mutable_run_dirs(group, experiment_id)
-    saved = nested_run_names(LOGS_DIR / group / experiment_id)
+    logs_dir = _logs_dir(workspace)
+    dirs = _mutable_run_dirs(group, experiment_id, workspace=workspace)
+    saved = nested_run_names(logs_dir / group / experiment_id)
     for path in dirs.values():
         if not saved:
             shutil.rmtree(path)
@@ -748,19 +788,20 @@ def delete_run(group: str, experiment_id: str) -> None:
                 else:
                     child.unlink()
 
-def _readable_run_dirs(group: str, experiment_id: str):
-    dirs = _run_dirs(group, experiment_id)
-    remote = _remote_result_record(LOGS_DIR / group / experiment_id)
+def _readable_run_dirs(group: str, experiment_id: str, *, workspace=None):
+    logs_dir = _logs_dir(workspace)
+    dirs = _run_dirs(group, experiment_id, workspace=workspace)
+    remote = _remote_result_record(logs_dir / group / experiment_id, workspace=workspace)
     if remote:
         execution = remote.get('execution_id', '')
         check_path_segment(execution)
-        directory = results_dir() / 'slurm' / execution
+        directory = results_dir(workspace=workspace) / 'slurm' / execution
         if directory.is_dir():
             dirs['slurm'] = directory
     return dirs
 
 
-def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -> dict[str, Any]:
+def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *, workspace=None) -> dict[str, Any]:
     """Every file a run produced across results/{logs,plots,checkpoints,tensorboard,datasets}.
 
     Each artifact has a `path` relative to results/ (read it with read_run_file), a `kind` (metrics, table,
@@ -768,17 +809,18 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
     `version` folders it sits under, when it has them. `agents` maps each agent with logged metrics to its
     version folders, oldest first. Raises FileNotFoundError if the run has no folders.
     """
-    dirs = _readable_run_dirs(group, experiment_id)
+    logs_dir = _logs_dir(workspace)
+    dirs = _readable_run_dirs(group, experiment_id, workspace=workspace)
     if not dirs:
         raise FileNotFoundError(f"Run not found: {group}/{experiment_id}")
-    base = results_dir()
-    run_logs = LOGS_DIR / group / experiment_id
-    replicates = _result_replicates(run_logs)
+    base = results_dir(workspace=workspace)
+    run_logs = logs_dir / group / experiment_id
+    replicates = _result_replicates(run_logs, workspace=workspace)
     published, complete_methods, terminal_trials, in_progress = (
-        _result_snapshot(run_logs, replicates) if completed_only else ({}, set(), set(), False)
+        _result_snapshot(run_logs, replicates, workspace=workspace) if completed_only else ({}, set(), set(), False)
     )
     from src.app.sites.result_state import results_available, results_complete
-    remote = _remote_result_record(run_logs)
+    remote = _remote_result_record(run_logs, workspace=workspace)
     remote_available = remote is not None and results_available(remote)
     if completed_only and not published and not remote_available:
         raise FileNotFoundError(f"No completed results for {group}/{experiment_id}")
@@ -855,12 +897,12 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False) -
     }
 
 
-def rename_run_file(group: str, experiment_id: str, path: str, new_name: str) -> str:
+def rename_run_file(group: str, experiment_id: str, path: str, new_name: str, *, workspace=None) -> str:
     """Rename an artifact within its current folder, returning its new results-relative path."""
     check_path_segment(new_name)
     check_result_path(path)
-    dirs = _mutable_run_dirs(group, experiment_id)
-    base = results_dir().resolve()
+    dirs = _mutable_run_dirs(group, experiment_id, workspace=workspace)
+    base = results_dir(workspace=workspace).resolve()
     source = base / path
     if not any(source.is_relative_to(directory.resolve()) for directory in dirs.values()):
         raise PermissionError("Path is outside this run's results")
@@ -877,14 +919,14 @@ def rename_run_file(group: str, experiment_id: str, path: str, new_name: str) ->
     return target.relative_to(base).as_posix()
 
 
-def read_run_file(group: str, experiment_id: str, path: str) -> bytes:
+def read_run_file(group: str, experiment_id: str, path: str, *, workspace=None) -> bytes:
     """One artifact of a run, by the `path` its manifest lists (relative to results/).
 
     Only files inside this run's own results/<root>/<group>/<experiment_id> folders are read: anything
     else raises PermissionError. A missing file raises FileNotFoundError.
     """
-    dirs = _readable_run_dirs(group, experiment_id)
-    target = (results_dir().resolve() / path).resolve()
+    dirs = _readable_run_dirs(group, experiment_id, workspace=workspace)
+    target = (results_dir(workspace=workspace).resolve() / path).resolve()
     if not any(target.is_relative_to(d.resolve()) for d in dirs.values()):
         raise PermissionError("Path is outside this run's results")
     if not target.is_file():
@@ -892,6 +934,7 @@ def read_run_file(group: str, experiment_id: str, path: str) -> bytes:
     return target.read_bytes()
 
 
-def list_plots(group: str, experiment_id: str) -> list[str]:
-    plot_dir = PLOTS_DIR / group / experiment_id
+def list_plots(group: str, experiment_id: str, *, workspace=None) -> list[str]:
+    plots_dir = _workspace(workspace).results / "plots"
+    plot_dir = plots_dir / group / experiment_id
     return sorted(f.name for f in plot_dir.glob("*") if f.is_file()) if plot_dir.exists() else []

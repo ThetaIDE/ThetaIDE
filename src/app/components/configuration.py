@@ -20,7 +20,18 @@ class ConfigurationFiles:
         self.installer = HubInstaller(paths.root, paths.data_dir)
 
     def read(self, path):
-        path = self.paths.config_file(path)
+        candidate = Path(path)
+        if candidate.is_absolute():
+            try:
+                path = self.paths.config_file(candidate)
+            except ValueError:
+                candidate = candidate.resolve()
+                if not any(self.paths.resolve_config(key) == candidate for key in self.paths.config_resolver().selectors()):
+                    raise ValueError(f"Not an effective workspace profile: {candidate}")
+                path = candidate
+        else:
+            value = candidate.as_posix().removeprefix("in/config/").removeprefix("src/usr/config/")
+            path = self.paths.resolve_config(value)
         text = path.read_text(encoding="utf-8")
         data = yaml.safe_load(text)
         if not isinstance(data, dict):
@@ -67,6 +78,37 @@ class ConfigurationFiles:
         owner = self.installer.find_component_for_path(source)
         if owner:
             self.installer.track_user_config(owner, target)
+        return target
+
+    def create_override(self, selector):
+        """Explicitly copy an effective profile to usr without changing its owner.
+
+        The complete profile (including Hydra headers) is retained. Repeated
+        requests return the existing editable copy and never replace user edits.
+        """
+        import json
+        from src.app.config_resolution import selector_path
+        from src.app.core.provider_catalog import file_hash
+        from .transactions import FileTransaction, workspace_lock, write_json
+
+        relative = selector_path(selector)
+        target = self.paths.user_config / relative
+        record_file = self.paths.data_dir / "config_overrides.json"
+        with workspace_lock(self.paths):
+            resolved = self.paths.config_resolver().resolve(relative, required=True)
+            # Reject symlinked destinations that would make this a package edit.
+            if self.paths.user_config.resolve() != self.paths.user_config.absolute() or target.resolve() != target.absolute():
+                raise ValueError("User override destinations cannot use symbolic links")
+            if target.is_file():
+                return target
+            record = json.loads(record_file.read_text()) if record_file.is_file() else {}
+            record[relative.as_posix()] = {"source": str(resolved.file), "sha256": file_hash(resolved.file),
+                                          "package": resolved.package.id if resolved.package else None,
+                                          "version": resolved.package.version if resolved.package else None}
+            with FileTransaction(self.paths, "config_override", relative.as_posix()) as transaction:
+                transaction.protect([target, record_file])
+                self.write(target, resolved.file.read_text(encoding="utf-8"), create=True)
+                write_json(record_file, record)
         return target
 
     def configure(self, path, assignments):

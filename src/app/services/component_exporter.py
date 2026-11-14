@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Set
 
 import yaml
 
-from . import PROJECT_ROOT
 from src.app.workspace import WorkspacePaths
 
 log = logging.getLogger(__name__)
@@ -64,10 +63,13 @@ def find_workspace_root(start_path: Path | None = None) -> Path:
 def find_component_assets(config_path, rel_path=None, workspace_dir=None):
     """Resolve declared ownership; a loose config never implies an implementation."""
     from src.app.core.provider_catalog import get_catalog
-    paths = WorkspacePaths(workspace_dir) if workspace_dir else WorkspacePaths.for_process()
+    paths = workspace_dir if isinstance(workspace_dir, WorkspacePaths) else WorkspacePaths(workspace_dir) if workspace_dir else WorkspacePaths.for_process()
     cfg = Path(config_path).resolve()
+    resolved = next((paths.config_resolver().resolve(key) for key in paths.config_resolver().selectors()
+                     if paths.resolve_config(key) == cfg), None)
+    profile_owner = resolved.package if resolved else None
     owners = [p for p in get_catalog(paths).packages if p.origin != 'python_distribution' and
-              (cfg == p.root or cfg.is_relative_to(p.root) or cfg in {paths.root / v for v in [*p.manifest.get('config_paths', []),*p.manifest.get('user_config_paths', [])]})]
+              (p == profile_owner or cfg == p.root or cfg.is_relative_to(p.root) or cfg in {paths.root / v for v in [*p.manifest.get('config_paths', []),*p.manifest.get('user_config_paths', [])]})]
     if len(owners) > 1: raise ValueError(f"Ambiguous config ownership: {cfg}: {[p.id for p in owners]}")
     owner = owners[0] if owners else None
     meta = {**owner.manifest, 'origin':owner.origin, 'writable':owner.writable, 'target_dir':str(owner.root)} if owner else {}
@@ -85,7 +87,8 @@ class ComponentExporter:
     """Extracts, traces dependencies, and packages components into installable Hub packages or Git repos."""
 
     def __init__(self, workspace_root: Path | None = None):
-        self.paths = WorkspacePaths(workspace_root or PROJECT_ROOT)
+        self.paths = (workspace_root if isinstance(workspace_root, WorkspacePaths) else
+                      WorkspacePaths(workspace_root) if workspace_root is not None else WorkspacePaths.for_process())
         self.workspace_root = self.paths.root
 
     def export(
@@ -143,7 +146,7 @@ class ComponentExporter:
             original_configs=owner.manifest.get('payload',{}).get('configs',{})
             canonical={}
             for dest,relative in manifest['payload']['configs'].items():
-                active=self.paths.config_file(dest)
+                active=self.paths.resolve_config(dest.removeprefix("in/config/"))
                 selected='configs/'+dest.removeprefix('in/config/')
                 files[selected]=active if active.is_file() else owner.resource(original_configs.get(dest,relative))
                 canonical[dest]=selected
@@ -166,7 +169,7 @@ class ComponentExporter:
         path = Path(target).expanduser()
         if not path.is_absolute():
             candidate = self.workspace_root / path
-            path = candidate if candidate.is_file() or str(path).startswith('in/config/') else self.paths.config / path
+            path = candidate if candidate.is_file() else self.paths.resolve_config(str(path).removeprefix("in/config/"))
         if not path.suffix: path = path.with_suffix('.yaml')
         path = path.resolve()
         return path, path.relative_to(self.workspace_root).as_posix() if path.is_relative_to(self.workspace_root) else path.name

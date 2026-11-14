@@ -2,7 +2,8 @@ import os
 import sys
 
 from src.app.workspace import WorkspacePaths
-PROJECT_ROOT = str(WorkspacePaths.for_process().root)
+from src.app.workspace import PROJECT_ROOT as APPLICATION_ROOT
+PROJECT_ROOT = str(APPLICATION_ROOT)
 _DEFAULT_PROJECT_ROOT = PROJECT_ROOT
 
 from dataclasses import dataclass
@@ -102,6 +103,24 @@ class PanelSpec:
     draw: Callable[[Any], bool]
 
 
+# Bounded API-1 adapter: older plotters have a no-argument constructor calling
+# BasePlotter.__init__. Scope the host's explicit workspace without changing CWD/env.
+from contextvars import ContextVar
+_PLOTTER_WORKSPACE = ContextVar("theta_plotter_workspace", default=None)
+
+
+def create_plotter(cls, paths):
+    import inspect
+    parameters = inspect.signature(cls).parameters
+    if "paths" in parameters:
+        return cls(paths=paths)
+    token = _PLOTTER_WORKSPACE.set(paths)
+    try:
+        return cls()
+    finally:
+        _PLOTTER_WORKSPACE.reset(token)
+
+
 class BasePlotter:
     name: str = "base"
 
@@ -109,20 +128,21 @@ class BasePlotter:
     # draw_metric(), which is what makes them composable into a shared figure.
     draws_metric_series: bool = False
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, *, paths=None):
         self.name = name
         from src.app.core.provider_catalog import get_catalog
-        paths = WorkspacePaths.for_process() if PROJECT_ROOT == _DEFAULT_PROJECT_ROOT else WorkspacePaths(PROJECT_ROOT)
+        paths = paths or _PLOTTER_WORKSPACE.get() or (WorkspacePaths.for_process() if PROJECT_ROOT == _DEFAULT_PROJECT_ROOT else WorkspacePaths(PROJECT_ROOT))
+        self.workspace = paths
         selected = get_catalog(paths).resolve("plotter", name)
         self.plot_dir = selected[0].root if selected else paths.user("plotter")
         project_root = paths.root
-        plot_cfg_dir = project_root / "in" / "config" / "plot"
+        plot_cfg_dir = paths.config / "plot"
         stem = Path(name).stem
         matching_plot_configs = []
         if plot_cfg_dir.exists():
             matching_plot_configs = list(plot_cfg_dir.glob(f"**/{stem}.yaml"))
         candidate_configs = (
-            [plot_cfg_dir / f"{name}.yaml"]
+            [paths.resolve_config(f"plot/{name}.yaml")]
             + matching_plot_configs
             + [
                 self.plot_dir / name / f"_{stem}_config.yaml",
@@ -160,20 +180,20 @@ class BasePlotter:
                 # Handle override patterns
                 if item_str.startswith("override /env:"):
                     env_name = item_str.split(":", 1)[1].strip()
-                    env_path = Path(f"in/config/env/{env_name}.yaml")
+                    env_path = self.workspace.resolve_config(f"env/{env_name}.yaml")
                     if env_path.exists():
                         base_acc["env"] = self._load_yaml(env_path)
                     continue
                 if item_str.startswith("override /agent:"):
                     agent_name = item_str.split(":", 1)[1].strip()
-                    agent_path = Path(f"in/config/agent/{agent_name}.yaml")
+                    agent_path = self.workspace.resolve_config(f"agent/{agent_name}.yaml")
                     if agent_path.exists():
                         base_acc["agent"] = self._load_yaml(agent_path)
                     continue
                 # Experiment base config (e.g. mimic/_base or cartpole/_base)
                 base_cands = [
-                    Path(f"in/config/experiment/{item_str}.yaml"),
-                    Path(f"in/config/experiment/{Path(item_str).stem}.yaml"),
+                    self.workspace.resolve_config(f"experiment/{item_str}.yaml"),
+                    self.workspace.resolve_config(f"experiment/{Path(item_str).stem}.yaml"),
                 ]
                 for bcand in base_cands:
                     if bcand.exists() and str(bcand) not in visited:
@@ -185,15 +205,15 @@ class BasePlotter:
             elif isinstance(item, dict):
                 for k, v in item.items():
                     if k.startswith("override /env"):
-                        env_path = Path(f"in/config/env/{v}.yaml")
+                        env_path = self.workspace.resolve_config(f"env/{v}.yaml")
                         if env_path.exists():
                             base_acc["env"] = self._load_yaml(env_path)
                     elif k.startswith("override /agent"):
-                        agent_path = Path(f"in/config/agent/{v}.yaml")
+                        agent_path = self.workspace.resolve_config(f"agent/{v}.yaml")
                         if agent_path.exists():
                             base_acc["agent"] = self._load_yaml(agent_path)
                     elif isinstance(v, str):
-                        base_cand = Path(f"in/config/experiment/{v}.yaml")
+                        base_cand = self.workspace.resolve_config(f"experiment/{v}.yaml")
                         if base_cand.exists() and str(base_cand) not in visited:
                             visited.add(str(base_cand))
                             parent_raw = self._load_yaml(base_cand)
@@ -215,7 +235,7 @@ class BasePlotter:
         # 1. Check saved config.yaml from the experiment's log or checkpoint directory first
         # to ensure we capture the true group and execution hyperparameters
         saved_cfg = {}
-        for base_dir in [Path("results/logs"), Path("results/checkpoints")]:
+        for base_dir in [(self.workspace.results / "logs"), (self.workspace.results / "checkpoints")]:
             if base_dir.exists():
                 if group_hint:
                     target_direct = base_dir / group_hint / exp_id.removeprefix(f"{group_hint}/") / "config.yaml"
@@ -239,7 +259,7 @@ class BasePlotter:
             if saved_cfg and saved_cfg.get("group"):
                 group_hint = str(saved_cfg.get("group"))
             else:
-                for base_dir in [Path("results/logs"), Path("results/checkpoints"), Path("results/plots")]:
+                for base_dir in [(self.workspace.results / "logs"), (self.workspace.results / "checkpoints"), (self.workspace.results / "plots")]:
                     if base_dir.exists():
                         for g_dir in base_dir.iterdir():
                             if g_dir.is_dir() and (g_dir / clean_exp).exists():
@@ -254,25 +274,25 @@ class BasePlotter:
             clean_base = Path(exp_config_name).stem
             candidates.extend(
                 [
-                    Path(f"in/config/experiment/{exp_config_name}.yaml"),
-                    Path(f"in/config/experiment/{clean_base}.yaml"),
+                    self.workspace.resolve_config(f"experiment/{exp_config_name}.yaml"),
+                    self.workspace.resolve_config(f"experiment/{clean_base}.yaml"),
                 ]
             )
             if group_hint:
-                candidates.append(Path(f"in/config/experiment/{group_hint}/{clean_base}.yaml"))
-            candidates.extend(list(Path("in/config/experiment").glob(f"**/{clean_base}.yaml")))
+                candidates.append(self.workspace.resolve_config(f"experiment/{group_hint}/{clean_base}.yaml"))
+            candidates.extend([self.workspace.resolve_config(selector) for selector in self.workspace.config_resolver().selectors("experiment") if Path(selector).name == f"{clean_base}.yaml"])
 
-        candidates.append(Path("in/config/experiment") / f"{exp_id}.yaml")
+        candidates.append(self.workspace.resolve_config(f"experiment") / f"{exp_id}.yaml")
         if group_hint:
-            candidates.append(Path(f"in/config/experiment/{group_hint}/{clean_exp}.yaml"))
+            candidates.append(self.workspace.resolve_config(f"experiment/{group_hint}/{clean_exp}.yaml"))
         candidates.extend(
             [
-                Path(f"in/config/experiment/{exp_id}.yaml"),
-                Path(f"in/config/experiment/{clean_exp}.yaml"),
+                self.workspace.resolve_config(f"experiment/{exp_id}.yaml"),
+                self.workspace.resolve_config(f"experiment/{clean_exp}.yaml"),
             ]
         )
         if not group_hint:
-            candidates.extend(list(Path("in/config/experiment").glob(f"**/{clean_exp}.yaml")))
+            candidates.extend([self.workspace.resolve_config(selector) for selector in self.workspace.config_resolver().selectors("experiment") if Path(selector).name == f"{clean_exp}.yaml"])
 
         live_cfg = {}
         for cand in candidates:
@@ -310,7 +330,7 @@ class BasePlotter:
 
         clean_exp = Path(exp_id).stem
         # Scan results/logs/*/clean_exp and results/checkpoints/*/clean_exp
-        for base_dir in [Path("results/logs"), Path("results/checkpoints"), Path("results/plots")]:
+        for base_dir in [(self.workspace.results / "logs"), (self.workspace.results / "checkpoints"), (self.workspace.results / "plots")]:
             if base_dir.exists():
                 for g_dir in base_dir.iterdir():
                     if g_dir.is_dir() and (g_dir / clean_exp).exists():
@@ -370,7 +390,7 @@ class BasePlotter:
             output_dir = Path(custom_dir)
         else:
             result_id = exp_id.removeprefix(f"{group}/")
-            output_dir = Path("results/plots") / group / result_id
+            output_dir = (self.workspace.results / "plots") / group / result_id
         output_dir.mkdir(parents=True, exist_ok=True)
         return merged, group, output_dir
 
@@ -417,7 +437,7 @@ class BasePlotter:
         Returns dict: { method_name: { version_str: df } }
         """
         result_id = exp_id.removeprefix(f"{group}/")
-        exp_dir = Path("results/logs") / group / result_id
+        exp_dir = (self.workspace.results / "logs") / group / result_id
         if not exp_dir.exists():
             print(f"Warning: Log directory {exp_dir} not found.")
             return {}

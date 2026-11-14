@@ -63,11 +63,12 @@ class ConfigTabManager(QTabWidget):
     save_requested = pyqtSignal()
     config_changed = pyqtSignal()
 
-    def __init__(self, settings_manager=None, parent=None, plugin_manager=None):
+    def __init__(self, settings_manager=None, parent=None, plugin_manager=None, *, workspace=None):
         if isinstance(settings_manager, QWidget) and parent is None:
             parent = settings_manager
             settings_manager = None
         super().__init__(parent)
+        self.workspace = workspace
         self.settings_manager = settings_manager
         self.plugin_manager = plugin_manager
         self.setTabBar(PreviewTabBar(self))
@@ -111,7 +112,7 @@ class ConfigTabManager(QTabWidget):
 
         # Fallback viewer used when no tabs are open, ensuring current_viewer() is never None
         self._fallback_viewer = ConfigViewer(
-            settings_manager=self.settings_manager, parent=self, plugin_manager=self.plugin_manager
+            settings_manager=self.settings_manager, parent=self, plugin_manager=self.plugin_manager, workspace=self.workspace
         )
         self._fallback_viewer.hide()
 
@@ -300,7 +301,7 @@ class ConfigTabManager(QTabWidget):
 
     def _create_viewer(self):
         viewer = ConfigViewer(
-            settings_manager=self.settings_manager, parent=self, plugin_manager=self.plugin_manager
+            settings_manager=self.settings_manager, parent=self, plugin_manager=self.plugin_manager, workspace=self.workspace
         )
         viewer.auto_save = self.auto_save
         viewer.btn_save = self.btn_save

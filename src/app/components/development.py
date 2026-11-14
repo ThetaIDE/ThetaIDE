@@ -54,12 +54,14 @@ class ComponentDevelopment:
 
     def inspect(self, reference):
         manifest, meta = self._resolve(reference)
-        configs = list(dict.fromkeys([*meta.get("config_paths", []), *([meta["config_path"]] if meta.get("config_path") else [])]))
+        configs = list(meta.get("payload", {}).get("configs", {}))
         profiles = []
         for value in configs:
-            path = self.paths.config_file(value)
-            profiles.append({"path": str(path), "selector": path.relative_to(self.paths.config).with_suffix("").as_posix(),
-                             "exists": path.is_file(), "read_only": self.installer.is_installed_file(path)})
+            selector = value.removeprefix("in/config/")
+            resolved = self.paths.config_resolver().resolve(selector, required=True)
+            profiles.append({"path": str(resolved.file), "selector": str(Path(selector).with_suffix("")),
+                             "exists": resolved.file.is_file(), "read_only": self.installer.is_installed_file(resolved.file),
+                             "origin": resolved.origin, "overridden": resolved.overridden})
         registrations = []
         digest = hashlib.sha256()
         for source in sorted(manifest.parent.rglob("*.py")):
@@ -108,7 +110,11 @@ class ComponentDevelopment:
         if effective_data is not None:
             data = effective_data
         result = {"path": str(path), "validation": "static", "components": []}
-        if path.relative_to(self.paths.config).parts[0] == "model":
+        selector_key = next((key for key in self.paths.config_resolver().selectors()
+                             if self.paths.resolve_config(key) == path), None)
+        if selector_key is None:
+            raise ValueError(f"Not an effective workspace profile: {path}")
+        if selector_key.split("/", 1)[0] == "model":
             selector = data.get("architecture") or data.get("name") or data.get("type")
             if not isinstance(selector, str):
                 raise ValueError(f"Model profile needs an architecture, name, or type selector: {path}")
@@ -118,7 +124,14 @@ class ComponentDevelopment:
             package, capability = selected
             candidates = [(self.inspect(package.id), package.manifest)]
             info, meta = candidates[0]
-            self._validate_schema(meta, path, data)
+            schema = self.paths.config_resolver().resolve(selector_key, required=True).schema
+            if not schema:
+                declared = meta.get("parameter_schema") or {}
+                schema = declared.get("x-theta-config-schemas", {}).get("in/config/" + selector_key, declared)
+            if schema.get("x-theta-validate", (meta.get("parameter_schema") or {}).get("x-theta-validate")) is True:
+                from jsonschema import Draft202012Validator
+                Draft202012Validator.check_schema(schema)
+                Draft202012Validator(schema).validate(data)
             result["components"].append({**info, "selector": selector})
         else:
             owner = self.installer.find_component_for_path(path)
@@ -147,7 +160,7 @@ class ComponentDevelopment:
                     selected = selected.get("base") or selected.get("name") or selected.get("architecture")
                 if not isinstance(selected, str) or not selected:
                     continue
-                profile = self.paths.config_file(f"{kind}/{selected}")
+                profile = self.paths.resolve_config(f"{kind}/{selected}.yaml")
                 if not profile.is_file():
                     continue
                 item = {"method": name, "kind": kind, "profile": str(profile)}
