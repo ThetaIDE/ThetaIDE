@@ -12,7 +12,7 @@ Snapshot as of 2026-11-14, after the [pre-phase-4 cleanup](#pre-phase-4-cleanup-
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists. Scope decided (below) |
+| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists. Scope decided (below); [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md) proposed |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
 | 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages; the exception register in [the contract](../reference/LAYER_BOUNDARIES.md) lists what retires |
