@@ -1,17 +1,23 @@
-# Phase 4 implementation plan: retire `in/`
+# Phase 4 implementation plan: retire `in/` and every compatibility adapter
 
-Status: proposed 2026-11-14, not started. This plan expands phase 4 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md). Where they differ, the scope decisions in that plan's [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
+Status: decisions settled 2026-11-14; implementation not started. This plan expands phase 4 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md). Where they differ, that plan's [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
 
 ## Goal
 
-After phase 4, a workspace keeps editable configuration in `src/usr/config` and dataset bytes in `src/usr/datasets`, and nothing reads or writes `in/`. Packages declare config destinations as logical selectors rather than `in/config/...` paths. One command moves an existing workspace to the new layout.
+After phase 4, `src/usr/config` holds editable configuration and `src/usr/datasets` holds dataset bytes. Packages declare config destinations as logical selectors. The codebase contains no trace of the old layout or of any compatibility adapter. The user's workspace has been moved completely: no file is left behind in `in/`.
 
-## Scope decisions (2026-11-14)
+## Decisions (settled with the user, 2026-11-14)
 
-- **Hard cutover.** After the cutover the IDE reads only `src/usr`. A workspace that still has the old layout fails at every entry point with one actionable error naming the migrate command. There are no compatibility reads or diagnostics for `in/`.
-- **No adapter for released archives.** Storage-v2 archives are rejected with a "needs a newer release" error. Hub components are rebuilt in the new format and republished, only when a release is requested.
-- **Backup, then manual restore.** The command writes a complete timestamped backup before it moves anything. There is no `--rollback`. The dry-run reports the full inventory and collisions and stops on any conflicting changed file, and an interrupted run is safe to rerun.
-- **Historical results are records.** Saved results, receipts and run configs keep their `in/` paths. Replaying or resuming one stops with an error naming the old path.
+The user is the only user. Old patterns are not supported, partially migrated states are not wanted, and nothing is kept for behavior that no longer exists.
+
+1. **Package format v3 only.** `storage_version: 3`. Every config destination is a logical selector relative to the config root (`model/mlp.yaml`); the same holds for `x-theta-config-schemas` keys, aliases and `user_config_paths`. v2 is removed rather than deprecated. A v2 manifest fails like any unsupported version, with no special message.
+2. **No layout detection.** There is no layout version, startup check, error or dialog. After the cutover, `in/` means nothing to the IDE: a leftover `in/` is an arbitrary directory, like `arb/`.
+3. **No adapter for released archives, and one Hub feed.** v2 is retired on the Hub as well. Every registry entry is rebuilt as v3 in the existing feed, the validator accepts only v3, and no frozen v2 feed is kept for older IDEs.
+4. **Installed components are converted in place** while the user's workspace is migrated.
+5. **The migration method is free, but nothing may be left behind.** Every file under `in/`, including ignored files and the external `mimic` symlink, is accounted for: moved, proven redundant, or confirmed junk. Every state record that names an old path is rewritten. Migration code does not ship in the product.
+6. **Every compatibility adapter is retired, including the checkpoint aliases.** Checkpoints that pickled moved class paths will no longer load. Accepted.
+7. **Historical results are left untouched,** with no replay guard. Replaying an old result fails wherever its old paths break.
+8. **The same stance applies to later phases.** Phase 6 moves `src/app` to `src/ide` without forwarding modules, and phase 5 changes the bundle format without readers for old jobs.
 
 ## Starting point
 
@@ -19,112 +25,113 @@ After phase 4, a workspace keeps editable configuration in `src/usr/config` and 
 | --- | --- |
 | `in/` in the research workspace | 107 files (26 tracked): 11 config groups plus `config.yaml` and `hydra/`; `datasets/` holds `breast_cancer`, `pyrenees`, the `prepare_tabular.py` generator and `mimic`, a symlink to an external NeSyRL dataset; `envs/` holds only `.gitkeep`. `in/datasets` is ignored by git |
 | Paths | `WorkspacePaths.config` is `in/config` and `.datasets` is `in/datasets`; `user_config` (`src/usr/config`) and `user_inputs` (`src/usr/datasets`) already exist. `config_roots()` searches `src/usr/config` then `in/config` |
-| Resolution | `ConfigResolver` precedence: `src/usr/config` override, legacy `in/config`, selected provider profile, framework fallback. `config_resolution.py`, `data_loaders.py` and schema lookup strip the `in/config/` prefix from manifest destinations |
-| Package format | Manifests with `storage_version: 2` map `payload.configs` destinations `in/config/<group>/<name>.yaml` to package files. `x-theta-config-schemas` keys, aliases and `user_config_paths` use the same prefix. `archive.validate_native_package` requires that prefix and `storage_version == 2` |
-| Manifests on disk | 20 installed or bundled packages, 11 authored `src/usr` packages and both optional components use `in/config` destinations |
-| Hub | Production `ThetaIDE/ThetaHub` has 39 registry manifests, 30 of them with `in/config` destinations. Its validator only accepts storage 2 / API 1, and its kinds exclude `tuner` and `scheduler`. Each registry entry carries one top-level `storage_version`, and clients read `dist/index.json` |
-| Primitives to reuse | `src/app/workspace_inventory.py` (hashes, modes, tracked status, symlinks, intended destinations, dataset references) and `src/app/components/transactions.py` (`workspace_lock`, `assert_idle`, `FileTransaction`) |
-| State keyed by old paths | `.thetaide/retained_configs`, `.thetaide/config_backups`, installer ownership records, `config_viewer.parameter_orders` in `settings.toml`, fork provenance |
-| Consumers | About 45 source files reference `in/` paths (`git grep -E "in/config\|in/datasets"`). 61 test files contain 238 references, and 18 documents mention `in/config` |
-
-## Decisions to settle before coding
-
-Ask the user about each of these; the recommendation comes first.
-
-1. **Destination representation.** *Recommended:* `storage_version: 3`, where every config destination is a logical selector path relative to the config root (`model/mlp.yaml`). The same applies to `x-theta-config-schemas` keys, aliases and `user_config_paths`. The workspace layout version is stored separately, as `layout_version` in `.thetaide/workspace.json`. *Alternative:* keep version 2 with a new `config_destinations` field (two shapes at once, so it is not recommended).
-2. **Installed v2 packages in a workspace being migrated.** *Recommended:* the migration translates the workspace's own installed copies in place: strip the prefix, set `storage_version: 3`, update the installer's recorded hashes, and include the originals in the backup. These are managed copies, not downloaded archives. *Alternative:* require reinstalling from the v3 Hub feed, which makes migration depend on the Hub being published first.
-3. **Hub feed strategy.** *Recommended:* a new feed, `dist/v3/index.json`, that the new IDE's `DEFAULT_REGISTRY_URL` points to. The current `dist/index.json` stays frozen for already-released IDEs, so they keep installing v2 releases. The validator accepts storage 3 and the `tuner` and `scheduler` kinds only in the v3 registry. *Alternative:* a minimum-IDE-version field in one feed, which older clients ignore.
-4. **Desktop behavior on an unmigrated workspace.** *Recommended:* a blocking dialog that explains the change, shows the dry-run report and offers **Back up and migrate**, with the CLI command shown for copying. *Alternative:* an error dialog with the command only.
+| Resolution | `ConfigResolver` precedence: `src/usr/config`, legacy `in/config`, selected provider profile, framework fallback. Several modules strip an `in/config/` prefix from manifest destinations |
+| Package format | `storage_version: 2` manifests map `in/config/<group>/<name>.yaml` destinations to package files. `archive.validate_native_package` requires that prefix |
+| Manifests on disk | 20 installed or bundled packages, 11 authored `src/usr` packages and both optional components |
+| Hub | Production `ThetaIDE/ThetaHub` has 39 registry manifests (30 with `in/config` destinations). Its validator accepts only storage 2 / API 1, and its kinds exclude `tuner` and `scheduler`. Two app plugins there (AI Assistant, Theta MCP Server) are by another author |
+| Reusable pieces | `src/app/workspace_inventory.py` (hashes, modes, tracked status, symlinks, intended destinations, dataset references) and `src/app/components/transactions.py` (`workspace_lock`, `assert_idle`, `FileTransaction`) |
+| State keyed by old paths | `.thetaide/retained_configs`, `.thetaide/config_backups`, installer ownership records, `config_viewer.parameter_orders` and editor state in `settings.toml`, fork provenance |
+| Consumers | About 45 source files reference `in/` paths. 61 test files contain 238 references, and 18 documents mention `in/config` |
 
 ## Work units
 
-Each unit is one or more commits on `implement/layer-boundaries`. Units 4a–4g land before the branch merges to `main`, because the cutover ships as a whole. Unit 4h prepares the Hub releases without publishing them. Unit 4i runs only with the user's explicit approval.
+Each unit is one or more commits on `implement/layer-boundaries`. Units 4a–4e change the codebase. Unit 4f moves the user's workspace and must run in the same session as 4b, so the workspace and code never disagree for long. Unit 4g prepares the Hub. The branch merges to `main` together with the Hub publication, and only when the user asks.
 
-### 4a — Package format v3 (logical config destinations)
+### 4a — Package format v3
 
-- `src/app/core/manifest_schema.py`: storage 3 schema. Destinations are `<group>/<name>.yaml` selectors, so absolute paths, `..`, and `in/` or `src/` prefixes are rejected.
-- `src/app/components/archive.py`: `validate_native_package` accepts only v3. For v2 it raises: "<id> <version> was built for the old workspace layout; install a newer release from Theta Hub." Remove the `in/config/` checks in `adapt` and the alias validation.
-- Strip-prefix consumers switch to logical selectors: `config_resolution.py` (owner map and schema key), `core/data_loaders.py`, `components/forking.py`, `components/installer.py` (`resolve_config_path`, retained-config restore, `track_user_config`, uninstall), `services/component_exporter.py`, `services/experiment_exporter.py`, `services/plugin_scaffolder.py`, `components/development.py` and `components/configuration.py`.
-- Convert the in-repo manifests: bundled packages, `src/usr` authored packages, `optional_components/*`, test fixtures under `tests/fixtures/`, and the manifest written by `scripts/verify_installed_distribution.py`. `scripts/package_optional_components.py` emits v3.
-- Tests: v3 round trip (export, install, resolve, uninstall), v2 rejection with the message, and the schema-key lookup.
+- `src/app/core/manifest_schema.py`: storage 3 only. Destinations are `<group>/<name>.yaml` selectors, so absolute paths, `..`, and `in/` or `src/` prefixes are rejected.
+- `src/app/components/archive.py`: `validate_native_package` accepts storage 3 only. Remove every `in/config/` check from `adapt` and from the alias validation.
+- Switch the consumers that strip the prefix to logical selectors: `config_resolution.py` (owner map and schema key), `core/data_loaders.py`, `components/forking.py`, `components/installer.py` (`resolve_config_path`, retained-config restore, `track_user_config`, uninstall), `components/development.py`, `components/configuration.py`, `services/component_exporter.py`, `services/experiment_exporter.py` and `services/plugin_scaffolder.py`.
+- Convert the in-repo manifests: bundled packages, authored `src/usr` packages, `optional_components/*`, the fixtures under `tests/fixtures/`, and the manifest written by `scripts/verify_installed_distribution.py`. `scripts/package_optional_components.py` emits v3.
 
-### 4b — Workspace layout v2 and path cutover
+### 4b — Path cutover
 
-- `src/app/workspace.py`: `config` becomes `src/usr/config` and `datasets` becomes `src/usr/datasets`. Drop `in/config` from `config_roots()` and `config_file()`. `for_process()` recognizes a workspace by `src/usr` or `.thetaide/workspace.json`. Add `layout_version` (read from `workspace.json`; 1 when it is absent and `in/` exists) and `WorkspaceLayoutError`.
-- Check the layout once at each entry point: the desktop host (with the decision 4 dialog), `run_pipeline.py`, the train, task and provider workers, the validation worker and the component CLI. Reusable services do not check; an entry point fails before any service runs.
-- `ConfigResolver` precedence becomes: `src/usr/config` override, selected provider profile, framework fallback. The "legacy workspace profile" origin is removed.
-- `hydra_plugins/theta_config_source.py` and the search path no longer mention `in/config`.
+- `src/app/workspace.py`: `config` becomes `src/usr/config` and `datasets` becomes `src/usr/datasets`. Remove every `in/` path from `config_roots()`, `config_file()` and `for_process()`; a workspace is recognized by `src/usr` or `.thetaide/workspace.json`. Remove the now-redundant `user_config` and `user_inputs` aliases, or keep one name per concept.
+- `ConfigResolver` precedence becomes: `src/usr/config`, selected provider profile, framework fallback. Remove the "legacy workspace profile" origin.
+- `hydra_plugins/theta_config_source.py`, the Hydra search path and `pipeline/datasets.py` (search order rooted at `src/usr/datasets`) drop every `in/` reference.
+- `sites/policy.py`: declared inputs target `src/usr/datasets/`, and `in/inputs/` goes away. `sites/transfer.py` reads the new root. `sites/snapshot.py` `SOURCE_ROOTS` uses `src/usr/config`.
+- Relocate `in/datasets/prepare_tabular.py` into the `tabular-data` provider or a bundled example package. Give it an explicit `--output` that defaults to the workspace dataset root, and update the messages in `core/paradigm_impls/base/tabular.py`.
 
-### 4c — Migration command
+### 4c — Retire the compatibility adapters
 
-- `python run_pipeline.py workspace migrate --root PATH [--apply]`. Without `--apply` it is a dry run. Desktop decision 4 calls the same service.
-- **Plan.** Build on `workspace_inventory.inventory(paths)`. Each file under `in/` gets an action: `move`, `dedupe` (an unchanged materialized package default whose recorded provenance and hash match the provider file), `drop` (`__pycache__`, `.DS_Store`, `in/envs/.gitkeep`) or `conflict`.
-- **Conflicts.** A destination that already exists with different bytes, two sources for one destination, or an unrecorded or modified materialized default that would change effective resolution. Any conflict stops `--apply`. The report names both files and their hashes. The command never picks a winner.
-- **Preconditions.** Hold `workspace_lock` and pass `assert_idle` (no running local jobs or active implementations). Refuse when an unfinished site job is recorded under `results/slurm`, listing the jobs so the user can finish or abandon them.
-- **Backup.** Before any move, copy `in/` (including ignored files) and every state file the migration rewrites to `.thetaide/migrations/<UTC timestamp>/`. Symlinks are copied as links, never followed, and modes are preserved. Write `plan.json` (the actions, source and destination hashes) and `RESTORE.md` (manual restore steps) beside it. Verify the backup's hashes before continuing.
-- **Apply and rerun.** Run the actions in plan order. Each action is idempotent: it is skipped when the destination already has the planned hash and the source is gone. A rerun continues from the stored `plan.json` when the inventory still matches it, and otherwise re-plans. Write `layout_version: 2` last, as the commit marker. Remove the empty `in/` only after the marker is written.
-- **Report.** Human-readable output plus `--json`. The dry-run output must be identical across two runs.
+Delete each adapter and migrate its callers to the supported contract. Then remove the exception register's rows from [the contract](../reference/LAYER_BOUNDARIES.md), keeping only the product-scope and Hydra entries.
 
-### 4d — Configs, installed packages and state records
+| Adapter | Removal |
+| --- | --- |
+| `src/app/core/import_aliases.py` and the `src/usr` shims | Delete. Saved Hydra targets in configs point at canonical modules. Old checkpoints that pickled moved paths stop loading (accepted) |
+| Saved Optuna import targets: `src/app/tuners/optuna/`, `src/app/pipeline/{tuners_optuna,optuna_utils,optuna_sweeper}.py` | Delete. `hydra_plugins/theta_optuna_sweeper.py` stays as the Hydra discovery entry point, but loads the implementation from the installed Optuna component through the provider loader, not through `src.app.tuners` |
+| API-1 Slurm adapters: `src/app/sites/slurm.py`, `src/app/pipeline/slurm.py`, `src/app/sites/resources.py`, `execution.worker_threads/accounting_details` | Delete. Callers use the installed scheduler component through the scheduler contract, and SSH shortcuts use `run_pipeline.py site ssh` |
+| Schema-v1 receipt reader and `src/app/pipeline/tuner_execution_compat.py` | Delete. Receipts without `scheduler_component` or `tuner_execution` are unsupported |
+| `results/slurm/<execution>` receipt directory | Rename to a scheduler-neutral `results/sites/<execution>` (`sites/execution.py`, `sites/continuation.py`, publication, sync and monitor readers). There is no reader for the old directory |
+| Top-level site selector YAMLs (`arc.yaml`, `ncshare.yaml`, `ncshare_common.yaml`, `ncshare_gpu.yaml` in the Slurm component) and the alias derivation in core | Delete. User configs reference the nested profiles (`ncshare/common`); unit 4f rewrites any references |
+| `provider_object(package, 'file.py:attr')` | Delete. Migrate callers to declared `exports` plus `provider_export`: `frontend/parameter_actions.py`, `frontend/tensorboard.py`, `src/app/core/provider_loader.py` internals, and the user's `blendrl-dev` package (`agents/blender_agent.py`, `symbolic_state.py`) with exports declared in its manifest |
+| API-1 plotter no-argument constructors (the `BasePlotter` ContextVar scope) | Delete. Constructors take `paths`. Update `standard_figures` and any user plotters |
+| `plot/` forwarding modules for saved plotting targets | Delete, and update saved targets in configs |
+| `PluginContext.window`, direct `frontend.plugins.base`/`frontend.plugins.context` imports, and `frontend/plugins/core/` | Delete. Bump the SDK to **2.0**, and bundled plugins declare `>=2.0,<3`. Check the Hub's two third-party app plugins against SDK 2 in 4g |
+| Legacy precedence and editor actions that target `in/` files | Delete with 4b |
 
-- Move `in/config/**` to `src/usr/config/**` with selectors unchanged. This includes root `config.yaml` and `hydra/`. Absolute Hydra defaults (`/model: x`), interpolations and nested group references need no rewriting because selectors are stable. Add tests for each.
-- Deduplicate only the `dedupe` actions; intentional full-profile overrides stay as overrides.
-- Translate installed package manifests to v3 (decision 2).
-- Rewrite the keys of state records keyed by old paths: retained configs, config backups, installer ownership, `config_viewer.parameter_orders`, editor recent files and open tabs in `settings.toml`, and fork provenance. Unknown keys that start with `in/` are reported rather than guessed.
+Keep only these entries: Lightning and the four base paradigms (product scope); the `hydra_plugins` namespace, which Hydra requires; and the root launchers `run_pipeline.py` and `frontend/__main__.py`, which are the current entry points until phase 6 adds installed ones.
 
-### 4e — Datasets and references
-
-- Move `in/datasets/**` to `src/usr/datasets/**`. `mimic` moves as the same symlink to the same external target.
-- `pipeline/datasets.py`: replace the search order with `src/usr/datasets/...`. The `in/inputs/` target goes away.
-- Rewrite references structurally in YAML under `src/usr/config` for the known dataset keys that `workspace_inventory` already detects. Arbitrary strings containing `in/datasets` are listed for review and never rewritten.
-- `sites/policy.py`: declared inputs target `src/usr/datasets/`. `sites/transfer.py` reads the new root. `sites/snapshot.py` `SOURCE_ROOTS` uses `src/usr/config` (record it for phase 5's bundle manifest).
-- Relocate `in/datasets/prepare_tabular.py` into the `tabular-data` provider or a bundled example package, with an explicit `--output` defaulting to `paths.user_inputs`. Update the messages in `core/paradigm_impls/base/tabular.py`.
-
-### 4f — Remaining consumers and documentation
+### 4d — Remaining consumers and documentation
 
 - Sweep the remaining references: `frontend/app.py`, `config_model.py`, `config_tree.py`, `config_panel/{domain,catalogs,sections/methods}.py`, `scaffold_dialog.py`, `model.py`, `workflows/workflows_panel.py`, `pipeline/{config,compose,validation,component_validation,workflow/executor}.py`, `services/{rulesets,local_components}.py`, `sites/catalog.py`, `optional_components/slurm/execution.py`, `standard_figures/reports.py`, `sequential_spec`, `model_builder`, `arxiv_papers` and `scripts/{erase_experiment,clean_deleted}.py`. Update editor links and CLI help.
-- Replay guard: replaying or resuming a saved result whose config references `in/` stops with a `ConfigurationError` naming the path. This covers loading a result into the builder, site continuation and tuner continuation.
-- Documentation: `PLUGIN_STORAGE.md` (v3 destinations and layout v2), `LAYER_BOUNDARIES.md` (precedence; retire the `in/` compatibility sentences), the guides naming `in/config` (18 files), the documentation panel content, `.gitignore` (ignore `src/usr/datasets`) and the docs index.
+- Documentation: `PLUGIN_STORAGE.md` (v3 only), `LAYER_BOUNDARIES.md` (precedence and exception register), `SDK.md` (2.0), the 18 guides that mention `in/config`, the documentation panel content, `.gitignore` (ignore `src/usr/datasets`) and the docs index. Describe the current layout only; do not explain what used to exist.
 
-### 4g — Tests
+### 4e — Tests
 
-- Add one shared fixture that builds a layout-v2 workspace, and a separate one that builds a v1 workspace for the migration tests. Port the 61 test files that build `in/config` layouts to the v2 fixture.
-- Migration suite:
-  - the dry-run report is stable across runs;
-  - apply, then rerun, does nothing the second time;
-  - an interrupted apply resumes from `plan.json`;
-  - a conflict stops before any move;
-  - a symlink stays a link, and modes and bytes are preserved;
-  - the backup is complete and hash-verified;
-  - the restore steps in `RESTORE.md` reproduce the original tree;
-  - running jobs refuse the migration;
-  - Hydra composition and dataset selection match before and after on a populated fixture.
-- Entry-point tests: each entry point raises `WorkspaceLayoutError` on a v1 workspace, and the error names the command.
-- Distribution probe: `verify_installed_distribution.py` uses v3 manifests and asserts that a clean external workspace never creates `in/`.
+- One shared fixture builds a workspace in the `src/usr` layout. Port the 61 test files that build `in/config` layouts to it, in the same commit as 4b, so the suite never mixes layouts. Delete the tests that only exercised retired adapters.
+- New tests:
+  - v3 round trip (export, install, resolve, uninstall), and rejection of storage 2;
+  - Hydra composition with root `config.yaml`, absolute defaults, interpolations and nested group references from `src/usr/config`;
+  - dataset discovery under `src/usr/datasets`;
+  - SDK 2 refusing plugins that declare `<2`;
+  - receipts under `results/sites`.
+- Distribution probe: `verify_installed_distribution.py` uses v3 and asserts that a clean external workspace never creates `in/`.
+- Guard: a test fails if `in/config`, `in/datasets`, `in/envs` or `in/inputs` appears in tracked source outside tests.
 
-### 4h — Hub republish preparation (no publication)
+### 4f — Move the user's workspace
 
-- In a fresh clone of production `ThetaIDE/ThetaHub`, on a branch: add the v3 registry and feed (decision 3), extend the validator to storage 3 and the `tuner` and `scheduler` kinds, rebuild the 30 affected packages and the Optuna and Slurm components as v3 archives with new versions, and run `validate_manifest.py` and `build_index.py`.
-- Install every rebuilt archive into an isolated v2-layout workspace with the branch IDE.
-- Your local `../theta-hub` clone tracks the CameronEgb fork, has releases production does not (e.g. "Publish SB3 suite 1.0.3"), and has uncommitted feed changes. Reconcile with the user which releases are authoritative before building.
-- Publication follows the [production release workflow](../development/THETA_HUB_RELEASE_WORKFLOW.md), only when the user requests it, and in step with the IDE merge to `main`.
+The method is free (decision 5). Use a one-off script kept in the session scratchpad, not committed to the product. Run it in the same session as 4b. Show the user the dry-run summary and get a go-ahead before changing anything.
 
-### 4i — Migrate the research workspace (user-approved)
+1. **Baseline.** Before changing anything, capture `workspace_inventory` and the composed config of every experiment.
+2. **Plan every file under `in/`:**
+   - **Move:** configs to `src/usr/config` with selectors unchanged, including root `config.yaml` and `hydra/`; datasets to `src/usr/datasets`, with `mimic` moved as the same symlink.
+   - **Drop as redundant:** an unchanged materialized package default, only when its recorded provenance and hash match the provider file.
+   - **Drop as junk:** `__pycache__`, `.DS_Store`, `in/envs/.gitkeep`.
+   - **Conflict:** a destination that already exists with different bytes. A conflict stops the run for the user to decide.
+   - Tracked files move with `git mv`.
+3. **Backup.** Copy `in/` and every state file to be rewritten to `.thetaide/migrations/<UTC timestamp>/` (symlinks as links), and verify the hashes.
+4. **Apply.** Move the files. Convert the 20 installed manifests to v3 and update their recorded hashes. Rewrite the state records named above. Rewrite site selector references to nested profiles, `results/slurm` receipts to `results/sites`, and structural dataset references in `src/usr/config`. Report arbitrary strings that mention old paths rather than guessing.
+5. **Verify nothing is left behind:**
+   - every inventory entry under `in/` maps to a destination with the same hash, a recorded redundant-default proof, or the junk list;
+   - `in/` no longer exists;
+   - `git grep` and a scan of `.thetaide` find no old paths;
+   - composition and dataset selection match the baseline, apart from the documented path changes.
+6. **Keep the backup** until the user deletes it.
 
-Run the dry-run on the repository's research workspace and review the report with the user. Apply only after explicit approval, then rerun to confirm a no-op. Then compare composition and dataset selection with a pre-migration baseline captured by `workspace_inventory`.
+### 4g — Hub republish preparation (no publication)
+
+- **Reconcile the clones first.** Your local `../theta-hub` tracks the CameronEgb fork, has releases that production lacks (e.g. "Publish SB3 suite 1.0.3"), and has uncommitted feed changes. Agree with the user on the authoritative set before building.
+- **Build on a branch** of a fresh clone of production `ThetaIDE/ThetaHub`:
+  - make the validator accept only storage 3 and add the `tuner` and `scheduler` kinds;
+  - rebuild all 39 entries, plus Optuna and Slurm, as v3 archives with new versions, replacing the v2 entries in the single feed;
+  - run `validate_manifest.py` and `build_index.py`.
+- **Third-party app plugins.** Check the two plugins by the other author against SDK 2. If they use `context.window` or private imports, tell the user before rebuilding them.
+- **Test installs.** Install every rebuilt archive into an isolated workspace with the branch IDE.
+- **Publish only on request,** following the [production release workflow](../development/THETA_HUB_RELEASE_WORKFLOW.md), together with the merge to `main`.
 
 ## Exit gate
 
-- **Migration safety.** On a clean and on a populated v1 fixture, dry-run then apply then rerun is stable. The backup restores the original bytes, modes and symlinks by following `RESTORE.md`.
-- **Same results.** Config composition and dataset selection match the baseline in the GUI, the CLI and workers, from an unrelated working directory.
-- **Old artifacts fail clearly.** v2 archives fail with the release message, unmigrated workspaces fail at every entry point with the command, and historical replays fail with the path.
+- **Clean code.** No tracked source outside tests mentions `in/` paths, storage 2, or any retired adapter module; the guard test enforces this. The exception register lists only Lightning and the base paradigms, the Hydra namespace and the root launchers.
+- **Moved workspace.** The user's workspace passes every check in 4f step 5 and no longer has `in/`.
+- **Same results.** Composition and dataset selection match the baseline in the GUI, the CLI and workers, from an unrelated working directory.
 - **User edits survive.** Edits in `src/usr/config` survive package update and uninstall.
-- **Distribution.** The installed-distribution probe passes with v3 manifests.
-- **Code is clean.** `git grep -E "in/(config|datasets|envs|inputs)"` outside tests, historical-record readers and the migration code returns nothing.
+- **Distribution.** The installed-distribution probe passes with v3.
+- **Hub ready.** Every rebuilt Hub archive installs in an isolated workspace, waiting for the publication request.
 
 ## Risks
 
-- **Hub timing.** Merging the IDE before the v3 feed is live leaves new installs with nothing to install, and Optuna and Slurm unavailable. Merge and publish together.
-- **In-flight cluster jobs.** The migration refuses to run while site jobs are unfinished. Their continuation does not survive the cutover by decision.
-- **Wide test churn.** The fixture port touches 61 files. Land it with 4b in one commit, so the suite never mixes layouts.
-- **Ignored and external data.** The inventory and backup must include ignored files and preserve the external `mimic` link without copying its target.
+- **Hub timing.** The Hub feed and `main` must change together. Between the merge and the publication, the IDE can install nothing from the Hub.
+- **Old artifacts.** Old checkpoints, receipts and unfinished cluster jobs stop working by decision. Before 4f, confirm that no site job is still running.
+- **Wide test churn.** The fixture port touches 61 files. Land it with 4b in one commit.
+- **The other author's app plugins.** SDK 2 may break them. Coordinate before rebuilding.

@@ -49,7 +49,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
-- [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — proposed; package format v3, layout v2 cutover, migration command with backup, Hub republish preparation.
+- [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — decisions settled; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
 - [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–3 locally complete, phase 4 next); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
 
 - [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.

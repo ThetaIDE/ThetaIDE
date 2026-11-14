@@ -15,19 +15,22 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 
 **Where things stand (2026-11-14):**
 - **Phases 0–3** are complete locally, including SDK 1.1 (`src.app.api`). The only open items are external: a real cluster smoke run and an interactive check of the installed desktop. Both need the user.
-- **Phase 4** has not started. Its scope is decided:
-  - hard cutover, with no reads of `in/` afterwards;
-  - storage-v2 archives are rejected and Hub components are republished;
-  - a timestamped backup with manual restore instead of rollback;
-  - historical results are records only.
-- **Open decisions.** The plan lists four (destination representation, installed v2 packages, Hub feed strategy, desktop behavior on an unmigrated workspace), each with a recommendation. Ask the user about all four with one question round before writing code, and record the answers in the phase 4 plan.
+- **Phase 4** has not started, and every decision is settled. The user is the only user and wants no legacy support of any kind:
+  - package format v3 only, with v2 removed in the IDE and on the Hub (single feed, all entries rebuilt);
+  - nothing detects or handles the old `in/` layout;
+  - the user's workspace is moved completely, by any method, with nothing left behind and no migration code shipped;
+  - every compatibility adapter is retired, including the checkpoint import aliases;
+  - historical results are left untouched, with no replay support;
+  - phases 5 and 6 add no readers or forwarding modules.
 
-**Then implement** in the plan's order, 4a → 4g, committing each unit separately with the attribution trailer the session gives you. Keep the status doc's progress outline and a dated section current as units land. Add new documents to `docs/README.md`.
+  Do not reintroduce compatibility code, deprecation paths or messages about old formats.
+
+**Then implement** the plan's units in order (4a → 4e, with 4f in the same session as 4b, then 4g), committing each unit separately with the attribution trailer the session gives you. Keep the status doc's progress outline and a dated section current as units land. Add new documents to `docs/README.md`.
 
 **Hard constraints:**
-- Do not publish to Theta Hub, push to any Hub repository, or merge to `main` unless the user asks. Unit 4h prepares releases only.
-- Do not run the migration's `--apply` on the repository's own research workspace (`in/`, `src/usr`, `.thetaide` at the repo root) without the user's explicit approval (unit 4i). Dry-runs are fine.
-- Never pick a winner between conflicting files, follow the `mimic` symlink, or rewrite historical results or receipts.
+- Do not publish to Theta Hub, push to any Hub repository, or merge to `main` unless the user asks. Unit 4g prepares releases only.
+- Before moving the repository's own research workspace (unit 4f), show the user the dry-run summary and get a go-ahead. Back it up first, and verify that nothing is left behind.
+- Never pick a winner between conflicting files or follow the `mimic` symlink (move it as a link). Leave historical results in place.
 - Core must not branch on package IDs, backend names or institution names. Packages import host code only through `src.app.api`.
 - Configuration UI changes follow `docs/reference/CONFIG_PARAMETER_FORMS.md`.
 

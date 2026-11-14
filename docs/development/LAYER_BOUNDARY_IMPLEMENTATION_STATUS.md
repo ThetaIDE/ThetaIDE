@@ -12,12 +12,12 @@ Snapshot as of 2026-11-14, after the [pre-phase-4 cleanup](#pre-phase-4-cleanup-
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists. Scope decided (below); [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md) proposed |
+| 4 — `in/` migration (F) | **Next**, not started | — | Everything; no migration command exists. Decisions settled; [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md) ready |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
-| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages; the exception register in [the contract](../reference/LAYER_BOUNDARIES.md) lists what retires |
+| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages. Adapter retirement moved into phase 4 |
 
-Phase 4 depends on the phase 3 consumers being ready, which they now are. The user decided its scope on 2026-11-14: hard cutover, no released-archive adapter (republish Hub components), backup plus manual restore, and historical results kept as records only (see the plan's [confirmed decisions](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+Phase 4 depends on the phase 3 consumers being ready, which they now are. The user settled its decisions on 2026-11-14: no legacy support of any kind. That means package format v3 only (v2 retired on the Hub too), no detection of `in/`, a complete move of the user's workspace, and retirement of every compatibility adapter, including the checkpoint aliases (see the [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
 
 ## Pre-phase-4 cleanup — 2026-11-14
 

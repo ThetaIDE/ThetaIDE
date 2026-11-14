@@ -1,6 +1,6 @@
 # IDE, plugin, and user layer implementation plan
 
-Status: in implementation on `implement/layer-boundaries`. Phases 0–3 have met their local exit gates; phase 4 is next. See the [progress outline](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md#progress-outline) for per-phase state and remaining external gates. Plan written 2026-11-13 with user decisions incorporated; this document itself makes no runtime changes. Based on the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md) and the clarified user architecture. This plan replaces the older organization proposal's target layout for this work; update the current [storage contract](../reference/PLUGIN_STORAGE.md) as implementation lands.
+Status: in implementation on `implement/layer-boundaries`. Phases 0–3 have met their local exit gates; phase 4 is next ([phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md)). See the [progress outline](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md#progress-outline) for per-phase state and remaining external gates. Plan written 2026-11-13 with user decisions incorporated; this document itself makes no runtime changes. Based on the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md) and the clarified user architecture. This plan replaces the older organization proposal's target layout for this work; update the current [storage contract](../reference/PLUGIN_STORAGE.md) as implementation lands.
 
 ## Confirmed decisions
 
@@ -10,11 +10,12 @@ Status: in implementation on `implement/layer-boundaries`. Phases 0–3 have met
 - Without the relevant component installed, ordinary IDE flows expose no Slurm/site-specific or tuning-specific controls, settings or dependency requirements. The Hub can advertise available components. An installed but unconfigured component may contribute its setup flow; operational controls require the relevant configuration/capabilities. Missing components in an explicitly opened saved recipe produce actionable diagnostics, not silent fallback.
 - Lightning and the four base paradigms remain in core for this implementation. Extracting them for a lighter distribution is deferred.
 - Bundled and downloaded plugins use the same general public API. Alpha APIs may change to support required capabilities, but no plugin-specific host branches, private privileges or dedicated exceptions are permitted. Express extensions through reusable contracts and prove them with independent fixture implementations.
-- `in/` migration scope (decided 2026-11-14; supersedes conflicting phase 4 steps below):
-  - **Hard cutover.** Once the migration command ships, the IDE reads only `src/usr`. An unmigrated workspace fails with one actionable error that names the migrate command. There is no read-only transition period and no dual-root reading.
-  - **No released-archive adapter.** Storage-v2 archives whose config destinations encode `in/config` are rejected with a "needs a newer release" error. Every published Hub component is rebuilt and re-released in the new format through the [production release workflow](../development/THETA_HUB_RELEASE_WORKFLOW.md), and only when a release is requested. The IDE cutover and the republished feed must be coordinated.
-  - **Backup, then manual restore.** Before any move, the command copies `in/` and the affected state records into a timestamped backup under `.thetaide/`. Symlinks are copied as links; external targets are never copied. Undo is a documented manual restore, not a journaled `--rollback`. The dry-run still reports the full inventory and collisions and stops on any conflicting changed file, and an interrupted run must be safe to rerun.
-  - **Historical results are records only.** Saved result configs, receipts and run records keep their `in/` paths unchanged. Replaying or resuming one stops with an actionable error naming the old path; no automatic path mapping.
+- No legacy support (decided 2026-11-14; supersedes conflicting steps in phases 4–7 below). The user is the only user. Old patterns are not supported, partially migrated states are not wanted, and nothing is kept for behavior that no longer exists. In particular:
+  - Package format v3 only: config destinations are logical selectors. Storage v2 is removed, both in the IDE and on the Hub, where all entries are rebuilt as v3 in the single feed.
+  - Nothing detects or reports the old `in/` layout; after the cutover it is an arbitrary directory. The user's workspace is moved completely, by any method, with nothing left behind; migration code does not ship.
+  - Every compatibility adapter is retired, including the import aliases that let old checkpoints load. Historical results stay on disk untouched, with no replay support.
+  - Phase 6 needs no forwarding modules, and phase 5 needs no readers for old jobs.
+  - See the [phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md).
 
 ## End state
 
