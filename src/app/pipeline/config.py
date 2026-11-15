@@ -75,46 +75,28 @@ _MODEL_KEYS = {
 }
 
 
-def resolve_study_best_params(from_study: str, method_name: str, group: str | None = None) -> dict:
-    """Resolve and load best_params.yaml produced by an Optuna study.
+def recorded_best_params(reference: str, method_name: str, group: str | None = None, *, paths=None) -> dict:
+    """The winning parameters a previous experiment recorded in the workspace results.
 
-    Searches:
-      1. Explicit path: from_study
-      2. results/checkpoints/<from_study>/<normalized_agent>/best_params.yaml
-      3. results/checkpoints/<from_study>/<method_name>/best_params.yaml
-      4. results/checkpoints/<from_study>/best_params.yaml
-      5. results/checkpoints/<group>/<from_study>/<normalized_agent>/best_params.yaml
+    ``reference`` names an experiment's results, ``<group>/<experiment>`` or, within the
+    current group, ``<experiment>``; it may end with the method. The parameters are the
+    ``best_params.yaml`` a tuning run records in that method's checkpoint folder.
     """
-    clean_agent = normalize_agent_name(method_name)
-    candidates = [
-        Path(from_study),
-        Path("results/checkpoints") / from_study / clean_agent / "best_params.yaml",
-        Path("results/checkpoints") / from_study / method_name / "best_params.yaml",
-        Path("results/checkpoints") / from_study / "best_params.yaml",
-    ]
-    if group and "/" not in from_study:
-        candidates.append(Path("results/checkpoints") / group / from_study / clean_agent / "best_params.yaml")
-        candidates.append(Path("results/checkpoints") / group / from_study / method_name / "best_params.yaml")
-        candidates.append(Path("results/checkpoints") / group / from_study / "best_params.yaml")
-
-    for cand in candidates:
-        if cand.is_file() and cand.suffix in (".yaml", ".yml"):
-            try:
-                with open(cand, encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                    if isinstance(data, dict):
-                        return data
-            except Exception:
-                pass
-        elif cand.is_dir() and (cand / "best_params.yaml").is_file():
-            try:
-                with open(cand / "best_params.yaml", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                    if isinstance(data, dict):
-                        return data
-            except Exception:
-                pass
-    return {}
+    from src.app.workspace import WorkspacePaths
+    paths = paths or WorkspacePaths.for_process()
+    root = paths.results / "checkpoints"
+    prefixes = [reference] + ([f"{group}/{reference}"] if group and "/" not in reference else [])
+    candidates = [root / prefix / method / "best_params.yaml"
+                  for prefix in prefixes for method in dict.fromkeys((method_name, normalize_agent_name(method_name)))]
+    candidates += [root / prefix / "best_params.yaml" for prefix in prefixes]
+    for candidate in candidates:
+        if candidate.resolve().is_relative_to(root.resolve()) and candidate.is_file():
+            data = yaml.safe_load(candidate.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError(f"Method {method_name!r}: {candidate} does not hold a parameter mapping")
+            return data
+    raise ValueError(f"Method {method_name!r}: from_study {reference!r} names no recorded parameters "
+                     f"(looked for best_params.yaml under {root})")
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -469,30 +451,21 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
         agent_params = deep_merge(agent_params, m_agent_sub)
         model_params = deep_merge(model_params, m_model_sub)
 
-        # Support inheriting tuned parameters from a previous Optuna sweep via from_study
+        # Inherit the parameters an earlier experiment recorded in the results.
         study_ref = m_dict.get("from_study")
         if study_ref:
             resolved_mcfg["from_study"] = study_ref
-            tuned_params = resolve_study_best_params(study_ref, method_name, group=group)
-            if tuned_params:
-                print(f"  [Loaded Tuned Params] {method_name} from study '{study_ref}': {tuned_params}")
-                for pk, pv in tuned_params.items():
-                    if pk.startswith("agent."):
-                        agent_params[pk[len("agent.") :]] = pv
-                    elif pk.startswith("model."):
-                        model_params[pk[len("model.") :]] = pv
-                    elif pk in _MODEL_KEYS:
-                        model_params[pk] = pv
-                    else:
-                        agent_params[pk] = pv
-            else:
-                import logging
-
-                logging.getLogger("theta.pipeline").warning(
-                    "Method '%s' specified from_study='%s', but best_params.yaml was not found.",
-                    method_name,
-                    study_ref,
-                )
+            tuned_params = recorded_best_params(str(study_ref), method_name, group=group, paths=paths)
+            print(f"  [Loaded Tuned Params] {method_name} from '{study_ref}': {tuned_params}")
+            for pk, pv in tuned_params.items():
+                if pk.startswith("agent."):
+                    agent_params[pk[len("agent.") :]] = pv
+                elif pk.startswith("model."):
+                    model_params[pk[len("model.") :]] = pv
+                elif pk in _MODEL_KEYS:
+                    model_params[pk] = pv
+                else:
+                    agent_params[pk] = pv
 
         # Shared ranges follow the same component and parameter inheritance as
         # shared values. Component-qualified targets are stored by the editor

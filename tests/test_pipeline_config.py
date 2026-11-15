@@ -1,5 +1,6 @@
 """Tests for pipeline configuration utilities (src/pipeline/config.py)."""
 
+import pytest
 import yaml
 
 from src.app.pipeline.config import normalize_agent_name
@@ -466,41 +467,36 @@ class TestParseMethodsDict:
         assert res["ppo_dnn"]["tune"]["lr"] == "interval(1e-4, 1e-2)"
 
     def test_from_study_loads_best_params(self, tmp_path, monkeypatch):
-        """from_study loads winning best_params.yaml into agent and model parameters."""
+        """from_study loads the recorded best_params.yaml from the selected workspace's results."""
         import yaml
 
         from src.app.pipeline.config import parse_methods_dict
+        from src.app.workspace import WorkspacePaths
 
-        study_dir = tmp_path / "results" / "checkpoints" / "mimic" / "tune_cql" / "cql_dnn"
+        paths = WorkspacePaths(tmp_path / "workspace")
+        study_dir = paths.results / "checkpoints" / "probe" / "tune" / "learner"
         study_dir.mkdir(parents=True)
-        best_params = {
+        (study_dir / "best_params.yaml").write_text(yaml.dump({
             "agent.lr": 0.0005,
-            "agent.cql_alpha": 2.5,
+            "agent.alpha": 2.5,
             "hidden_sizes": [512, 512],
-        }
-        with open(study_dir / "best_params.yaml", "w") as f:
-            yaml.dump(best_params, f)
+        }))
+        unrelated = tmp_path / "launch"
+        unrelated.mkdir()
+        monkeypatch.chdir(unrelated)
 
-        monkeypatch.chdir(tmp_path)
+        def method(reference):
+            return {"group": "probe", "methods": {"learner": {"agent": "a", "model": "m", "from_study": reference}}}
 
-        cfg = {
-            "group": "mimic",
-            "methods": {
-                "cql_dnn": {
-                    "agent": "cql",
-                    "model": "dnn",
-                    "from_study": "mimic/tune_cql",
-                }
-            }
-        }
-        res = parse_methods_dict(cfg)
-        m = res["cql_dnn"]
-        assert m["agent_params"]["lr"] == 0.0005
-        assert m["agent_params"]["cql_alpha"] == 2.5
-        assert m["model_params"]["hidden_sizes"] == [512, 512]
-
-
-
+        for reference in ("probe/tune", "tune", "probe/tune/learner"):
+            m = parse_methods_dict(method(reference), paths=paths)["learner"]
+            assert m["agent_params"]["lr"] == 0.0005
+            assert m["agent_params"]["alpha"] == 2.5
+            assert m["model_params"]["hidden_sizes"] == [512, 512]
+        with pytest.raises(ValueError, match="names no recorded parameters"):
+            parse_methods_dict(method("probe/missing"), paths=paths)
+        with pytest.raises(ValueError, match="names no recorded parameters"):
+            parse_methods_dict(method("../../outside"), paths=paths)
 
 
 def test_shared_component_values_and_sweeps_follow_inheritance():
