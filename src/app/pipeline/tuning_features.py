@@ -74,6 +74,5 @@ def validate_pruning_runner(cfg, *, paths=None):
     from src.app.core.execution import algorithm_selection
     from src.app.core.execution_features import selected_features
     _, selected = algorithm_selection(cfg, paths=paths)
-    backend = selected[1].metadata.get("backend") if selected else "lightning"
-    if not selected_features(selected, backend).intermediate_values:
+    if not selected_features(selected).intermediate_values:
         raise ValueError("Execution provider does not declare intermediate-value reporting required for pruning")

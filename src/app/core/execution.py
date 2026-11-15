@@ -125,7 +125,7 @@ def execution_backend(cfg, *, paths=None):
         if not isinstance(backend, str) or not backend.strip():
             raise ValueError(f"Provider {package.id}@{package.version}: a nonempty backend is required")
         from src.app.core.execution_features import selected_features, provider_hook
-        selected_features(selected, backend).validate(cfg, owner=f"{package.id}@{package.version}")
+        selected_features(selected).validate(cfg, owner=f"{package.id}@{package.version}")
     elif cfg.get("agent"):
         raise ValueError(f"Unresolved selected algorithm: {cfg.get('agent')}")
     else:

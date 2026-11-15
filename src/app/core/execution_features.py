@@ -30,9 +30,6 @@ class ExecutionFeatures:
         if unknown:
             raise ValueError(f"Unknown execution features: {sorted(unknown)}")
         values = dict(values)
-        # Read the original v1 declaration until downstream manifests migrate.
-        if "episode_outcomes" not in values and "episode_outcomes" in metadata:
-            values["episode_outcomes"] = metadata["episode_outcomes"]
         for name in ("input_types", "resume_modes", "checkpoint_formats"):
             if name in values:
                 items = values[name]
@@ -71,14 +68,12 @@ LIGHTNING_FEATURES = ExecutionFeatures(
 )
 
 
-def selected_features(selected, backend):
+def selected_features(selected):
     if selected is None:
         return LIGHTNING_FEATURES
-    metadata = selected[1].metadata
-    # Lightning is a retained core implementation, including its legacy providers.
-    if backend == "lightning" and "execution_features" not in metadata:
-        return LIGHTNING_FEATURES
-    return ExecutionFeatures.from_metadata(metadata)
+    # Core Lightning runs without a selected provider; every provider declares
+    # its own features, and an undeclared one gets the conservative defaults.
+    return ExecutionFeatures.from_metadata(selected[1].metadata)
 
 
 def provider_hook(selected, name, cfg, *, paths):

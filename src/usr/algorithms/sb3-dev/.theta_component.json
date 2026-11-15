@@ -276,7 +276,6 @@
       "paradigms": [
         "online_rl"
       ],
-      "episode_outcomes": true,
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -321,7 +320,6 @@
       "paradigms": [
         "online_rl"
       ],
-      "episode_outcomes": true,
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -366,7 +364,6 @@
       "paradigms": [
         "online_rl"
       ],
-      "episode_outcomes": true,
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -411,7 +408,6 @@
       "paradigms": [
         "online_rl"
       ],
-      "episode_outcomes": true,
       "monitoring": {
         "supports": [
           "scalars.v1",

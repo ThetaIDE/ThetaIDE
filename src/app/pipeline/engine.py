@@ -17,4 +17,4 @@ def runner_supports_episode_outcomes(cfg, *, paths=None):
     from src.app.core.execution import algorithm_selection
     from src.app.core.execution_features import selected_features
     _, selected = algorithm_selection(cfg, paths=paths)
-    return bool(selected and selected_features(selected, selected[1].metadata.get("backend")).episode_outcomes)
+    return bool(selected and selected_features(selected).episode_outcomes)

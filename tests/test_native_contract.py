@@ -128,7 +128,7 @@ def test_episode_outcomes_require_a_declared_runner_contract(tmp_path,monkeypatc
     monkeypatch.setenv('THETA_WORKSPACE',str(tmp_path))
     assert not runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'missing'})
     assert not runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'native'})
-    meta['capabilities'][0]['episode_outcomes']=True
+    meta['capabilities'][0]['execution_features']={'episode_outcomes':True}
     (root/'.theta_component.json').write_text(json.dumps(meta))
     invalidate(paths,root)
     assert runner_supports_episode_outcomes({'paradigm':'online_rl','agent':'native'})
