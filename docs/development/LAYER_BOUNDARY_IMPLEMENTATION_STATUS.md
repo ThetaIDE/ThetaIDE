@@ -4,7 +4,7 @@ Branch: `implement/layer-boundaries`. The [implementation plan](../plans/LAYER_B
 
 ## Progress outline
 
-Snapshot as of 2026-11-14, after [phase 4 unit 4g](#phase-4-unit-4g--2026-11-14). Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
+Snapshot as of 2026-11-14, after the [phase 4 follow-up](#phase-4-follow-up-workspace-update-and-decisions--2026-11-14). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the remaining work in order. Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
 
 | Phase (delivery) | State | Local gate | What is left |
 | --- | --- | --- | --- |
@@ -12,12 +12,39 @@ Snapshot as of 2026-11-14, after [phase 4 unit 4g](#phase-4-unit-4g--2026-11-14)
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | **In progress**: 4a–4g landed; Hub releases prepared, not published | Met locally | Publish the v3 releases (user); decide `ai_assistant` and `theta_mcp`; then remove the last exception-register row |
+| 4 — `in/` migration (F) | Implemented locally; Hub releases prepared, not published | Met locally | Fix the MIMIC configurations that select a nonexistent `cql` agent; hermetic tests; publish when the user asks, then remove the last exception-register row |
 | 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
-| 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api` with forwarding; `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
+| 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api`, keeping `src.app.api` as the one forwarding package (user decision); `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
 | 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages (`blendrl-dev` and `themes-dev` still import private host modules). Adapter retirement landed in phase 4 |
 
 Phase 4 depends on the phase 3 consumers being ready, which they now are. The user settled its decisions on 2026-11-14: no legacy support of any kind. That means package format v3 only (v2 retired on the Hub too), no detection of `in/`, a complete move of the user's workspace, and retirement of every compatibility adapter, including the checkpoint aliases (see the [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+
+## Phase 4 follow-up: workspace update and decisions — 2026-11-14
+
+**Status:** the repository workspace runs the prepared v3 releases, and the user settled the open 4g questions. Nothing was published or pushed.
+
+### Decisions
+
+- `ai_assistant` and `theta_mcp` stay as they are; the user informs their author.
+- The SDK namespace keeps the documented plan: at phase 6 `src.app.api` moves to `src.ide.api` with `src.app.api` as a forwarding package. That is the only forwarding module allowed in phase 6 (recorded in the plan's confirmed decisions).
+- No publishing yet.
+- Tests must not depend on what the user has installed. Making the suite hermetic is the next unit of work.
+
+### Workspace update
+
+- All 20 installed packages in the repository workspace were updated from `../theta-hub-v3`, for example `sb3-suite` and `d3rlpy-suite` 2.0.0, `blendrl` 1.3.0 and `dnn` 1.2.0. No diagnostics, no retained packages. Optuna and Slurm are not installed there; Slurm collides with the authored `ncshare-site` package, which owns `site/ncshare/*`.
+- The update was first refused because of stale implementation leases. `src/app/components/transactions.py` treats a lease from a different `socket.gethostname()` as live, and macOS changes the host name with the network. 83 leases whose processes no longer exist were moved to `.thetaide/stale-provider-leases-20261114T200025/`; the two live ones, from the running desktop and its validation worker, were left in place. The fix (a stable machine identity) is in the handoff.
+- Rerun in the updated workspace: `test_mechanistic_monitors` 22 passed, `test_execution_contract` 20, `test_data_loader_bindings` 16, `test_wet_runs` 3 (3 opt-in skips), `test_sb3_component_installation` 1.
+- Still failing, each because it reads user state: `test_ncshare_hardening` (2, need Optuna and Slurm in the workspace), `test_blendrl_rich_monitors::test_recipe_preserves_dnn...` (the ignored `newMonitors/onlineRL` recipe), `test_rulesets::test_authored_nsfr...` (`../theta-plugins` is still v2) and `test_sb3_theta_policy` (13, modules that no longer exist).
+
+### MIMIC configurations
+
+In `theta-plugins-v3`, the MIMIC experiment methods (`experiments/mimic/configs/experiment/mimic/*.yaml`, `methods/cql_*.yaml`) and the evaluators in `eval/mimic-early-prediction` and `eval/reward-shaping` select an agent named `cql` with parameters and models that `d3rlpy/cql` does not accept. They must be ported to `d3rlpy/cql` or removed before `mimic`, `mimic-early-prediction` and `reward-shaping` are published.
+
+### Commits
+
+- `theta-hub-v3` `0424204`: `scripts/add_releases.py`, the tool that added the v3 archives and registry entries.
+- IDE: this section, the [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) (replacing the phase 4 prompt) and the plan's recorded exception.
 
 ## Phase 4 unit 4g — 2026-11-14
 
@@ -68,13 +95,13 @@ Phase 4 depends on the phase 3 consumers being ready, which they now are. The us
 ### Still open
 
 - **Publishing** (user): push `theta-hub-v3` and `theta-plugins-v3` and verify the client feed, following the [release workflow](THETA_HUB_RELEASE_WORKFLOW.md). Registry `published_at` reads 2026-11-14T00:00:00Z; set it at publication. Then remove the last exception-register row.
-- **`ai_assistant` and `theta_mcp`** (third-party, ccast44): they rely heavily on `context.window` and private `frontend` and `src.app.services` modules. A port needs a large new SDK surface (runs, jobs, editor, Hub client, experiment state). The user decides whether to extend the SDK, drop them from the feed, or ask the author. Until then the feed lists them at storage v2, which this IDE refuses to install.
+- **`ai_assistant` and `theta_mcp`** (third-party, ccast44): they rely heavily on `context.window` and private `frontend` and `src.app.services` modules. Settled in the follow-up below: they stay as they are.
 - **Slurm in this repository's workspace.** The authored `ncshare-site` package owns `site/ncshare/*`, so installing Slurm 1.1.0 here is refused as a profile collision. `test_ncshare_hardening`'s two real-pipeline cases need Slurm installed.
 - **Pre-existing, not caused by 4g:**
-  - Nothing ships a Lightning `cql` agent any more (`src/usr/methods/cql_agent.py` stopped being tracked in `9565f10`), but the `mimic` experiments and the MIMIC evaluators select one.
+  - Some MIMIC experiments and evaluators select an agent named `cql`, which no package provides; the only CQL agent is `d3rlpy/cql`. See the follow-up below.
   - `test_sb3_theta_policy` still imports `src.usr.models.blendrl` and decorator-registered models (13 failures on the baseline too).
   - `test_blendrl_rich_monitors::test_recipe_preserves_dnn...` reads the user's ignored `newMonitors/onlineRL` recipe, whose PPO method is now disabled.
-- **Phase 6 conflict:** [SDK](../reference/SDK.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) say `src.app.api` becomes `src.ide.api` "with forwarding". The confirmed decision is no forwarders in phase 6, so the rename would require republishing every package again. This needs the user's decision before phase 6.
+- **Phase 6 conflict:** [SDK](../reference/SDK.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) say `src.app.api` becomes `src.ide.api` "with forwarding". The confirmed decision is no forwarders in phase 6, so the rename would require republishing every package again. Settled in the follow-up below.
 
 ## Phase 4 units 4c, 4d and 4e — 2026-11-14
 

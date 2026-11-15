@@ -34,7 +34,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 ## Development
 
 - [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — per-phase progress outline, implemented changes, acceptance evidence and outstanding gates.
-- [Phase 4 handoff prompt](development/LAYER_BOUNDARY_PHASE4_HANDOFF.md) — prompt for a new agent session continuing the layer boundary work at phase 4.
+- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: phase 4 close-out, hermetic tests, open bugs, phases 5–7 and external gates.
 - [Config panel implementation and extension guide](development/CONFIG_PANEL_IMPLEMENTATION_STATUS.md) — shared document, rows, regions, section adapters, verification and remaining integration gates.
 - [Measure startup and understand deferred services](development/STARTUP_PERFORMANCE.md)
 - [Author component plugins](development/COMPONENT_PLUGIN_GUIDE.md)
@@ -50,7 +50,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
 - [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — decisions settled; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
-- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–3 locally complete, phase 4 in progress); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
+- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–4 locally complete, Hub releases prepared but unpublished); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
 
 - [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.
 

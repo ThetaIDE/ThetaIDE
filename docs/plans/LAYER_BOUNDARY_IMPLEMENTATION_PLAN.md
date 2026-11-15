@@ -15,6 +15,7 @@ Status: in implementation on `implement/layer-boundaries`. Phases 0–3 have met
   - Nothing detects or reports the old `in/` layout; after the cutover it is an arbitrary directory. The user's workspace is moved completely, by any method, with nothing left behind; migration code does not ship.
   - Every compatibility adapter is retired, including the import aliases that let old checkpoints load. Historical results stay on disk untouched, with no replay support.
   - Phase 6 needs no forwarding modules, and phase 5 needs no readers for old jobs.
+  - One exception (user, 2026-11-14): at consolidation the SDK namespace `src.app.api` keeps a forwarding package to `src.ide.api`, as the SDK reference says, so published packages work without another republish.
   - See the [phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md).
 
 ## End state
