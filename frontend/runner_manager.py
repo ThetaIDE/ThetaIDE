@@ -294,11 +294,9 @@ class JobManager(QObject):
                             if state in ("completed", "failed", "cancelled"):
                                 continue
                             label = replicate_label(execution, replicate)
-                            target = (f"trial:{trial.get('log_version')}" if replicate.get('legacy_execution')
-                                      else f"replicate:{replicate['run_id']}")
                             items.append(dict(job, queue_method=method, queue_trial=trial["id"], queue_study=summary.get("study", ""), sweep_trial=True, status=state, agents=[label],
                                               waiting_reason=replicate.get("waiting_reason", ""),
-                                              cancel_target=target,
+                                              cancel_target=f"replicate:{replicate['run_id']}",
                                               execution_started=replicate.get("execution_started"),
                                               queue_seed=replicate.get("training_seed"),
                                               trial_log_version=trial.get("log_version"),

@@ -39,11 +39,7 @@ def synced_execution_sources(project_root, group, experiment):
     return found, sources
 
 def trial_execution(logs_root, method, trial):
-    """Read a shared execution, adapting the earlier objective-runner artifacts read-only.
-
-    Compatibility stays at the data boundary; queue/monitor never understand
-    objective implementations or launch their own workers.
-    """
+    """The seed execution a trial's log version links to, or None."""
     version = trial.get("log_version")
     if not version:
         return None
@@ -53,23 +49,6 @@ def trial_execution(logs_root, method, trial):
         path = Path(pointer["manifest"])
         path = path if path.is_absolute() else directory / path
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
-    try:
-        old = json.loads((directory / "objective.json").read_text(encoding="utf-8"))
-        runtime = old["config"]["theta_tuning"]
-        runs = []
-        for index, sample in enumerate(old["runs"]):
-            if sample is None:
-                continue
-            path = Path(sample["artifacts"]["logs"])
-            runs.append({"run_id": f"{version}:{index}", "method": method, "agent": path.parent.name,
-                         "training_seed": sample["seed"], "status": sample["status"],
-                         "logs": str(path.parent.parent), "version": path.name,
-                         "output_log": str(path / "training.log"), "legacy_execution": True})
-        return {"schema_version": 1, "runs": runs, "parent": {
-            "kind": "trial", "method": method, "study": runtime["study_name"],
-            "trial_number": runtime["trial_number"], "log_version": version}}
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -191,29 +170,3 @@ class ExecutionData:
                 result.append({"step": step, "mean": statistics.mean(values), "n": len(values),
                                "std": statistics.stdev(values) if len(values) >= 2 else None})
         return result
-
-
-class LegacyExecutionData:
-    """Expose one existing log directory as a single-run execution.
-
-    Legacy scalar telemetry does not establish episode outcomes, so this
-    adapter deliberately returns no episode events and no aggregate curve.
-    Existing plotters can continue reading the original log directory.
-    """
-    version = 1
-
-    def __init__(self, group, experiment_id, method, logs_root="results/logs"):
-        self.run = {"run_id": f"legacy:{group}/{experiment_id}/{method}", "method": method,
-                    "status": "unknown", "logs": str(Path(logs_root) / group / experiment_id),
-                    "experiment_id": experiment_id, "legacy": True}
-        self.manifest = {"schema_version": 1, "group": group, "experiment_id": experiment_id,
-                         "legacy": True, "runs": [self.run]}
-
-    def runs(self):
-        return (dict(self.run),)
-
-    def events(self, run):
-        return []
-
-    def aggregate(self, method, grid=None):
-        return []

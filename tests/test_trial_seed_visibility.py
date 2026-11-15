@@ -24,32 +24,6 @@ def manager_for(root, job):
     return manager
 
 
-def test_earlier_running_panels_are_adapted_without_modifying_artifacts(tmp_path):
-    job = dict(job_id="j", group="g", experiment_id="e", status="running", agents=["m"])
-    manager = manager_for(tmp_path, job)
-    logs = tmp_path / "results/logs/g/e/m"
-    directory = logs / "version_sweep_trial"
-    directory.mkdir(parents=True)
-    sample = logs / "version_sweep_trial_sample_seed_0"
-    sample.mkdir()
-    (sample / "training.log").write_text("training")
-    (sample / "metrics.csv").write_text("step,transitions,eval/reward\n1,10,123\n")
-    payload = {"config": {"theta_tuning": {"study_name": "s", "trial_number": 0}},
-               "runs": [{"seed": 11, "status": "running", "artifacts": {"logs": str(sample)}}]}
-    path = directory / "objective.json"
-    path.write_text(json.dumps(payload))
-    before = path.read_bytes()
-    summary = tmp_path / "results/checkpoints/g/e/m/tuning_summary.json"
-    summary.parent.mkdir(parents=True)
-    summary.write_text(json.dumps({"component": "optuna", "study": "s", "stop_reason": "running",
-        "requested_trials": 2, "trials": [{"id": 0, "state": "running", "log_version": directory.name}]}))
-    sources = manager._run_sources(job)
-    assert sources == [("m · s · trial 0 · seed 11", logs.parent, "m", sample.name, "running")]
-    items = manager._execution_queue_items(job)
-    assert next(item for item in items if item.get("sweep_trial"))["status"] == "running"
-    assert path.read_bytes() == before
-
-
 def test_new_launch_does_not_follow_an_earlier_study_snapshot(tmp_path):
     job = dict(job_id="new", group="g", experiment_id="e", status="running", agents=["m"], started=time.time())
     path = tmp_path / "results/checkpoints/g/e/m/tuning_summary.json"
