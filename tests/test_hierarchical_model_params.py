@@ -64,8 +64,8 @@ def test_generic_component_viewer_renders_lists_and_nested_dict(qapp, tmp_path):
     assert viewer.raw_data["dropout"] == 0.1
     assert viewer.raw_data["encoder"]["layers"] == 3
 
-    # Edit the list parameter
-    viewer._on_field_edited("hidden_sizes", "[128, 128, 64]")
+    # Edit the list parameter; editors emit typed values.
+    viewer._on_field_edited("hidden_sizes", [128, 128, 64])
     assert viewer.raw_data["hidden_sizes"] == [128, 128, 64]
 
     # Edit nested dictionary parameter

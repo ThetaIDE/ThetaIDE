@@ -17,9 +17,26 @@ def test_schema_number_editor_preserves_precision_and_null():
     editor.setText("invalid")
     editor.editingFinished.emit()
     assert values == [1e-9]
+    # A plain number schema does not admit null: a cleared draft is flagged, not stored.
     editor.clear()
     editor.editingFinished.emit()
-    assert values == [1e-9, None]
+    assert values == [1e-9]
+    assert editor.property("parameterInvalid")
+    assert app is not None
+
+
+@pytest.mark.parametrize("kind, text, expected", [("number", "2.5", 2.5), ("integer", "3", 3)])
+def test_nullable_schema_numbers_clear_to_null(kind, text, expected):
+    app = QApplication.instance() or QApplication([])
+    viewer = ConfigViewer()
+    values = []
+    editor = viewer._schema_widget(1, {"type": [kind, "null"]}, values.append)
+    assert isinstance(editor, QLineEdit)
+    editor.setText(text)
+    editor.editingFinished.emit()
+    editor.clear()
+    editor.editingFinished.emit()
+    assert values == [expected, None]
     assert app is not None
 
 

@@ -43,8 +43,20 @@ def draft_field(value, schema, write, parse, *, help_text="", width=TEXT_FIELD_W
     return widget
 
 
+def schema_kind(schema):
+    """The declared value type, treating ``[type, "null"]`` as a nullable ``type``."""
+    kind = (schema or {}).get("type")
+    if isinstance(kind, list):
+        kinds = [k for k in kind if k != "null"]
+        return kinds[0] if len(kinds) == 1 else None
+    return kind
+
+
 def numeric_editor(value, schema, write):
-    if schema.get("type") == "integer" and isinstance(value, int) and not isinstance(value, bool):
+    kind = schema_kind(schema)
+    # A spin box cannot be cleared, so nullable integers use the text field.
+    nullable = isinstance(schema.get("type"), list) and "null" in schema["type"]
+    if kind == "integer" and not nullable and isinstance(value, int) and not isinstance(value, bool):
         widget = integer_field(value, minimum=schema.get("minimum"), maximum=schema.get("maximum"))
         widget.setMaximumWidth(NUMBER_FIELD_WIDTH)
         widget.valueChanged.connect(write)
@@ -53,7 +65,7 @@ def numeric_editor(value, schema, write):
     def parse(text):
         if not text.strip():
             return None
-        if schema.get("type") == "integer":
+        if kind == "integer":
             if not re.fullmatch(r"[+-]?[0-9]+", text.strip()):
                 raise ValueError("Enter a whole number")
             return int(text)
@@ -95,7 +107,7 @@ def _value_editor(value, schema, write, *, choices=None):
         widget.setCurrentIndex(max(0, index))
         widget.currentIndexChanged.connect(lambda i: write(widget.itemData(i)))
         return widget
-    kind = schema.get("type")
+    kind = schema_kind(schema)
     if kind == "string":
         widget = QLineEdit("" if value is None else str(value))
         widget.setMaximumWidth(TEXT_FIELD_WIDTH)
