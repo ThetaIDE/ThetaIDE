@@ -765,7 +765,6 @@ class TerminalPanel(QWidget):
         self.shell_menu.aboutToShow.connect(lambda: self._fill_shell_menu(self.shell_menu))
         self.new_btn.setMenu(self.shell_menu)
         tb_layout.addWidget(self.new_btn)
-        self.restart_btn = self.new_btn  # backwards-compatible alias
 
         self.close_btn = QPushButton("Close shell", self.toolbar)
         self.close_btn.setToolTip("End the selected shell")

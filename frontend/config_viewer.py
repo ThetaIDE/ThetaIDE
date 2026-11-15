@@ -72,9 +72,6 @@ from .config_panel.controls import (
 )
 
 
-CompactDoubleSpinBox = ScientificDoubleSpinBox  # compatibility import
-
-
 from src.app.workspace import WorkspacePaths
 
 from .config_panel.editors import number_field

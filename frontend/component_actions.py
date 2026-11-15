@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-# Re-export headless asset discovery functions from core services
 from src.app.services.component_exporter import find_component_assets, find_workspace_root
 
 

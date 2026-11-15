@@ -13,10 +13,6 @@ from .importance_view import ImportanceView
 from .parallel_coordinates import ParallelCoordinates
 
 
-# Compatibility import for existing desktop callers. Reading summaries is headless.
-from src.app.pipeline.tuning_monitor import study_summaries
-
-
 class SweepView(QWidget):
     trial_selected = pyqtSignal(str)
 

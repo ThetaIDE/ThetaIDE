@@ -435,7 +435,6 @@ class Window(QMainWindow):
 
         # 1. Config Tree (mirrors the experiment config group) - extends to top!
         self.config_tree = ConfigTreeWidget(mode="experiments", settings_manager=getattr(self, "settings_manager", None))
-        self.tree = self.config_tree.tree  # backwards compatibility alias
         self.config_tree.file_selected.connect(self.on_config_file_selected)
         self.config_tree.file_opened.connect(self.on_config_file_opened)
         self.config_tree.file_deleted.connect(self.on_config_file_deleted)
@@ -608,7 +607,7 @@ class Window(QMainWindow):
 
     @property
     def config_viewer(self) -> ConfigViewer:
-        """Backwards-compatibility proxy returning the active ConfigViewer."""
+        """The active ConfigViewer."""
         if hasattr(self, "config_tab_manager") and self.config_tab_manager is not None:
             return self.config_tab_manager.current_viewer()
         return None

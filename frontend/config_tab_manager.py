@@ -51,7 +51,6 @@ class ConfigTabManager(QTabWidget):
     - Dirty tabs are automatically pinned so unsaved work is never overwritten.
     - Close confirmation dialog for dirty tabs.
     - Tab navigation shortcuts: Ctrl+W (close), Ctrl+Tab / Ctrl+Shift+Tab (cycle tabs).
-    - Backwards-compatible proxy via current_viewer().
     - Hides the tab bar when only a single tab is open.
     - 30px height alignment matching the filetree header buttons.
     """

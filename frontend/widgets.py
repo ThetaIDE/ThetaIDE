@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QToolButton, QMenu, QInputDialog, QAbstractSpinBox, QTextEdit, QSizePolicy, QLineEdit, QLayout,
 )
 from .theme import theme_color
-from .charts.chart import Chart, format_tick, nice_step  # noqa: F401  (moved; re-exported)
 
 
 class _WheelNeedsFocus:

@@ -90,7 +90,7 @@ class TestTerminalPanelAndWidget(unittest.TestCase):
 
     def test_panel_structure(self):
         self.assertIsNotNone(self.panel.toolbar)
-        self.assertIsNotNone(self.panel.restart_btn)
+        self.assertIsNotNone(self.panel.new_btn)
         self.assertIsNotNone(self.panel.clear_btn)
         self.assertIsNotNone(self.panel.status_dot)
         self.assertIsNotNone(self.panel.title_label)

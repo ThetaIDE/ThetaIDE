@@ -41,13 +41,11 @@ from .config_model import (
     unique_method_name,
 )
 from .sidetabs import svg_icon
-from .tree_tools import (  # noqa: F401  (TOOL_ICON_COLORS and GroupItemDelegate are re-exported)
+from .tree_tools import (
     TOOL_ICON_COLORS,
-    TREE_BUTTON_MIME,
     DraggableToolButton,
     GroupItemDelegate,
     TreeHeaderActions,
-    TreeHeaderLayout,
     TreeHeaderWidget,
     TreeToolbarPersistence,
     folder_icon,
@@ -404,7 +402,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self.btn_plus.setToolTip("Scaffold a new component plugin (+)")
             self.btn_plus.clicked.connect(self.prompt_scaffold_component)
             self.btn_new = self.btn_plus
-            self.btn_new_group = self.btn_new  # backwards compatibility alias
             self.btn_new_subfolder = None
             self.btn_new_experiment = self.btn_new
 
@@ -1676,7 +1673,8 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def begin_deep_copy_component(self, source_file):
         """Add a blank pending component row; install only when its name is committed."""
-        from .component_actions import ComponentDevelopmentActions, find_workspace_root
+        from .component_actions import ComponentDevelopmentActions
+        from src.app.services.component_exporter import find_workspace_root
         source_file = Path(source_file)
         try:
             parent_rel = Path(self._config_relative_path(source_file)).parent.as_posix()
@@ -2089,7 +2087,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             if self.mode == "components":
                 from src.app.services.local_components import LocalComponents
 
-                from .component_actions import find_component_assets, find_workspace_root
+                from src.app.services.component_exporter import find_component_assets
                 config = Path(data.get("path") or self.root_dir / data["rel_path"])
                 from src.app.workspace import WorkspacePaths
                 paths = WorkspacePaths.from_config_root(self.root_dir)

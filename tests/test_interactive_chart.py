@@ -13,7 +13,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 app = QApplication.instance() or QApplication([])
 
-from frontend.widgets import Chart
+from frontend.charts.chart import Chart
 
 
 class TestInteractiveChart(unittest.TestCase):

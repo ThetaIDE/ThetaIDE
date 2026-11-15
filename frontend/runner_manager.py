@@ -130,10 +130,6 @@ class JobManager(QObject):
     def running_count(self) -> int:
         return sum(1 for j in self.jobs.values() if j.get("status") in ACTIVE_STATUSES)
 
-    def has_capacity(self) -> bool:
-        """Legacy query; actual admission checks each job's resource demand."""
-        return True
-
     def _load_resource_settings(self):
         import tomllib
         values = {}
@@ -244,15 +240,7 @@ class JobManager(QObject):
                         yield manifest
 
     def _replicate_state(self, replicate):
-        """Legacy coordinators called resource waits running; require worker startup evidence."""
-        state = replicate.get("status", "queued")
-        if state == "running" and not replicate.get("execution_started") and replicate.get("output_log"):
-            output = Path(replicate["output_log"])
-            if not output.is_absolute():
-                output = self.project_root / output
-            if not output.is_file():
-                return "pending"
-        return state
+        return replicate.get("status", "queued")
 
     def _execution_queue_items(self, job):
         """Expand one pipeline job into its visible replicate cards when a manifest exists."""

@@ -180,7 +180,7 @@ class ComponentsPanel(QWidget):
         if not self.active_path or not self.active_path.exists():
             return
         try:
-            from .component_actions import find_component_assets
+            from src.app.services.component_exporter import find_component_assets
             assets = find_component_assets(self.active_path, self.active_rel_path, workspace_dir=WorkspacePaths.from_config_root(self.components_tree.root_dir))
             comp_name = assets["comp_name"]
             is_comp = assets["is_component"]
@@ -226,7 +226,7 @@ class ComponentsPanel(QWidget):
         if not target_cfg or not target_cfg.exists():
             return
 
-        from .component_actions import ComponentDevelopmentActions, find_workspace_root
+        from .component_actions import ComponentDevelopmentActions
         ComponentDevelopmentActions(WorkspacePaths.from_config_root(self.components_tree.root_dir).root, self, self.hub_client).edit(target_cfg)
 
     def prompt_export_active_component(self, file_path=None, rel_path=None):
@@ -268,7 +268,8 @@ class ComponentsPanel(QWidget):
             QMessageBox.warning(self, "Cannot Delete", "The root config.yaml cannot be deleted.")
             return
 
-        from .component_actions import DeleteComponentDialog, find_component_assets
+        from .component_actions import DeleteComponentDialog
+        from src.app.services.component_exporter import find_component_assets
         assets = find_component_assets(target_cfg, target_rel, workspace_dir=WorkspacePaths.from_config_root(self.components_tree.root_dir))
         comp_name = assets["comp_name"]
         files_to_delete = assets["files_to_delete"]
@@ -276,7 +277,6 @@ class ComponentsPanel(QWidget):
         is_hub = assets.get("is_hub_installed", False)
         from src.app.services.local_components import LocalComponents
 
-        from .component_actions import find_workspace_root
         lifecycle = LocalComponents(WorkspacePaths.from_config_root(self.components_tree.root_dir).root)
         record = lifecycle.state()["records"].get(assets["comp_id"], {})
         is_local = record.get("source") == "local"

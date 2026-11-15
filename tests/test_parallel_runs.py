@@ -56,7 +56,7 @@ def test_raising_the_limit_starts_more_right_away(manager):
     assert manager.started == ["a"]  # one at a time by default
     manager.set_max_parallel(3)
     assert manager.started == ["a", "b", "c"]
-    assert manager.has_capacity() is False and manager.running_count() == 3
+    assert manager.running_count() == 3
 
 
 def test_lowering_the_limit_stops_nothing_that_is_running(manager):

@@ -1141,9 +1141,8 @@ class TestComponentsPanel(unittest.TestCase):
         self.assertIsNone(self.panel.btn_save)
 
         # Modify value in viewer
-        from frontend.config_viewer import CompactDoubleSpinBox
-        from frontend.widgets import DoubleSpinBox, SpinBox
-        spins = self.panel.viewer.findChildren((SpinBox, DoubleSpinBox, CompactDoubleSpinBox))
+        from frontend.widgets import DoubleSpinBox, ScientificDoubleSpinBox, SpinBox
+        spins = self.panel.viewer.findChildren((SpinBox, DoubleSpinBox, ScientificDoubleSpinBox))
         self.assertGreater(len(spins), 0)
         orig_val = spins[0].value()
         spins[0].setValue(orig_val + 1)

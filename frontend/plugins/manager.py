@@ -2,7 +2,6 @@
 from __future__ import annotations
 import importlib
 import importlib.util
-import json
 from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Dict, List, Optional
@@ -22,8 +21,8 @@ class PluginManager(QObject):
 
     pluginStateChanged = pyqtSignal(str, bool)  # (plugin_id, enabled)
 
-    def __init__(self, window: Window, plugin_dirs: Optional[List[Path]] = None,
-                 settings_manager: Optional["SettingsManager"] = None, paths=None):
+    def __init__(self, window: Window, plugin_dirs: Optional[List[Path]] = None, *,
+                 settings_manager: "SettingsManager", paths=None):
         super().__init__()
         self.window = window
         from src.app.workspace import WorkspacePaths
@@ -32,11 +31,6 @@ class PluginManager(QObject):
         self._provider_packages = {}
         self._leases = {}
         self._settings = settings_manager
-
-        # Legacy fallback file — used only when settings_manager is unavailable.
-        store = getattr(window, "store", None)
-        root_dir = getattr(store, "root", getattr(store, "data_dir", Path("."))) if store else Path(".")
-        self._legacy_state_file = Path(root_dir) / ".plugins.json"
 
         self.manifests: Dict[str, PluginManifest] = {}
         self.instances: Dict[str, Plugin] = {}
@@ -93,68 +87,20 @@ class PluginManager(QObject):
     # ── State persistence ────────────────────────────────────────────────────
 
     def _load_states(self) -> None:
-        """Load enabled plugin state from settings.toml (preferred)
-        or legacy .plugins.json (fallback when no SettingsManager)."""
-        if self._settings is not None:
-            enabled_list = self._settings.plugins_enabled
-            disabled_list = self._settings.get("plugins", "disabled", default=[])
-            self.enabled_states = {pid: True for pid in enabled_list}
-            for pid in disabled_list:
-                self.enabled_states[pid] = False
-            self._migrate_legacy_states()
-        else:
-            self._load_legacy_states()
-
-    def _load_legacy_states(self) -> None:
-        """Read enabled state from legacy .plugins.json."""
-        saved: dict = {}
-        if self._legacy_state_file.exists():
-            try:
-                saved = json.loads(self._legacy_state_file.read_text(encoding="utf-8"))
-            except Exception as exc:
-                self.window.log(f"Failed to read plugin state file: {exc}")
-        saved_enabled = saved.get("enabled", saved) if isinstance(saved, dict) else {}
-        self.enabled_states = {
-            k: bool(v) for k, v in saved_enabled.items()
-            if k not in ("uninstalled", "enabled")
-        }
-
-    def _migrate_legacy_states(self) -> None:
-        """One-time migration: pull enabled states from .plugins.json into settings.toml."""
-        if not self._legacy_state_file.exists():
-            return
-        try:
-            saved = json.loads(self._legacy_state_file.read_text(encoding="utf-8"))
-        except Exception:
-            return
-        saved_enabled = saved.get("enabled", saved) if isinstance(saved, dict) else {}
-        migrated = False
-        for k, v in saved_enabled.items():
-            if k not in ("uninstalled", "enabled") and k not in self.enabled_states:
-                self.enabled_states[k] = bool(v)
-                migrated = True
-        if migrated:
-            self.save_states()
+        """Load enabled plugin state from settings.toml."""
+        self.enabled_states = {pid: True for pid in self._settings.plugins_enabled}
+        for pid in self._settings.get("plugins", "disabled", default=[]):
+            self.enabled_states[pid] = False
 
     def save_states(self) -> None:
         """Persist enabled plugin state to settings.toml."""
         enabled_list = sorted(pid for pid, on in self.enabled_states.items() if on)
         disabled_list = sorted(pid for pid, on in self.enabled_states.items() if not on)
-        if self._settings is not None:
-            try:
-                self._settings.set_many({("plugins", "enabled"): enabled_list,
-                                         ("plugins", "disabled"): disabled_list})
-            except Exception as exc:
-                self.window.log(f"Failed to save plugin states to settings.toml: {exc}")
-        else:
-            try:
-                self._legacy_state_file.parent.mkdir(parents=True, exist_ok=True)
-                payload = {"enabled": dict(self.enabled_states)}
-                self._legacy_state_file.write_text(
-                    json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-                )
-            except OSError as exc:
-                self.window.log(f"Failed to save plugin states: {exc}")
+        try:
+            self._settings.set_many({("plugins", "enabled"): enabled_list,
+                                     ("plugins", "disabled"): disabled_list})
+        except Exception as exc:
+            self.window.log(f"Failed to save plugin states to settings.toml: {exc}")
 
     # ── Install / Uninstall ──────────────────────────────────────────────────
 
@@ -174,14 +120,6 @@ class PluginManager(QObject):
         self.manifests.pop(plugin_id, None)
         self.enabled_states.pop(plugin_id, None)
         self.save_states()
-
-    def mark_uninstalled(self, plugin_id: str) -> None:
-        """Deprecated alias: use uninstall_plugin() instead."""
-        self.uninstall_plugin(plugin_id)
-
-    def unmark_uninstalled(self, plugin_id: str) -> None:
-        """Deprecated no-op: installation is tracked by filesystem presence."""
-        pass
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -305,7 +243,7 @@ class PluginManager(QObject):
         lease = self._leases.pop(plugin_id, None)
         if lease: lease.__exit__(None, None, None)
         self.enabled_states[plugin_id] = False
-        if self._settings is not None and self._settings.default_text_editor == plugin_id:
+        if self._settings.default_text_editor == plugin_id:
             self._settings.default_text_editor = "system"
         self.save_states()
         self.pluginStateChanged.emit(plugin_id, False)

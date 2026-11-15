@@ -17,7 +17,8 @@ from PyQt6.QtWidgets import QApplication, QLabel
 app = QApplication.instance() or QApplication(sys.argv[:1])
 
 from frontend.config_model import ConfigTree, Experiment
-from frontend.config_tree import TOOL_ICON_COLORS, ConfigTreeWidget
+from frontend.config_tree import ConfigTreeWidget
+from frontend.tree_tools import TOOL_ICON_COLORS
 from frontend.sidetabs import svg_icon
 
 

@@ -48,7 +48,7 @@ class ExportComponentDialog(QDialog):
         self.exporter = ComponentExporter(workspace_root=self.workspace_root)
         self.export_result: Optional[ComponentExportResult] = None
 
-        from .component_actions import find_component_assets
+        from src.app.services.component_exporter import find_component_assets
         self.assets = find_component_assets(self.config_path, self.rel_path, workspace_dir=self.workspace_root)
         self.comp_id = self.assets["comp_id"]
         self.comp_name = self.assets.get("comp_name") or self.comp_id

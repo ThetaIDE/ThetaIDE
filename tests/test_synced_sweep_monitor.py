@@ -9,7 +9,7 @@ import pytest
 
 from frontend.app import Window
 from frontend.live_run import LiveRunCache
-from frontend.monitor.sweep_view import study_summaries
+from src.app.pipeline.tuning_monitor import study_summaries
 from src.app.sites.storage import write_json
 from src.app.pipeline.execution_data import synced_execution_sources
 from component_fixtures import install_optional, optional_module, optuna_plan

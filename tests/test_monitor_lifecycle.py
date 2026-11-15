@@ -54,8 +54,11 @@ def test_reused_experiment_streams_only_current_launch_and_all_parallel_seeds(tm
         card.update_progress(lives)
         assert card.progress_fraction == expected
         card.close()
-    # A resource wait is pending until the worker starts, independently of other seeds.
-    (tmp_path / "results/executions/g/variance/current/3.log").unlink()
+    # The coordinator records a resource wait as pending, independently of other seeds.
+    path = tmp_path / "results/executions/g/variance/current/manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["runs"][1]["status"] = "pending"
+    path.write_text(json.dumps(manifest))
     assert [item["status"] for item in JobManager._execution_queue_items(manager, job)] == ["running", "pending"]
     assert [source[4] for source in manager._run_sources(job)] == ["running", "pending"]
     # The client must correct a stale running label from a detached older runner.
@@ -67,7 +70,6 @@ def test_reused_experiment_streams_only_current_launch_and_all_parallel_seeds(tm
     DesktopManager._refresh(manager, emit=False)
     assert [item["status"] for item in manager._queue["active"]] == ["running", "pending"]
     assert JobManager.replicate(manager, "job", "ppo · seed 1")["logs"].endswith("current")
-    path = tmp_path / "results/executions/g/variance/current/manifest.json"
     manifest = json.loads(path.read_text())
     for run in manifest["runs"]:
         run["status"] = "completed"
