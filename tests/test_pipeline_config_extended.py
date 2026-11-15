@@ -40,9 +40,11 @@ def test_resolve_experiment_config_name_direct_match(tmp_path, monkeypatch):
     assert resolve_experiment_config_name("my_exp.yaml") == "my_exp"
 
 
-def test_resolve_experiment_config_name_exp_dir_missing(tmp_path, monkeypatch):
+def test_resolve_experiment_config_name_without_experiments(tmp_path, monkeypatch):
+    """An unknown name fails here, not later in Hydra, even with no experiment folder."""
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
-    assert resolve_experiment_config_name("my_exp") == "my_exp"
+    with pytest.raises(ValueError, match="not found in"):
+        resolve_experiment_config_name("my_exp")
 
 
 def test_resolve_experiment_config_name_glob_single(tmp_path, monkeypatch):

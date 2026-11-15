@@ -602,10 +602,7 @@ def resolve_experiment_config_name(exp_input: str, *, paths=None, config_dir=Non
         return clean_input
 
     # Search recursively in group subdirectories
-    selectors = resolver.selectors("experiment")
-    if not selectors:
-        return clean_input
-    matches = [Path(name).relative_to("experiment") for name in selectors
+    matches = [Path(name).relative_to("experiment") for name in resolver.selectors("experiment")
                if name.endswith("/" + clean_input + ".yaml")]
     if not matches:
         raise ValueError(f"Experiment config '{clean_input}.yaml' not found in workspace {paths.root}")
