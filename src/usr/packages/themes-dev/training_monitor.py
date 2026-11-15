@@ -9,10 +9,10 @@ from .monitor_catalog import visual_outputs
 class TrainingMonitor:
     def __init__(self, log, cfg, context):
         self.log, self.cfg, self.context = log, cfg, context
-        from src.app.core.provider_catalog import get_catalog, provider_hash
-        owner = get_catalog(context.workspace).resolve('algorithm', str(cfg.agent.algorithm))
-        self.provider = {'package': owner[0].id, 'version': owner[0].version,
-                         'capability': owner[1].id, 'sha256': provider_hash(owner[0])}
+        from src.app.api.packages import selected_capability
+        owner = selected_capability('algorithm', str(cfg.agent.algorithm), paths=context.workspace)
+        self.provider = {'package': owner.package_id, 'version': owner.package_version,
+                         'capability': owner.id, 'sha256': owner.package_sha256}
         self.step, self.updates, self.snapshots = 0, 0, 0
         self.lineage = uuid.uuid4().hex
         self.probes = None
@@ -34,7 +34,7 @@ class TrainingMonitor:
             valid = p['row_train'] & p['valid']
             self.train_rows = int(valid.sum())
             if any(self.wanted(name) for name in ('themes/policy_response', 'themes/feature_ablation')):
-                from src.app.monitoring.api import ProbeSet
+                from src.app.api.monitoring import ProbeSet
                 ids = np.flatnonzero(valid)
                 selected = np.sort(np.random.default_rng(self.context.seed).choice(ids, min(self.probe_count, len(ids)), replace=False))
                 self.probes = ProbeSet(p['policy_states'][selected].copy(), selected,
@@ -86,7 +86,7 @@ class TrainingMonitor:
     def _publish_snapshot(self, data, final=False):
         if self.snapshot_failed:
             return
-        from src.app.services.cancellation import TrainingCancelled
+        from src.app.api.execution import TrainingCancelled
         try:
             self._snapshot(data, final=final)
         except (TrainingCancelled, KeyboardInterrupt):
@@ -100,8 +100,8 @@ class TrainingMonitor:
         if not names or self.snapshots >= self.max_snapshots - (0 if final else 1):
             return
         import torch
-        from src.app.monitoring.api import Context, Result, ProbeSet, preserve_rng, state_digest, write_snapshot
-        from src.app.telemetry.visuals import validate_visual_data
+        from src.app.api.monitoring import (Context, Result, ProbeSet, preserve_rng, state_digest,
+                                            validate_visual_data, write_snapshot)
         learner = data['learner']
         started = time.perf_counter()
         arrays, payloads = {}, {}

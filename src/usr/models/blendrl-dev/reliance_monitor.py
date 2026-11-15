@@ -2,8 +2,8 @@
 import numpy as np
 import torch
 
-from src.app.monitoring.api import Result
-from src.app.monitoring.measurements import action_difference, validate_params
+from src.app.api.monitoring import Result
+from src.app.api.monitoring import action_difference, validate_params
 
 
 class BlendReliance:

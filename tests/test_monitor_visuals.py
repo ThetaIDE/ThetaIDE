@@ -11,10 +11,18 @@ from torch import nn
 from src.app.core.provider_catalog import get_catalog
 from src.app.monitoring.api import Context, ModelAccess, ProbeSet, load_snapshot, write_snapshot
 from src.app.monitoring.runtime import MonitorManager
-from src.app.monitoring.topology import NetworkStructure
 from src.app.telemetry.monitors import available_monitors, validate_monitoring_metadata
 from src.app.telemetry.run import Run
 from src.app.telemetry.sinks import MemorySink
+
+
+def _network_structure():
+    """The network-structure package's provider class, loaded as the host loads providers."""
+    from src.app.core.provider_loader import load_capability
+    return load_capability(*get_catalog().resolve("monitor", "network-structure"))
+
+
+NetworkStructure = _network_structure()
 
 
 class SmallNetwork(nn.Module):

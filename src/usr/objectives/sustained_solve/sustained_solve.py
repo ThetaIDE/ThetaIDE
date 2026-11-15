@@ -6,7 +6,7 @@ The training episode moving average is deliberately not part of the score.
 import math
 import statistics
 
-from src.app.objectives import ObjectiveResult
+from src.app.api.tuning import ObjectiveResult
 
 
 def evaluate(results, params):

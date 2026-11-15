@@ -3,8 +3,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from src.app.monitoring.api import Result
-from src.app.monitoring.measurements import action_difference, capture, layers_for, replace_units, validate_params
+from src.app.api.monitoring import Result
+from src.app.api.monitoring import action_difference, capture, layers_for, replace_units, validate_params
 
 
 class CausalCircuit:

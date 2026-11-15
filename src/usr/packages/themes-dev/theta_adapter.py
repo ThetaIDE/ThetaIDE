@@ -8,31 +8,31 @@ from .themes_al.demo import run
 
 
 def _resolve(kind, name, paths):
-    from src.app.core.provider_catalog import get_catalog
-    selected = get_catalog(paths).resolve(kind, str(name))
+    from src.app.api.packages import selected_capability
+    selected = selected_capability(kind, str(name), paths=paths)
     if selected is None:
         raise ValueError(f'Unresolved apprenticeship {kind}: {name}')
-    if 'apprenticeship' not in selected[1].metadata.get('paradigms', []):
+    if 'apprenticeship' not in selected.metadata.get('paradigms', []):
         raise ValueError(f'{name} does not support apprenticeship')
     return selected
 
 
 def _selections(cfg, paths):
-    from src.app.core.data_loaders import loader_selection
-    from src.app.core.execution import algorithm_selection
+    from src.app.api.data import loader_selection
+    from src.app.api.execution import algorithm_selection
     profile, algorithm = algorithm_selection(cfg, paths=paths)
     model = cfg.get('model') or {}
     name = model if isinstance(model, str) else model.get('architecture') or model.get('name')
     selected_model = _resolve('model', name, paths)
-    if 'themes.models/v1' not in selected_model[1].metadata.get('output_contracts', []):
+    if 'themes.models/v1' not in selected_model.metadata.get('output_contracts', []):
         raise ValueError('Select a composite model with explicit stage and policy providers; stage-only models cannot supply policies')
-    if selected_model[1].metadata.get('backend') != 'numerical':
+    if selected_model.metadata.get('backend') != 'numerical':
         raise ValueError('Apprenticeship requires a numerical stage model')
     selection, _ = loader_selection(cfg, 'data_module', paths=paths)
     if selection is None:
         raise ValueError('Apprenticeship requires a trajectory data provider')
     data = _resolve('datamodule', selection['name'], paths)
-    if 'themes.trajectories/v1' not in data[1].metadata.get('output_contracts', []):
+    if 'themes.trajectories/v1' not in data.metadata.get('output_contracts', []):
         raise ValueError('Data provider must supply themes.trajectories/v1')
     evaluator = _resolve('evaluator', cfg.get('evaluator'), paths)
     return profile, algorithm, selected_model, selection, data, evaluator
@@ -57,13 +57,13 @@ class ApprenticeshipRunner:
 
     @staticmethod
     def validate_config(cfg, *, paths):
-        from src.app.pipeline.datasets import resolve_dataset_for_method
-        from src.app.pipeline.tuning_config import tuning_enabled
+        from src.app.api.data import resolve_dataset_for_method
+        from src.app.api.tuning import tuning_enabled
         if any(cfg.get(k) for k in ('resume', 'recover', 'resume_from')):
             raise ValueError('Apprenticeship supports inference reload; exact training resume is unsupported')
         if tuning_enabled(cfg):
             raise ValueError('Numerical bundle tuning/promotion is not supported; run a direct method or repeats')
-        from src.app.core.execution import algorithm_selection
+        from src.app.api.execution import algorithm_selection
         profile, _ = algorithm_selection(cfg, paths=paths)
         implementation = profile.get('implementation', 'original')
         allowed = {'seed', 'name', 'algorithm', 'backend', 'implementation', 'patients', 'groups',
@@ -86,7 +86,7 @@ class ApprenticeshipRunner:
         selected_models = _model_bundle(cfg, model, paths)
         if implementation == 'paper_source_port':
             _validate_source_settings(profile, selected_models)
-            if 'themes.temporal/v1' not in data[1].metadata.get('output_contracts', []):
+            if 'themes.temporal/v1' not in data.metadata.get('output_contracts', []):
                 raise ValueError('Full THEMES requires a temporal data loader')
         if implementation == 'demo_reconstruction' and selected_models.reward_spec is not None:
             raise ValueError('Historical demo does not train a reward model; use the full THEMES method')
@@ -101,15 +101,14 @@ class ApprenticeshipRunner:
         dataset = resolve_dataset_for_method('apprenticeship', {}, cfg, paths=paths)
         if not dataset.is_file():
             raise ValueError('Apprenticeship requires a demonstration file')
-        from src.app.core.provider_loader import load_capability
-        source = load_capability(*data, paths=paths)(**selection['params'])
+        source = data.load()(**selection['params'])
         validator = getattr(source, 'validate_file', None)
         if callable(validator):
             validator(dataset)
 
     def run(self, cfg, context):
         self.validate_config(cfg, paths=context.workspace)
-        from src.app.core.execution import execute_backend
+        from src.app.api.execution import execute_backend
         selected_model = _selections(cfg, context.workspace)[2]
         context.apprenticeship_models = _model_bundle(cfg, selected_model, context.workspace)
         return execute_backend(cfg, context)
@@ -118,18 +117,16 @@ class ApprenticeshipRunner:
 def execute(cfg, context):
     import time
     from omegaconf import OmegaConf
-    from src.app import telemetry
-    from src.app.core.execution import RunResult
-    from src.app.core.provider_loader import load_capability
-    from src.app.pipeline.datasets import resolve_dataset_for_method
-    from src.app.pipeline.trial_artifacts import trial_log_version
-    from src.app.services.cancellation import TrainingCancelled
+    from src.app.api import telemetry
+    from src.app.api.data import resolve_dataset_for_method
+    from src.app.api.execution import RunResult, TrainingCancelled
+    from src.app.api.tuning import trial_log_version
 
     profile, algorithm, stage, data_selection, data, evaluation = _selections(cfg, context.workspace)
     model = cfg.model.stage.get('params', cfg.model.stage)
-    source = load_capability(*data, paths=context.workspace)(**data_selection['params'])
+    source = data.load()(**data_selection['params'])
     models = context.apprenticeship_models
-    evaluator = load_capability(*evaluation, paths=context.workspace)
+    evaluator = evaluation.load()
     output = context.artifacts / 'bundle'
     args = SimpleNamespace(dataset=resolve_dataset_for_method('apprenticeship', {}, cfg, paths=context.workspace), output=output,
         seed=context.seed, patients=int(profile.get('patients', 0)),
@@ -174,8 +171,8 @@ def execute(cfg, context):
                            ('preprocessing_and_stages.npz', 'checkpoint'), ('overview.png', 'plot'),
                            ('segments.csv', 'table'), ('grouped_segments.npz', 'data')]:
             log.artifact(output / name, kind=kind)
-        context.metadata.update(backend='numerical', model=stage[1].id,
-            data_provider=data[1].id, evaluator=evaluation[1].id,
+        context.metadata.update(backend='numerical', model=stage.id,
+            data_provider=data.id, evaluator=evaluation.id,
             scientific_milestone=manifest['method'])
         status = 'completed'
         meanings = {'eval/mixture_nll': 'Held-out segment mixture marginal action NLL per scoreable row',
@@ -197,7 +194,6 @@ def execute(cfg, context):
 
 def _model_bundle(cfg, selected, paths):
     from omegaconf import OmegaConf
-    from src.app.core.provider_loader import load_capability
     params = OmegaConf.to_container(cfg.model, resolve=True)
     if set(params) - {'name', 'architecture', 'stage', 'feedback_stage', 'policy', 'reward'}:
         raise ValueError('Model bundle accepts only stage and policy configuration; no ignored parameters')
@@ -205,8 +201,8 @@ def _model_bundle(cfg, selected, paths):
     if len(set(selectors)) != 1:
         raise ValueError('Conflicting model selectors')
     def resolver(name):
-        return load_capability(*_resolve('model', name, paths), paths=paths)
-    return load_capability(*selected, paths=paths)(**params, resolver=resolver)
+        return _resolve('model', name, paths).load()
+    return selected.load()(**params, resolver=resolver)
 
 
 def _validate_source_settings(profile, models):

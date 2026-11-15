@@ -25,7 +25,7 @@ from src.app.api.packages import provider_export
 get_nsfr_model = provider_export('nsfr', 'get_nsfr_model')
 load_module = provider_export('nsfr', 'load_module')
 from src.app.api.models import register_model
-from src.app.core.types import ActionResult
+from src.app.api.models import ActionResult
 
 
 def _softor(xs, dim=0, gamma=0.015):
@@ -499,27 +499,6 @@ class BlenderActorCritic(nn.Module):
     Implements CompositeModelProtocol, AuxiliaryLossProtocol, and OptimizerGroupsProtocol.
     """
 
-    @classmethod
-    def get_model_slots(cls):
-        from src.app.core.protocols import ModelSlot
-
-        return [
-            ModelSlot(
-                name="neural",
-                required=True,
-                default="basics/dnn",
-                tags=["neural", "actor"],
-                description="Neural policy/critic actor",
-            ),
-            ModelSlot(
-                name="symbolic",
-                required=False,
-                default="nsfr",
-                tags=["symbolic", "logic"],
-                description="Symbolic/fuzzy logic reasoner",
-            ),
-        ]
-
     def get_routing_weights(self, obs, logic_obs=None):
         if hasattr(self, "actor") and hasattr(self.actor, "to_blender_policy_distribution"):
             if logic_obs is None:
@@ -528,7 +507,7 @@ class BlenderActorCritic(nn.Module):
         return None
 
     def get_monitoring_adapter(self, algorithm):
-        from src.app.monitoring.api import ModelAccess
+        from src.app.api.monitoring import ModelAccess
         return ModelAccess(self, "get_q_values" if algorithm.lower() == "dqn" else "get_action_probs",
                            "q_values" if algorithm.lower() == "dqn" else "log_probabilities",
                            frozenset({"probe_forward.v1", "module_interventions.v1", "blendrl.expert_interventions.v1"}))
@@ -865,7 +844,7 @@ class BlenderActorCritic(nn.Module):
         )
 
         # Load logic critic (MLP)
-        from src.app.core.provider_loader import environment_resource
+        from src.app.api.packages import environment_resource
         try:
             mlp_module_path = environment_resource(env.name, "mlp.py")
         except FileNotFoundError:
@@ -953,7 +932,7 @@ class BlenderActorCritic(nn.Module):
         if self.actor_mode == "neural" and self.blender_mode == "neural":
             return neural_state
         if getattr(self, "_symbolic_state_loader", None) is None:
-            from src.app.core.data_loaders import create_state_loader
+            from src.app.api.data import create_state_loader
             self._symbolic_state_loader = create_state_loader(self.cfg)
         return self._symbolic_state_loader(neural_state)
 

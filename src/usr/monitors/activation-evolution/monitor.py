@@ -2,8 +2,8 @@
 import numpy as np
 from torch import nn
 
-from src.app.monitoring.api import Result
-from src.app.monitoring.measurements import capture, effective_rank, layers_for, linear_cka, validate_params
+from src.app.api.monitoring import Result
+from src.app.api.monitoring import capture, effective_rank, layers_for, linear_cka, validate_params
 
 
 class ActivationEvolution:
