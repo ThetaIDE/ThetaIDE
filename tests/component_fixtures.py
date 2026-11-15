@@ -20,6 +20,31 @@ def install_optional(paths, name, output):
     HubInstaller(paths.root, paths.data_dir).install(component, install_dependencies=False)
 
 
+def cluster_site(root):
+    """Author a two-partition Slurm site, `cluster`, in the workspace at `root`.
+
+    `cluster/common` is a CPU partition without --time or --gres, `cluster/gpu` a consolidated
+    GPU partition, and `cluster/default` inherits the shared defaults. Tests use it instead of
+    any institution's real site package.
+    """
+    from src.app.sites.catalog import create
+    root = root.root if isinstance(root, WorkspacePaths) else Path(root)
+    defaults = {'scheduler': 'slurm', 'python_executable': 'auto', 'venv_dir': 'venv',
+                'mail_user': None, 'mail_type': 'END,FAIL', 'consolidate': False,
+                'resources': {'time': None, 'nodes': 1, 'gpu_type': None, 'gres': None},
+                'module_loads': [], 'extra_pythonpath': [],
+                'extra_env_vars': {'OMP_NUM_THREADS': '1'}, 'extra_sbatch_flags': [],
+                'dataset_search_dirs': []}
+    variants = {
+        'common': {'scheduler': 'slurm', 'resources': {'partition': 'common', 'cores': 4,
+                   'memory': '8G', 'gpus': 0, 'no_gres': True}},
+        'gpu': {'scheduler': 'slurm', 'consolidate': True, 'gres_format': 'gpu:{gpu_type}:{gpus}',
+                'resources': {'partition': 'gpu', 'gpus': 1, 'cores': 16, 'memory': '32G',
+                              'no_gres': False}, 'module_loads': ['cuda']},
+    }
+    return create(root, 'cluster', defaults, variants)
+
+
 _SESSION_WORKSPACES = {}
 
 

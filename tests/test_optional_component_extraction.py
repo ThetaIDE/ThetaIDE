@@ -59,7 +59,7 @@ def test_native_slurm_install_status_cancel_disable_and_preserved_override(tmp_p
     monkeypatch.setattr('subprocess.run', command)
     assert cancel(paths.root, record)['scheduler_state'] == 'cancelled'
     assert [args[0] for args in calls] == ['scancel', 'squeue', 'sacct']
-    override = ConfigurationFiles(paths).create_override('site/ncshare/_defaults')
+    override = ConfigurationFiles(paths).create_override('site/arc/_defaults')
     override.write_text('# @package site\nscheduler: slurm\nconnection: {host: user-edited}\n')
     before = override.read_bytes()
     registry = ContributionRegistry(paths)
@@ -131,13 +131,16 @@ def test_site_profiles_are_nested_and_a_bare_name_selects_default(tmp_path):
     from src.app.sites import profiles
     from src.app.sites.catalog import create, defaults_path, load, normalize, all_profiles
     paths = WorkspacePaths(tmp_path / 'workspace')
+    from component_fixtures import cluster_site
     install(paths, 'slurm', tmp_path / 'archives')
+    cluster_site(paths)
     available = all_profiles(paths)
     assert normalize('arc', available) == 'arc/default'
-    assert 'ncshare/common' in profiles(paths) and 'ncshare_common' not in available
-    assert defaults_path(paths, 'ncshare') == defaults_path(paths, 'ncshare/gpu')
+    assert normalize('cluster', available) == 'cluster/default'
+    assert 'cluster/common' in profiles(paths) and 'cluster_common' not in available
+    assert defaults_path(paths, 'cluster') == defaults_path(paths, 'cluster/gpu')
     with pytest.raises(ValueError, match='Unknown site profile'):
-        load(paths, 'ncshare_common')
+        load(paths, 'cluster_common')
     # An authored variant that only inherits its defaults is a real profile.
     create(paths.root, 'lab', {'scheduler': 'slurm'}, {'fast': {}})
     available = all_profiles(paths)

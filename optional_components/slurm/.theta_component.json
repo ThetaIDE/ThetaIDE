@@ -3,7 +3,7 @@
   "name": "Slurm scheduler",
   "kind": "package",
   "version": "1.1.0",
-  "description": "Run experiments on Slurm clusters: site setup, job submission, resource headers and a scheduler monitor, with ARC and NCShare site templates.",
+  "description": "Run experiments on Slurm clusters: site setup, job submission, resource headers and a scheduler monitor, with an ARC site template.",
   "author": {
     "name": "Theta-IDE Team"
   },
@@ -60,11 +60,7 @@
     "resources": [],
     "configs": {
       "site/arc/_defaults.yaml": "configs/site/arc/_defaults.yaml",
-      "site/arc/default.yaml": "configs/site/arc/default.yaml",
-      "site/ncshare/_defaults.yaml": "configs/site/ncshare/_defaults.yaml",
-      "site/ncshare/common.yaml": "configs/site/ncshare/common.yaml",
-      "site/ncshare/default.yaml": "configs/site/ncshare/default.yaml",
-      "site/ncshare/gpu.yaml": "configs/site/ncshare/gpu.yaml"
+      "site/arc/default.yaml": "configs/site/arc/default.yaml"
     }
   }
 }

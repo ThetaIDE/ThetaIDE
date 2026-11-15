@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from omegaconf import OmegaConf
 
 from component_fixtures import optional_module
@@ -9,14 +10,17 @@ _headers = optional_module('slurm', 'headers.py')
 generate_sbatch_header, generate_sbatch_script = _headers.generate_sbatch_header, _headers.generate_sbatch_script
 
 
-def compose_site(site):
-    """Compose framework defaults with the installed Slurm component's site profiles."""
+@pytest.fixture(scope='module')
+def site_configs(tmp_path_factory):
+    """Config root of the fixture two-partition site, authored in a private workspace."""
+    from component_fixtures import cluster_site
+    return cluster_site(tmp_path_factory.mktemp('cluster-site')) / 'configs'
+
+
+def compose_site(site, configs):
+    """Compose framework defaults with an authored site package's profiles."""
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
-    from src.app.core.provider_catalog import get_catalog
-    from component_fixtures import optional_workspace
-    paths = optional_workspace('slurm')
-    configs = get_catalog(paths).package('slurm').root / 'configs'
     defaults = Path(__file__).resolve().parents[1] / 'src/app/config_defaults'
     GlobalHydra.instance().clear()
     try:
@@ -28,7 +32,7 @@ def compose_site(site):
 
 def test_slurm_compute_node_defaults():
     site_cfg = OmegaConf.create({
-        "name": "ncshare",
+        "name": "cluster",
         "mail_user": "test@example.com",
         "mail_type": "END,FAIL",
         "resources": {
@@ -80,10 +84,10 @@ def test_slurm_compute_node_defaults():
     assert "#SBATCH --gres=gpu:1" in header_gpu
 
 
-def test_slurm_ncshare_split_sites():
-    """Verify the site=ncshare/common and site=ncshare/gpu Hydra profiles."""
-    # 1. ncshare/common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
-    cfg_common = compose_site("ncshare/common")
+def test_slurm_split_partition_sites(site_configs):
+    """A site's CPU and GPU variants produce the matching sbatch headers."""
+    # 1. cluster/common: CPU partition, 4 cores, 8G mem, consolidate=False, no GPU
+    cfg_common = compose_site("cluster/common", site_configs)
     header_common = generate_sbatch_header("test_common", "logs", cfg_common)
     assert "#SBATCH --partition=common" in header_common
     assert "#SBATCH --cpus-per-task=4" in header_common
@@ -92,8 +96,8 @@ def test_slurm_ncshare_split_sites():
     assert cfg_common.site.consolidate is False
     assert "#SBATCH --time=" not in header_common
 
-    # 2. ncshare/gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
-    cfg_gpu = compose_site("ncshare/gpu")
+    # 2. cluster/gpu: GPU partition, 16 cores, 32G mem, consolidate=True, 1 GPU
+    cfg_gpu = compose_site("cluster/gpu", site_configs)
     header_gpu = generate_sbatch_header("test_gpu", "logs", cfg_gpu)
     assert "#SBATCH --partition=gpu" in header_gpu
     assert "#SBATCH --cpus-per-task=16" in header_gpu
@@ -103,9 +107,9 @@ def test_slurm_ncshare_split_sites():
     assert "#SBATCH --time=" not in header_gpu
 
 
-def test_slurm_script_is_depersonalized():
+def test_slurm_script_is_depersonalized(site_configs):
     """Verify that generated Slurm scripts contain no hardcoded home paths or user emails."""
-    cfg = compose_site("ncshare/default")
+    cfg = compose_site("cluster/default", site_configs)
     script = generate_sbatch_script(
         job_name="depersonalized_test",
         cmd_args=["+experiment=cartpole/test"],

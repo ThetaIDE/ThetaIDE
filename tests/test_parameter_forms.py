@@ -370,6 +370,8 @@ def viewer(tmp_path, optional_tuner_metadata):
     from component_fixtures import install_optional
     install_optional(tmp_path, "optuna", tmp_path / "archives")
     install_optional(tmp_path, "slurm", tmp_path / "archives")
+    from component_fixtures import cluster_site
+    cluster_site(tmp_path)
     (root / "paradigms").mkdir(parents=True)
     (root / "paradigms" / "online_rl.yaml").write_text("budget_unit: timesteps\nallowed_agents: [ppo]\n")
     (root / "env").mkdir()
@@ -1317,7 +1319,7 @@ def test_environment_and_site_children_do_not_overlap_labels(viewer, rel, width)
 @pytest.mark.parametrize("resources", [{}, {"cores": 8, "memory": "16G"}])
 def test_explicit_site_stays_beside_its_label_with_both_actions(viewer, rel, resources):
     widget = load(viewer, {"paradigm": "online_rl", "env": {"num_envs": 1},
-                           "defaults": [{"override /site": "ncshare/common"}],
+                           "defaults": [{"override /site": "cluster/common"}],
                            "resources": resources, "methods": {}}, rel)
     widget.resize(960, 1000)
     app.processEvents()
@@ -1329,7 +1331,7 @@ def test_explicit_site_stays_beside_its_label_with_both_actions(viewer, rel, res
     assert field_rect.left() > caption_rect.right()
     assert abs(field_rect.center().y() - caption_rect.center().y()) <= 4
     assert field_rect.x() == widget.combo_paradigm.mapTo(box, QPoint()).x()
-    assert field.currentText() == "ncshare/common"
+    assert field.currentText() == "cluster/common"
     assert any(button.toolTip() == "Use inherited site" for button in box.findChildren(QToolButton))
     assert not widget.is_dirty
 
@@ -1954,17 +1956,17 @@ def test_site_always_above_runtime_settings_without_creating_override(viewer, re
     site_label = next(item for item in boxes(widget)[0].findChildren(QLabel) if item.text() == 'Site')
     trainer_label = next(item for item in boxes(widget)[0].findChildren(QLabel) if item.text() == 'trainer')
     assert site_label.mapTo(widget, QPoint()).y() < trainer_label.mapTo(widget, QPoint()).y()
-    assert site.findText('ncshare/common') >= 0
-    site.setCurrentIndex(site.findData('ncshare/common'))
-    assert widget.raw_data['defaults'][-1] == {'override /site': 'ncshare/common'}
-    assert 'site=ncshare/common' in widget.get_overrides()
+    assert site.findText('cluster/common') >= 0
+    site.setCurrentIndex(site.findData('cluster/common'))
+    assert widget.raw_data['defaults'][-1] == {'override /site': 'cluster/common'}
+    assert 'site=cluster/common' in widget.get_overrides()
     widget._set_experiment_site(None)
     assert widget._site_selection(widget.raw_data) is None
     assert widget.field_widgets['site'].currentText() == 'local/default (default)'
 
 
 def test_site_resources_use_shared_nested_controls(viewer):
-    widget = load(viewer, {'defaults': [{'override /site': 'ncshare'}], 'resources': {'cores': 8, 'memory': '16G'}})
+    widget = load(viewer, {'defaults': [{'override /site': 'cluster'}], 'resources': {'cores': 8, 'memory': '16G'}})
     block = next(block for block in widget.findChildren(IndentedHierarchyBlock)
                  if any(label.text() == 'cores' for label in block.findChildren(QLabel)))
     assert boxes(widget)[0].isAncestorOf(block)
@@ -1975,12 +1977,15 @@ def test_site_resources_use_shared_nested_controls(viewer):
     assert widget.raw_data['resources'] == {'cores': 12, 'memory': '16G'}
 
 
-def test_ncshare_cpu_component_large_limits_render_and_round_trip(viewer):
-    from pathlib import Path
+def test_site_execution_large_limits_render_and_round_trip(viewer):
     from frontend.widgets import IntegerField
-    project = Path(__file__).resolve().parents[1]
-    data = yaml.safe_load((project / 'src/usr/sites/ncshare/configs/site/ncshare/common.yaml').read_text())
-    widget = load(viewer, data, 'site/ncshare/common.yaml')
+    data = {'defaults': ['/site/cluster/_defaults', '_self_'], 'scheduler': 'slurm',
+            'resources': {'partition': 'common', 'cores': 4, 'memory': '8G', 'gpus': 0},
+            'execution': {'schema_version': 1, 'runtime': 'scratch', 'chunk_bytes': 8388608,
+                          'max_pending_bytes': 2147483648, 'max_published_bytes': 17179869184,
+                          'max_input_bytes': 2147483648, 'max_runtime_bytes': 8589934592,
+                          'diagnostic_bytes': 134217728}}
+    widget = load(viewer, data, 'site/cluster/common.yaml')
     assert not widget.is_dirty
     limits = data['execution']
     for name in ('max_pending_bytes', 'max_published_bytes', 'max_input_bytes', 'max_runtime_bytes'):
@@ -2000,7 +2005,7 @@ def test_ncshare_cpu_component_large_limits_render_and_round_trip(viewer):
     assert type(widget.raw_data['execution']['max_published_bytes']) is int
     assert widget.save_to_disk()
     assert yaml.safe_load(widget.current_path.read_text())['execution']['max_published_bytes'] == exact
-    widget.load_file(widget.current_path, 'site/ncshare/common.yaml')
+    widget.load_file(widget.current_path, 'site/cluster/common.yaml')
     assert not widget.is_dirty
 
 

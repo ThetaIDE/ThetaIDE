@@ -92,13 +92,13 @@ def test_site_template_configuration_creates_user_override(tmp_path):
     from component_fixtures import install_optional
     paths = WorkspacePaths(tmp_path)
     install_optional(paths, "slurm", tmp_path / "archives")
-    resolved = paths.config_resolver().resolve('site/ncshare/_defaults.yaml', required=True)
+    resolved = paths.config_resolver().resolve('site/arc/_defaults.yaml', required=True)
     assert resolved.package.id == 'slurm'
     original = resolved.file.read_bytes()
-    configure(paths, 'ncshare/gpu', {'host': 'test-alias', 'remote_root': '/scratch/test'})
+    configure(paths, 'arc/default', {'host': 'test-alias', 'remote_root': '/scratch/test'})
     assert resolved.file.read_bytes() == original
-    assert defaults_path(paths, 'ncshare/gpu') == paths.config / 'site/ncshare/_defaults.yaml'
-    assert load(paths, 'ncshare/gpu')['connection']['host'] == 'test-alias'
+    assert defaults_path(paths, 'arc/default') == paths.config / 'site/arc/_defaults.yaml'
+    assert load(paths, 'arc/default')['connection']['host'] == 'test-alias'
     assert not paths.user('site').exists()
 
 

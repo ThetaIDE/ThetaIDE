@@ -25,8 +25,8 @@ def test_site_owns_shared_connection_and_variants(tmp_path):
     assert not (tmp_path / '.thetaide/site_connections.json').exists()
     available = profiles(WorkspacePaths(tmp_path))
     assert 'example/gpu' in available and 'example/_defaults' not in available
-    assert 'ncshare_gpu' not in available
-    assert {'local/default', 'arc/default', 'ncshare/common', 'ncshare/gpu'} <= available.keys()
+    assert 'example_gpu' not in available
+    assert {'local/default', 'arc/default', 'example/common', 'example/gpu'} <= available.keys()
 
 
 def test_native_profiles_compose_through_hydra(tmp_path):
