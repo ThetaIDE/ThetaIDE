@@ -1,6 +1,5 @@
 """Native PlotMan discovery and composable, read-only THEMES panels."""
 import json
-from pathlib import Path
 import shutil
 
 import matplotlib

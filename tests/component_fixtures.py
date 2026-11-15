@@ -118,3 +118,20 @@ class LocalHub:
                 self.install(installer, dependency)
         assert installer.install(component, install_dependencies=False)
         return component
+
+
+def sweep_workspace(root):
+    """A copy of the checkout workspace at `root` with Optuna installed, for Hydra sweep scripts.
+
+    Returns the workspace and the `hydra.searchpath=[...]` override a script that composes
+    `paths.config` needs to see package and framework profiles (sites, the Optuna sweepers).
+    Run the script with `THETA_WORKSPACE` set to `paths.root`.
+    """
+    import shutil
+    from conftest import checkout_workspace
+    root = Path(root)
+    shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
+    paths = WorkspacePaths(root)
+    install_optional(paths, 'optuna', root.parent / (root.name + '-archives'))
+    roots = [path for path in paths.config_roots() if path != paths.config]
+    return paths, 'hydra.searchpath=[' + ','.join('file://' + str(path) for path in roots) + ']'

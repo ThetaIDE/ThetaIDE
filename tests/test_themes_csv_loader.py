@@ -157,7 +157,6 @@ def test_csv_model_reload_preserves_timestamps_rows_and_custom_schema(tmp_path):
 
 
 def test_external_csv_recipes_preflight_and_real_worker_use_custom_loader(tmp_path, monkeypatch):
-    import shutil
     from src.app.pipeline.compose import compose_experiment, validate_composed
     workspace = tmp_path / 'workspace'
     themes_package(workspace)
