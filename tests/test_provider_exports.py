@@ -99,5 +99,9 @@ def test_selected_capability_resolves_and_loads_a_configured_selector(workspace)
     from src.app.api.packages import selected_capability
     selected = selected_capability('component', 'LATTICE-LIB', paths=workspace)
     assert (selected.package_id, selected.id, selected.kind) == ('lattice-lib', 'lattice-lib', 'component')
+    assert selected.package_version == '1.4.0'
+    from src.app.core.provider_catalog import provider_hash
+    digest = selected.package_sha256
+    assert len(digest) == 64 and digest == provider_hash(get_catalog(workspace).package('lattice-lib'))
     assert selected.load() == 1
     assert selected_capability('component', 'absent', paths=workspace) is None

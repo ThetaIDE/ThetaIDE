@@ -245,7 +245,14 @@ class SelectedCapability:
     def __init__(self, package, capability, paths):
         self._package, self._capability, self._paths = package, capability, paths
         self.package_id, self.id, self.kind = package.id, capability.id, capability.kind
+        self.package_version = package.version
         self.metadata = dict(capability.metadata)
+
+    @property
+    def package_sha256(self):
+        """Digest of the providing package's executable payload and stable metadata."""
+        from src.app.core.provider_catalog import provider_hash
+        return provider_hash(self._package)
 
     def load(self):
         return load_capability(self._package, self._capability, paths=self._paths)

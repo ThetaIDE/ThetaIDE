@@ -5,6 +5,11 @@ Algorithm adapters (execution contract v1, docs/reference/EXECUTION_CONTRACT.md)
                                 objective input of the same name in ``src.app.api.tuning``.
     ``TrainingCancelled``       raised when the coordinator cancels a run; let it propagate.
 
+Paradigm runners
+    ``algorithm_selection(cfg, paths=)``  the method's algorithm profile and selected capability,
+                                          without importing it.
+    ``execute_backend(cfg, context)``     run the selected algorithm adapter for one method.
+
 Engines and workers
     ``resolve_engine``          the selected runner script and interpreter for a method.
     ``provider_worker_command`` shell command running an engine through the host worker.
@@ -31,6 +36,8 @@ TASK_WORKER_MODULE = "src.app.pipeline.task_worker"
 _EXPORTS = {
     "RunResult": "src.app.core.execution:RunResult",
     "TrainingCancelled": "src.app.services.cancellation:TrainingCancelled",
+    "algorithm_selection": "src.app.core.execution:algorithm_selection",
+    "execute_backend": "src.app.core.execution:execute_backend",
     "resolve_engine": "src.app.pipeline.engine:resolve_engine",
     "task_worker_main": "src.app.pipeline.task_worker:main",
     "saved_run_id": "src.app.pipeline.result_paths:saved_run_id",

@@ -34,7 +34,7 @@ it. This namespace becomes ``src.ide.api`` at consolidation, with forwarding.
 """
 from __future__ import annotations
 
-SDK_VERSION = "2.2"
+SDK_VERSION = "2.3"
 
 
 def sdk_requirement_error(spec) -> str | None:

@@ -66,6 +66,13 @@ def test_sdk_exports_are_canonical_host_objects():
     from src.app.api import monitoring
     assert execution.RunResult is RunResult and execution.RunResult is not tuning.RunResult
     assert monitoring.MonitorManager is MonitorManager
+    from src.app.monitoring import api as monitor_api, measurements
+    from src.app.core import data_loaders, execution as core_execution
+    from src.app.api import data
+    assert monitoring.Result is monitor_api.Result and monitoring.ModelAccess is monitor_api.ModelAccess
+    assert monitoring.validate_params is measurements.validate_params
+    assert execution.execute_backend is core_execution.execute_backend
+    assert data.create_state_loader is data_loaders.create_state_loader
     assert execution.task_worker_command("py", "a", 1) == ["py", "-u", "-m", "src.app.pipeline.task_worker", "a", "1"]
     for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "agents", "plotting",
                    "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "monitoring", "desktop"):

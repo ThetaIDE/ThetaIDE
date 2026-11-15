@@ -12,8 +12,10 @@
                                            capability declares, for packages that pair with it.
     ``selected_capability(kind, selector)``
                                            the provider capability a configured selector names
-                                           (``.metadata``, ``.load()``), or None, for runners that
-                                           accept an independently selected component.
+                                           (``.id``, ``.kind``, ``.metadata``, ``.load()``, and its
+                                           package's ``.package_id``, ``.package_version`` and
+                                           ``.package_sha256``), or None, for runners that accept
+                                           an independently selected component.
 
 See docs/reference/PLUGIN_STORAGE.md#cross-package-exports.
 """

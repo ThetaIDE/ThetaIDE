@@ -13,6 +13,7 @@ Objectives and trials
     ``objective_metric``, ``objective_value``, ``get_sweep_direction``,
     ``trial_log_version``, ``trial_checkpoint_dir``, ``trial_checkpoint_dir_from_config``,
     ``finish_trial_runs``, ``trial_monitor`` (reports intermediate values and pruning for the active trial)
+    ``tuning_enabled(cfg)`` whether the composed configuration runs a tuner
 """
 from ._exports import lazy_exports
 
@@ -32,6 +33,7 @@ _EXPORTS = {
     "trial_checkpoint_dir_from_config": "src.app.pipeline.trial_artifacts:trial_checkpoint_dir_from_config",
     "trial_monitor": "src.app.pipeline.tuners:trial_monitor",
     "finish_trial_runs": "src.app.pipeline.variability:finish_trial_runs",
+    "tuning_enabled": "src.app.pipeline.tuning_config:tuning_enabled",
 }
 __all__ = sorted(_EXPORTS)
 __getattr__, __dir__ = lazy_exports(__name__, _EXPORTS)
