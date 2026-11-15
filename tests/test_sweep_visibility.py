@@ -36,7 +36,7 @@ def test_optional_sweep_controls_and_nested_overrides(tmp_path, optional_tuner_m
     from frontend.widgets import SpinBox, ToggleSlider
 
     path = tmp_path / "experiment.yaml"
-    path.write_text("tuning:\n  component: optuna\n  metric: val/loss\n  seed: 17\nmethods: {}\n")
+    path.write_text("tuning:\n  component: optuna\n  metric: val/loss\n  options:\n    optuna:\n      seed: 17\nmethods: {}\n")
     viewer = ConfigViewer(workspace=optional_workspace("optuna"))
     viewer.load_file(path, "experiment/group/experiment.yaml")
     try:
@@ -51,7 +51,7 @@ def test_optional_sweep_controls_and_nested_overrides(tmp_path, optional_tuner_m
         group = next(block for block in viewer.findChildren(IndentedHierarchyBlock) if block.property("sweepParent") == "sampler")
         assert group.findChild(SpinBox, "sweep_tpe_candidates") is not None
         viewer.findChild(QToolButton, "sweepRemoveOption_seed").click()
-        assert "seed" not in viewer.raw_data["tuning"]
+        assert "seed" not in viewer.raw_data["tuning"]["options"]["optuna"]
         assert viewer.findChild(SpinBox, "sweep_seed") is None
         viewer.findChild(QComboBox, "sweep_sampler").setCurrentText("random")
         assert viewer.findChild(SpinBox, "sweep_tpe_candidates") is None
@@ -91,11 +91,11 @@ def test_card_order_survives_hidden_cards_and_restart(tmp_path, optional_tuner_m
         restarted.close()
 
 
-def test_legacy_enabled_flag_does_not_offer_a_separate_activation_control(tmp_path, optional_tuner_metadata):
+def test_sweep_box_has_no_separate_activation_control(tmp_path, optional_tuner_metadata):
     from PyQt6.QtWidgets import QPushButton
 
     path = tmp_path / "experiment.yaml"
-    path.write_text("tuning:\n  component: optuna\n  enabled: false\n  metric: val/loss\n  study_mode: resume\nmethods: {}\n")
+    path.write_text("tuning:\n  component: optuna\n  metric: val/loss\n  options:\n    optuna:\n      study_mode: resume\nmethods: {}\n")
     viewer = ConfigViewer(workspace=optional_workspace("optuna"))
     viewer.load_file(path, "experiment/group/experiment.yaml")
     try:

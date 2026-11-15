@@ -29,17 +29,31 @@ Done in commits `2898c2d`..`e3c98cd` (see `git log b7c13ac..`). Old inputs fail 
 
 Kept as current behavior (wording only): scalar method selections and method-level keys, the reported-metric objective, inline plot options, capability `aliases`, `ActionResult` unpacking, opt-in schema validation, the internal stylesheet roles in `frontend/theme.py`, and `hotkeys.panes` (still written by the settings view).
 
-### Held for the user: config keys with no generic validator
+### Tuning has one shape
 
-Recipes merge freely into the root config and nothing rejects unknown top-level or `tuning` keys, so removing these readers would make old keys silently do nothing:
+Each tuning setting has exactly one home:
+
+- `tuning.component`, `tuning.metric` (or an `objective` component) and `tuning.direction`;
+- tuner settings under `tuning.options.<component>`;
+- the search space under a method's `tune`.
+
+Validation rejects any other `tuning` key and names where tuner settings go. Nothing reads tuning settings from paradigms, environments (`monitor_metric`), `hydra.sweeper.*`, flat `tuning.<option>` keys or a method's `search_space`. A new sweep block in the form seeds no metric or direction.
+
+The Optuna component has one sweeper config, `hydra/sweeper/theta_optuna` (`optuna` is taken by the upstream Hydra plugin's schema). Every value in it is `???`. The tuner compiles all of them from the tuning block and rejects caller `hydra/sweeper` or `hydra.sweeper.*` arguments. Constructor defaults are gone from `ThetaOptunaSweeper`. The sweeper opens its study through `get_optuna_storage`, as study preparation does, so one storage URL serves both. Launch bindings may assign only `tuning.*` and `theta_tuning.*`. The tracked user-layer copies `src/usr/config/hydra/sweeper/optuna_{online,offline}.yaml` are deleted.
+
+The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials: 64` and `n_jobs: 1` at the flat level, so it now fails validation until those keys move under `tuning.options.optuna` (user go-ahead needed).
+
+Outside tuning, the checkpoint monitor still comes from paradigm or environment `monitor_metric` and `checkpoint.monitor` (`src/app/core/lightning_builder.py:376`–`:416`, `:690`). The bundled documentation (`src/plugins/app/bundled/documentation/content.py:666`, `:1073`) wrongly says `monitor_metric` is also the tuning target.
+
+### Held for the user: top-level config keys with no generic validator
+
+Recipes merge freely into the root config and nothing rejects unknown top-level keys, so removing these readers would make old keys silently do nothing:
 
 - `run_pipeline.py:207` rejects `online_methods`, `offline_methods`, `offline_datasets`; `:237` warns about `task:`.
 - `src/app/core/run_logger_plugins.py:46` turns the root or agent `tensorboard` flag into the TensorBoard backend; the form shows it as an experiment checkbox.
-- The root `sweep` flag (`frontend/config_panel/catalogs.py:209`, `src/app/pipeline/tuning_config.py:11`, `tuning_features.py:39`).
-- `src/app/pipeline/commands.py:289` reads `hydra.sweeper.direction` before the paradigm default.
-- Optuna's flat `tuning.<option>` fallback (`legacy_flat` in `optional_components/optuna/component.py:115` and the sweep form). The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials: 64` and `n_jobs` this way; without the fallback it would silently run 40 trials.
+- The root `sweep` flag (`src/app/pipeline/tuning_config.py:11`, `tuning_features.py:39`).
 
-Choice: add a generic schema for top-level and `tuning` keys and then delete all of these, or keep them.
+Choice: add a generic schema for top-level keys and then delete all of these, or keep them.
 
 ### Also left
 

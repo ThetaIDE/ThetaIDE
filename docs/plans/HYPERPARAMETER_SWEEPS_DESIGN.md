@@ -110,7 +110,7 @@ methods:
 
 The exact serialized keys for dimensions should be finalized with the implementation, but the semantic form is a typed mapping rather than a Hydra-specific expression string. Parameter targets are explicit paths such as `agent.learning_rate`, `model.hidden_sizes`, or a declared nested component path. This removes the current `_MODEL_KEYS` guessing from sweep routing.
 
-Legacy `tune` / `search_space` string expressions remain readable during migration. The editor may preserve an unsupported legacy expression as read-only until it can parse it safely; it must not silently rewrite or discard it.
+A method's search space lives only under `tune` (implemented 2026-11-15; `search_space` is no longer read).
 
 ## Pipeline design
 
@@ -171,7 +171,7 @@ The Sweeper tab does not replace Curves or Summary. Trial metrics continue to ap
 
 - Accept legacy `sweep=true` and `--multirun` inputs without letting them override composed tuning-component presence.
 - Keep existing top-level `tuning` settings and extend them with an explicit `metric` field.
-- Keep current method-level `tune` and `search_space` inputs readable.
+- Read the method-level search space only from `tune`.
 - New UI-generated configs use typed dimensions and a single canonical representation.
 - Old configs without `tuning` remain normal runs even if they contain a base parameter value.
 - Saving an experiment without editing its sweep settings must preserve unknown or legacy sweep YAML.

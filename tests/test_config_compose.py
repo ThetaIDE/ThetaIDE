@@ -58,7 +58,7 @@ def test_builder_command_is_a_valid_pipeline_invocation():
 def test_absent_tuning_does_not_compile_as_a_sweep_despite_legacy_flags():
     composed = compose_experiment(
         BASE_EXPERIMENT,
-        ["++tuning=null", "sweep=true", "--multirun", "hydra/sweeper=optuna_online"],
+        ["++tuning=null", "sweep=true", "--multirun", "hydra/sweeper=theta_optuna"],
     )
     assert not composed.is_sweep
     assert "--multirun" not in composed.launch_args
@@ -68,7 +68,7 @@ def test_absent_tuning_does_not_compile_as_a_sweep_despite_legacy_flags():
 def test_composed_tuning_inherits_group_defaults_and_null_masks_them(fixture_workspace):
     group = fixture_workspace / "src/usr/config/experiment/implicit_tuning"
     group.mkdir()
-    (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: optuna, enabled: false}\n")
+    (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: optuna}\n")
     (group / "inherited.yaml").write_text(
         "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\nsweep: false\n")
     composed = compose_experiment("implicit_tuning/inherited")

@@ -135,3 +135,17 @@ def sweep_workspace(root):
     install_optional(paths, 'optuna', root.parent / (root.name + '-archives'))
     roots = [path for path in paths.config_roots() if path != paths.config]
     return paths, 'hydra.searchpath=[' + ','.join('file://' + str(path) for path in roots) + ']'
+
+
+def sweeper_args(storage, study, n_trials, sampler="TPESampler", **settings):
+    """Every Hydra sweeper value, as the Optuna tuner compiles them from a tuning block."""
+    values = dict(storage=storage, study_name=study, n_trials=n_trials, n_jobs=1, direction="minimize",
+                  pruner="none", pruner_startup_trials=5, pruner_warmup_steps=0, timeout_seconds=0,
+                  max_failed_trials=0)
+    values.update(settings)
+    return ["hydra/sweeper=theta_optuna", f"++hydra.sweeper.sampler._target_=optuna.samplers.{sampler}",
+            *(f"hydra.sweeper.{key}={value}" for key, value in values.items())]
+
+
+#: The Optuna component's own Hydra configs, for tests that launch Hydra directly.
+OPTUNA_CONFIGS = Path(__file__).resolve().parents[1] / "optional_components/optuna/configs"

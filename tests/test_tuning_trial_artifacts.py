@@ -13,6 +13,8 @@ from component_fixtures import optional_module
 _optuna_utils = optional_module('optuna', 'utils.py')
 promote_best_trial_checkpoint = _optuna_utils.promote_best_trial_checkpoint
 from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
+from component_fixtures import sweeper_args
+
 
 
 def test_study_names_cannot_escape_the_trial_directory(tmp_path):
@@ -130,9 +132,8 @@ def test_hydra_sweeps_pass_optuna_trial_numbers_after_resuming(tmp_path, monkeyp
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     env = {**os.environ, "THETA_WORKSPACE": str(paths.root), "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")])}
     command = [
-        sys.executable, str(script), "--multirun", search, "hydra/sweeper=optuna_offline",
-        f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=resumed",
-        "hydra.sweeper.n_trials=1", f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=interval(1.0,2.0)",
+        sys.executable, str(script), "--multirun", search, *sweeper_args(storage, "resumed", 1),
+        f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=interval(1.0,2.0)",
         "++tuning.metric=score",
     ]
     for _ in range(2):
@@ -162,9 +163,8 @@ def test_hydra_sweep_marks_invalid_objective_as_failed(tmp_path):
     storage = f"sqlite:///{tmp_path / 'failed.db'}"
     env = {**os.environ, "THETA_WORKSPACE": str(paths.root), "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")])}
     result = subprocess.run(
-        [sys.executable, str(script), "--multirun", search, "hydra/sweeper=optuna_offline",
-         f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=failed",
-         "hydra.sweeper.n_trials=1", f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=interval(1.0,2.0)",
+        [sys.executable, str(script), "--multirun", search, *sweeper_args(storage, "failed", 1),
+         f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=interval(1.0,2.0)",
          "++group=g", "++experiment_id=e", "++agent.name=m"],
         cwd=tmp_path, env=env, capture_output=True, text=True,
     )
@@ -193,9 +193,7 @@ def test_time_budget_waits_for_running_trial_but_stops_new_batches(tmp_path):
     env = {**os.environ, "THETA_WORKSPACE": str(paths.root),
            "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")])}
     result = subprocess.run(
-        [sys.executable, str(script), "--multirun", search, "hydra/sweeper=optuna_offline",
-         f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=timed",
-         "hydra.sweeper.n_trials=3", "hydra.sweeper.timeout_seconds=1",
+        [sys.executable, str(script), "--multirun", search, *sweeper_args(storage, "timed", 3, timeout_seconds=1),
          f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=interval(1.0,2.0)"],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30,
     )
@@ -221,9 +219,7 @@ def test_sweep_continues_after_allowed_trial_failure(tmp_path):
     storage = f"sqlite:///{tmp_path / 'failures.db'}"
     env = {**os.environ, "THETA_WORKSPACE": str(paths.root), "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")])}
     result = subprocess.run(
-        [sys.executable, str(script), "--multirun", search, "hydra/sweeper=optuna_offline",
-         f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=failures",
-         "hydra.sweeper.n_trials=2", "hydra.sweeper.max_failed_trials=1",
+        [sys.executable, str(script), "--multirun", search, *sweeper_args(storage, "failures", 2, max_failed_trials=1),
          f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=interval(1.0,2.0)"],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30,
     )
@@ -246,9 +242,7 @@ def test_qmc_sampler_runs_a_real_sweep(tmp_path):
     storage = f"sqlite:///{tmp_path / 'qmc.db'}"
     env = {**os.environ, "THETA_WORKSPACE": str(paths.root), "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")])}
     result = subprocess.run(
-        [sys.executable, str(script), "--multirun", search, "hydra/sweeper=optuna_offline",
-         f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=qmc", "hydra.sweeper.n_trials=2",
-         "++hydra.sweeper.sampler._target_=optuna.samplers.QMCSampler", "++hydra.sweeper.sampler.scramble=true",
+        [sys.executable, str(script), "--multirun", search, *sweeper_args(storage, "qmc", 2, sampler="QMCSampler"), "++hydra.sweeper.sampler.scramble=true",
          f"hydra.sweep.dir={tmp_path / 'hydra'}", "+x=range(0.1,0.5,0.2)"],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30,
     )
@@ -273,7 +267,7 @@ def test_interruption_marks_active_trial_and_exports_summary(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     storage = f"sqlite:///{tmp_path / 'interrupted.db'}"
     sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(seed=1), "minimize", storage,
-                                 "interrupted", 1, 1, None)
+                                 "interrupted", 1, 1, None, "none", 5, 0, 0, 0)
     sweeper.impl.config = OmegaConf.create({"group": "g", "experiment_id": "e", "agent": {"name": "m"}})
     sweeper.impl.launcher = InterruptedLauncher()
     with pytest.raises(KeyboardInterrupt):
@@ -306,7 +300,7 @@ def test_resume_remains_compatible_with_legacy_optuna_distributions(tmp_path):
         trial = study.ask()
         trial._suggest("+x", optuna.distributions.UniformDistribution(1.0, 2.0))
         study.tell(trial, 1.0)
-        sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(seed=1), "minimize", storage, "legacy", 1, 1, None)
+        sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(seed=1), "minimize", storage, "legacy", 1, 1, None, "none", 5, 0, 0, 0)
         sweeper.impl.config = OmegaConf.create({"hydra": {"sweep": {"dir": str(tmp_path)}}})
         sweeper.impl.launcher = Launcher()
         sweeper.sweep(["+x=interval(1.0,2.0)"])
@@ -359,9 +353,8 @@ def test_real_lightning_trial_returns_the_selected_metric(tmp_path, monkeypatch)
     storage = f"sqlite:///{tmp_path / 'lightning.db'}"
     env = {**os.environ, "THETA_WORKSPACE": str(paths.root), "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")]),
            "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
-    command = [sys.executable, str(script), "--multirun", search, "hydra/sweeper=optuna_offline",
-               f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=lightning-smoke",
-               "hydra.sweeper.n_trials=1", "++group=g", "++experiment_id=e",
+    command = [sys.executable, str(script), "--multirun", search, *sweeper_args(storage, "lightning-smoke", 1),
+               "++group=g", "++experiment_id=e",
                "++tuning.metric=train/loss", "++tuning.direction=minimize", "+x=interval(0.01,0.02)"]
     result = subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -42,7 +42,7 @@ def test_the_list_is_checked(metrics, problem):
 
 
 def test_a_sweep_must_keep_the_metric_it_optimises():
-    cfg = {"telemetry": {"metrics": ["losses/"]}, "hydra": {"sweeper": {"direction": "maximize"}}}
+    cfg = {"telemetry": {"metrics": ["losses/"]}}
     (error,) = selection_errors(cfg, "eval/reward")
     assert "eval/reward" in error
     assert selection_errors({**cfg, "telemetry": {"metrics": ["eval/"]}}, "eval/reward") == []

@@ -22,7 +22,7 @@ Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It
 
 ## Work to do next, in order
 
-1. **The held config keys**, once the user decides: either add a generic schema for top-level and `tuning` keys and delete the named readers, or keep them. If the readers go, move the user's flat `tuning.n_trials`/`n_jobs` under `tuning.options.optuna` only with their go-ahead.
+1. **The held config keys**, once the user decides: either add a generic schema for top-level keys and delete the named readers, or keep them. The `tuning` block already has one validated shape; move the user's flat `tuning.n_trials`/`n_jobs` under `tuning.options.optuna` only with their go-ahead.
 2. **Phase 5.** Write the phase 5 plan document first (bundle manifest, application/workspace resolution, inclusions and exclusions), add it to `docs/README.md`, then implement: all results paths from the workspace, results moved to `src/usr/results` (moving the user's `results/` needs a dry run shown to the user and their go-ahead, as in 4f), explicit bundles, declared requirements, a versioned bundle manifest.
 3. **Phase 6**, then **phase 7**, as the plan describes.
 4. **Publication, only when the user asks:** follow `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, push `theta-hub-v3` and `theta-plugins-v3`, verify the client feed from a clean workspace, set `published_at`, merge to `main` together with the Hub change, and remove the "pre-v3 Hub releases" row from the exception register.

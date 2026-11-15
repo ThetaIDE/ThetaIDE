@@ -40,10 +40,7 @@ def _render_sweep_objective(self, form, data, resolved):
     spec = self._effective_objective_spec(data, resolved)
     reported_metric = not isinstance(spec, dict)
     tuning = data.get("tuning") or resolved.get("tuning") or {}
-    metric = str(
-        tuning.get("metric")
-        or ("eval/reward" if (data.get("paradigm") or resolved.get("paradigm")) == "online_rl" else "val/loss")
-    )
+    metric = str(tuning.get("metric") or "")
     spec = spec if not reported_metric else {"component": "final_metric", "params": {"metric": metric}}
     tree = self.tree
     workspace = tree.workspace.root if tree else PROJECT_ROOT

@@ -8,11 +8,11 @@ from src.app.api.tuning import TunerArtifact, TunerExecutionPlan, TunerLaunchBin
 
 def execution_plan(tuner, cfg, *, execution_id):
     options = tuner._options(cfg)
-    storage = options.get('storage') or ((cfg.get('hydra') or {}).get('sweeper') or {}).get('storage') or ''
+    storage = options['storage']
     managed = not storage or str(storage).startswith('sqlite:')
     return TunerExecutionPlan('optuna', execution_id,
         artifacts=(TunerArtifact('study', f'results/optuna/{execution_id}/study.sqlite', True),) if managed else (),
-        concurrency=options.get('n_jobs', 1), trials=options.get('n_trials', 40),
+        concurrency=options['n_jobs'], trials=options['n_trials'],
         storage_kind='managed' if managed else 'external', distributions=('optuna', 'sqlalchemy'),
         continuation_notes='reinitialized from configured seed; suggestion sequence can differ')
 

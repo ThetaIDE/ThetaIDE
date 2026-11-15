@@ -10,7 +10,7 @@ Execution plans and artifacts
 
 Objectives and trials
     ``ObjectiveResult``, ``RunResult``, ``TrialResults`` (objective component inputs and result),
-    ``objective_metric``, ``objective_value``, ``get_sweep_direction``,
+    ``objective_metric``, ``objective_value``,
     ``trial_log_version``, ``trial_checkpoint_dir``, ``trial_checkpoint_dir_from_config``,
     ``finish_trial_runs``, ``trial_monitor`` (reports intermediate values and pruning for the active trial)
     ``tuning_enabled(cfg)`` whether the composed configuration runs a tuner
@@ -27,7 +27,6 @@ _EXPORTS = {
     **{name: f"src.app.objectives.api:{name}" for name in ("ObjectiveResult", "RunResult", "TrialResults")},
     "objective_metric": "src.app.pipeline.objective:objective_metric",
     "objective_value": "src.app.pipeline.objective:objective_value",
-    "get_sweep_direction": "src.app.pipeline.commands:get_sweep_direction",
     "trial_log_version": "src.app.pipeline.trial_artifacts:trial_log_version",
     "trial_checkpoint_dir": "src.app.pipeline.trial_artifacts:trial_checkpoint_dir",
     "trial_checkpoint_dir_from_config": "src.app.pipeline.trial_artifacts:trial_checkpoint_dir_from_config",

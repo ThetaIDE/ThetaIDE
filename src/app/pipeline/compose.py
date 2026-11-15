@@ -159,7 +159,7 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
 
     parser = OverridesParser.create()
     for name, plan in method_plans(composed).items():
-        has_sweep = sweep and bool(plan["settings"].get("tune") or plan["settings"].get("search_space"))
+        has_sweep = sweep and bool(plan["settings"].get("tune"))
         fixed, sampled = {}, {}
         validate_sweep_dimensions(plan["settings"], schemas.get(name, {}), name)
         try:

@@ -17,16 +17,14 @@ def test_invalid_objective_fails_instead_of_returning_a_score(metrics):
         objective_value(metrics, "val/loss")
 
 
-def test_metric_filter_checks_explicit_sweep_even_without_hydra_sweeper():
+def test_metric_filter_checks_only_a_sweep_metric():
     cfg = {"telemetry": {"metrics": ["losses/"]}}
-    assert selection_errors(cfg, "eval/reward", is_sweep=True)
-    assert not selection_errors(cfg, "eval/reward", is_sweep=False)
+    assert selection_errors(cfg, "eval/reward")
+    assert not selection_errors(cfg)
 
 
 def test_tuning_presence_is_authoritative_over_legacy_flags():
-    assert not tuning_disabled({"tuning": {"enabled": False}})
-    assert tuning_enabled({"tuning": {"enabled": False}, "sweep": False})
-    assert tuning_enabled({"tuning": {"metric": "val/loss"}})
+    assert tuning_enabled({"tuning": {"metric": "val/loss"}, "sweep": False})
     assert tuning_enabled({"tuning": {}})
     assert tuning_disabled({"sweep": True})
     assert tuning_disabled({"tuning": None, "sweep": True})
@@ -67,7 +65,7 @@ def test_method_preview_includes_the_search_space():
 
     from component_fixtures import optional_workspace
 
-    cfg = OmegaConf.create({"paradigm": "online_rl", "tuning": {"component": "optuna"}, "methods": {
+    cfg = OmegaConf.create({"paradigm": "online_rl", "tuning": {"component": "optuna", "direction": "maximize"}, "methods": {
         "method": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}},
     }})
     composed = ComposedExperiment("example", cfg, [], [], False, workspace=optional_workspace("optuna"))
@@ -81,7 +79,7 @@ def test_command_compiler_never_drops_a_method_search_space():
     from component_fixtures import optional_workspace
 
     method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
-    overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl", "tuning": {"component": "optuna"}},
+    overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl", "tuning": {"component": "optuna", "direction": "maximize"}},
                                        workspace=optional_workspace("optuna"))
     assert "--multirun" in overrides
     assert "agent.lr=interval(0.1, 0.2)" in overrides

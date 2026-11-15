@@ -281,20 +281,17 @@ def validate_experiment_config(
         raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}': {problem}")
 
     # --- Recorded metrics: telemetry.metrics ---
-    env = cfg.get("env") if hasattr(cfg, "get") else None
-    env_monitor = env.get("monitor_metric") if env is not None and hasattr(env, "get") else None
-    monitor = paradigm_def.get("monitor_metric") or env_monitor
     tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
+    tuning_metric = None
     if cfg.get("objective") is not None:
         from src.app.objectives.api import validate_objective
         try:
-            validate_objective(cfg, paths=paths)
+            validate_objective(cfg, paths=paths)  # The component validates its own input metrics.
         except (ValueError, TypeError, KeyError) as exc:
             raise ConfigurationError(f"Invalid objective: {exc}") from exc
-        monitor = None  # The component validates its own input metrics above.
-    if is_sweep and hasattr(tuning, "get") and cfg.get("objective") is None:
-        monitor = tuning.get("metric") or monitor
-    for problem in selection_errors(cfg, monitor, is_sweep=is_sweep):
+    elif is_sweep and hasattr(tuning, "get"):
+        tuning_metric = tuning.get("metric")
+    for problem in selection_errors(cfg, tuning_metric):
         raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}': {problem}")
     from src.app.telemetry.monitors import monitor_errors
     for problem in monitor_errors(cfg):
@@ -334,20 +331,10 @@ def validate_experiment_config(
     if tuning_enabled(cfg):
         _validate_tuning(cfg, paths=paths)
 
-    # --- Metric direction notice ---
-    if is_sweep:
-        try:
-            direction = (cfg.get("tuning") or {}).get("direction")
-            monitor = paradigm_def.get("monitor_metric", None)
-            if direction == "maximize" and monitor and "loss" in monitor:
-                notices.append(
-                    f"Notice: Tuning direction is 'maximize' on paradigm '{paradigm_name}' "
-                    f"which monitors '{monitor}'. Consider using 'direction: minimize'."
-                )
-        except Exception:
-            pass
-
     return notices
+
+
+TUNING_KEYS = ("component", "metric", "direction", "options")
 
 
 def _validate_tuning(cfg: Any, *, paths=None) -> None:
@@ -356,6 +343,11 @@ def _validate_tuning(cfg: Any, *, paths=None) -> None:
     tuning = cfg.get("tuning")
     if not hasattr(tuning, "get"):
         raise ConfigurationError("Sweep tuning must be a mapping.")
+    unknown = sorted(str(key) for key in tuning.keys() if key not in TUNING_KEYS)
+    if unknown:
+        raise ConfigurationError(
+            f"Unknown tuning settings: {', '.join(unknown)}. The tuning block holds only "
+            f"{', '.join(TUNING_KEYS)}; tuner settings go under tuning.options.<component>.")
     tuner_name(cfg)  # Reject an unselected recipe before inspecting provider options.
     if cfg.get("objective") is None and (not isinstance(tuning.get("metric"), str) or not tuning.get("metric").strip()):
         raise ConfigurationError("Sweep tuning requires an objective metric.")
@@ -382,7 +374,7 @@ def _validate_tuning(cfg: Any, *, paths=None) -> None:
                 validate_method(cfg, name, method)
             except ValueError as exc:
                 raise ConfigurationError(f"Method '{name}': {exc}") from exc
-        dimensions = method.get("tune") or method.get("search_space") or {}
+        dimensions = method.get("tune") or {}
         if not dimensions:
             missing.append(name)
             continue

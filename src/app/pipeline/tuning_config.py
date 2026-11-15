@@ -7,8 +7,7 @@ def tuning_disabled(cfg) -> bool:
 
 def tuning_enabled(cfg) -> bool:
     tuning = cfg.get("tuning") if hasattr(cfg, "get") else None
-    # The composed component configuration is authoritative, including inherited
-    # settings and explicit nulls. Legacy sweep/enabled flags have no effect.
+    # The composed tuning block is authoritative, including inherited settings and explicit nulls.
     return tuning is not None
 
 
@@ -17,7 +16,7 @@ def require_runnable_tuning(cfg, methods) -> None:
     if not tuning_disabled(cfg):
         return
     affected = [str(name) for name, method in methods.items()
-                if hasattr(method, "get") and (method.get("tune") or method.get("search_space"))]
+                if hasattr(method, "get") and method.get("tune")]
     if affected:
         from src.app.pipeline.exceptions import ConfigurationError
 

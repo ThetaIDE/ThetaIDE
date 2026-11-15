@@ -57,8 +57,8 @@ positive integers; the current Slurm adapter independently enforces concurrency 
 The plan declares dependency *distribution names* for version comparison, not
 installation requirements. Installation requirements remain in package metadata.
 
-Launch overrides may assign `tuning.*`, `theta_tuning.*` or `hydra.sweeper.*`
-settings. Host workspace, interpreter and CPU/thread policy environment values
+Launch overrides may assign `tuning.*` or `theta_tuning.*` settings; the tuner
+compiles its own `hydra.sweeper.*` values from them. Host workspace, interpreter and CPU/thread policy environment values
 cannot be reassigned by a binding. Core applies bindings again after scratch
 placement, replacing overrides for the same keys. Bindings should not perform IO.
 

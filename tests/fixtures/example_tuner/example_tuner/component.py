@@ -23,7 +23,7 @@ class ExampleTuner:
         cfg, method_cfg = context["cfg"], context["method_cfg"]
         method = next(arg.split("=", 1)[1] for arg in overrides if arg.startswith("++agent.name="))
         options = cfg.tuning.get("options", {}).get("example", {})
-        dimensions = method_cfg.get("tune") or method_cfg.get("search_space")
+        dimensions = method_cfg.get("tune")
         payload = {"group": str(cfg.group), "experiment": str(cfg.experiment_id), "method": method,
                    "count": int(options.get("count", 2)), "dimensions": dimensions,
                    "metric": cfg.tuning.metric, "direction": cfg.tuning.direction,

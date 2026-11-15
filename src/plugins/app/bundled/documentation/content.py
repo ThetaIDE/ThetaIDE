@@ -663,7 +663,7 @@ symbolic:
 <p>Environment profiles (<code>env/&lt;package&gt;/&lt;name&gt;.yaml</code>, e.g. <code>env/gym_classic_control/cartpole.yaml</code>) define operational metadata declaratively. A group's <code>_base.yaml</code> picks one with <code>- override /env: gym_classic_control/cartpole</code>.</p>
 <ul>
   <li><code>compatible_paradigms: [online_rl, offline_rl]</code> &mdash; the paradigms that may use it</li>
-  <li><code>monitor_metric: "eval/reward" | "val/loss"</code> &mdash; target metric for checkpointing and tuning</li>
+  <li><code>monitor_metric: "eval/reward" | "val/loss"</code> &mdash; metric that ranks checkpoints (tuning uses <code>tuning.metric</code>)</li>
   <li><code>preprocess_on_load: true | false</code> &mdash; whether dataset requires offline conversion</li>
   <li>Figures and tables are selected in the experiment configuration.</li>
   <li>Simulator settings such as <code>env_id</code>, <code>num_envs</code> and <code>num_steps</code></li>
@@ -1070,7 +1070,7 @@ class MyModel(nn.Module):
 <pre><code># @package _global_
 env:
   name: my_custom_env
-  monitor_metric: "eval/reward" # Target metric for early stopping and tuning
+  monitor_metric: "eval/reward" # Metric that ranks checkpoints
   preprocess_on_load: false
   obs_dim: 8
   n_actions: 4</code></pre>
@@ -1190,7 +1190,7 @@ python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt; --wi
 
 <h3>Optuna Hyperparameter Sweeps</h3>
 <p>Sweeps use the optional Optuna tuner component. Install it into the workspace (for example <code>python run_pipeline.py component install optuna-1.0.0.zip</code>, built with <code>scripts/package_optional_components.py</code>) and install its declared Python dependencies. Without an installed tuner the editor shows no sweep controls.</p>
-<p>Add a Hyperparameter Sweep block in the experiment editor, choose an objective metric and direction, and mark the method parameters to search. The Enabled switch preserves tuning settings when off; methods with search spaces cannot run until tuning is enabled or their search spaces are removed. Each tuning trial writes its own checkpoint, and the winning checkpoint and parameters are saved in the method's checkpoint folder.</p>
+<p>Add a Hyperparameter Sweep block in the experiment editor, choose an objective metric and direction, and mark the method parameters to search. The <code>tuning</code> block holds only <code>component</code>, <code>metric</code>, <code>direction</code> and <code>options</code>; tuner settings go under <code>tuning.options.&lt;component&gt;</code>, and each method's search space under its <code>tune</code>. Methods with search spaces cannot run without a tuning block. Each tuning trial writes its own checkpoint, and the winning checkpoint and parameters are saved in the method's checkpoint folder.</p>
 <p>The Optuna tuner offers TPE, random, or scrambled Sobol QMC sampling, a sampler seed, trial count, batch size and storage. QMC samples categorical parameters independently. A batch runs concurrently only with a parallel Hydra launcher. Select <b>new</b> to create a study or <b>resume</b> and enter its exact name to add more trials. For multiple methods, include <code>{method}</code> in a custom study name so each method has its own study.</p>
 <p>Median early stopping reports the selected objective after each Lightning validation epoch and can prune underperforming trials. Configure how many trials finish first and how many validation epochs to wait. The objective must be logged during validation; SB3 pruning and multi-process Lightning are not yet supported. A time budget prevents new batches after it expires, while allowing an active batch to finish.</p>
 <p>Search dimensions support scalar choices, integer and numeric ranges, optional numeric steps, and positive log-scaled numeric ranges.</p>

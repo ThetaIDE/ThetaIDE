@@ -329,16 +329,15 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
 
     # Extract shared tuning search space
     shared_tune: dict[str, Any] = {}
-    for tune_key in ("tune", "search_space"):
-        if tune_key in shared_params and isinstance(shared_params[tune_key], dict):
-            shared_tune = deep_merge(shared_tune, shared_params[tune_key])
+    if isinstance(shared_params.get("tune"), dict):
+        shared_tune = deep_merge(shared_tune, shared_params["tune"])
 
     # Extract universal global parameters (excluding agent, model, tune, and standalone algo/arch blocks)
     universal_global = {}
     known_algos = get_known_algorithms(paths) if paths is not None else get_known_algorithms()
     known_models = get_known_models(paths) if paths is not None else get_known_models()
     for k, v in shared_params.items():
-        if k in ("agent", "model", "tune", "search_space"):
+        if k in ("agent", "model", "tune"):
             continue
         if k in known_algos or k in known_models:
             continue
@@ -502,7 +501,7 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
                 continue
             inherited_tune[target] = dimension
 
-        raw_tune = m_dict.get("tune") or m_dict.get("search_space") or {}
+        raw_tune = m_dict.get("tune") or {}
         combined_tune = dict(inherited_tune)
         if isinstance(raw_tune, dict):
             # A method's range replaces the shared dimension as a whole.
@@ -515,7 +514,7 @@ def parse_methods_dict(cfg, *, paths=None) -> dict[str, dict]:
 
         # Copy non-agent, non-model keys from m_dict (deep-merging if both are dicts)
         for k, v in m_dict.items():
-            if k in ("agent", "model", "tune", "search_space", "from_study"):
+            if k in ("agent", "model", "tune", "from_study"):
                 continue
             if k in agent_params:
                 agent_params[k] = (

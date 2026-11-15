@@ -195,7 +195,6 @@ def build_method_overrides(
         "template",
         "from_method",
         "tune",
-        "search_space",
         "from_study",
         "entrypoint",
         "runner",
@@ -285,14 +284,3 @@ def build_method_overrides(
     return loader_override_args(overrides)
 
 
-def get_sweep_direction(cfg, paradigm: str) -> str:
-    """Resolve the historical Hydra direction or the paradigm's default.
-
-    Checks cfg.hydra.sweeper.direction first (explicit override).
-    Defaults: online_rl → 'maximize' (reward), offline_rl → 'minimize' (loss).
-    """
-    if hasattr(cfg, "hydra") and hasattr(cfg.hydra, "sweeper"):
-        explicit = cfg.hydra.sweeper.get("direction", None)
-        if explicit:
-            return str(explicit)
-    return "maximize" if paradigm == "online_rl" else "minimize"

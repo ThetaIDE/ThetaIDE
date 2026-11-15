@@ -112,7 +112,6 @@ class OptunaTuner:
         ]
         for field in fields:
             field["optional"] = field["key"] not in ("n_trials", "sampler")
-            field["legacy_flat"] = True
             if field["key"] == "study_name":
                 field["required_when"] = {"study_mode": "resume"}
             if field["key"] == "seed" or field["key"].startswith("tpe_"):
@@ -132,7 +131,7 @@ class OptunaTuner:
         options = all_options.get("optuna", {})
         if not hasattr(options, "get"):
             raise ValueError("tuning.options.optuna must be a mapping")
-        return {field["key"]: options.get(field["key"], tuning.get(field["key"], field["default"]))
+        return {field["key"]: options.get(field["key"], field["default"])
                 for field in OptunaTuner().settings()}
 
     @staticmethod
@@ -191,10 +190,7 @@ class OptunaTuner:
 
     def pruning_enabled(self, cfg):
         runtime = cfg.get("theta_tuning") or {}
-        tuning = cfg.get("tuning") or {}
-        options = (tuning.get("options") or {}).get("optuna") or {}
-        sweeper = ((cfg.get("hydra") or {}).get("sweeper") or {})
-        return runtime.get("pruner", options.get("pruner", tuning.get("pruner", sweeper.get("pruner", "none")))) != "none"
+        return runtime.get("pruner", self._options(cfg)["pruner"]) != "none"
 
     def validate_dimension(self, target, dimension):
         if not str(target).startswith(("agent.", "model.", "config.")):
@@ -220,56 +216,40 @@ class OptunaTuner:
         return OptunaTrialMonitor(runtime)
 
     def compile(self, overrides: list[str], **context: Any) -> list[str]:
-        from src.app.api.tuning import get_sweep_direction
-
         cfg = context["cfg"]
         extra_args = context["extra_args"]
-        paradigm = context["paradigm"]
         study_name = context["study_name"]
         method_cfg = context["method_cfg"]
         uses_agents = context["uses_agents"]
         model_keys = context["model_keys"]
         for arg in extra_args or []:
             key = arg.lstrip("+").split("=", 1)[0]
-            if key in ("hydra.sweeper.storage", "hydra.sweeper.study_name", "hydra.sweeper.direction"):
-                raise ValueError(
-                    f"Set {key} through tuning options so study preparation and job execution use the same value."
-                )
-            if key == "hydra/sweeper" and arg.split("=", 1)[-1] not in ("optuna_online", "optuna_offline"):
-                raise ValueError("Select a tuning component instead of overriding Hydra's sweeper.")
-        if not (extra_args and any(a.lstrip("+").startswith("hydra/sweeper=") for a in extra_args)):
-            group = "optuna_online" if paradigm == "online_rl" else "optuna_offline"
-            overrides.append(f"hydra/sweeper={group}")
+            if key == "hydra/sweeper" or key.startswith("hydra.sweeper."):
+                raise ValueError(f"{key} is compiled from the tuning block; set tuning.direction or "
+                                 "tuning.options.optuna.<setting> instead.")
+        overrides.append("hydra/sweeper=theta_optuna")
         if study_name:
             overrides.append(f"++hydra.sweeper.study_name={json.dumps(study_name)}")
-        tuning = cfg.get("tuning", {}) if cfg is not None and hasattr(cfg, "get") else {}
-        if tuning:
-            options = self._options(cfg)
-            for key in ("n_trials", "n_jobs", "storage"):
-                if options.get(key):
-                    formatted = json.dumps(options[key]) if key == "storage" else options[key]
-                    overrides.append(f"++hydra.sweeper.{key}={formatted}")
-            samplers = {"tpe": "TPESampler", "random": "RandomSampler", "qmc": "QMCSampler"}
-            overrides.append(f"++hydra.sweeper.sampler._target_=optuna.samplers.{samplers[options['sampler']]}")
-            overrides.append(f"++hydra.sweeper.sampler.seed={options['seed']}")
-            if options["sampler"] == "tpe":
-                overrides.extend([
-                    f"++hydra.sweeper.sampler.n_startup_trials={options['tpe_startup_trials']}",
-                    f"++hydra.sweeper.sampler.n_ei_candidates={options['tpe_candidates']}",
-                    f"++hydra.sweeper.sampler.multivariate={str(options['tpe_multivariate']).lower()}",
-                ])
-            elif options["sampler"] == "qmc":
-                overrides.append("++hydra.sweeper.sampler.scramble=true")
-            for key in ("pruner", "timeout_seconds", "max_failed_trials"):
-                overrides.append(f"++hydra.sweeper.{key}={options[key]}")
-            if options["pruner"] != "none":
-                for key in ("pruner_startup_trials", "pruner_warmup_steps"):
-                    overrides.append(f"++hydra.sweeper.{key}={options[key]}")
-            direction = tuning.get("direction") or get_sweep_direction(cfg, paradigm)
-            overrides.append(f"++hydra.sweeper.direction={direction}")
-            if tuning.get("monitor_metric"):
-                overrides.append(f"++env.monitor_metric={tuning['monitor_metric']}")
-        for key, value in (method_cfg.get("tune") or method_cfg.get("search_space") or {}).items():
+        tuning = cfg["tuning"]
+        options = self._options(cfg)
+        overrides.append(f"++hydra.sweeper.n_trials={options['n_trials']}")
+        overrides.append(f"++hydra.sweeper.n_jobs={options['n_jobs']}")
+        overrides.append(f"++hydra.sweeper.storage={json.dumps(self.storage(cfg))}")
+        samplers = {"tpe": "TPESampler", "random": "RandomSampler", "qmc": "QMCSampler"}
+        overrides.append(f"++hydra.sweeper.sampler._target_=optuna.samplers.{samplers[options['sampler']]}")
+        overrides.append(f"++hydra.sweeper.sampler.seed={options['seed']}")
+        if options["sampler"] == "tpe":
+            overrides.extend([
+                f"++hydra.sweeper.sampler.n_startup_trials={options['tpe_startup_trials']}",
+                f"++hydra.sweeper.sampler.n_ei_candidates={options['tpe_candidates']}",
+                f"++hydra.sweeper.sampler.multivariate={str(options['tpe_multivariate']).lower()}",
+            ])
+        elif options["sampler"] == "qmc":
+            overrides.append("++hydra.sweeper.sampler.scramble=true")
+        for key in ("pruner", "pruner_startup_trials", "pruner_warmup_steps", "timeout_seconds", "max_failed_trials"):
+            overrides.append(f"++hydra.sweeper.{key}={options[key]}")
+        overrides.append(f"++hydra.sweeper.direction={tuning['direction']}")
+        for key, value in (method_cfg.get("tune") or {}).items():
             if not isinstance(value, str) and (not isinstance(key, str) or not key.startswith(("agent.", "model.", "config."))):
                 raise ValueError(f"Typed sweep dimension {key!r} requires an explicit agent, model, or config path")
             if key.startswith("config."):
@@ -298,17 +278,12 @@ class OptunaTuner:
 
     def storage(self, cfg):
         from .utils import DEFAULT_OPTUNA_DB_URL
-        hydra = cfg.get("hydra", {}) if hasattr(cfg, "get") else {}
-        sweeper = hydra.get("sweeper", {}) if hasattr(hydra, "get") else {}
-        value = sweeper.get("storage") if hasattr(sweeper, "get") else None
-        options = self._options(cfg)
-        value = options.get("storage") or value or DEFAULT_OPTUNA_DB_URL
-        return str(value).replace("${experiment_id}", str(cfg.experiment_id))
+        value = str(self._options(cfg)["storage"] or DEFAULT_OPTUNA_DB_URL)
+        return value.replace("${experiment_id}", str(cfg["experiment_id"])) if "${experiment_id}" in value else value
 
     def prepare(self, cfg, storage, study_name):
         self._require_dependencies()
         import optuna
-        from src.app.api.tuning import get_sweep_direction
         from .utils import delete_optuna_study, get_optuna_storage
         from src.app.api.errors import ConfigurationError
 
@@ -318,7 +293,7 @@ class OptunaTuner:
         if cfg.get("remake", False):
             delete_optuna_study(storage, study_name)
         tuning = cfg.get("tuning", {})
-        direction = (tuning.get("direction") if hasattr(tuning, "get") else None) or get_sweep_direction(cfg, cfg.get("paradigm", "offline_rl"))
+        direction = tuning["direction"]
         if not storage:
             raise ConfigurationError("Optuna tuning requires persistent storage for trial artifacts.")
         target = get_optuna_storage(storage)

@@ -94,7 +94,7 @@ class TunerLaunchBindings:
     def __post_init__(self):
         if isinstance(self.overrides, str) or any(not isinstance(x, str) or '=' not in x for x in self.overrides):
             raise ValueError('Tuner launch overrides must be assignments')
-        if any(not arg.lstrip('+').split('=', 1)[0].startswith(('tuning.', 'theta_tuning.', 'hydra.sweeper.'))
+        if any(not arg.lstrip('+').split('=', 1)[0].startswith(('tuning.', 'theta_tuning.'))
                for arg in self.overrides):
             raise ValueError('Tuner launch bindings may only assign tuning runtime settings')
         protected = {'PYTHONPATH', 'THETA_WORKSPACE', 'THETA_DATA_DIR', 'THETA_OUTPUT_ROOT',

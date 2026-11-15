@@ -1304,13 +1304,6 @@ def _add_tuner_option(self, component, key, value):
 def _remove_tuner_option(self, component, key):
     tuning = self.raw_data.get("tuning", {})
     tuning.get("options", {}).get(component, {}).pop(key, None)
-    from src.app.pipeline.tuners import get_tuner
-    try:
-        fields = get_tuner(name=component, paths=self._loader_paths()).settings()
-    except Exception:
-        fields = []
-    if any(field["key"] == key and field.get("legacy_flat") for field in fields):
-        tuning.pop(key, None)
     self._mark_dirty()
     self._refresh_sweep_box()
 
@@ -1412,11 +1405,8 @@ def add_block(self, block_name: str):
         fields = get_tuner(name=component, paths=self._loader_paths()).settings()
         options = {field["key"]: copy.deepcopy(field["default"]) for field in fields
                    if not field.get("optional") and "default" in field}
-        paradigm = self.raw_data.get("paradigm") or self._inherited_paradigm()
-        online = paradigm == "online_rl"
+        # The objective metric and direction are the user's choice; validation requires both.
         self.raw_data["tuning"] = {
-            "metric": "eval/reward" if online else "val/loss",
-            "direction": "maximize" if online else "minimize",
             "component": component,
             "options": {component: options},
         }

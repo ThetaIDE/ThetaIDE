@@ -64,8 +64,8 @@ def selection_from_config(cfg: Any) -> MetricSelection:
     return MetricSelection(patterns)
 
 
-def selection_errors(cfg: Any, monitor_metric: str | None = None, is_sweep: bool = False) -> list[str]:
-    """What is wrong with `telemetry.metrics`, if anything. A sweep needs the metric it optimises."""
+def selection_errors(cfg: Any, tuning_metric: str | None = None) -> list[str]:
+    """What is wrong with `telemetry.metrics`, if anything. A sweep must keep `tuning_metric`."""
     patterns = _section(cfg).get("metrics")
     if patterns is None:
         return []
@@ -74,8 +74,6 @@ def selection_errors(cfg: Any, monitor_metric: str | None = None, is_sweep: bool
     if not isinstance(patterns, (list, tuple)) or not all(isinstance(p, str) and p.strip() for p in patterns):
         return ["'telemetry.metrics' must be a list of metric names or sections (e.g. [eval/reward, losses/])."]
     selection = MetricSelection(patterns)
-    hydra = cfg.get("hydra") if hasattr(cfg, "get") else None
-    sweeping = is_sweep or (hasattr(hydra, "get") and hydra.get("sweeper")) or (hasattr(cfg, "get") and cfg.get("sweeper"))
-    if sweeping and monitor_metric and not selection.keeps(monitor_metric):
-        return [f"This experiment sweeps on '{monitor_metric}', so 'telemetry.metrics' must keep it."]
+    if tuning_metric and not selection.keeps(tuning_metric):
+        return [f"This experiment sweeps on '{tuning_metric}', so 'telemetry.metrics' must keep it."]
     return []

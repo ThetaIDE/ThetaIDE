@@ -38,7 +38,7 @@ def build(host, form, values, tree, paradigm, explicit):
         result = []
         required_keys = schema_for(parent).get("required", [])
         for key, value in values.items():
-            if not parent and key in ("tune", "search_space"):
+            if not parent and key == "tune":
                 continue
             path = (*parent, key)
             identity = ("methods", "params", *path)

@@ -11,6 +11,8 @@ from unittest.mock import Mock
 import pytest
 from omegaconf import OmegaConf
 
+from component_fixtures import OPTUNA_CONFIGS, sweeper_args
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
@@ -73,15 +75,14 @@ def main(cfg):
            "agent": {"name": "m", "algorithm": "sb3/ppo"}, "total_timesteps": 4, "eval_episodes": 1,
            "objective": {"component": "learning_curve"}, "theta_execution": {"script": str(script)},
            "variability": {"training_seeds": [11, 22], "parallel_runs": 2},
-           "hydra": {"searchpath": [f"file://{project / 'src/usr/config'}"]}}
+           "hydra": {"searchpath": [f"file://{project / 'src/usr/config'}", f"file://{OPTUNA_CONFIGS}"]}}
     if not custom:
         cfg.pop("objective")
         cfg["tuning"] = {"metric": "eval/reward", "direction": "maximize"}
     OmegaConf.save(OmegaConf.create(cfg), tmp_path / "task.yaml")
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     command = [sys.executable, "-m", "src.app.pipeline.repeated_task", "--config-path", str(tmp_path), "--config-name", "task",
-               "--multirun", "hydra/sweeper=optuna_online", "hydra.sweeper.n_trials=2",
-               f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=s", "+x=choice(1,2)"]
+               "--multirun", *sweeper_args(storage, "s", 2, direction="maximize"), "+x=choice(1,2)"]
     env = {**os.environ, "PYTHONPATH": str(project), "HYDRA_FULL_ERROR": "1"}
     env.pop("THETA_PIPELINE_PID", None)
     if managed:

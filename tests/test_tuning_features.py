@@ -158,12 +158,11 @@ def test_plain_objectives_do_not_load_tuners(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('cfg,active', [
     ({'tuning': {'options': {'optuna': {'pruner': 'median'}}}}, True),
-    ({'tuning': {'pruner': 'median'}}, True),
-    ({'hydra': {'sweeper': {'pruner': 'median'}}}, True),
-    ({'theta_tuning': {'pruner': 'none'}, 'tuning': {'pruner': 'median'}}, False),
+    ({'theta_tuning': {'pruner': 'none'}, 'tuning': {'options': {'optuna': {'pruner': 'median'}}}}, False),
+    ({'theta_tuning': {'pruner': 'median'}}, True),
     ({}, False),
 ])
-def test_optuna_owns_legacy_and_runtime_pruning_options(cfg, active, tmp_path):
+def test_optuna_reads_pruning_from_its_options_or_the_trial_runtime(cfg, active, tmp_path):
     from component_fixtures import install_optional
     from src.app.core.provider_loader import load_module
     paths = WorkspacePaths(tmp_path / 'workspace')

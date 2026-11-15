@@ -206,7 +206,6 @@ FIXED_BOX_KEYS = frozenset(
         "resources",
         "tensorboard",
         "no_plot",
-        "sweep",  # legacy activation flag; composed tuning determines sweep mode
         "save_dataset",
         "recover",
         # Dataset values are rendered in the inputs card.  Unsupported legacy

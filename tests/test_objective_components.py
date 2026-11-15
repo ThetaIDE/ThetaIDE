@@ -171,14 +171,14 @@ def main(cfg):
     cfg = config()
     cfg.theta_objective_runner.script = str(script)
     cfg.variability.evaluation_seed = None
-    cfg.hydra = {"searchpath": [f"file://{root / 'src/usr/config'}"]}
+    from component_fixtures import OPTUNA_CONFIGS, sweeper_args
+    cfg.hydra = {"searchpath": [f"file://{root / 'src/usr/config'}", f"file://{OPTUNA_CONFIGS}"]}
     OmegaConf.save(cfg, tmp_path / "test.yaml")
     env = {**os.environ, "PYTHONPATH": str(root), "HYDRA_FULL_ERROR": "1"}
     command = [sys.executable, "-m", "src.app.objectives.runner", "--config-path", str(tmp_path), "--config-name", "test"]
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     if sweep:
-        command.extend(["--multirun", "hydra/sweeper=optuna_online", "hydra.sweeper.n_trials=2",
-                        f"hydra.sweeper.storage={storage}", "hydra.sweeper.study_name=objectives", "+x=choice(1,2)"])
+        command.extend(["--multirun", *sweeper_args(storage, "objectives", 2, direction="maximize"), "+x=choice(1,2)"])
     result = subprocess.run(command,
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=45)
     assert result.returncode == 0, result.stdout + result.stderr

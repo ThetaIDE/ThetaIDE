@@ -205,7 +205,7 @@ def test_managed_optuna_batches_are_single_trials(tmp_path, monkeypatch):
         batches.append(len(jobs))
         return [SimpleNamespace(return_value=.5) for job in jobs]
     sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(), 'minimize',
-                                 f'sqlite:///{tmp_path}/study.db', 'managed', 3, 8, None)
+                                 f'sqlite:///{tmp_path}/study.db', 'managed', 3, 8, None, 'none', 5, 0, 0, 0)
     sweeper.impl.config = OmegaConf.create({'hydra': {'sweep': {'dir': str(tmp_path)}}})
     sweeper.impl.launcher = SimpleNamespace(launch=launch)
     monkeypatch.setenv('THETA_MANAGED_SERIAL', '1')

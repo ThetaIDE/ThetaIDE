@@ -75,13 +75,11 @@
     ],
     "resources": [],
     "configs": {
-      "hydra/sweeper/optuna_online.yaml": "configs/hydra/sweeper/optuna_online.yaml",
-      "hydra/sweeper/optuna_offline.yaml": "configs/hydra/sweeper/optuna_offline.yaml"
+      "hydra/sweeper/theta_optuna.yaml": "configs/hydra/sweeper/theta_optuna.yaml"
     }
   },
   "config_paths": [
-    "hydra/sweeper/optuna_online.yaml",
-    "hydra/sweeper/optuna_offline.yaml"
+    "hydra/sweeper/theta_optuna.yaml"
   ],
   "exports": {
     "hydra_sweeper": "sweeper.py:ThetaOptunaSweeper"

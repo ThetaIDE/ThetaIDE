@@ -67,7 +67,8 @@ def _render_sweep_box(self, data):
     direction.setObjectName("sweepDirection")
     direction.setMinimumWidth(NUMBER_FIELD_WIDTH)
     direction.addItems(["maximize", "minimize"])
-    direction.setCurrentText(str(tuning.get("direction") or "minimize"))
+    direction.setPlaceholderText("Select direction...")
+    direction.setCurrentIndex(direction.findText(str(tuning.get("direction"))))
     direction.currentTextChanged.connect(lambda v: self._on_nested_edited("tuning", "direction", v))
     form.add_parameter(("tuning", "direction"), "Direction", _parameter_row(direction))
     from src.app.pipeline.tuners import tuner_name, get_tuner
@@ -109,10 +110,8 @@ def _render_sweep_box(self, data):
     if not isinstance(component_options, dict):
         component_options = {}
     defaults = {field["key"]: field.get("default") for field in fields}
-    by_key = {field["key"]: field for field in fields}
     def option_value(key, default=None):
-        fallback = tuning.get(key, default) if by_key.get(key, {}).get("legacy_flat") else default
-        return component_options.get(key, fallback)
+        return component_options.get(key, default)
     groups = {}
     child_menus = {field["parent"]: QMenu(box) for field in fields if field.get("parent")}
     for field in fields:
@@ -135,7 +134,7 @@ def _render_sweep_box(self, data):
             invalid_number = value < lower or value > upper or (kind == "float" and not math.isfinite(value))
         if field.get("managed_hint") and not invalid_number:
             continue
-        explicit = key in component_options or (field.get("legacy_flat") and key in tuning)
+        explicit = key in component_options
         required = bool(field.get("required_when")) and all(option_value(k, defaults.get(k)) == v for k, v in field["required_when"].items())
         if field.get("optional") and not explicit and not required:
             parent = field.get("parent")

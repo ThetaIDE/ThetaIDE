@@ -95,7 +95,6 @@ def test_optuna_storage_override_is_identical_for_job_and_study():
     OptunaTuner = _optuna_component.OptunaTuner
 
     cfg = OmegaConf.create({"experiment_id": "e", "paradigm": "online_rl",
-                            "hydra": {"sweeper": {"storage": "sqlite:///old.db"}},
                             "tuning": {"component": "optuna", "direction": "maximize", "options": {"optuna": {
                                 "storage": "sqlite:///folder with spaces/new.db"}}}})
     method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
@@ -103,7 +102,7 @@ def test_optuna_storage_override_is_identical_for_job_and_study():
     assert OptunaTuner().storage(cfg) == "sqlite:///folder with spaces/new.db"
     assert '++hydra.sweeper.storage="sqlite:///folder with spaces/new.db"' in overrides
     assert '++hydra.sweeper.study_name="study one"' in overrides
-    with pytest.raises(ValueError, match="study preparation"):
+    with pytest.raises(ValueError, match="compiled from the tuning block"):
         build_method_overrides("method", method, cfg=cfg, is_sweep=True,
                                extra_args=["hydra.sweeper.storage=sqlite:///different.db"], workspace=workspace)
 
@@ -181,7 +180,7 @@ def test_optuna_sweeper_does_not_import_lightning_when_pruning_is_off(tmp_path):
         "sys.meta_path.insert(0, BlockLightning())\n"
         "import optuna\n"
         "from hydra_plugins.theta_optuna_sweeper import ThetaOptunaSweeper\n"
-        "ThetaOptunaSweeper(optuna.samplers.RandomSampler(), 'minimize', None, 'test', 1, 1, None)\n",
+        "ThetaOptunaSweeper(optuna.samplers.RandomSampler(), 'minimize', None, 'test', 1, 1, None, 'none', 5, 0, 0, 0)\n",
         encoding="utf-8",
     )
     from component_fixtures import optional_workspace

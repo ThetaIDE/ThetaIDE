@@ -79,8 +79,7 @@ def _export_summary(config, study):
 
 class ThetaOptunaSweeper(Sweeper):
     def __init__(self, sampler, direction, storage, study_name, n_trials, n_jobs, search_space,
-                 pruner="none", pruner_startup_trials=5, pruner_warmup_steps=0, timeout_seconds=0,
-                 max_failed_trials=0):
+                 pruner, pruner_startup_trials, pruner_warmup_steps, timeout_seconds, max_failed_trials):
         if isinstance(n_trials, bool) or not isinstance(n_trials, int) or n_trials <= 0:
             raise ValueError("Optuna n_trials must be a positive integer")
         if isinstance(n_jobs, bool) or not isinstance(n_jobs, int) or n_jobs <= 0:
@@ -132,15 +131,17 @@ class ThetaOptunaSweeper(Sweeper):
         if isinstance(impl.direction, (list, tuple)):
             raise ValueError("Theta's Optuna sweeper currently supports one objective")
         direction = impl.direction if isinstance(impl.direction, str) else impl.direction.name
+        from .utils import get_optuna_storage
+        storage = get_optuna_storage(impl.storage)
         try:
             # The pipeline prepares a new study before launching Hydra. Attach
             # explicitly rather than logging that we are reusing an old study.
-            study = optuna.load_study(study_name=impl.study_name, storage=impl.storage,
+            study = optuna.load_study(study_name=impl.study_name, storage=storage,
                                       sampler=impl.sampler, pruner=self.pruner)
             if study.direction.name.lower() != direction:
                 raise ValueError(f"Study {study.study_name!r} has a different objective direction")
         except KeyError:
-            study = optuna.create_study(study_name=impl.study_name, storage=impl.storage,
+            study = optuna.create_study(study_name=impl.study_name, storage=storage,
                                         sampler=impl.sampler, pruner=self.pruner,
                                         direction=direction, load_if_exists=True)
         tuning = impl.config.get("tuning")

@@ -869,6 +869,7 @@ class TestConfigViewer(unittest.TestCase):
         self.viewer.raw_data["methods"]["params"] = {"lr": 0.01}
         self.viewer.raw_data["methods"]["other"] = {"agent": "ppo", "model": "dnn"}
         self.viewer.add_block("tuning")
+        self.viewer.raw_data["tuning"]["direction"] = "maximize"
         self.viewer.findChild(QToolButton, "sweepToggle_params_agent.lr").click()
         picker = self.viewer.findChild(QComboBox, "sweepType_params_agent.lr")
         picker.setCurrentIndex(picker.findData("float"))

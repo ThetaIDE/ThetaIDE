@@ -39,6 +39,14 @@ def test_valid_sweep():
     _validate_tuning(config())
 
 
+@pytest.mark.parametrize("key", ["n_trials", "search_space", "monitor_metric", "enabled"])
+def test_tuning_block_rejects_settings_outside_its_one_shape(key):
+    cfg = config()
+    cfg["tuning"][key] = 1
+    with pytest.raises(ConfigurationError, match=f"Unknown tuning settings: {key}.*tuning.options.<component>"):
+        _validate_tuning(cfg)
+
+
 def test_missing_dimension_names_method():
     cfg = config()
     cfg["methods"]["two"] = {"agent": "ppo", "model": "dnn"}
@@ -115,7 +123,7 @@ def test_optional_sweep_controls_keep_hydra_prefix_without_polluting_trial_names
 
     storage = f"sqlite:///{tmp_path / 'optional.db'}"
     sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(seed=1), "minimize", storage,
-                                 "optional", 1, 1, None)
+                                 "optional", 1, 1, None, "none", 5, 0, 0, 0)
     sweeper.impl.config = OmegaConf.create({"hydra": {"sweep": {"dir": str(tmp_path)}}})
     sweeper.impl.launcher = Launcher()
     sweeper.sweep([dimension])

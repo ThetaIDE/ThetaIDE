@@ -61,7 +61,7 @@ def validate_method_components(cfg, schemas: dict[str, dict], method: str) -> No
 
 def validate_sweep_dimensions(settings: dict, schemas: dict[str, dict], method: str) -> None:
     """Check every choice and both bounds against the opted-in field schema."""
-    dimensions = settings.get("tune") or settings.get("search_space") or {}
+    dimensions = settings.get("tune") or {}
     for target, dimension in dimensions.items():
         if not isinstance(target, str) or not hasattr(dimension, "get"):
             continue

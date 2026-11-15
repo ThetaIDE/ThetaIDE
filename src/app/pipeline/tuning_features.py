@@ -36,7 +36,7 @@ def validate_tuning_compatibility(cfg, *, paths=None, tuner=None):
     """Validate declarations without interpreting a provider's option vocabulary.
 
     Returns whether pruning is active. Providers declaring pruning must supply a
-    read-only ``pruning_enabled(cfg) -> bool`` query, including legacy settings.
+    read-only ``pruning_enabled(cfg) -> bool`` query.
     """
     from src.app.core.provider_catalog import get_catalog
     from src.app.pipeline.tuners import get_tuner, tuner_name
