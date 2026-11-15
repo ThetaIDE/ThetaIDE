@@ -73,15 +73,16 @@ def fork_package(paths, reference, new_id, name=None):
             shutil.copytree(owner.root, stage, ignore=shutil.ignore_patterns('__pycache__','*.pyc','node_modules','.git'))
             for file in stage.rglob('*'):
                 if file.is_file(): file.chmod(file.stat().st_mode | 0o200)
-            # Only declared registration identities and known import namespaces are changed in source.
+            # Only declared registration identities and profile selectors are changed in source.
             for file in stage.rglob('*.py'):
                 source = file.read_text()
                 tree = ast.parse(source)
                 for node in ast.walk(tree):
                     module = node.module if isinstance(node,ast.ImportFrom) and not node.level else ''
                     imports = [v.name for v in node.names] if isinstance(node,ast.Import) else [module]
-                    if any(name.startswith(('src.usr.','usr.','in.envs.','plot.')) for name in imports if name):
-                        raise ValueError(f'Native copy requires package-relative imports: {file}')
+                    if any((name == 'src' or name.startswith('src.')) and not (name == 'src.app.api' or name.startswith('src.app.api.'))
+                           for name in imports if name):
+                        raise ValueError(f'Native copy requires package-relative imports and host imports through src.app.api only: {file}')
                 class Remap(ast.NodeTransformer):
                     def visit_Constant(self, node):
                         if isinstance(node.value,str) and node.value.startswith('package://' + owner.id + '/'):

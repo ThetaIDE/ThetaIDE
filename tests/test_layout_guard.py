@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-RETIRED_PATHS = re.compile(r"\bin/(config|datasets|envs|inputs)\b")
+# Both the path form (in/envs) and the module form (in.envs) of the retired roots.
+RETIRED_PATHS = re.compile(r"(?<![\w.])in[/.](config|datasets|envs|inputs)\b")
 # Tests may build rejected layouts, and documentation records history (its current
 # guides are swept by hand). Results are run outputs, not source.
 EXEMPT = ("tests/", "docs/", "results/")
