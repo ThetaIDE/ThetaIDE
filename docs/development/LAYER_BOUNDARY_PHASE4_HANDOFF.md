@@ -4,7 +4,7 @@ Paste the prompt below into a new agent session in this repository to continue t
 
 ---
 
-You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch is pushed to `origin` (ThetaIDE/ThetaIDE); it has no PR and must not be merged to `main` until phase 4 and the Hub republish are ready together.
+You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch exists on `origin` (ThetaIDE/ThetaIDE), but the local branch is ahead of it: the phase 4 commits are not pushed. It has no PR and must not be merged to `main` until phase 4 and the Hub republish are ready together.
 
 **Read first, in this order:**
 1. `AGENTS.md` and `docs/README.md`.
@@ -14,18 +14,17 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 5. `docs/reference/LAYER_BOUNDARIES.md` (contract and exception register) and `docs/reference/PLUGIN_STORAGE.md`.
 
 **Where things stand (2026-11-14):**
-- **Phases 0–3** are complete locally, with SDK 2.0 (`src.app.api`). The only open items are external: a real cluster smoke run and an interactive check of the installed desktop. Both need the user.
-- **Phase 4 units 4a–4f have landed.** Every decision is settled: no legacy support of any kind (v3 only, no `in/` handling, every compatibility adapter retired including checkpoint aliases, historical results untouched, no readers or forwarders in phases 5 and 6). Package profiles resolve from the package; `src/usr/config` holds only user files and overrides. Details, commits and evidence are in the status doc.
-- **Next: 4g, Hub republish preparation (no publication).**
-  - **Ask the user first.** `../theta-plugins` is on `main` with a large uncommitted storage-v2 migration (455 paths, dated 2026-11-03 to 11-07), and `../theta-hub` tracks a fork with releases production lacks. Agree on the authoritative source before building anything.
-  - Rebuild the sibling packages as v3 archives with new versions. nsfr and neumann must declare `exports` for what `blendrl-dev` loads (`get_nsfr_model`, the neumann helpers). Move installed `provider_object` users (`blendrl`, `mlp`, `neumann`) and `plot.base` users to SDK 2 (`src.app.api.packages`, `src.app.api.plotting`, `paths` in plotter constructors). Bump the Optuna and Slurm versions.
-  - App plugins against SDK 2 (checked read-only on 2026-11-14 in `../theta-plugins/plugins`): none of `doom-sim`, `obsidian` or `antigravity` declares `sdk`, so SDK 2 refuses all three, and all import `frontend.plugins.base`/`.context` directly. `doom-sim` and `obsidian` need only `src.app.api.desktop` imports and `"sdk": ">=2.0,<3"`. `antigravity` (third-party author) uses `context.window`/`_window` to add a dock widget and read `settings_manager` shortcuts, which SDK 2 has no service for; ask the user whether to add a host service or change the plugin before touching it.
-  - Install every rebuilt archive into an isolated workspace with the branch IDE. The tests waiting on this: `test_baselines_and_suites` (nsfr/neumann, dl-basics), `test_rulesets::test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process`, `test_data_loader_bindings` (BlendRL), `test_blendrl_rich_monitors` and `test_wet_runs::test_preflight_blocks_supervised_without_dataset`.
-  - Then remove the register row for SDK 1.1 direct imports in installed packages.
+- **Phases 0–3** are complete locally, with SDK 2.2 (`src.app.api`). The only open items are external: a real cluster smoke run and an interactive check of the installed desktop. Both need the user.
+- **Phase 4 units 4a–4g have landed locally.** Every decision is settled: no legacy support of any kind (v3 only, no `in/` handling, every compatibility adapter retired including checkpoint aliases, historical results untouched, no readers or forwarders in phases 5 and 6). Details, commits and evidence are in the status doc's 4g section.
+- **4g prepared the Hub releases without publishing them.** Worktrees `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) hold the v3 sources and 39 release archives with registry entries and feeds. The user's own `../theta-plugins` and `../theta-hub` checkouts are untouched. Tests that install Hub releases read `THETA_HUB_ROOT` and `THETA_PLUGINS_ROOT`.
+- **Next: user decisions, then publication.**
+  - Whether to port `ai_assistant` and `theta_mcp` (they need a large SDK service surface), drop them from the feed, or ask their author (ccast44).
+  - Phase 6 says `src.app.api` becomes `src.ide.api` "with forwarding", but no forwarders are allowed, so the rename would force another republish of every package. Settle this before phase 6.
+  - When the user authorizes publication, follow `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`: push the Hub and plugins branches, verify the client feed, and set `published_at`. Then remove the last exception-register row in `docs/reference/LAYER_BOUNDARIES.md`.
 
   Do not reintroduce compatibility code, deprecation paths or messages about old formats.
 
-**Then implement** 4g, committing separately with the attribution trailer the session gives you. Keep the status doc's progress outline and a dated section current as units land. Add new documents to `docs/README.md`.
+**Then continue** with the user's decisions, committing separately with the attribution trailer the session gives you. Keep the status doc's progress outline and a dated section current as units land. Add new documents to `docs/README.md`.
 
 **Hard constraints:**
 - Do not publish to Theta Hub, push to any Hub repository, or merge to `main` unless the user asks. Unit 4g prepares releases only.
