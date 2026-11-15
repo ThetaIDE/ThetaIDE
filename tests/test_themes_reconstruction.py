@@ -106,7 +106,8 @@ FIXTURES = Path(__file__).parent / 'fixtures'
 
 
 def parity_input(tmp_path):
-    with np.load(FIXTURES / 'themes_parity.npz', allow_pickle=False) as fixture:
+    from themes_fixtures import parity_fixture
+    with np.load(parity_fixture(), allow_pickle=False) as fixture:
         saved = {k: fixture[k] for k in fixture.files}
     path = tmp_path / 'synthetic.npz'
     np.savez_compressed(path, **{k: saved[k] for k in ('X', 'mask', 'y', 'vids', 'feature_names_x', 'synthetic')})

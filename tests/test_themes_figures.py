@@ -14,16 +14,14 @@ from src.app.core.provider_catalog import get_catalog
 from src.app.core.provider_loader import load_capability
 from src.app.workspace import WorkspacePaths
 
-ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / 'src/usr/packages/themes-dev'
+from themes_fixtures import themes_package
 
 
 @pytest.fixture
 def plots(tmp_path, monkeypatch):
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     monkeypatch.delenv('THETA_DATA_DIR', raising=False)
-    provider = tmp_path / 'src/usr/packages/themes-dev'
-    shutil.copytree(PACKAGE, provider, ignore=shutil.ignore_patterns('__pycache__', 'build', '*.egg-info'))
+    themes_package(tmp_path)
     selected = get_catalog(WorkspacePaths(tmp_path)).resolve('plotter', 'themes-dev/themes')
     cls = load_capability(*selected, paths=WorkspacePaths(tmp_path))
     bundle = tmp_path / 'results/checkpoints/AL/codex/example/method/run-a/bundle'

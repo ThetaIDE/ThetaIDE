@@ -242,13 +242,11 @@ def prepare_launch(
     if scheduler(cfg) != 'local':
         raise LaunchError('This experiment targets a remote site. Use Run to upload project code and open the cluster terminal, '
                           'then submit run_pipeline.py there. Sync Metrics/Results pulls its outputs back.')
-    local = str((cfg.get('hydra') or {}).get('runtime', {}).get('choices', {}).get('site')
-                or (cfg.get('site') or {}).get('name', 'local')) == 'local'
     trainer = cfg.get('trainer') or {}
     devices = trainer.get('devices', 1)
     single_device = (devices == 1 or (isinstance(devices, (list, tuple)) and len(devices) == 1)
                      or (OmegaConf.is_list(devices) and len(devices) == 1))
-    if local and (not single_device or trainer.get('num_nodes', 1) != 1):
+    if not single_device or trainer.get('num_nodes', 1) != 1:
         raise LaunchError('Resource-managed local launches support one training device and one node per job. '
                           'Use trainer.devices=1 and trainer.num_nodes=1, or submit through a cluster site.')
     log_dir = composed.workspace.results / "logs" / cfg.group / cfg.experiment_id
@@ -280,7 +278,7 @@ def prepare_launch(
         "total_timesteps": cfg.get("total_timesteps"),
         "effective_timesteps": effective_timesteps(plans, cfg.get("total_timesteps")),
         "run_in_parallel": bool(cfg.get("run_in_parallel", False)),
-        "local": local,
+        "local": True,  # remote schedulers were refused above
         "accelerator": uses_accelerator(resource_config, paths=composed.workspace),
         "resource_estimate": workload_estimate(resource_config, paths=composed.workspace),
     }

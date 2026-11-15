@@ -11,8 +11,7 @@ import pandas as pd
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / 'src/usr/packages/themes-dev'
-sys.path.insert(0, str(PACKAGE))
+from themes_fixtures import PACKAGE, themes_package
 from themes_al.csv_data import load_csv
 from themes_al.data import PHYSIOLOGY
 from themes_al.artifacts import verify
@@ -37,8 +36,18 @@ def csv_fixture(path, visits=24):
     return frame
 
 
+_WORKSPACE = []
+
+
+@pytest.fixture(scope='module', autouse=True)
+def loader_workspace(tmp_path_factory):
+    root = tmp_path_factory.mktemp('themes-loader')
+    themes_package(root)
+    _WORKSPACE[:] = [WorkspacePaths(root)]
+
+
 def loader(**params):
-    paths = WorkspacePaths(ROOT)
+    paths, = _WORKSPACE
     selected = get_catalog(paths).resolve('datamodule', 'themes-dev/csv_trajectories')
     return load_capability(*selected, paths=paths)(**params)
 
@@ -151,8 +160,7 @@ def test_external_csv_recipes_preflight_and_real_worker_use_custom_loader(tmp_pa
     import shutil
     from src.app.pipeline.compose import compose_experiment, validate_composed
     workspace = tmp_path / 'workspace'
-    package = workspace / 'src/usr/packages/themes-dev'
-    shutil.copytree(PACKAGE, package, ignore=shutil.ignore_patterns('__pycache__', '*.egg-info', 'build'))
+    themes_package(workspace)
     monkeypatch.delenv('THETA_DATA_DIR', raising=False)
     monkeypatch.delenv('THETA_PROVIDER_SNAPSHOT', raising=False)
     from test_themes_integration import historical_test_workspace

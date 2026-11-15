@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
@@ -17,7 +16,7 @@ from src.app.pipeline.compose import compose_experiment, validate_composed
 from src.app.workspace import WorkspacePaths
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'src/usr/packages/themes-dev'
+from themes_fixtures import themes_package
 
 
 def historical_test_workspace(paths):
@@ -45,8 +44,7 @@ def historical_test_workspace(paths):
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    provider = tmp_path / 'src/usr/packages/themes-dev'
-    shutil.copytree(SOURCE, provider, ignore=shutil.ignore_patterns('__pycache__', '*.egg-info', 'build'))
+    themes_package(tmp_path)
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     monkeypatch.delenv('THETA_DATA_DIR', raising=False)
     monkeypatch.delenv('THETA_PROVIDER_SNAPSHOT', raising=False)
@@ -80,7 +78,8 @@ def test_panel_lists_al_group_and_compatible_profiles(workspace):
         validate_composed(compose_experiment(experiment.name, workspace=workspace))
 
 
-def test_provider_manifest_and_all_payloads_exist():
+def test_provider_manifest_and_all_payloads_exist(tmp_path):
+    SOURCE = themes_package(tmp_path)
     valid, error = validate_manifest_file(SOURCE / '.theta_component.json')
     assert valid, error
     manifest = json.loads((SOURCE / '.theta_component.json').read_text())

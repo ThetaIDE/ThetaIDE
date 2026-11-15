@@ -128,13 +128,15 @@ def gui_compose(config):
     return compose_experiment(BASE_EXPERIMENT, config.overrides())
 
 
-def test_compose_report_matches_direct_composition():
+def test_compose_report_matches_direct_composition(fixture_workspace):
     config = Config(name="seed_study-7", method_name="ppo", seed=7, total_timesteps=25000, lr=1e-6, batch_size=256, gamma=0.9)
     body = config_service.compose_report(BASE_EXPERIMENT, config.overrides())
     assert body["valid"], body["errors"]
     assert body["argv"] == ["python", "run_pipeline.py", BASE_EXPERIMENT, *config.overrides()]
     expected = comparable_config(gui_compose(config).cfg)
     body["config"].pop("experiment_name")
+    # The report names the selected site for the panel; composition leaves that to the selector.
+    assert body["config"]["site"].pop("name") == "local/default"
     assert body["config"] == expected
     train_overrides = body["methods"]["ppo"]["train_overrides"]
     assert f"++agent.lr={config.lr}" in train_overrides
@@ -146,8 +148,8 @@ def test_compose_report_flags_an_invalid_override():
     assert not body["valid"] and body["errors"][0]["stage"] == "compose"
 
 
-def test_compose_report_flags_a_paradigm_violation():
-    body = config_service.compose_report(BASE_EXPERIMENT, Config().overrides() + ["++methods.ppo.agent=cql"])
+def test_compose_report_flags_a_paradigm_violation(fixture_workspace):
+    body = config_service.compose_report(BASE_EXPERIMENT, Config().overrides() + ["++methods.ppo.agent=d3rlpy-dev/cql"])
     assert not body["valid"] and body["errors"][0]["stage"] == "validation"
 
 
@@ -155,7 +157,7 @@ def test_compose_report_flags_an_unknown_experiment():
     assert not config_service.compose_report("thetaide/does_not_exist")["valid"]
 
 
-def test_schema_health_check_composes_a_real_workspace_experiment():
+def test_schema_health_check_composes_a_real_workspace_experiment(fixture_workspace):
     schema = config_service.config_schema()
     assert schema["base_experiment"]
     assert schema["fixed_overrides"] == []
@@ -172,13 +174,13 @@ def test_compose_report_does_not_infer_an_algorithm_specific_budget():
     assert notices(10240) == []
 
 
-def test_prepare_launch_describes_the_job():
+def test_prepare_launch_describes_the_job(fixture_workspace):
     plan = config_service.prepare_launch(BASE_EXPERIMENT, Config(name="pytest_plan_only", method_name="ppo", total_timesteps=3000).overrides())
     assert (plan["group"], plan["experiment_id"], plan["agents"]) == ("thetaide", "pytest_plan_only", ["ppo"])
     assert plan["effective_timesteps"] == 3000
 
 
-def test_prepare_launch_refuses_a_clash_with_an_active_job():
+def test_prepare_launch_refuses_a_clash_with_an_active_job(fixture_workspace):
     active = [{"job_id": "j1", "status": "running", "group": "thetaide", "experiment_id": "pytest_clash"}]
     with pytest.raises(config_service.LaunchError) as error:
         config_service.prepare_launch(BASE_EXPERIMENT, Config(name="pytest_clash", method_name="ppo").overrides(), active_jobs=active)
@@ -426,7 +428,7 @@ def test_an_unusable_cache_file_never_breaks_listing(logs, monkeypatch, tmp_path
 
     blocker = tmp_path / "not_a_folder"
     blocker.write_text("", encoding="utf-8")
-    monkeypatch.setattr(catalog, "_summary_cache_file", lambda: blocker / "cache.json")  # can't be written
+    monkeypatch.setattr(catalog, "_summary_cache_file", lambda **kwargs: blocker / "cache.json")  # can't be written
     new_session()
     assert [run["experiment_id"] for run in catalog.list_runs()] == ["a"]
 
