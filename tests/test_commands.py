@@ -6,6 +6,13 @@ from src.app.pipeline.commands import build_method_overrides
 from src.app.pipeline.config import parse_methods_dict
 
 
+@pytest.fixture(autouse=True)
+def optuna_workspace(monkeypatch):
+    """Sweeps compile through the selected tuner, so Optuna is installed in the workspace."""
+    from component_fixtures import optional_workspace
+    monkeypatch.setenv("THETA_WORKSPACE", str(optional_workspace("optuna").root))
+
+
 class TestBuildMethodOverrides:
     """Tests for build_method_overrides generating clean Hydra override arguments."""
 
@@ -117,7 +124,7 @@ class TestBuildMethodOverrides:
         assert "paradigm=supervised" in overrides
         assert "model=lstm" in overrides
         assert "++model.name=ep_lstm" in overrides
-        assert "++agent.name=ep_lstm" in overrides
+        assert not any(o.startswith("++agent.") or o.startswith("agent=") for o in overrides)
         assert not any(o.startswith("agent=") for o in overrides)
         assert "++model.hidden_dim=64" in overrides
         assert "++batch_size=128" in overrides
@@ -293,6 +300,7 @@ class TestBuildMethodOverrides:
             "experiment_name": "mimic/test_cql",
             "paradigm": "offline_rl",
             "tuning": {
+                "component": "optuna",
                 "n_trials": 25,
                 "direction": "minimize",
             },
@@ -332,7 +340,7 @@ class TestBuildMethodOverrides:
             "model.width": {"type": "int", "low": 2, "high": 6, "step": 2},
             "agent.enabled": {"type": "choice", "values": [True, False]},
         }}
-        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {}}, is_sweep=True)
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna"}}, is_sweep=True)
         assert "agent.lr=tag(log, interval(0.0001, 0.01))" in overrides
         assert "model.width=range(2, 6, 2)" in overrides
         assert "agent.enabled=choice(true,false)" in overrides
@@ -341,13 +349,13 @@ class TestBuildMethodOverrides:
         method = {"agent": "ppo", "model": "dnn", "tune": {
             "agent.lr": {"type": "float", "low": 0.1, "high": 0.5, "step": 0.2},
         }}
-        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl", "tuning": {}})
+        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl", "tuning": {"component": "optuna"}})
         assert "agent.lr=range(0.1, 0.5, 0.2)" in overrides
 
     def test_setting_sweeper_option_still_selects_the_optuna_sweeper(self):
         method = {"agent": "cql", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
         overrides = build_method_overrides(
-            "cql", method, cfg={"paradigm": "offline_rl", "tuning": {}}, is_sweep=True,
+            "cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna"}}, is_sweep=True,
             extra_args=["hydra.sweeper.n_trials=5"],
         )
         assert "hydra/sweeper=optuna_offline" in overrides
@@ -355,7 +363,7 @@ class TestBuildMethodOverrides:
     def test_sweep_does_not_override_sample_with_base_value(self):
         method = {"agent": "cql", "model": "dnn", "lr": 0.001,
                   "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}}
-        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {}}, is_sweep=True)
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna"}}, is_sweep=True)
         assert any(arg.lstrip("+") == "agent.lr=interval(0.0001, 0.01)" for arg in overrides)
         assert sum(arg.lstrip("+").startswith("agent.lr=") for arg in overrides) == 1
 
@@ -394,7 +402,7 @@ class TestBuildMethodOverrides:
         m2_overrides = build_method_overrides(
             method_name="ppo_tuned",
             method_cfg=methods["ppo_tuned"],
-            cfg={**cfg_dict, "tuning": {}},
+            cfg={**cfg_dict, "tuning": {"component": "optuna"}},
             study_name="cartpole_ppo_tuned_v1",
             is_sweep=False,
         )

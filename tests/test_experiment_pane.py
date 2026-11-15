@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import yaml
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -338,6 +339,7 @@ class TestConfigTree(unittest.TestCase):
 
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
+@pytest.mark.usefixtures("optuna_workspace")  # the tuning box needs an installed tuner
 class TestConfigViewer(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

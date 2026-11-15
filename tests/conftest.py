@@ -129,6 +129,34 @@ def fixture_workspace(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture(scope="session")
+def _optuna_workspace_root(tmp_path_factory):
+    from component_fixtures import install_optional
+    base = tmp_path_factory.mktemp("optuna-workspace")
+    root = build_fixture_workspace(base / "workspace")
+    install_optional(root, "optuna", base / "optional-archives")
+    return root
+
+
+@pytest.fixture
+def optuna_workspace(_optuna_workspace_root, monkeypatch):
+    """The fixture workspace with the optional Optuna tuner installed, selected for the process.
+
+    Built once per session: tests using it must not change its files.
+    """
+    root = _optuna_workspace_root
+    monkeypatch.setenv("THETA_WORKSPACE", str(root))
+    monkeypatch.delenv("THETA_DATA_DIR", raising=False)
+    try:
+        from frontend.config_viewer import invalidate_config_tree
+    except ImportError:  # no GUI stack installed
+        yield root
+        return
+    invalidate_config_tree()
+    yield root
+    invalidate_config_tree()
+
+
 @pytest.fixture
 def tuner_monitor_workspace(tmp_path):
     """A ready independent monitor contribution, with provider imports forbidden."""
