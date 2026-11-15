@@ -127,18 +127,6 @@ def test_pipeline_repeat_uses_worker_for_each_seed(tmp_path):
     assert len({json.loads(p.read_text())['run_id'] for p in records}) == 2
 
 
-def test_migration_is_explicit_and_conflicts_need_resolution():
-    from src.app.pipeline.migrate_execution import migrate, ManualResolution
-    old = {'methods': {'m': {'agent': 'sb3/ppo', 'entrypoint': 'package://sb3-suite/sb3_runner.py'}}}
-    new = migrate(old)
-    assert new['methods']['m'] == {'agent': 'sb3-dev/ppo', 'backend': 'sb3'}
-    assert 'entrypoint' in old['methods']['m']
-    with pytest.raises(ManualResolution):
-        migrate({'entrypoint': 'custom.py'})
-    with pytest.raises(ManualResolution):
-        migrate({'entrypoint': 'a.py', 'runner': 'b.py'})
-
-
 def test_configured_evaluator_runs_once():
     from types import SimpleNamespace
     from unittest.mock import Mock

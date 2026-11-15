@@ -78,9 +78,8 @@ def reject_selectors(value, location):
         from src.app.pipeline.exceptions import ConfigurationError
         fields = ", ".join(f"{location}.{key}" for key in removed + aliases)
         raise ConfigurationError(
-            f"Removed execution fields: {fields}. Conflicting declarations require manual resolution. "
-            "Select a registered paradigm runner and a migrated dev algorithm; use python for the interpreter. "
-            "Preview explicitly selected editable configs with python -m src.app.pipeline.migrate_execution."
+            f"Removed execution fields: {fields}. Select a registered algorithm and paradigm runner; "
+            "use python for the interpreter."
         )
 
 
