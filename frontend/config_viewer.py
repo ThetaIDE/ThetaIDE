@@ -1082,8 +1082,7 @@ class ConfigViewer(QWidget):
                 role = values.get("role", metadata.get("role", "training"))
                 if role != ("training" if kind == "data_module" else "symbolic_state"):
                     continue
-            supported = (values.get("compatible_paradigms") or values.get("paradigms")
-                         or metadata.get("compatible_paradigms") or metadata.get("paradigms"))
+            supported = values.get("compatible_paradigms") or metadata.get("paradigms")
             if not paradigm or not supported or paradigm in supported:
                 allowed[name] = values
         return allowed

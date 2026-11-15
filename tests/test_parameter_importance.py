@@ -135,8 +135,8 @@ def test_importance_bars_rank_parameters_update_and_clear_when_switching_studies
     view.close()
 
 
-def test_legacy_saved_importance_is_visible_without_new_snapshot_metadata():
+def test_saved_importance_is_visible_without_importance_metadata():
     view = SweepView()
-    view.set_studies([("method", {"study": "legacy", "trials": [], "parameter_importance": {"lr": 1.0}})])
+    view.set_studies([("method", {"study": "plain", "trials": [], "parameter_importance": {"lr": 1.0}})])
     assert view.importance_view.scores == [("lr", 1.0)]
     view.close()

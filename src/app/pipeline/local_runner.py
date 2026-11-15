@@ -158,7 +158,6 @@ def _run_methods_sequential(cfg, context) -> None:
             extra_args=sanitized_extra_args,
             cfg=cfg,
             study_name=study_name,
-            is_sweep=method_is_sweep,
             workspace=paths,
         )
 

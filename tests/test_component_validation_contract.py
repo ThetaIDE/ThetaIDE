@@ -8,7 +8,7 @@ from src.app.pipeline.component_validation import schemas_for_method, validate_m
 from src.app.pipeline.exceptions import ConfigurationError
 
 
-def test_profile_schema_validates_selected_model_and_leaves_legacy_schemas_optional(tmp_path):
+def test_profile_schema_validates_selected_model_only_when_opted_in(tmp_path):
     component = tmp_path / "src/usr/models/example"
     component.mkdir(parents=True)
     path = component / ".theta_component.json"

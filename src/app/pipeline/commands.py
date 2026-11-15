@@ -29,7 +29,6 @@ def build_method_overrides(
     extra_args: list | None = None,
     cfg=None,
     study_name: str | None = None,
-    is_sweep: bool = False,
     config_dir=None,
     workspace=None,
 ) -> list[str]:
@@ -42,7 +41,6 @@ def build_method_overrides(
         extra_args:   Additional Hydra overrides forwarded from the CLI.
         cfg:          Full Hydra config (used for experiment_name, paradigm).
         study_name:   Selected tuner's study name (optional, for sweep runs).
-        is_sweep:     Compatibility argument; composed cfg.tuning determines sweep mode.
 
     Returns:
         list[str]: Hydra override arguments ready to pass to train.py.

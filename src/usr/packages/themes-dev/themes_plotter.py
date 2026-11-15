@@ -160,12 +160,11 @@ class ThemesPlotter(BasePlotter):
             trace = meta.get('em_edm_history', [])
             series = {}
             for t in trace:
-                ids = t.get('component_ids', list(range(len(t['training_losses']))))
-                for identity, losses in zip(ids, t['training_losses']):
+                for identity, losses in zip(t['component_ids'], t['training_losses']):
                     if losses: series.setdefault(identity, []).append((t['iteration']+1, losses[-1]['cross_entropy']))
             if not series: return False
             for identity, points in series.items():
-                x, y = zip(*points); ax.plot(x, y, 'o-', label=f'Policy {identity}' + ('' if all('component_ids' in t for t in trace) else ' (legacy slot)'))
+                x, y = zip(*points); ax.plot(x, y, 'o-', label=f'Policy {identity}')
             ax.set(xlabel='EM round', ylabel='Last sampled training cross-entropy'); ax.legend()
         else:
             raise ValueError(f'Unknown THEMES panel: {kind}')
@@ -197,7 +196,7 @@ class ThemesPlotter(BasePlotter):
 
 
 class ThemesFullPlotter(ThemesPlotter):
-    """Full-loop PlotMan entry, with its own defaults and no legacy result mixing."""
+    """Full-loop PlotMan entry, with its own defaults; it reads only this run's results."""
     name='themes-dev/themes_full'
 
     def _bundles(self,exp_id):

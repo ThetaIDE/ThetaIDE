@@ -25,7 +25,7 @@ New receipts record `scheduler_component`. Receipts with `schema_version: 1` and
    {"id": "scheduler-monitor", "slot": "monitor.scheduler", "availability": "ready"}]}
 ```
 
-`scheduler_api: 1` is required on the capability, and the loaded object (or instance of the loaded class) must have `api_version = 1`. Readiness and contributions follow [extension contributions v1](EXTENSION_CONTRIBUTIONS.md). Site profiles the component owns go in its `configs/site/…` payload; top-level forwarding files (a profile whose only content is `defaults: [/site/<site>/<variant>, _self_]`) are treated as compatibility aliases and hidden from selection lists.
+`scheduler_api: 1` is required on the capability, and the loaded object (or instance of the loaded class) must have `api_version = 1`. Readiness and contributions follow [extension contributions v1](EXTENSION_CONTRIBUTIONS.md). Site profiles the component owns go in its `configs/site/<site>/…` payload; `_`-prefixed files there are shared defaults and are not offered for selection.
 
 ## Runtime methods
 

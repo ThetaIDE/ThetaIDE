@@ -2,7 +2,7 @@
 
 Verifies that all component types (algorithms, models, data loaders, evaluators,
 checkpoints, figures/plotters) faithfully adhere to user configurations,
-hyperparameter overrides, 5-tier inheritance, and deprecation policies.
+hyperparameter overrides and 5-tier inheritance.
 """
 
 from pathlib import Path

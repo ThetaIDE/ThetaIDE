@@ -272,10 +272,10 @@ def _component_name(value: Any) -> str:
 def _component_default_params(self, kind: str, name: str) -> dict:
     profile = self._component_choices(kind).get(name, {})
     reserved = {
-        "data_module": {"name", "class", "type", "data_module", "role", "compatible_paradigms", "paradigms"},
-        "symbolic_state_loader": {"name", "class", "type", "data_module", "role", "compatible_paradigms", "paradigms"},
-        "evaluator": {"name", "class", "type", "evaluator", "compatible_paradigms", "paradigms"},
-    }.get(kind, {"name", "class", "type", "plotter", "compatible_paradigms", "paradigms"})
+        "data_module": {"name", "class", "type", "data_module", "role", "compatible_paradigms"},
+        "symbolic_state_loader": {"name", "class", "type", "data_module", "role", "compatible_paradigms"},
+        "evaluator": {"name", "class", "type", "evaluator", "compatible_paradigms"},
+    }.get(kind, {"name", "class", "type", "plotter", "compatible_paradigms"})
     return {key: copy.deepcopy(value) for key, value in profile.items() if key not in reserved}
 
 

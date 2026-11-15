@@ -30,7 +30,7 @@ The SDK is versioned independently of package storage formats. Minor versions
 only add exports or context services; a major version may remove them. App
 plugins declare the range they were written for as ``"sdk": ">=2.0,<3"`` in
 their capability metadata; the host refuses activation when it cannot satisfy
-it. This namespace becomes ``src.ide.api`` at consolidation, with forwarding.
+it.
 """
 from __future__ import annotations
 

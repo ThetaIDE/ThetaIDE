@@ -3,7 +3,7 @@
 clean_deleted.py
 
 Reads deleted experiment output paths from a tracking file (default: .thetaide/deleted_experiments.txt)
-and moves matching files/directories in results/ on the cluster to results/legacy_results/.
+and moves matching files/directories in results/ on the cluster to results/deleted_results/.
 
 This prevents rsync from pulling deleted experiments back from the cluster into local results.
 
@@ -23,12 +23,12 @@ from pathlib import Path
 
 DEFAULT_TRACKING_FILE = ".thetaide/deleted_experiments.txt"
 DEFAULT_RESULTS_DIR = "results"
-DEFAULT_LEGACY_DIR = "results/legacy_results"
+DEFAULT_DELETED_DIR = "results/deleted_results"
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Move deleted experiment outputs from results/ to results/legacy_results/ based on tracking file."
+        description="Move deleted experiment outputs from results/ to results/deleted_results/ based on tracking file."
     )
     parser.add_argument(
         "-t",
@@ -42,9 +42,9 @@ def parse_args():
         help=f"Path to main results directory (default: {DEFAULT_RESULTS_DIR}).",
     )
     parser.add_argument(
-        "--legacy-dir",
-        default=DEFAULT_LEGACY_DIR,
-        help=f"Path to legacy results destination directory (default: {DEFAULT_LEGACY_DIR}).",
+        "--deleted-dir",
+        default=DEFAULT_DELETED_DIR,
+        help=f"Directory that receives the deleted outputs (default: {DEFAULT_DELETED_DIR}).",
     )
     parser.add_argument(
         "--dry-run",
@@ -95,12 +95,12 @@ def merge_move(src_path: Path, dst_path: Path, dry_run: bool = False):
 def clean_deleted(
     tracking_file: str = DEFAULT_TRACKING_FILE,
     results_dir: str = DEFAULT_RESULTS_DIR,
-    legacy_dir: str = DEFAULT_LEGACY_DIR,
+    deleted_dir: str = DEFAULT_DELETED_DIR,
     dry_run: bool = False,
 ):
     tracking_path = Path(tracking_file)
     results_path = Path(results_dir)
-    legacy_path = Path(legacy_dir)
+    deleted_path = Path(deleted_dir)
 
     if not tracking_path.exists():
         print(f"Tracking file '{tracking_file}' not found. No deleted experiments to clean.")
@@ -121,13 +121,13 @@ def clean_deleted(
         print(f"No deleted experiment paths found in '{tracking_file}'.")
         return
 
-    print(f"=== Cleaning Deleted Experiments from '{results_dir}' -> '{legacy_dir}' ===")
+    print(f"=== Cleaning Deleted Experiments from '{results_dir}' -> '{deleted_dir}' ===")
     print(f"Loaded {len(entries)} tracked entries from '{tracking_file}'.\n")
 
     items_to_move = []
     for rel_str in entries:
         src_target = results_path / rel_str
-        dst_target = legacy_path / rel_str
+        dst_target = deleted_path / rel_str
 
         if src_target.exists():
             items_to_move.append((src_target, dst_target))
@@ -145,7 +145,7 @@ def clean_deleted(
     if dry_run:
         print(f"\n[DRY RUN] Would move {len(items_to_move)} item(s). No files were moved.")
     else:
-        print(f"\nSuccessfully moved {moved_count} item(s) to '{legacy_dir}'.")
+        print(f"\nSuccessfully moved {moved_count} item(s) to '{deleted_dir}'.")
 
 
 def main():
@@ -153,7 +153,7 @@ def main():
     clean_deleted(
         tracking_file=args.tracking_file,
         results_dir=args.results_dir,
-        legacy_dir=args.legacy_dir,
+        deleted_dir=args.deleted_dir,
         dry_run=args.dry_run,
     )
 

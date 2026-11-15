@@ -264,7 +264,7 @@ def test_network_provider_exports_and_installs_with_visual_catalog(tmp_path):
     assert outputs[0]['kind'] == 'network_graph' and outputs[0]['name'] == 'interp/installed/network'
 
 
-def test_legacy_scalar_namespace_catalog_keeps_dynamic_metrics(tmp_path, monkeypatch):
+def test_prefix_namespace_catalog_keeps_dynamic_metrics(tmp_path, monkeypatch):
     from src.app.monitoring.api import Result
     catalog = get_catalog()
     _, capability = catalog.resolve('monitor', 'activation-evolution')

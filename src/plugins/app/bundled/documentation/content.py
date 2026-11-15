@@ -966,7 +966,7 @@ class MyToolPlugin(Plugin):
 └── plugin.json       # Optional component metadata</code></pre>
 
 <div style="background-color: rgba(254, 128, 25, 0.12); border-left: 4px solid #fe8019; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
-  <b>Crucial Rule:</b> The directory <i>must</i> contain an <code>__init__.py</code> file. Declare package-relative entry points in the manifest. Legacy decorators are inspected statically and loaded through the shared provider catalog.
+  <b>Crucial Rule:</b> The directory <i>must</i> contain an <code>__init__.py</code> file. Declare package-relative entry points in the manifest. Discovery reads only the manifest; registration decorators run when an entry point loads.
 </div>
 
 <h4>Python Implementation (<code>agent.py</code>)</h4>

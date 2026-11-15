@@ -198,12 +198,10 @@ def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
 
     plans = {}
     for name, settings in parse_methods_dict(composed.cfg, paths=composition_workspace(composed.config_dir, composed.workspace)).items():
-        method_sweeps = tuning_enabled(composed.cfg)
         plans[name] = {
             "settings": settings,
             "train_overrides": build_method_overrides(
                 method_name=name, method_cfg=settings, extra_args=composed.launch_args, cfg=composed.cfg,
-                is_sweep=method_sweeps,
                 config_dir=composed.config_dir or composition_workspace(workspace=composed.workspace).config,
                 workspace=composed.workspace,
             ),

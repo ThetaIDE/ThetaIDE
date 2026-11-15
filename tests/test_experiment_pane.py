@@ -887,7 +887,7 @@ class TestConfigViewer(unittest.TestCase):
             else:
                 self.assertIn("agent.lr", method["tune"])
             self.assertIn("config.batch_size", method["tune"])
-            overrides = build_method_overrides(name, method, cfg=self.viewer.raw_data, is_sweep=True)
+            overrides = build_method_overrides(name, method, cfg=self.viewer.raw_data)
             self.assertIn("batch_size=range(64, 64, 1)", overrides)
 
     def test_sweep_toggle_and_list_entries(self):

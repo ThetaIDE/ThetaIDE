@@ -105,8 +105,8 @@ class BlenderActor(nn.Module):
         self.blend_function = blend_function
         self.device = device
         self.explain = explain
-        self.logic_confidence_floor = None if logic_confidence_floor is None else float(logic_confidence_floor)
-        if self.logic_confidence_floor is not None and not 0 <= self.logic_confidence_floor < 1:
+        self.logic_confidence_floor = float(logic_confidence_floor)
+        if not 0 <= self.logic_confidence_floor < 1:
             raise ValueError("logic_confidence_floor must be in [0, 1).")
 
         # Build mappings for logic-based blender if needed
@@ -122,7 +122,7 @@ class BlenderActor(nn.Module):
             return {}
 
         blender_mode_names = [f"agent_{i}" for i in range(len(self.policy_modules))]
-        # Compatibility with legacy names if only 2 modules (neural, logic)
+        # A neural + logic blend names its modes neural_agent and logic_agent, as its blender rules do.
         if len(self.policy_modules) == 2 and set(self.module_types) == {"logic", "neural"}:
             blender_mode_names = [f"{kind}_agent" for kind in self.module_types]
 
@@ -619,10 +619,6 @@ class BlenderActorCritic(nn.Module):
         groups = []
         def rate(name):
             value = self.get_cfg(name)
-            # Null model defaults leave legacy agent-level values effective.
-            if value is None:
-                agent = self.cfg.get("agent", {}) if hasattr(self.cfg, "get") else {}
-                value = agent.get(name) if hasattr(agent, "get") else None
             return base_lr if value is None else float(value)
 
         logic_lr = rate("logic_lr")
@@ -792,10 +788,8 @@ class BlenderActorCritic(nn.Module):
                     self.module_types.append("neural")
                     self.architecture = arch
         else:
-            # Backward compatibility with 'rules' string
-            if isinstance(rules, str) and "," in rules:
-                rulesets = [r.strip() for r in rules.split(",")]
-            elif isinstance(rules, list):
+            # One ruleset name, or a list of them.
+            if isinstance(rules, list):
                 rulesets = rules
             else:
                 rulesets = [rules]
@@ -968,7 +962,7 @@ class BlenderActorCritic(nn.Module):
             logic_state = self.build_logic_observation(neural_state)
         if self.get_cfg("blend_q_values", True):
             return self.actor.get_q_values(neural_state, logic_state)
-        # Legacy fallback if blend_q_values is explicitly False
+        # blend_q_values: false reports the neural module's own Q-values.
         for i, module in enumerate(self.policy_modules):
             if self.module_types[i] == "neural":
                 if hasattr(module, "get_q_values"):

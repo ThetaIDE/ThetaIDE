@@ -181,7 +181,7 @@ def test_serialized_plan_versions_and_collections_are_validated(change):
     with pytest.raises(ValueError): TunerExecutionPlan.from_record(value)
 
 
-def test_legacy_allocation_layout_applies_portable_tuner_environment(tmp_path, monkeypatch):
+def test_shared_workspace_allocation_applies_portable_tuner_environment(tmp_path, monkeypatch):
     script = '''import os
 from pathlib import Path
 p=Path(os.environ['GRID_STATE_PATH']); p.parent.mkdir(parents=True)

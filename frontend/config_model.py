@@ -147,9 +147,7 @@ class Environment:
         else:
             chosen_name = env_name or rel_name
 
-        paradigms = raw.get("compatible_paradigms") or raw.get("paradigms")
-        if not paradigms and isinstance(raw.get("env"), dict):
-            paradigms = raw["env"].get("paradigms") or raw["env"].get("compatible_paradigms")
+        paradigms = raw.get("compatible_paradigms")
 
         if isinstance(paradigms, list):
             cp = tuple(str(p) for p in paradigms)
@@ -184,7 +182,7 @@ class Agent:
             except ValueError:
                 name = path.stem
 
-        paradigms = raw.get("compatible_paradigms") or raw.get("paradigms")
+        paradigms = raw.get("compatible_paradigms")
         if isinstance(paradigms, list):
             cp = tuple(str(p) for p in paradigms)
         elif isinstance(paradigms, str):
@@ -198,7 +196,7 @@ class Agent:
             name=name,
             algorithm=raw.get("algorithm") or path.stem,
             compatible_paradigms=cp,
-            hyperparameters={k: v for k, v in raw.items() if k not in ("algorithm", "paradigms", "compatible_paradigms", "parameter_schema")},
+            hyperparameters={k: v for k, v in raw.items() if k not in ("algorithm", "compatible_paradigms", "parameter_schema")},
             raw=raw,
         )
 
@@ -222,7 +220,7 @@ class Model:
             except ValueError:
                 name = path.stem
 
-        paradigms = raw.get("compatible_paradigms") or raw.get("paradigms")
+        paradigms = raw.get("compatible_paradigms")
         if isinstance(paradigms, list):
             cp = tuple(str(p) for p in paradigms)
         elif isinstance(paradigms, str):
@@ -234,7 +232,7 @@ class Model:
             name=name,
             architecture=raw.get("architecture") or path.stem,
             compatible_paradigms=cp,
-            parameters={k: v for k, v in raw.items() if k not in ("architecture", "paradigms", "compatible_paradigms", "parameter_schema")},
+            parameters={k: v for k, v in raw.items() if k not in ("architecture", "compatible_paradigms", "parameter_schema")},
             parameter_schema=dict(raw.get("parameter_schema") or {}),
             raw=raw,
         )
@@ -517,7 +515,7 @@ class ConfigTree:
                             normalized = Path(config_path).as_posix()
                             profile_schema = profile_schemas.get(normalized, parameter_schema) if isinstance(profile_schemas, dict) else parameter_schema
                             self.component_parameter_schemas[normalized] = profile_schema
-                    paradigms = meta.get("paradigms") or meta.get("compatible_paradigms") or ()
+                    paradigms = meta.get("paradigms") or ()
                     if isinstance(paradigms, list):
                         paradigms_tuple = tuple(str(p) for p in paradigms)
                     elif isinstance(paradigms, str):

@@ -44,30 +44,21 @@ class InferenceBundle:
             self.stage = instantiate_stage(self.manifest['model_bundle']['stage'],
                 self.manifest['parameters']['seed'], model_resolver)
         else:
-            # Explicit historical version-1 stage reader.
+            # Demo bundles carry no model bundle; their stage is the fixed-spacing TICC.
             self.stage = MultiSeriesTICC(switch_penalty=self.manifest['parameters']['switch_penalty'])
         self.stage.means = self.fitted['stage_means']
         self.stage.precisions = self.fitted['stage_precisions']
         checkpoint = torch.load(self.output / 'policies.pt', map_location='cpu', weights_only=True)
-        from .models import Policy, instantiate_policy
-        version = checkpoint.get('artifact_version')
-        if version == 1:
-            if checkpoint.get('beta') != 0.5:
-                raise ValueError('Unsupported legacy demo logit scale')
-            # Explicit historical reader only; no training uses this architecture.
-            factory = lambda dimension: Policy(dimension, checkpoint['width'])
-        elif version == 2:
-            specs = checkpoint['model_specs']
-            if len(specs) != len(checkpoint['policies']):
-                raise ValueError('Policy specifications and weights are misaligned')
-            factory = lambda dimension: instantiate_policy(specs[0], dimension, model_resolver)
-        else:
+        from .models import instantiate_policy
+        if checkpoint.get('artifact_version') != 2:
             raise ValueError('Unsupported policy checkpoint version')
-        self.mixture = EMEDM(policy_factory=factory)
+        specs = checkpoint['model_specs']
+        if len(specs) != len(checkpoint['policies']):
+            raise ValueError('Policy specifications and weights are misaligned')
+        self.mixture = EMEDM(policy_factory=lambda dimension: instantiate_policy(specs[0], dimension, model_resolver))
         self.mixture.models = []
         for index, weights in enumerate(checkpoint['policies']):
-            model = (instantiate_policy(specs[index], checkpoint['dimension'], model_resolver)
-                     if version == 2 else factory(checkpoint['dimension']))
+            model = instantiate_policy(specs[index], checkpoint['dimension'], model_resolver)
             model.load_state_dict(weights)
             model.eval()
             self.mixture.models.append(model)

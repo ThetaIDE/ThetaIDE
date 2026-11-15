@@ -1054,7 +1054,7 @@ def test_saved_sweeps_distinguish_runs_with_same_method_and_study_and_handle_bad
     view = panel.sweeps_view
     assert {method for method, study in view.studies} == {"cartpole/ppo_run / ppo", "sb3/sb3_run / ppo"}
     view.table.selectRow(0)
-    assert not view.open_button.isEnabled()  # legacy summaries never open another trial's newest version
+    assert not view.open_button.isEnabled()  # a summary without a trial version never opens another trial's newest version
     panel.close()
 
 

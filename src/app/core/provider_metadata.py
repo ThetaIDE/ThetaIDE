@@ -5,8 +5,8 @@ from src.app.core.provider_catalog import DuplicateProvider, get_catalog
 from src.app.core.provider_discovery import discovery_cached
 
 
-# These framework providers predate package manifests. They intentionally have
-# no compatibility restriction, matching their previous selector behavior.
+# Core data modules and evaluators of the base paradigms. They have no package
+# manifest and no paradigm restriction.
 BUILTIN_SELECTORS = {
     "datamodule": (
         "RLDataModule", "SimulatorDataModule", "RLReplayBufferDataModule",
@@ -33,8 +33,7 @@ def capability_metadata(kind, name, paths):
         return {}
     package, capability = selected
     metadata = {"id": capability.id, **capability.metadata}
-    metadata["paradigms"] = (metadata.get("compatible_paradigms") or metadata.get("paradigms")
-                             or package.manifest.get("compatible_paradigms") or package.manifest.get("paradigms"))
+    metadata["paradigms"] = metadata.get("paradigms") or package.manifest.get("paradigms")
     return metadata
 
 

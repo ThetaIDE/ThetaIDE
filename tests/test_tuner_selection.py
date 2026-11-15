@@ -1,4 +1,4 @@
-"""Tuning never guesses a provider outside the bounded historical receipt reader."""
+"""Tuning never guesses a provider: tuning.component selects it."""
 import copy
 import json
 from pathlib import Path
@@ -88,7 +88,7 @@ def test_unselected_sweep_rejected_by_validation_remote_and_worker(tmp_path):
 
 
 @pytest.mark.parametrize('marker', [None, TunerExecutionPlan('optuna', 'a' * 32).record()])
-def test_new_receipts_never_inherit_historical_selection(marker):
+def test_receipts_never_supply_a_tuner_selection(marker):
     record = {'execution_id': 'a' * 32, 'tuner_execution': marker, 'config': {'tuning': {}}}
     cfg = record_config(record)
     assert cfg['tuning'] == {}

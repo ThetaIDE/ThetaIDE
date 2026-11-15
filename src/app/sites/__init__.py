@@ -24,8 +24,7 @@ def scheduler(cfg):
 
 
 def profiles(paths, *, available=None):
-    """Selectable profiles, grouped by their owning site."""
-    from .catalog import all_profiles, normalize
+    """Selectable profiles, grouped by their owning site; ``_``-prefixed files are shared defaults."""
+    from .catalog import all_profiles
     available = all_profiles(paths) if available is None else available
-    return {key: path for key, path in available.items()
-            if not Path(key).name.startswith('_') and normalize(key, available) == key}
+    return {key: path for key, path in available.items() if not Path(key).name.startswith('_')}

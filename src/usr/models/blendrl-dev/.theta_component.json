@@ -127,13 +127,10 @@
         "description": "Maximum recent observations to save for routing plots; 0 disables."
       },
       "logic_confidence_floor": {
-        "type": [
-          "number",
-          "null"
-        ],
+        "type": "number",
         "minimum": 0,
         "exclusiveMaximum": 1,
-        "description": "Truth scores at or below this floor abstain; stronger evidence blends with the default action distribution. Null preserves legacy normalization for historical checkpoints."
+        "description": "Truth scores at or below this floor abstain; stronger evidence blends with the default action distribution."
       }
     },
     "x-theta-config-schemas": {

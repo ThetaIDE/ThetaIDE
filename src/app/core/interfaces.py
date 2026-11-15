@@ -53,25 +53,3 @@ class BaseParadigmRunner(ABC):
     @abstractmethod
     def run(self, cfg: Any, context: Any):
         """Execute one resolved method and return a RunResult. Never dispatch methods."""
-
-
-class BaseMetaPipeline(ABC):
-    """Orchestrates multiple base paradigm runs with managed data flow.
-
-    Unlike BaseParadigmRunner (one loop), BaseMetaPipeline sequences or
-    iterates over multiple base paradigm runners and manages what data and
-    artifacts pass between phases.
-
-    Note: Meta-paradigm composition is deferred. This stub exists for
-    forward compatibility.
-    """
-
-    @abstractmethod
-    def run(self, cfg, phases: dict, context: dict) -> None:
-        """Execute the multi-phase pipeline.
-
-        Args:
-            cfg: Full experiment config.
-            phases: Instantiated runners keyed by phase name.
-            context: Pipeline execution context.
-        """

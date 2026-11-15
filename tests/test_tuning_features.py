@@ -117,11 +117,11 @@ def test_independent_objective_pruning_validation_from_unrelated_cwd(tmp_path, m
     _validate_tuning(config(stop_early=True, objective={'component': 'score'}), paths=paths)
 
 
-def test_pruning_declaration_requires_query_but_legacy_metric_tuners_work(tmp_path):
+def test_pruning_declaration_requires_query_but_metric_only_tuners_work(tmp_path):
     paths = provider(tmp_path / 'declared', query=None)
     with pytest.raises(ValueError, match='missing pruning_enabled'):
         validate_tuning_compatibility(config(), paths=paths)
-    paths = provider(tmp_path / 'legacy', features={}, query=None)
+    paths = provider(tmp_path / 'metric-only', features={}, query=None)
     _validate_tuning(config(), paths=paths)
 
 

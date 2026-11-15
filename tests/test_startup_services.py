@@ -56,14 +56,14 @@ def test_store_summaries_skip_history_and_preserve_it_on_note_save(tmp_path, mon
     assert not any(key.startswith('_metric') for key in persisted)
 
 
-def test_legacy_migration_corruption_and_external_replacement(tmp_path):
+def test_missing_or_corrupt_summaries_are_rebuilt_and_follow_replacements(tmp_path):
     store = Store(tmp_path)
     run = new_run(Config())
     run['metrics'] = [{'step': 42, 'reward': 7}]
     folder = tmp_path / run['id']
     folder.mkdir()
     record = folder / 'record.json'
-    record.write_text(json.dumps(run))  # An existing installation with no summary.
+    record.write_text(json.dumps(run))  # A record whose summary was never written.
     summaries, errors = store.load_summaries()
     assert not errors and (folder / 'summary.json').exists()
     assert load_run_metrics(summaries[0]) == run['metrics']

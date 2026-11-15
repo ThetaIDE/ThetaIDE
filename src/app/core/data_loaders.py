@@ -94,7 +94,7 @@ def loader_selection(cfg, slot, method=None, *, paths=None):
         return None, source
     profile = _profile("data", name, paths)
     provider = profile.get("data_module") or profile.get("name") or name
-    reserved = {"name", "class", "type", "data_module", "role", "paradigms", "compatible_paradigms", "params"}
+    reserved = {"name", "class", "type", "data_module", "role", "compatible_paradigms", "params"}
     params = {k: v for k, v in profile.items() if k not in reserved}
     params.update(profile.get("params") or {})
     if hasattr(value, "items"):

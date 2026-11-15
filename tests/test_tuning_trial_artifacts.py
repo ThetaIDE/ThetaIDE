@@ -279,34 +279,6 @@ def test_interruption_marks_active_trial_and_exports_summary(tmp_path, monkeypat
     assert summary["stop_reason"] == "interrupted"
 
 
-def test_resume_remains_compatible_with_legacy_optuna_distributions(tmp_path):
-    import warnings
-    from omegaconf import OmegaConf
-    from component_fixtures import optional_module
-    _optuna_sweeper = optional_module('optuna', 'sweeper.py')
-    ThetaOptunaSweeper = _optuna_sweeper.ThetaOptunaSweeper
-
-    class Result:
-        return_value = 0.5
-
-    class Launcher:
-        def launch(self, jobs, initial_job_idx):
-            return [Result() for _ in jobs]
-
-    storage = f"sqlite:///{tmp_path / 'legacy.db'}"
-    study = optuna.create_study(study_name="legacy", storage=storage, direction="minimize")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", FutureWarning)
-        trial = study.ask()
-        trial._suggest("+x", optuna.distributions.UniformDistribution(1.0, 2.0))
-        study.tell(trial, 1.0)
-        sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(seed=1), "minimize", storage, "legacy", 1, 1, None, "none", 5, 0, 0, 0)
-        sweeper.impl.config = OmegaConf.create({"hydra": {"sweep": {"dir": str(tmp_path)}}})
-        sweeper.impl.launcher = Launcher()
-        sweeper.sweep(["+x=interval(1.0,2.0)"])
-    assert len(optuna.load_study(study_name="legacy", storage=storage).trials) == 2
-
-
 @pytest.mark.skipif(importlib.util.find_spec("lightning") is None, reason="Lightning is not installed")
 def test_real_lightning_trial_returns_the_selected_metric(tmp_path, monkeypatch):
     # Managed (adaptive) trial workers run only Theta-owned bootstraps, never a test script.

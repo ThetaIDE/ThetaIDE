@@ -23,11 +23,11 @@ def test_metric_filter_checks_only_a_sweep_metric():
     assert not selection_errors(cfg)
 
 
-def test_tuning_presence_is_authoritative_over_legacy_flags():
-    assert tuning_enabled({"tuning": {"metric": "val/loss"}, "sweep": False})
+def test_tuning_presence_alone_enables_a_sweep():
+    assert tuning_enabled({"tuning": {"metric": "val/loss"}})
     assert tuning_enabled({"tuning": {}})
-    assert tuning_disabled({"sweep": True})
-    assert tuning_disabled({"tuning": None, "sweep": True})
+    assert tuning_disabled({})
+    assert tuning_disabled({"tuning": None})
 
 
 def test_local_runner_uses_tuning_component_instead_of_context_flags(monkeypatch):

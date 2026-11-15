@@ -57,7 +57,7 @@ def test_qualified_ruleset_keeps_catalog_identity_even_when_a_profile_overrides_
     profile = tmp_path / "src/usr/config/env/cartpole.yaml"
     profile.parent.mkdir(parents=True)
     profile.write_text("symbolic_name: mountaincar\n")
-    # New selections use catalog paths; only legacy bare names consult profiles.
+    # A qualified selection names its environment; a bare name resolves through the environment profile.
     assert resolve_ruleset(tmp_path, {"name": "other"}, "cartpole/default").directory == folder
     with pytest.raises(ValueError, match="No ruleset"):
         resolve_ruleset(tmp_path, "cartpole", "default")

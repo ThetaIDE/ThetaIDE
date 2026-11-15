@@ -450,9 +450,8 @@ def build(self, data, resolved, tree, paradigm, is_base):
             model_name, model_inner = component_selection(model_raw)
             model_name = model_name or ""
 
-            # Older configs may use a model's short-name lookup alias.
-            # Display and newly saved selections should use the unique
-            # path of the YAML that defines it.
+            # A selection may name a model by any declared selector; show the
+            # profile path that defines it.
             if tree and model_name in tree.models:
                 model_name = tree.models[model_name].name
 

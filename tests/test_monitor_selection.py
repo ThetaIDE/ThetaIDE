@@ -211,8 +211,8 @@ def test_selected_components_are_intersected_with_actual_runner_hooks(tmp_path):
     available_monitors(cfg, catalog=catalog, read_config=read, errors=errors)
     assert errors == []
     cfg.pop("monitors")
-    # Historical script selectors do not redefine the registered backend's
-    # monitor hooks. They remain inspectable but execution rejects them.
+    # An entrypoint key does not change the registered backend's monitor
+    # hooks. The recipe stays inspectable, but execution rejects the key.
     cfg["methods"]["one"]["entrypoint"] = str(tmp_path / "custom.py")
     assert {spec.name for spec in available_monitors(cfg, catalog=catalog, read_config=read)} == {
         "train/loss", "blend/", "tuning/score"}

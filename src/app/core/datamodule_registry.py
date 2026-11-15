@@ -29,13 +29,9 @@ def register_datamodule(*names: str) -> Callable[[Type[Any]], Type[Any]]:
             clean_name = name.strip()
             DATAMODULE_REGISTRY[clean_name] = cls
             DATAMODULE_REGISTRY[clean_name.lower()] = cls
-            # Also register into paradigm_loader component registry for cross-compatibility
-            try:
-                from src.app.core.paradigm_loader import register_component
-
-                register_component(clean_name)(cls)
-            except Exception:
-                pass
+            # paradigm_loader.get_component resolves paradigm data modules, evaluators and plotters by name.
+            from src.app.core.paradigm_loader import register_component
+            register_component(clean_name)(cls)
         return cls
 
     return decorator

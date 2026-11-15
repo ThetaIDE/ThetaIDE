@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from src.app.objectives.api import (
     ObjectiveResult, RunResult, TrialResults, create_objective, load_objective, validate_objective,
 )
-from src.app.objectives.runner import run_objective
+from src.app.pipeline.repeated_task import run_objective
 
 
 def run(seed, points, status="completed"):
@@ -175,7 +175,7 @@ def main(cfg):
     cfg.hydra = {"searchpath": [f"file://{root / 'src/usr/config'}", f"file://{OPTUNA_CONFIGS}"]}
     OmegaConf.save(cfg, tmp_path / "test.yaml")
     env = {**os.environ, "PYTHONPATH": str(root), "HYDRA_FULL_ERROR": "1"}
-    command = [sys.executable, "-m", "src.app.objectives.runner", "--config-path", str(tmp_path), "--config-name", "test"]
+    command = [sys.executable, "-m", "src.app.pipeline.repeated_task", "--config-path", str(tmp_path), "--config-name", "test"]
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     if sweep:
         command.extend(["--multirun", *sweeper_args(storage, "objectives", 2, direction="maximize"), "+x=choice(1,2)"])

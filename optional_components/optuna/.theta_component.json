@@ -70,7 +70,6 @@
       "pruning.py",
       "remote.py",
       "sweeper.py",
-      "trial_worker.py",
       "utils.py"
     ],
     "resources": [],

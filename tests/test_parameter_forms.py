@@ -825,7 +825,7 @@ def test_rules_control_browses_all_environments_and_opens_selected_folder(viewer
     button = next(b for b in widget.findChildren(QToolButton) if b.property("parameterOpen"))
     combo = widget.findChild(HierarchicalComboBox)
     assert not combo.isEditable()
-    assert widget.raw_data["rules"] == "default"  # Rendering preserves legacy values.
+    assert widget.raw_data["rules"] == "default"  # Rendering keeps a bare ruleset name.
     with patch("frontend.config_viewer.QMenu.exec") as menu:
         button.click()
         ruleset_menu_action(combo, "cartpole", "anticipatory_v1").trigger()

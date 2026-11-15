@@ -22,7 +22,7 @@ def save_remote(tmp_path, remote):
 
 
 @pytest.mark.parametrize('scheduler', ['running', 'completed', 'failed', 'cancelled', 'timeout'])
-@pytest.mark.parametrize('marker', ['sealed', 'legacy'])
+@pytest.mark.parametrize('marker', ['sealed', 'unmarked'])
 def test_completion_comes_from_artifacts_not_scheduler(tmp_path, monkeypatch, scheduler, marker):
     logs = tmp_path / 'results/logs'
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
