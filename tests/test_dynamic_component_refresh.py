@@ -1,6 +1,5 @@
 """Tests for dynamic refresh of models and components in Experiment method dropdowns."""
 import json
-from pathlib import Path
 
 import pytest
 import yaml
@@ -31,10 +30,10 @@ def test_invalidate_config_tree_reloads():
     assert tree3 is not tree1
 
 
-def test_dynamic_model_dropdown_population(qapp, tmp_path, monkeypatch):
+def test_dynamic_model_dropdown_population(qapp, tmp_path, fixture_workspace, monkeypatch):
     """Verify that adding/removing a model YAML dynamically reflects in experiment method dropdowns."""
-    workspace_root = Path(__file__).resolve().parents[1]
-    model_cfg_dir = workspace_root / "src/usr/config" / "model"
+    model_cfg_dir = fixture_workspace / "src/usr/config" / "model"
+    model_cfg_dir.mkdir(parents=True, exist_ok=True)
     test_model_yaml = model_cfg_dir / "testtempmodel.yaml"
 
     try:

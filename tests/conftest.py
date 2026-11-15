@@ -18,7 +18,7 @@ except Exception:
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
 TEST_WORKSPACE_CONFIG = Path(__file__).parent / "fixtures" / "workspace_config"
-TEST_WORKSPACE_PACKAGES = Path(__file__).parent / "fixtures" / "workspace_packages"
+TEST_WORKSPACE_USR = Path(__file__).parent / "fixtures" / "workspace_usr"
 
 for p in [
     str(PROJECT_ROOT),
@@ -115,7 +115,7 @@ def build_fixture_workspace(root):
     from src.app.workspace import WorkspacePaths
     root = Path(root)
     shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
-    shutil.copytree(TEST_WORKSPACE_PACKAGES, root / "src/usr", dirs_exist_ok=True)
+    shutil.copytree(TEST_WORKSPACE_USR, root / "src/usr", dirs_exist_ok=True)
     shutil.copytree(TEST_WORKSPACE_CONFIG, WorkspacePaths(root).config, dirs_exist_ok=True)
     return root
 

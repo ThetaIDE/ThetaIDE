@@ -1,5 +1,4 @@
 """External file errors must not be presented as missing Hub components."""
-from pathlib import Path
 
 import pytest
 from omegaconf import OmegaConf
@@ -10,6 +9,16 @@ from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.validation import find_missing_components
 from src.app.workspace import WorkspacePaths
 from conftest import copy_research_config
+
+
+@pytest.fixture
+def themes_paths(tmp_path, monkeypatch):
+    """A workspace holding the tracked themes-dev package with its generated inputs."""
+    from themes_fixtures import themes_package
+    root = tmp_path / 'workspace'
+    themes_package(root)
+    monkeypatch.setenv('THETA_WORKSPACE', str(root))
+    return WorkspacePaths(root)
 
 
 def test_explicit_missing_path_does_not_fall_back_to_other_data(tmp_path, monkeypatch):
@@ -39,16 +48,17 @@ def test_home_expansion_and_absolute_paths(tmp_path, monkeypatch):
     assert resolve_dataset_for_method('method', {}, {'dataset_path': str(source)}) == source
 
 
-def test_inventory_names_external_path_not_method():
+def test_inventory_names_external_path_not_method(themes_paths):
     source = '/no-such-dataset-folder/visits.csv'
     missing = find_missing_components({'paradigm': 'apprenticeship', 'dataset_path': source,
-                                      'methods': {'ticc_em_edm': {'agent': 'themes-dev/em_edm', 'model': 'themes-dev/ticc'}}})
+                                      'methods': {'ticc_em_edm': {'agent': 'themes-dev/em_edm', 'model': 'themes-dev/ticc'}}},
+                                      paths=themes_paths)
     assert f'dataset: {source}' in missing
     assert 'dataset: ticc_em_edm' not in missing
 
 
-def test_al_preflight_reports_dataset_file_without_hub_guidance(tmp_path):
-    paths = WorkspacePaths(Path(__file__).resolve().parents[1])
+def test_al_preflight_reports_dataset_file_without_hub_guidance(tmp_path, themes_paths):
+    paths = themes_paths
     source = tmp_path / 'missing.csv'
     cfg = compose_experiment('AL/themes_mimic_q10_120', [f'++dataset_path={source}'], workspace=paths)
     with pytest.raises(ConfigurationError) as error:
@@ -84,18 +94,15 @@ def test_explicit_workspace_argument_controls_dataset_resolution(tmp_path, monke
     assert resolve_dataset_for_method('method', {}, {'dataset_path': 'data.csv'}, paths=WorkspacePaths(project)) == source.resolve()
 
 
-def test_draft_preview_keeps_dataset_relative_to_project_not_temporary_config(tmp_path):
+def test_draft_preview_keeps_dataset_relative_to_project_not_temporary_config(tmp_path, themes_paths):
     import os
-    import shutil
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src/usr/packages/themes-dev'))
     from themes_al.data import PHYSIOLOGY
-    project = Path(__file__).resolve().parents[1]
+    project = themes_paths.root
     draft_config = tmp_path / 'preview/config'
     copy_research_config(draft_config)
     source = tmp_path / 'external.csv'
     source.write_text(','.join(['VisitIdentifier', 'MinutesFromArrival', *PHYSIOLOGY, 'a_2']) + '\n')
     relative = os.path.relpath(source, project)
     cfg = compose_experiment('AL/themes_mimic_q10_120', [f'++dataset_path={relative}'],
-                             config_dir=draft_config, workspace=WorkspacePaths(project))
+                             config_dir=draft_config, workspace=themes_paths)
     validate_composed(cfg)

@@ -331,7 +331,7 @@ for name, method in parse_methods_dict(experiment).items():
 print(json.dumps(results))
 """
     def run():
-        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]), THETA_WORKSPACE=str(ws))
         return json.loads(subprocess.check_output([sys.executable, '-c', code], cwd=ws, env=env, text=True))
     assert run() == {'parent_run': 1, 'fork_run': 81}
     local.set_hidden('fork')

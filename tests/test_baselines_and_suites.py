@@ -130,6 +130,7 @@ def test_missing_component_run_guard(tmp_path):
     mock_tree.workspace = WorkspacePaths(tmp_path)
     mock_tree.config_root = mock_tree.workspace.config
     win.config_tree.tree_model = mock_tree
+    win.workspace_paths = mock_tree.workspace
 
     # Test check_missing_components
     missing = Window.check_missing_components(win)
@@ -142,10 +143,10 @@ def test_missing_component_run_guard(tmp_path):
     assert "Missing component" in mock_btn.setToolTip.call_args[0][0]
     assert "Missing component" in mock_btn.setText.call_args[0][0]
 
-    # Named model mappings must be checked by their value, not the key "name".
-    model_dir = mock_tree.workspace.config / "model" / "basics"
-    model_dir.mkdir(parents=True)
-    (model_dir / "dnn.yaml").write_text("architecture: dnn\n")
+    # Named model mappings must be checked by their value, not the key "name". A package
+    # declaring basics/dnn makes the model available; a profile alone would not.
+    shutil.copytree(Path(__file__).parent / "fixtures/workspace_usr/models/test-models",
+                    mock_tree.workspace.user("model") / "test-models")
     mock_viewer.raw_data["methods"]["my_ppo"]["model"] = {
         "name": "basics/dnn", "hidden_sizes": [64, 64]
     }

@@ -647,8 +647,6 @@ class ConfigTree:
         """The config tree of the process workspace (``WorkspacePaths.for_process()``)."""
         from src.app.workspace import WorkspacePaths
         paths = WorkspacePaths.for_process()
-        if not paths.config.is_dir():
-            raise FileNotFoundError(f"No config directory in workspace {paths.root}")
         return cls(paths.config, workspace=paths)
 
     def visible_environments(self):

@@ -83,7 +83,7 @@ def test_scalar_only_collection_skips_extra_expert_capture_and_visual_arrays():
     assert result.metrics['mean_absolute_effect'] > 0
 
 
-def test_recipe_preserves_dnn_and_scopes_blend_monitors_to_its_worker():
+def test_recipe_preserves_dnn_and_scopes_blend_monitors_to_its_worker(fixture_workspace):
     from src.app.monitoring.config import instances, plain, validate_monitors
     from src.app.pipeline.commands import build_method_overrides
     from src.app.pipeline.compose import compose_experiment
@@ -139,7 +139,7 @@ def test_rich_blend_snapshots_render_and_export_with_probability_units(tmp_path)
     assert 'no held-out split' in report and 'unmodified policy' in report
 
 
-def test_mountaincar_rules_own_their_valuation_and_use_two_observation_objects():
+def test_mountaincar_rules_own_their_valuation_and_use_two_observation_objects(fixture_workspace):
     from src.app.services.rulesets import resolve_ruleset
     from src.app.workspace import WorkspacePaths
     import runpy
@@ -158,7 +158,15 @@ def test_mountaincar_rules_own_their_valuation_and_use_two_observation_objects()
     torch.testing.assert_close(symbolic[:, 1], states)
 
 
-def test_actual_blendrl_training_is_identical_with_and_without_rich_monitors(tmp_path):
+def test_actual_blendrl_training_is_identical_with_and_without_rich_monitors(tmp_path, fixture_workspace):
+    """BlendRL's symbolic expert needs the real nsfr reasoner, installed from THETA_HUB_ROOT."""
+    from component_fixtures import LocalHub
+    from src.app.components.installer import HubInstaller
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(fixture_workspace)
+    installer, hub = HubInstaller(paths.root, paths.data_dir), LocalHub()
+    for package in ('nsfr', 'neumann', 'gym_classic_control'):
+        hub.install(installer, package)
     import copy
     import gymnasium as gym
     from src.app.core.provider_loader import load_module

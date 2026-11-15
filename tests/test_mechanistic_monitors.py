@@ -297,7 +297,7 @@ def test_monitor_scaffold_has_native_capability_and_exact_output_catalog(tmp_pat
 
 
 @pytest.mark.parametrize("algorithm", ["ppo", "dqn"])
-def test_real_sb3_training_is_identical_with_and_without_diagnostics(tmp_path, algorithm):
+def test_real_sb3_training_is_identical_with_and_without_diagnostics(tmp_path, fixture_workspace, algorithm):
     module = load_module(get_catalog().package("sb3-dev"), "theta_sb3_policy.py")
     algorithm_class = module.ThetaPPO if algorithm == "ppo" else module.ThetaDQN
     policy = module.ThetaActorCriticPolicy if algorithm == "ppo" else module.ThetaDQNPolicy

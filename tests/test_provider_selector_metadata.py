@@ -178,7 +178,7 @@ from PyQt6.QtWidgets import QApplication
 from frontend.config_viewer import ConfigViewer
 app = QApplication([])
 widget = ConfigViewer()
-widget.load_file(Path('src/usr/packages/themes-dev/configs/experiment/AL/codex/themes_synthetic.yaml'), 'experiment/AL/codex/themes_synthetic.yaml')
+widget.load_file(Path(sys.argv[1]) / 'src/usr/packages/themes-dev/configs/experiment/AL/codex/themes_synthetic.yaml', 'experiment/AL/codex/themes_synthetic.yaml')
 assert 'ticc_em_edm' in widget.raw_data.get('methods', {}), widget.raw_data
 assert widget._inherited_paradigm() == 'apprenticeship'
 assert widget.field_widgets, 'form failed to render'
@@ -187,7 +187,11 @@ for kind in ('data_module', 'symbolic_state_loader', 'evaluator', 'plots'):
 assert not attempted, attempted
 assert not any(name.split('.')[0] in {'torch', 'lightning', 'matplotlib'} for name in sys.modules)
 '''
-    result = subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).resolve().parents[1],
-                            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "MPLCONFIGDIR": str(tmp_path)},
+    from themes_fixtures import themes_package
+    workspace = tmp_path / "workspace"
+    themes_package(workspace)
+    result = subprocess.run([sys.executable, "-c", script, str(workspace)], cwd=Path(__file__).resolve().parents[1],
+                            env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "MPLCONFIGDIR": str(tmp_path),
+                                 "THETA_WORKSPACE": str(workspace)},
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
