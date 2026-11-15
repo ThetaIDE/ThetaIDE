@@ -214,7 +214,8 @@ def _run_methods_sequential(cfg, context) -> None:
                 import os
                 from src.app.pipeline.variability import finish_trial_runs
                 finish_trial_runs(cfg.group, cfg.experiment_id, None, "cancelled",
-                                  owner_pid=int(os.environ.get("THETA_PIPELINE_PID", os.getpid())), method=agent_name)
+                                  owner_pid=int(os.environ.get("THETA_PIPELINE_PID", os.getpid())), method=agent_name,
+                                  paths=context.get("workspace"))
             cancel = getattr(tuner, "cancel", None)
             if callable(cancel):
                 cancel(cfg, agent_name, storage_url, study_name)

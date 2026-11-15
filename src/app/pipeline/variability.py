@@ -20,6 +20,11 @@ from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outc
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.config import normalize_agent_name
 from src.app.pipeline.result_paths import saved_run_id, result_experiment_id as experiment_folder
+from src.app.workspace import WorkspacePaths
+
+
+def _executions(paths, group, experiment_id):
+    return (paths or WorkspacePaths.for_process()).results / "executions" / str(group) / str(experiment_id)
 
 
 def make_plan(cfg, context):
@@ -94,16 +99,21 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     """
     from src.app.pipeline.local_runner import _run_methods_sequential, _setup_output_dirs, run_plotting_phase
 
+    # Run records hold workspace-relative paths, so a workspace can move.
+    paths = context.get("workspace") or WorkspacePaths.for_process()
+    context = {**context, "workspace": paths}
     execution_id = uuid.uuid4().hex
     identity = str(cfg.experiment_id)
     # IDE and cluster launches already own a unique folder. Keep seed output
     # there so cluster publication includes every replicate.
     result_experiment_id = (identity if parent or experiment_folder(identity) != identity else
                             saved_run_id(identity, f"_{datetime.now():%Y%m%d-%H%M%S}_{execution_id[:8]}"))
-    root = Path("results/executions") / str(cfg.group) / str(cfg.experiment_id) / execution_id
+    relative_root = Path("results/executions") / str(cfg.group) / str(cfg.experiment_id) / execution_id
+    root = paths.root / relative_root
     root.mkdir(parents=True, exist_ok=False)
     runs = []
-    logs_root = Path("results/logs") / str(cfg.group) / result_experiment_id
+    relative_logs = Path("results/logs") / str(cfg.group) / result_experiment_id
+    logs_root = paths.root / relative_logs
     for method in context["methods"]:
         for version_index, seed in enumerate(plan["training_seeds"]):
             run_id = uuid.uuid4().hex
@@ -113,9 +123,9 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
             runs.append({"run_id": run_id, "method": method, "training_seed": seed,
                          "status": "queued", "experiment_id": result_experiment_id,
                          "version": version, "agent": agent,
-                         "output_log": str(root / "runs" / f"{run_id}.log"),
-                         "logs": str(logs_root),
-                         "event_path": str(logs_root / agent / version / "evaluation_events.jsonl"),
+                         "output_log": str(relative_root / "runs" / f"{run_id}.log"),
+                         "logs": str(relative_logs),
+                         "event_path": str(relative_logs / agent / version / "evaluation_events.jsonl"),
                          "checkpoints": str(Path("results/checkpoints") / str(cfg.group) / result_experiment_id / agent / version)})
     if OmegaConf.is_config(cfg):
         from src.app.pipeline.compose import effective_config
@@ -141,9 +151,9 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     # Prepare the unique result experiment once. Workers then prepare only their
     # own agent/version subtree, so parallel setup cannot erase sibling output.
     if dispatch is None:
-        _setup_output_dirs(run_cfg_base)
+        _setup_output_dirs(run_cfg_base, paths=paths)
         save_experiment_snapshot(run_cfg_base, context)
-        save_run_config(run_cfg_base, paths=context.get("workspace"))
+        save_run_config(run_cfg_base, paths=paths)
 
     resource_pool = None
     tickets = {}
@@ -208,7 +218,7 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
             else:
                 _run_methods_sequential(cfg, {**context, "methods": {run["method"]: context["methods"][run["method"]]},
                                          "sanitized_extra_args": overrides,
-                                         "output_log": run["output_log"],
+                                         "output_log": str(paths.root / run["output_log"]),
                                          "propagate_cancellation": True,
                                          "on_worker_start": worker_started,
                                          "on_worker_wait": worker_waiting,
@@ -218,7 +228,7 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
                 run.update(status="cancelled", elapsed_seconds=time.monotonic() - started)
                 save()
         except (Exception, SystemExit) as exc:
-            output_path = Path(run["output_log"])
+            output_path = paths.root / run["output_log"]
             output_tail = ""
             if output_path.is_file():
                 try:
@@ -281,7 +291,7 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     return path
 
 
-def mark_cancelled(group, experiment_id, owner_pid):
+def mark_cancelled(group, experiment_id, owner_pid, *, paths=None):
     """Mark a terminated GUI launch's unfinished replicates, preserving completed work."""
     from src.app.services.catalog import check_path_segment
 
@@ -290,7 +300,7 @@ def mark_cancelled(group, experiment_id, owner_pid):
         check_path_segment(str(experiment_id))
     except ValueError:
         return
-    for path in (Path("results/executions") / str(group) / str(experiment_id)).glob("*/manifest.json"):
+    for path in _executions(paths, group, experiment_id).glob("*/manifest.json"):
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
             if manifest.get("owner_pid") != owner_pid:
@@ -305,11 +315,11 @@ def mark_cancelled(group, experiment_id, owner_pid):
             continue
 
 
-def finish_trial_runs(group, experiment_id, log_version, status, *, owner_pid=None, method=None):
+def finish_trial_runs(group, experiment_id, log_version, status, *, owner_pid=None, method=None, paths=None):
     """Close unfinished seed records after their owning processes have stopped."""
     if not group or not experiment_id or not (log_version or (owner_pid and method)):
         return
-    for path in (Path("results/executions") / str(group) / str(experiment_id)).glob("*/manifest.json"):
+    for path in _executions(paths, group, experiment_id).glob("*/manifest.json"):
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
             parent = manifest.get("parent") or {}

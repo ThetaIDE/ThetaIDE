@@ -30,7 +30,7 @@ def read_execution(path, completed_only=False, *, workspace=None):
     manifest = Path(path).resolve()
     if root not in manifest.parents or manifest.name != "manifest.json":
         raise ValueError("Invalid execution manifest path")
-    data = ExecutionData(manifest)
+    data = ExecutionData(manifest, root=paths.root)
     if completed_only:
         data.manifest["runs"] = [run for run in data.runs() if run.get("status") == "completed"]
     runs = list(data.runs())

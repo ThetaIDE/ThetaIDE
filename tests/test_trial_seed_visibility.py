@@ -186,7 +186,7 @@ def test_cancelled_seed_is_not_scored_as_a_failed_or_completed_sample(tmp_path, 
 def test_cancelled_panel_never_calls_the_objective(tmp_path, monkeypatch):
     from src.app.pipeline.repeated_task import run_objective
     from src.app.services.cancellation import TrainingCancelled
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     score = Mock(side_effect=AssertionError("cancelled panels must not be scored"))
     monkeypatch.setattr("src.app.objectives.evaluation.score_execution", score)
     cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "agent": {"name": "m"},
@@ -201,7 +201,7 @@ def test_cancelled_panel_never_calls_the_objective(tmp_path, monkeypatch):
 
 def test_stopped_trial_closes_only_its_unfinished_runs(tmp_path, monkeypatch):
     from src.app.pipeline.variability import finish_trial_runs
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     for trial in ("one", "two"):
         path = tmp_path / "results/executions/g/e" / trial / "manifest.json"
         path.parent.mkdir(parents=True)
@@ -219,7 +219,7 @@ def test_cancelled_method_closes_only_current_launch_trials_and_seed_records(tmp
     from component_fixtures import optional_module
     _optuna_component = optional_module('optuna', 'component.py')
     OptunaTuner = _optuna_component.OptunaTuner
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     storage = f"sqlite:///{tmp_path / 'study.db'}"
     study = optuna.create_study(study_name="s", storage=storage)
     study.ask()  # An earlier launch's outstanding trial is not owned by this cancellation.

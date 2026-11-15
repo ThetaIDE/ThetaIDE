@@ -9,7 +9,7 @@ def test_variance_waits_for_worker_start_before_marking_running(tmp_path, monkey
     from src.app.pipeline import local_runner
     from src.app.pipeline.variability import run_execution
 
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "plotting": {"enabled": False}})
     ctx = {"methods": {"m": {"agent": "ppo"}}, "sanitized_extra_args": []}
     plan = {"training_seeds": [1], "evaluation_seed": None, "parallel_runs": 1}
@@ -56,10 +56,10 @@ def test_worker_start_notification_happens_inside_resource_slot(monkeypatch):
             assert (token, pid) == ("lease", 42)
             events.append("attached")
 
-    monkeypatch.setattr(runtime, "get_subprocess_env", lambda _: {
+    monkeypatch.setattr(runtime, "get_subprocess_env", lambda _site=None, **_context: {
         "THETA_RESOURCE_POOL": "unused.db", "THETA_RESOURCE_SPEC": json.dumps({"memory": 1})})
     monkeypatch.setattr(resource_budget, "ResourcePool", Pool)
-    monkeypatch.setattr(resource_budget, "workload_estimate", lambda _: {"memory": 1, "minimum_memory": 0})
+    monkeypatch.setattr(resource_budget, "workload_estimate", lambda _config, **_context: {"memory": 1, "minimum_memory": 0})
 
     def execute(cmd, env, output_log, on_start=None, should_retry=None):
         assert events == ["admitted"]

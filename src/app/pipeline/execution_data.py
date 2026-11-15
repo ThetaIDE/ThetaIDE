@@ -120,8 +120,11 @@ class ExecutionData:
 
     version = 1
 
-    def __init__(self, manifest_path):
+    def __init__(self, manifest_path, *, root=None):
+        """``root`` is the workspace that the manifest's relative run paths belong to."""
+        from src.app.workspace import WorkspacePaths
         self.path = Path(manifest_path)
+        self.root = Path(root) if root is not None else WorkspacePaths.for_process().root
         self.manifest = json.loads(self.path.read_text(encoding="utf-8"))
         if self.manifest.get("schema_version") != 1:
             raise ValueError("Unsupported execution manifest version")
@@ -130,7 +133,7 @@ class ExecutionData:
         return tuple(dict(run) for run in self.manifest.get("runs", []))
 
     def events(self, run):
-        path = Path(run.get("event_path") or (Path(run["logs"]) / "evaluation_events.jsonl"))
+        path = self.root / (run.get("event_path") or Path(run["logs"]) / "evaluation_events.jsonl")
         if not path.exists():
             return []
         events = []

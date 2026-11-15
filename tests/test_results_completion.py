@@ -117,19 +117,21 @@ def test_finished_sweep_summary_survives_other_unfinished_studies(logs):
     assert summary_paths() == {saved_path}
 
 
-def test_execution_results_do_not_read_running_replicates(tmp_path, monkeypatch):
+def test_execution_results_do_not_read_running_replicates(tmp_path):
     from src.app.services.executions import list_executions, read_execution
 
-    monkeypatch.chdir(tmp_path)
-    path = tmp_path / "results" / "executions" / "group" / "run" / "execution" / "manifest.json"
+    from src.app.workspace import WorkspacePaths
+
+    paths = WorkspacePaths(tmp_path)
+    path = paths.results / "executions" / "group" / "run" / "execution" / "manifest.json"
     runs = [
         {"run_id": "done", "status": "completed", "method": "agent", "logs": str(tmp_path / "done")},
         {"run_id": "live", "status": "running", "method": "agent", "logs": str(tmp_path / "live")},
     ]
     write_json(path, {"schema_version": 1, "runs": runs[1:]})
-    assert list_executions(completed_only=True) == []
+    assert list_executions(completed_only=True, workspace=paths) == []
     write_json(path, {"schema_version": 1, "runs": runs})
-    assert len(list_executions(completed_only=True)) == 1
-    data = read_execution(path, completed_only=True)
+    assert len(list_executions(completed_only=True, workspace=paths)) == 1
+    data = read_execution(path, completed_only=True, workspace=paths)
     assert [run["run_id"] for run in data["manifest"]["runs"]] == ["done"]
     assert set(data["events"]) == {"done"}

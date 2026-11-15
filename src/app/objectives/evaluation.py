@@ -42,13 +42,15 @@ def read_run(seed, status, directory, elapsed, error=None):
     return RunResult(seed, status, metrics, events, {"logs": str(directory)}, elapsed, error)
 
 
-def score_execution(cfg, manifest_path, output, artifact_root):
+def score_execution(cfg, manifest_path, output, artifact_root, *, paths=None):
+    from src.app.workspace import WorkspacePaths
+    root = (paths or WorkspacePaths.for_process()).root
     component, params = validate_objective(cfg)
     execution = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
     config = OmegaConf.to_container(cfg, resolve=True)
     runs = []
     for run in execution["runs"]:
-        directory = Path(run["logs"]) / run["agent"] / run["version"]
+        directory = root / run["logs"] / run["agent"] / run["version"]
         result = read_run(run["training_seed"], run["status"], directory,
                           run.get("elapsed_seconds", 0), run.get("error"))
         result.artifacts["checkpoints"] = run["checkpoints"]

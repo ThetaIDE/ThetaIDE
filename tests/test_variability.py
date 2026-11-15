@@ -6,6 +6,9 @@ from omegaconf import OmegaConf
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.variability import make_plan, run_execution
 
+# Plans resolve each method's runner from the fixture workspace's packages.
+pytestmark = pytest.mark.usefixtures("fixture_workspace")
+
 
 def config():
     return OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl",
@@ -14,8 +17,8 @@ def config():
 
 
 def context():
-    return {"methods": {"first": {"agent": "ppo", "model": "dnn"},
-                        "second": {"agent": "ppo", "model": "dnn"}},
+    return {"methods": {"first": {"agent": "sb3-dev/ppo", "model": "basics/dnn"},
+                        "second": {"agent": "sb3-dev/ppo", "model": "basics/dnn"}},
             "is_interactive": True, "sanitized_extra_args": []}
 
 
@@ -31,14 +34,13 @@ def test_plan_is_opt_in_and_validates():
 
 def test_plan_rejects_unsupported_combinations():
     cfg = config()
-    with pytest.raises(ConfigurationError, match="Slurm"):
+    with pytest.raises(ConfigurationError, match="scheduler-site"):
         make_plan(cfg, {**context(), "is_interactive": False})
-    cfg.tuning = {"enabled": True}
+    cfg.tuning = {"component": "optuna"}
     assert make_plan(cfg, context())["training_seeds"] == [1, 2]
 
 
 def test_execution_isolated_and_failures_retained(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
     calls = []
     def run(cfg, ctx):
         calls.append(ctx["sanitized_extra_args"])
@@ -85,7 +87,7 @@ def test_repetition_is_independent_of_paradigm_and_runner():
     cfg.paradigm = "supervised"
     cfg.eval_episodes = 0
     del cfg.variability.evaluation_seed
-    ctx = {"methods": {"custom": {"model": "dnn", "entrypoint": "custom.py"}},
+    ctx = {"methods": {"custom": {"model": "basics/dnn"}},
            "is_interactive": True, "sanitized_extra_args": []}
     plan = make_plan(cfg, ctx)
     assert plan["capabilities"]["custom"]["episode_events"] is False
@@ -95,11 +97,11 @@ def test_repetition_is_independent_of_paradigm_and_runner():
         make_plan(cfg, ctx)
 
 
-def test_default_seed_and_disabled_tuning():
+def test_default_seed_and_masked_tuning():
     cfg = config()
     del cfg.variability.training_seeds
     cfg.seed = 17
-    cfg.tuning = {"enabled": False}
+    cfg.tuning = None
     assert make_plan(cfg, context())["training_seeds"] == [17]
 
 
@@ -127,13 +129,14 @@ def test_aggregate_uses_run_means_without_extrapolation(tmp_path, monkeypatch):
 
 def test_cancel_only_matching_execution(tmp_path, monkeypatch):
     from src.app.pipeline.variability import mark_cancelled
-    monkeypatch.chdir(tmp_path)
+    from src.app.workspace import WorkspacePaths
+    monkeypatch.chdir(tmp_path.parent)  # the desktop's working directory is not the workspace
     for name, pid in [("first", 123), ("second", 456)]:
         path = tmp_path / "results/executions/g/e" / name / "manifest.json"
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({"owner_pid": pid, "runs": [{"status": "completed"},
                                                                  {"status": "running"}, {"status": "queued"}]}))
-    mark_cancelled("g", "e", 123)
+    mark_cancelled("g", "e", 123, paths=WorkspacePaths(tmp_path))
     first = json.loads((tmp_path / "results/executions/g/e/first/manifest.json").read_text())
     second = json.loads((tmp_path / "results/executions/g/e/second/manifest.json").read_text())
     assert [r["status"] for r in first["runs"]] == ["completed", "cancelled", "cancelled"]

@@ -739,7 +739,8 @@ class JobManager(QObject):
             if process.state() != QProcess.ProcessState.NotRunning:
                 process.kill()
             from src.app.pipeline.variability import mark_cancelled
-            mark_cancelled(job.get("group", ""), job.get("experiment_id", ""), process_id)
+            mark_cancelled(job.get("group", ""), job.get("experiment_id", ""), process_id,
+                           paths=WorkspacePaths(self.project_root))
         return self.public(job)
 
     def start_queue(self) -> dict[str, Any]:

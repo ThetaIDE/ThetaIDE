@@ -19,7 +19,8 @@ from src.app.workspace import WorkspacePaths
 def execute_resolved(cfg, run, on_start, on_wait):
     """The same resource admission/cancellation path as ordinary training."""
     from src.app.pipeline.datasets import run_experiment
-    directory = Path(run["logs"]) / run["agent"] / run["version"]
+    root = WorkspacePaths.for_process().root
+    directory = root / run["logs"] / run["agent"] / run["version"]
     directory.mkdir(parents=True, exist_ok=True)
     full = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     with open_dict(full):
@@ -47,7 +48,7 @@ def execute_resolved(cfg, run, on_start, on_wait):
     run_experiment(["src.app.pipeline.task_worker", str(resolve_resource(script)),
                     str(config_path.resolve()), str(result_path.resolve())],
                    script_entrypoint="-m", python_executable=sys.executable,
-                   task_config=task_config, output_log=run["output_log"],
+                   task_config=task_config, output_log=str(root / run["output_log"]),
                    cancel_targets=targets, on_start=on_start, on_wait=on_wait, resource_ticket=run.get("resource_ticket"))
     result = json.loads(result_path.read_text(encoding="utf-8"))
     if "error" in result:
@@ -74,10 +75,11 @@ def run_objective(cfg, *, execute=None):
     runtime = cfg.get("theta_tuning") or {}
     parent = {"kind": "trial" if runtime.get("study_name") else "method", "method": name,
               "study": runtime.get("study_name"), "trial_number": runtime.get("trial_number"), "log_version": version}
-    logs = Path("results/logs") / str(cfg.group) / str(cfg.experiment_id) / name
+    paths = WorkspacePaths.for_process()
+    logs = paths.results / "logs" / str(cfg.group) / str(cfg.experiment_id) / name
     output = logs / version
     output.mkdir(parents=True, exist_ok=True)
-    checkpoint_root = Path("results/checkpoints") / str(cfg.group) / str(cfg.experiment_id) / name
+    checkpoint_root = paths.results / "checkpoints" / str(cfg.group) / str(cfg.experiment_id) / name
     artifact_root = trial_checkpoint_dir_from_config(checkpoint_root, cfg) or checkpoint_root / version
     artifact_root.mkdir(parents=True, exist_ok=True)
 
@@ -89,12 +91,12 @@ def run_objective(cfg, *, execute=None):
             with open_dict(child):
                 child.objective = None
                 child.theta_tuning = None
-            directory = Path(run["logs"]) / run["agent"] / run["version"]
+            directory = paths.root / run["logs"] / run["agent"] / run["version"]
             directory.mkdir(parents=True, exist_ok=True)
             on_start(os.getpid())
             execute(child, directory)
 
-    path = run_execution(cfg, {"methods": {name: {}}}, plan,
+    path = run_execution(cfg, {"methods": {name: {}}, "workspace": paths}, plan,
                          dispatch=dispatch, parent=parent, raise_on_failure=False)
     execution = json.loads(path.read_text(encoding="utf-8"))
     if any(run["status"] == "cancelled" for run in execution["runs"]):
@@ -109,7 +111,7 @@ def run_objective(cfg, *, execute=None):
         scoring_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
         with open_dict(scoring_cfg):
             scoring_cfg.objective = {"component": "final_metric", "params": {"metric": metric}}
-    result, result_path = score_execution(scoring_cfg, path, output, artifact_root)
+    result, result_path = score_execution(scoring_cfg, path, output, artifact_root, paths=paths)
     from src.app import telemetry
     run = telemetry.init(str(cfg.group), str(cfg.experiment_id), name,
                          config=OmegaConf.to_container(cfg, resolve=True), version=version)

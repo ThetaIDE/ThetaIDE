@@ -23,6 +23,7 @@ def test_saved_ids_group_with_legacy_ids(identity):
 @pytest.fixture
 def mixed_results(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     monkeypatch.setattr(catalog, 'LOGS_DIR', tmp_path / 'results/logs')
     for root in catalog.RESULT_ROOTS:
         for identity in ('run', 'run/20261112-120000'):
@@ -63,12 +64,12 @@ def test_overwriting_legacy_run_preserves_saved_runs(mixed_results):
 def test_timestamp_queue_ids_always_nest_and_handle_collisions(tmp_path, monkeypatch):
     pytest.importorskip('PyQt6')
     from frontend.app import Window
-    from src.app import services
-    monkeypatch.setattr(services, 'LOGS_DIR', tmp_path)
-    window = SimpleNamespace(current_experiment='g/nested/run', issued_ids=set())
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(tmp_path)
+    window = SimpleNamespace(current_experiment='g/nested/run', issued_ids=set(), workspace_paths=paths)
     first = Window.unique_experiment_id(window, 'nested/run')
     assert first.startswith('nested/run/')
-    (tmp_path / 'g' / first).mkdir(parents=True)
+    (paths.results / 'logs/g' / first).mkdir(parents=True)
     second = Window.unique_experiment_id(window, 'nested/run')
     assert second != first
     assert Window.unique_experiment_id(window, first, is_recover=True) == first
@@ -95,7 +96,7 @@ def test_results_tree_groups_new_and_old_saves():
 @pytest.mark.parametrize("identity", ["nested/run", "nested/run/" + "a" * 32])
 def test_variability_results_are_nested(tmp_path, monkeypatch, identity):
     from src.app.pipeline.variability import run_execution
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     monkeypatch.setattr('src.app.pipeline.local_runner._run_methods_sequential', lambda *args: None)
     cfg = OmegaConf.create({'group': 'g', 'experiment_id': identity, 'plotting': {'enabled': False}})
     context = {'methods': {'agent': {'name': 'agent'}}, 'sanitized_extra_args': []}
