@@ -23,17 +23,11 @@ from PyQt6.QtWidgets import (
 )
 
 from frontend.config_model import ConfigTree, component_selection
-from frontend.config_viewer import (
-    NUMBER_FIELD_WIDTH,
-    PARAM_FIELD_WIDTH,
-    PARAM_LABEL_WIDTH,
-    ConfigBox,
-    ConfigViewer,
-    IndentedHierarchyBlock,
-    _RowHoverReveal,
-    invalidate_config_tree,
-    set_config_tree,
-)
+from frontend.config_panel.controls import NUMBER_FIELD_WIDTH, ConfigBox, IndentedHierarchyBlock, _RowHoverReveal
+from frontend.config_viewer import ConfigViewer
+from frontend.config_panel.catalogs import invalidate_config_tree
+from frontend.config_panel.controls import PARAM_FIELD_WIDTH, PARAM_LABEL_WIDTH
+from frontend.config_panel.catalogs import set_config_tree
 from frontend.theme import current_theme, stylesheet
 from frontend.widgets import DoubleSpinBox, ExpandingTextEdit, FlowLayout, HierarchicalComboBox, SpinBox, ToggleSlider
 
@@ -657,7 +651,7 @@ def test_structural_refresh_retains_scroll_and_cancels_active_drag(viewer):
 def test_component_open_action_uses_latest_value_and_preserves_form(viewer):
     from types import SimpleNamespace
 
-    from frontend.config_viewer import _RowHoverReveal
+    from frontend.config_panel.controls import _RowHoverReveal
     widget, tree, root = viewer
     target = root / "chosen.txt"
     target.write_text("rules")
@@ -2012,7 +2006,7 @@ def test_external_dataset_browse_and_save_use_project_relative_path(viewer, tmp_
     with patch.object(QFileDialog, 'getOpenFileName', return_value=(str(source), 'CSV')):
         widget._browse_dataset_path()
     import os
-    from frontend.config_viewer import _dataset_workspace
+    from frontend.config_panel.catalogs import _dataset_workspace
     expected = Path(os.path.relpath(source, _dataset_workspace().root)).as_posix()
     assert expected.startswith('../')
     assert widget.combo_dataset_path.currentText() == expected

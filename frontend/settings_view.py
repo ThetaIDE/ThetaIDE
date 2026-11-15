@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 from src.app.workspace import PROJECT_ROOT
 
 from .hotkeys import parse_action_key
+from .settings import default_hotkey_bindings
 from .theme import current_theme, theme_color
 from .widgets import SmoothScrollArea, SpinBox as QSpinBox, ToggleSlider, label
 
@@ -130,18 +131,6 @@ TAB_SPECS = [
 
 ALL_TAB_SPECS = TAB_SPECS
  
-DEFAULT_PANES = [
-    "settings",
-    "components",
-    "config",
-    "monitor",
-    "results",
-    "plots",
-    "tensorboard",
-    "queue",
-    "terminal",
-    "console",
-]
 
 AVAILABLE_PANES = [
     ("settings", "Settings"),
@@ -1229,7 +1218,6 @@ class SettingsView(QWidget):
         self.pane_conflict_labels = {}
 
         current_bindings = self.window.settings_manager.hotkey_bindings
-        configured_panes = self.window.settings_manager.hotkey_panes
         all_panes = self._get_all_tracked_panes()
 
         rows_layout = QVBoxLayout()
@@ -1287,9 +1275,6 @@ class SettingsView(QWidget):
 
             # Right: HotkeyComboEdit + Clear button
             init_combo = current_bindings.get(pid) or ""
-            if not init_combo and pid in configured_panes:
-                idx = configured_panes.index(pid)
-                init_combo = f"Action + {idx}"
 
             combo_edit = HotkeyComboEdit(canonical_combo=init_combo)
             combo_edit.setFixedWidth(160)
@@ -1524,17 +1509,6 @@ class SettingsView(QWidget):
                             "is_builtin": False,
                         })
 
-            saved_panes = sm.get("hotkeys", "panes", default=[])
-            if isinstance(saved_panes, list):
-                for pid in saved_panes:
-                    if pid not in seen and pid != "none" and (pid == "settings" or pid in present_tabs):
-                        seen.add(pid)
-                        tracked.append({
-                            "id": pid,
-                            "title": self._get_pane_title(pid),
-                            "is_builtin": False,
-                        })
-
         # Decorate each pane with current status (Active, Hidden, Inactive Plugin, etc.)
         for pane in tracked:
             pid = pane["id"]
@@ -1720,14 +1694,7 @@ class SettingsView(QWidget):
                 bindings[pane_id] = normalized
             elif pane_id in bindings:
                 del bindings[pane_id]
-            # Bindings are authoritative; mirror digits for older clients in the
-            # same commit, clearing stale slots after rebinding to a letter.
-            panes = ["none"] * 10
-            for d in range(10):
-                panes[d] = next((p for p, c in bindings.items()
-                                 if c.upper() == f"ACTION + {d}"), "none")
-            sm.set_many({("hotkeys", "bindings"): bindings,
-                         ("hotkeys", "panes"): panes})
+            sm.set("hotkeys", "bindings", bindings)
 
         if hasattr(self.window, "statusBar") and self.window.statusBar():
             title = self._get_pane_title(pane_id)
@@ -1738,10 +1705,9 @@ class SettingsView(QWidget):
 
     def _reset_pane_mappings_to_default(self):
         sm = getattr(self.window, "settings_manager", None)
-        default_bindings = {DEFAULT_PANES[i]: f"Action + {i}" for i in range(len(DEFAULT_PANES))}
+        default_bindings = default_hotkey_bindings()
         if sm:
-            sm.set_many({("hotkeys", "bindings"): default_bindings,
-                         ("hotkeys", "panes"): list(DEFAULT_PANES)})
+            sm.set("hotkeys", "bindings", default_bindings)
 
         for pid, edit in self.pane_hotkey_edits.items():
             expected = default_bindings.get(pid, "")

@@ -75,7 +75,7 @@ BUILTINS = {
         "#d3dedc #66777c #526369 #3f9698 #527ba3 #527d69 #63947e #b77d4e #716b8c"),
 }
 DEFAULT = BUILTINS["Gruvbox Dark"]
-_LEGACY_ROLES = {value: key for key, (_, value) in ROLES.items()}
+_SWATCH_ROLES = {value: key for key, (_, value) in ROLES.items()}
 
 
 def current_theme():
@@ -84,9 +84,9 @@ def current_theme():
 
 
 def theme_color(value):
-    """Resolve semantic roles or legacy Gruvbox swatches for painted widgets."""
+    """Resolve a semantic role, or a Gruvbox swatch from the base stylesheet, in the current theme."""
     colors = current_theme()["colors"]
-    return colors.get(_LEGACY_ROLES.get(value, value), value)
+    return colors.get(_SWATCH_ROLES.get(value, value), value)
 
 
 def validate_theme(value):
@@ -262,7 +262,7 @@ def _chevron(direction, color):
 
 def stylesheet(theme, zoom: float = 1.0):
     colors = theme["colors"]
-    style = re.sub(r"#[0-9a-fA-F]{6}", lambda m: colors[_LEGACY_ROLES[m[0]]], _BASE_STYLE)
+    style = re.sub(r"#[0-9a-fA-F]{6}", lambda m: colors[_SWATCH_ROLES[m[0]]], _BASE_STYLE)
     for direction in _CHEVRON_POINTS:
         style = style.replace(f"@ARROW_{direction}@", _chevron(direction, colors["text"]))
         style = style.replace(f"@ARROW_{direction}_OFF@", _chevron(direction, colors["disabled"]))
@@ -276,7 +276,10 @@ def stylesheet(theme, zoom: float = 1.0):
     return style
 
 
-STYLE = stylesheet(DEFAULT)  # Backward-compatible default for tests and previews.
+STYLE = stylesheet(DEFAULT)  # The stylesheet before the theme manager applies the selected theme.
+
+
+APPEARANCE_VERSION = 2
 
 
 class ThemeManager(QObject):
@@ -293,12 +296,14 @@ class ThemeManager(QObject):
         # Widget that set_zoom() styled directly. A widget's own stylesheet overrides the
         # application's, so apply() must restyle it too or theme changes never reach it.
         self._style_target = None
-        # Migrate existing .appearance.json on first load (for backward compat)
+        # Custom themes live in the appearance file; the selection lives in settings.toml.
         if self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-                if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("themes"), list):
-                    raise ValueError("Unsupported appearance settings format.")
+                if not isinstance(data, dict) or set(data) != {"version", "themes"} \
+                        or data["version"] != APPEARANCE_VERSION or not isinstance(data["themes"], list):
+                    raise ValueError(f"Unsupported appearance settings format (expected version {APPEARANCE_VERSION} "
+                                     "with only 'version' and 'themes').")
                 custom = {}
                 for item in data["themes"]:
                     theme = validate_theme(item)
@@ -306,17 +311,10 @@ class ThemeManager(QObject):
                         raise ValueError("A custom theme cannot replace a built-in theme.")
                     custom[theme["name"]] = theme
                 self.custom = custom
-                # Honour initial_theme (from settings.toml) over .appearance.json
-                selected = initial_theme if initial_theme and initial_theme in {**BUILTINS, **custom} \
-                    else data.get("selected")
-                if not isinstance(selected, str) or selected not in {**BUILTINS, **custom}:
-                    raise ValueError("Selected theme was not found.")
-                self.active = copy.deepcopy(self.themes()[selected])
             except (OSError, ValueError, TypeError) as exc:
-                self.error = f"Appearance settings could not be loaded; using Gruvbox Dark. {exc}"
-        elif initial_theme:
-            # No .appearance.json yet — apply whatever settings.toml declares
-            self.select_by_name(initial_theme, _emit=False)
+                self.error = f"Custom themes could not be loaded. {exc}"
+        if initial_theme in self.themes():
+            self.active = copy.deepcopy(self.themes()[initial_theme])
         self.apply(self.active, zoom=self.zoom)
 
     def themes(self):
@@ -381,7 +379,7 @@ class ThemeManager(QObject):
             return False
         return True
 
-    def select_by_name(self, name: str, _emit: bool = True) -> bool:
+    def select_by_name(self, name: str) -> bool:
         """Switch the active theme to *name* without writing to .appearance.json.
 
         Called by the :class:`SettingsManager` when a hot-reload or GUI
@@ -393,9 +391,6 @@ class ThemeManager(QObject):
         if theme is None:
             return False
         self.apply(theme)
-        if not _emit:
-            # apply() already emits; this param exists only for __init__ usage
-            pass
         return True
 
     def commit(self, theme):
@@ -409,7 +404,7 @@ class ThemeManager(QObject):
                 raise ValueError("Choose a name different from the built-in themes.")
             custom[theme["name"]] = theme
         # Write first: a failed save must not change the committed preferences.
-        write_json(self.path, {"version": 1, "selected": theme["name"], "themes": list(custom.values())})
+        write_json(self.path, {"version": APPEARANCE_VERSION, "themes": list(custom.values())})
         self.custom = custom
         self.apply(theme)
         self.committed.emit(theme["name"])

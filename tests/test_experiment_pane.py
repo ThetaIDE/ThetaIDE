@@ -24,7 +24,8 @@ try:
     from frontend.app import Window
     from frontend.components_panel import ComponentsPanel
     from frontend.config_tree import ConfigTreeWidget
-    from frontend.config_viewer import ConfigBox, ConfigViewer
+    from frontend.config_panel.controls import ConfigBox
+    from frontend.config_viewer import ConfigViewer
     HAS_PYQT6 = True
 except ImportError:
     HAS_PYQT6 = False
@@ -629,7 +630,7 @@ class TestConfigViewer(unittest.TestCase):
         self.assertTrue(any(b.toolTip() == "Add test_agent parameter" for b in self.viewer.findChildren(QToolButton)))
 
     def test_shared_algorithm_choices_follow_paradigm(self):
-        from frontend.config_viewer import config_tree
+        from frontend.config_panel.catalogs import config_tree
         from frontend.widgets import ComboBox
 
         tree = config_tree()
@@ -683,7 +684,8 @@ class TestConfigViewer(unittest.TestCase):
 
     def test_method_card_fields_have_consistent_widths(self):
         from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox
-        from frontend.config_viewer import MethodCardsContainer, TEXT_FIELD_WIDTH
+        from frontend.config_panel.controls import MethodCardsContainer
+        from frontend.config_panel.controls import TEXT_FIELD_WIDTH
 
         container = self.viewer.findChild(MethodCardsContainer)
         card = next(card for name, card in container._cards if name == "ppo")
@@ -693,7 +695,7 @@ class TestConfigViewer(unittest.TestCase):
         self.assertTrue(all(field.minimumWidth() == field.maximumWidth() == expected_width for field in fields))
 
     def test_experiment_sections_can_be_reordered_and_survive_rerender(self):
-        from frontend.config_viewer import ConfigBox
+        from frontend.config_panel.controls import ConfigBox
 
         def titles():
             boxes = [self.viewer.boxes_layout.itemAt(i).widget() for i in range(self.viewer.boxes_layout.count())]
@@ -833,7 +835,7 @@ class TestConfigViewer(unittest.TestCase):
         QApplication.processEvents()
         picker = self.viewer.findChild(QComboBox, "sweepType_ppo_agent.lr")
         remove_sweep = self.viewer.findChild(QToolButton, "sweepRemove_ppo_agent.lr")
-        from frontend.config_viewer import _RowHoverReveal, IndentedHierarchyBlock
+        from frontend.config_panel.controls import _RowHoverReveal, IndentedHierarchyBlock
         hover = remove_sweep.findChild(_RowHoverReveal)
         self.assertIn(picker, [ref() for ref in hover._targets])
         self.assertTrue(self.viewer.findChildren(IndentedHierarchyBlock))

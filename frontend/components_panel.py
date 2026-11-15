@@ -355,7 +355,7 @@ class ComponentsPanel(QWidget):
         action_desc = "Uninstalled component" if is_hub else ("Deleted component" if is_comp else "Deleted configuration")
         self.log_fn(f"{action_desc} '{comp_name}' and all associated files.")
 
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         main_window = self.window()
         config_tabs = getattr(main_window, "config_tab_manager", None)

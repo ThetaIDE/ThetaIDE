@@ -16,7 +16,9 @@ try:
 
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     app = QApplication.instance() or QApplication(sys.argv[:1])
-    from frontend.config_viewer import FIXED_BOX_KEYS, ConfigViewer, parse_list_field
+    from frontend.config_panel.catalogs import FIXED_BOX_KEYS
+    from frontend.config_viewer import ConfigViewer
+    from frontend.config_panel.document import parse_list_field
     from frontend.widgets import ToggleSlider
 
     HAS_PYQT6 = True

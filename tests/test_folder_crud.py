@@ -291,7 +291,8 @@ class TestFolderCRUD(unittest.TestCase):
 
     def test_config_viewer_group_defaults_boxes_and_no_strip(self):
         """ConfigViewer displays Group Paradigm & Environment card on _base.yaml and preserves paradigm."""
-        from frontend.config_viewer import ConfigBox, ConfigViewer
+        from frontend.config_panel.controls import ConfigBox
+        from frontend.config_viewer import ConfigViewer
         base_file = self.root / "experiment" / "cartpole" / "_base.yaml"
         base_file.write_text(
             "# @package _global_\ndefaults:\n  - override /env: cartpole\nparadigm: online_rl\nseed: 1\n",
@@ -328,7 +329,8 @@ class TestFolderCRUD(unittest.TestCase):
 
     def test_config_viewer_prompts_required_in_experiment(self):
         """Experiments with null paradigm and env show prompt controls in budget card."""
-        from frontend.config_viewer import ConfigBox, ConfigViewer
+        from frontend.config_panel.controls import ConfigBox
+        from frontend.config_viewer import ConfigViewer
         exp_file = self.root / "experiment" / "cartpole" / "prompt_exp.yaml"
         exp_file.write_text(
             "experiment_id: prompt_exp\nparadigm: null\nenv: null\ntotal_timesteps: 5000\n",

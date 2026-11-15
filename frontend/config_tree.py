@@ -1711,7 +1711,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             return False, str(exc)
         if self.current_rel_path == rel_path:
             self.current_rel_path = None
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         self.file_deleted.emit(rel_path)
         self.populate()
@@ -1738,7 +1738,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             target.write_text(rename_experiment_text(text, target.stem), encoding="utf-8")
         except OSError as exc:
             return None, str(exc)
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         new_rel = str(Path(rel_path).parent / new_name)
         self.populate()
@@ -1829,7 +1829,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             for source, target in reversed(moved):
                 target.rename(source)
             return None, str(exc)
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         self.populate(ensure_expanded=target_dir_rel)
         paths = [target.relative_to(root).as_posix() for _, target in moves]
@@ -1871,7 +1871,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             return None, str(exc)
 
         new_rel = target.relative_to(self.root_dir).as_posix()
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         self.populate(ensure_expanded=target_dir_rel)
         self.select_file(new_rel)
@@ -2095,7 +2095,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 if assets.get("meta"):
                     def hide_component():
                         LocalComponents(paths.root).set_hidden(assets["comp_id"])
-                        from .config_viewer import invalidate_config_tree
+                        from .config_panel.catalogs import invalidate_config_tree
                         invalidate_config_tree()
                         client = getattr(self.window(), "hub_client", None)
                         if client:
@@ -2245,13 +2245,13 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             workspace_root = WorkspacePaths.from_config_root(self.root_dir).root
             dialog = ScaffoldPluginDialog(workspace_root=workspace_root, parent=self)
             if dialog.exec() and dialog.scaffold_result and dialog.scaffold_result.success:
-                from .config_viewer import invalidate_config_tree
+                from .config_panel.catalogs import invalidate_config_tree
                 invalidate_config_tree()
                 self.populate()
 
     def refresh(self):
         """Refresh disk-backed choices and notify the open editors as well."""
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         self.populate()
         self.refresh_requested.emit()

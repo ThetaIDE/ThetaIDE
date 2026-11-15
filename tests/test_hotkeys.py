@@ -17,7 +17,6 @@ try:
     from frontend.hotkeys import (
         HotkeyManager,
         parse_action_key,
-        PANE_ALIASES,
         get_ctrl_key,
         get_ctrl_modifier,
         get_meta_key,
@@ -47,14 +46,13 @@ class TestHotkeySettings(unittest.TestCase):
         self.assertEqual(self.mgr.action_key, "ctrl+b")
         self.assertAlmostEqual(self.mgr.hotkeys_leader_timeout, 1.5)
         
-        # Verify requested hierarchy [0, 1, ...] -> [settings, components, experiments, ...]
-        panes = self.mgr.hotkey_panes
-        self.assertEqual(panes[0], "settings")
-        self.assertEqual(panes[1], "components")
-        self.assertIn(panes[2], ("config", "experiments"))
-        self.assertIn("monitor", panes)
-        self.assertIn("terminal", panes)
-        self.assertIn("console", panes)
+        bindings = self.mgr.hotkey_bindings
+        self.assertEqual(bindings["settings"], "Action + 0")
+        self.assertEqual(bindings["components"], "Action + 1")
+        self.assertEqual(bindings["config"], "Action + 2")
+        self.assertIn("monitor", bindings)
+        self.assertIn("terminal", bindings)
+        self.assertIn("console", bindings)
 
     def test_mutate_hotkey_settings(self):
         self.mgr.set("hotkeys", "action_key", "alt")
@@ -298,8 +296,9 @@ class TestHotkeyManagerNavigation(unittest.TestCase):
         self.assertIs(self.window.tabs.currentWidget(), self.window.components_panel)
 
     def test_custom_pane_order_in_settings(self):
-        """Custom hotkeys.panes list in settings changes index-to-pane mapping."""
-        self.window.settings_manager.set("hotkeys", "panes", ["settings", "terminal", "config"])
+        """Custom hotkeys.bindings change the index-to-pane mapping."""
+        self.window.settings_manager.set("hotkeys", "bindings", {
+            "settings": "Action + 0", "terminal": "Action + 1", "config": "Action + 2"})
         self.assertEqual(self.hm.get_pane_id_by_index(0), "settings")
         self.assertEqual(self.hm.get_pane_id_by_index(1), "terminal")
         self.assertEqual(self.hm.get_pane_id_by_index(2), "config")

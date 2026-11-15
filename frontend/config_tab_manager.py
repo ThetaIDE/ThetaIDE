@@ -159,7 +159,7 @@ class ConfigTabManager(QTabWidget):
 
     def reload_open_files(self) -> None:
         """Reload clean tabs on explicit refresh, retaining unsaved form edits."""
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         viewers = [self.widget(i) for i in range(self.count())] + [self._fallback_viewer]
         for viewer in viewers:
@@ -251,7 +251,7 @@ class ConfigTabManager(QTabWidget):
             if viewer in self._deferred_viewers:
                 self._materialize(viewer)
             elif not viewer.is_dirty and hasattr(viewer, "reload_data"):
-                from .config_viewer import invalidate_config_tree
+                from .config_panel.catalogs import invalidate_config_tree
                 invalidate_config_tree()
                 viewer.reload_data(force_tree_refresh=True)
             idx = self.indexOf(viewer)

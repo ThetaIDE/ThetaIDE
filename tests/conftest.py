@@ -171,7 +171,7 @@ def optuna_workspace(_optuna_workspace_root, monkeypatch):
     monkeypatch.setenv("THETA_WORKSPACE", str(root))
     monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     try:
-        from frontend.config_viewer import invalidate_config_tree
+        from frontend.config_panel.catalogs import invalidate_config_tree
     except ImportError:  # no GUI stack installed
         yield root
         return

@@ -274,7 +274,7 @@ def test_rl_environments_keep_episode_reward():
 def test_offline_environments_headline_validation_loss():
     """breast_cancer and mimic declare monitor_metric: val/loss, which is already
     the number build_trainer selects best_model.ckpt on."""
-    from frontend.config_viewer import config_tree
+    from frontend.config_panel.catalogs import config_tree
     tree = config_tree()
     for env in ("breast_cancer", "mimic"):
         if not tree or env not in tree.environments:
@@ -314,7 +314,7 @@ def test_every_environment_declares_what_it_is_judged_by():
 def test_the_headline_value_comes_from_the_run():
     from frontend.model import latest, metric_points
     from frontend.monitor import headline_metric
-    from frontend.config_viewer import config_tree
+    from frontend.config_panel.catalogs import config_tree
 
     tree = config_tree()
     if not tree or "breast_cancer" not in tree.environments:

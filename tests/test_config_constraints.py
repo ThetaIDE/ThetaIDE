@@ -19,7 +19,9 @@ try:
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     from frontend.config_model import ConfigTree
-    from frontend.config_viewer import ConfigViewer, config_tree, set_config_tree, invalidate_config_tree
+    from frontend.config_viewer import ConfigViewer
+    from frontend.config_panel.catalogs import config_tree, invalidate_config_tree
+    from frontend.config_panel.catalogs import set_config_tree
 
     HAS_PYQT6 = True
 except ImportError:

@@ -53,33 +53,23 @@ from .parameter_reorder import FlowRows, FormRows, ParameterReorder
 from src.app.core.provider_discovery import discovery_cached, provider_discovery_snapshot
 from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 
-# Compatibility exports for callers while sections migrate.
 from .config_panel.controls import (
-    CONTENT_WIDTH, NUMBER_FIELD_WIDTH, TEXT_FIELD_WIDTH, HIERARCHY_INDENT,
-    PARAM_LABEL_WIDTH, PARAM_FIELD_WIDTH, SUBTLE_ICON_COLORS, ComboBox,
-    ConfigBox, ParameterForm, IndentedHierarchyBlock, _RowHoverReveal,
-    _make_subtle_tool_button, _reveal_remove_on_row_hover, _parameter_row,
-    _parameter_title, _collapsible_parameter_label, _parameter_header,
+    CONTENT_WIDTH, NUMBER_FIELD_WIDTH, TEXT_FIELD_WIDTH, ComboBox, ConfigBox, ParameterForm, IndentedHierarchyBlock, _RowHoverReveal, _make_subtle_tool_button, _reveal_remove_on_row_hover, _parameter_row, _parameter_title,
 )
 from .config_panel.document import MISSING, ConfigDocument, lookup
 from .config_panel.bindings import ParameterBinding, component_identity
 
 
 from .config_panel.controls import (
-    CATEGORICAL_CHOICES, _fit_inline_control, _SweepTypePicker, _make_param_adder_button,
-    TitleLabel, InlineTitleEditor, MethodDragHandle, MethodCardsContainer,
-    _make_categorical_combo, _SectionMoveControls,
+    CATEGORICAL_CHOICES, _fit_inline_control, _SweepTypePicker, _make_param_adder_button, TitleLabel, _make_categorical_combo, _SectionMoveControls,
 )
 
 
 from src.app.workspace import WorkspacePaths
 
-from .config_panel.editors import number_field
-from .config_panel.document import _leading_directives, _parse_yaml_value, parse_list_field
-from .config_panel.layout import _two_column_parameter_layout
+from .config_panel.document import _leading_directives, _parse_yaml_value
 from .config_panel.catalogs import (
-    _get_available_paradigms, _get_component_kind, get_agent_candidate_hyperparameters, get_model_candidate_hyperparameters, get_training_candidate_hyperparameters, get_method_candidate_hyperparameters, _dataset_workspace, discover_datasets, _recorded_metrics, _monitor_settings, invalidate_config_tree, set_config_tree, config_tree, _read_group_base, _component_profiles,
-    TRAINING_HYPERPARAMETERS, CHECKPOINT_KEYS, DEFAULT_CHECKPOINTS, FIXED_BOX_KEYS,
+    _get_available_paradigms, _get_component_kind, _dataset_workspace, discover_datasets, invalidate_config_tree, config_tree, _component_profiles, CHECKPOINT_KEYS, DEFAULT_CHECKPOINTS,
 )
 
 
@@ -860,16 +850,9 @@ class ConfigViewer(QWidget):
                 declared = getattr(rows.layout, "_declared_groups", None)
                 stable = json.dumps(["region", region]) if region else (
                     json.dumps(["parameters", context]) if declared is not None and context else None)
-                previous = orders.get(scope, [])
                 if stable:
-                    # Old context/runtime grids shared an empty context and
-                    # differed by occurrence. Retain those entries for rollback.
-                    if not previous and region in ("experiment.context", "experiment.runtime"):
-                        old_base = json.dumps([title, ancestors, ""])
-                        old_scope = json.dumps([old_base, 0 if region.endswith("context") else 1])
-                        previous = orders.get(old_scope, [])
-                    previous = orders.get(stable, previous)
                     scope = stable
+                previous = orders.get(scope, [])
                 def save(order, s=scope, p=path, groups=orders):
                     groups[s] = list(order)
                     if self.settings_manager:

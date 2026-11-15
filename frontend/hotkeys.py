@@ -39,34 +39,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Pane name aliases
+# Launcher keywords for panes
 # ---------------------------------------------------------------------------
 
-PANE_ALIASES: dict[str, str] = {
-    "settings": "settings",
-    "settings_about": "settings",  # the combined pane's old name, still accepted in settings.toml
+# Extra words the launcher matches for each pane (keyword -> pane ID).
+PANE_KEYWORDS: dict[str, str] = {
     "preferences": "settings",
-    "components": "components",
-    "config": "config",
     "experiment": "config",
     "experiments": "config",
     "builder": "config",
-    "monitor": "monitor",
     "training_monitor": "monitor",
-    "results": "results",
     "results_browser": "results",
     "history": "results",
-    "plots": "plots",
     "plot": "plots",
     "plot_viewer": "plots",
-    "tensorboard": "tensorboard",
     "tb": "tensorboard",
-    "queue": "queue",
     "job_queue": "queue",
-    "terminal": "terminal",
     "term": "terminal",
-    "console": "console",
-    "documentation": "documentation",
     "docs": "documentation",
     "doc": "documentation",
 }
@@ -408,28 +397,11 @@ class HotkeyManager(QObject):
         pane_id: Optional[str] = None
         target_char = event.text().strip().upper()
 
-        # 5a. Match against explicit hotkeys.bindings (e.g. "Action + 1", "Action + T")
+        # 5. Match the key against hotkeys.bindings (e.g. "Action + 1", "Action + T").
+        if Qt.Key.Key_0 <= key <= Qt.Key.Key_9:  # also under modifiers that change the text
+            target_char = str(key - Qt.Key.Key_0)
         if target_char:
-            combo_to_check = f"Action + {target_char}".upper()
-            bindings = self.settings_manager.get("hotkeys", "bindings", default=None)
-            if isinstance(bindings, dict):
-                for pid, c in bindings.items():
-                    c_clean = str(c).strip().upper()
-                    if not c_clean.startswith("ACTION"):
-                        c_clean = f"Action + {c_clean}".upper()
-                    if c_clean == combo_to_check:
-                        pane_id = PANE_ALIASES.get(pid.lower(), pid)
-                        break
-
-        # 5b. Match digit fallback via hotkeys.panes
-        if not pane_id:
-            num: Optional[int] = None
-            if Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
-                num = key - Qt.Key.Key_0
-            elif target_char.isdigit() and len(target_char) == 1:
-                num = int(target_char)
-            if num is not None:
-                pane_id = self.get_pane_id_by_index(num)
+            pane_id = self._bound_pane(target_char)
 
         if pane_id:
             self.switch_to_pane(pane_id)
@@ -489,42 +461,20 @@ class HotkeyManager(QObject):
 
     # ── Pane navigation ───────────────────────────────────────────────────
 
-    def get_pane_id_by_index(self, index: int) -> Optional[str]:
-        """Resolve a digit [0-9] to a canonical pane ID.
-
-        Priority:
-          1. Explicit ``hotkeys.bindings`` mapping (including unassigned digits)
-          2. Legacy ``hotkeys.panes`` list when bindings have not been migrated
-          3. Default: 0 → settings, 1-9 → sidebar tabs in order
-        """
-        bindings = self.settings_manager.get("hotkeys", "bindings", default=None)
-        if isinstance(bindings, dict):
-            target = f"ACTION + {index}"
-            for pid, combo in bindings.items():
-                normalized = str(combo).strip().upper()
-                if not normalized.startswith("ACTION"):
-                    normalized = f"ACTION + {normalized}"
-                if normalized == target:
-                    return PANE_ALIASES.get(pid.lower(), pid)
-            return None
-
-        configured = self.settings_manager.hotkey_panes
-        if 0 <= index < len(configured):
-            raw = configured[index]
-            if not raw or str(raw).lower() in ("none", "unassigned", "disabled", ""):
-                return None
-            return PANE_ALIASES.get(raw.lower(), raw)
-
-        # Fallback: 0 → settings, rest follow tab_order
-        if index == 0:
-            return "settings"
-        tabs = getattr(self.window, "tabs", None)
-        tab_order = getattr(tabs, "tab_order", [])
-        if 0 <= (index - 1) < len(tab_order):
-            raw = tab_order[index - 1]
-            return PANE_ALIASES.get(raw.lower(), raw)
-
+    def _bound_pane(self, key: str) -> Optional[str]:
+        """The pane bound to ``Action + key`` in ``hotkeys.bindings``, if any."""
+        target = f"ACTION + {key}".upper()
+        for pid, combo in self.settings_manager.hotkey_bindings.items():
+            normalized = str(combo).strip().upper()
+            if not normalized.startswith("ACTION"):
+                normalized = f"ACTION + {normalized}"
+            if normalized == target:
+                return pid
         return None
+
+    def get_pane_id_by_index(self, index: int) -> Optional[str]:
+        """The pane bound to ``Action + <index>``."""
+        return self._bound_pane(str(index))
 
     def switch_to_pane_by_index(self, index: int) -> bool:
         """Switch to the pane mapped to *index*."""
@@ -538,7 +488,6 @@ class HotkeyManager(QObject):
 
     def switch_to_pane(self, pane_id: str, index: Optional[int] = None) -> bool:
         """Switch the view to *pane_id*, unhiding it if necessary."""
-        pane_id = PANE_ALIASES.get(pane_id.lower(), pane_id)
         key_label = f"Action + {index}" if index is not None else "Hotkey"
 
         # Special case: Settings lives outside the normal tab stack

@@ -10,7 +10,8 @@ import pytest
 import yaml
 
 from PyQt6.QtWidgets import QApplication
-from frontend.config_viewer import ConfigViewer, config_tree, invalidate_config_tree
+from frontend.config_viewer import ConfigViewer
+from frontend.config_panel.catalogs import config_tree, invalidate_config_tree
 from frontend.config_panel.controls import ConfigBox
 
 COMPOSITE = "blendrl-dev"
@@ -95,7 +96,7 @@ def test_offline_recipe_edits_composite_subcomponents(qapp, tmp_path):
     viewer, path = offline(tmp_path)
     assert {"cql_dnn", "cql_blend_symbolic"} <= set(viewer.raw_data["methods"])
 
-    from frontend.config_viewer import get_method_candidate_hyperparameters
+    from frontend.config_panel.catalogs import get_method_candidate_hyperparameters
     tree = config_tree()
     assert "blend_ent_coef" not in get_method_candidate_hyperparameters("d3rlpy-dev/cql", "basics/dnn", tree)
     assert "hidden_sizes" in get_method_candidate_hyperparameters("d3rlpy-dev/cql", "basics/dnn", tree)
@@ -117,7 +118,7 @@ def test_offline_recipe_edits_composite_subcomponents(qapp, tmp_path):
 
 def test_online_recipe_candidates_follow_agent_and_model(qapp, tmp_path):
     online(tmp_path)
-    from frontend.config_viewer import get_method_candidate_hyperparameters
+    from frontend.config_panel.catalogs import get_method_candidate_hyperparameters
     tree = config_tree()
     dnn = get_method_candidate_hyperparameters("sb3-dev/ppo", "basics/dnn", tree)
     assert "clip_range" in dnn and "blend_ent_coef" not in dnn
@@ -126,11 +127,7 @@ def test_online_recipe_candidates_follow_agent_and_model(qapp, tmp_path):
 
 
 def test_scoped_candidate_hyperparameters(qapp):
-    from frontend.config_viewer import (
-        get_agent_candidate_hyperparameters,
-        get_model_candidate_hyperparameters,
-        get_training_candidate_hyperparameters,
-    )
+    from frontend.config_panel.catalogs import get_agent_candidate_hyperparameters, get_model_candidate_hyperparameters, get_training_candidate_hyperparameters
     tree = config_tree()
     cql = get_agent_candidate_hyperparameters("d3rlpy-dev/cql", tree)
     assert "n_steps" in cql
@@ -148,7 +145,7 @@ def test_scoped_candidate_hyperparameters(qapp):
 
 
 def test_indented_hierarchy_blocks_in_gui(qapp, tmp_path):
-    from frontend.config_viewer import IndentedHierarchyBlock
+    from frontend.config_panel.controls import IndentedHierarchyBlock
     viewer, _ = offline(tmp_path)
     blocks = viewer.findChildren(IndentedHierarchyBlock)
     assert blocks, "Expected IndentedHierarchyBlock instances in rendered GUI"
@@ -222,7 +219,7 @@ def test_method_card_duplicate_and_header_plus_icons(qapp, tmp_path):
 
 
 def test_add_new_method_flow_empty_and_invalid(qapp, tmp_path):
-    from frontend.config_viewer import InlineTitleEditor
+    from frontend.config_panel.controls import InlineTitleEditor
     viewer, _ = online(tmp_path)
 
     viewer._start_add_new_method()
@@ -471,7 +468,7 @@ def test_experiment_methods_start_from_the_group_default_method(qapp, tmp_path):
     """A group base may name one default method; a method made in an experiment of that
     group, by add_method or through the + button's name box, starts with its parameters
     and keeps them on save. Without a default, a new method starts empty."""
-    from frontend.config_viewer import InlineTitleEditor
+    from frontend.config_panel.controls import InlineTitleEditor
 
     group = config_tree().config_root / "experiment" / "probe_group"
     group.mkdir(parents=True)

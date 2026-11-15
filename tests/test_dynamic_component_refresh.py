@@ -5,7 +5,8 @@ import pytest
 import yaml
 from PyQt6.QtWidgets import QApplication
 
-from frontend.config_viewer import ConfigViewer, config_tree, invalidate_config_tree
+from frontend.config_viewer import ConfigViewer
+from frontend.config_panel.catalogs import config_tree, invalidate_config_tree
 
 
 @pytest.fixture(scope="session")

@@ -519,7 +519,6 @@ class AboutDialog(QDialog):
         self.anim_btn.setToolTip("Configure ASCII Theta speed, size, thickness, and 3D effects")
         self.anim_btn.clicked.connect(self.open_animation_settings)
         buttons.addWidget(self.anim_btn)
-        self.pause = self.anim_btn  # Backward-compatible attribute
         buttons.addStretch()
         close = QPushButton("Close")
         close.clicked.connect(self.accept)

@@ -249,7 +249,7 @@ class ScaffoldPluginDialog(QDialog):
         self.scaffold_result = res
 
         if res.success:
-            from .config_viewer import invalidate_config_tree
+            from .config_panel.catalogs import invalidate_config_tree
             invalidate_config_tree()
             self.accept()
         else:

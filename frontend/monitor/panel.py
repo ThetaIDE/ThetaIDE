@@ -73,7 +73,7 @@ def headline_metric(run, config):
     declared = None
     env_name = (config or {}).get("env")
     if env_name:
-        from ..config_viewer import config_tree  # local import: keeps this module light
+        from ..config_panel.catalogs import config_tree
 
         tree = config_tree()
         env = tree.environments.get(env_name) if tree else None
@@ -103,7 +103,7 @@ def measures_environment_steps(run):
     paradigm = run.get("paradigm")
     if not paradigm:
         return True
-    from ..config_viewer import config_tree  # local import: keeps this module light
+    from ..config_panel.catalogs import config_tree
 
     tree = config_tree()
     if tree is None or paradigm not in tree.paradigms:

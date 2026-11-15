@@ -5,7 +5,9 @@ import pytest
 import yaml
 from PyQt6.QtWidgets import QApplication, QLineEdit
 
-from frontend.config_viewer import ConfigViewer, IndentedHierarchyBlock, config_tree
+from frontend.config_viewer import ConfigViewer
+from frontend.config_panel.controls import IndentedHierarchyBlock
+from frontend.config_panel.catalogs import config_tree
 from src.app.core.model_registry import MODEL_REGISTRY, auto_discover_models, get_model_class
 
 

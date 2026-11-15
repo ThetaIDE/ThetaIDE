@@ -17,7 +17,8 @@ try:
     from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QLabel, QLineEdit
 
-    from frontend.config_viewer import ConfigViewer, SpinBox
+    from frontend.config_viewer import ConfigViewer
+    from frontend.widgets import SpinBox
     HAS_PYQT6 = True
     app = QApplication.instance() or QApplication(sys.argv[:1])
 except ImportError:

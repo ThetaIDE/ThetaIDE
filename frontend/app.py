@@ -1142,7 +1142,7 @@ class Window(QMainWindow):
         dialog.exec()
 
     def _on_hub_component_changed(self, component_id: str, action: str):
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
 
         # The last compose result describes the providers before this change.
@@ -1646,7 +1646,7 @@ class Window(QMainWindow):
         # loaded (the Components panel, a hub install, an edit in the terminal). Reloading on every
         # switch rebuilt the tree and re-rendered the open form each time (~0.5s).
         if self._configs_changed_since(self):
-            from .config_viewer import invalidate_config_tree
+            from .config_panel.catalogs import invalidate_config_tree
             invalidate_config_tree()  # other panels read the shared tree too
 
         w = self.tabs.widget(index)
@@ -2646,11 +2646,6 @@ class Window(QMainWindow):
                                        job_id=backend.get("job_id"))
             self.tabs.setCurrentWidget(self.results_panel)
 
-    def set_max_parallel(self, count):
-        """Compatibility with older callers; width is now resource-driven."""
-        self.jobs.set_max_parallel(count)
-        self.update_launch_state()
-
     def set_queue_running(self, running):
         action = "start" if running else "pause"
         data = self.jobs.start_queue() if running else self.jobs.pause_queue()
@@ -3005,7 +3000,7 @@ class Window(QMainWindow):
         from .scaffold_dialog import ScaffoldPluginDialog
         dialog = ScaffoldPluginDialog(workspace_root=self.workspace_paths.root, parent=self)
         if dialog.exec() and dialog.scaffold_result and dialog.scaffold_result.success:
-            from .config_viewer import invalidate_config_tree
+            from .config_panel.catalogs import invalidate_config_tree
             invalidate_config_tree()
             res = dialog.scaffold_result
             self.log(f"Scaffolded {res.component_id} component plugin at {res.target_dir} ({len(res.created_files)} files).")

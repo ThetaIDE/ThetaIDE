@@ -10,7 +10,8 @@ from frontend.component_actions import (
     find_component_assets,
     DeleteComponentDialog,
 )
-from frontend.config_viewer import ConfigViewer, SUBTLE_ICON_COLORS
+from frontend.config_viewer import ConfigViewer
+from frontend.config_panel.controls import SUBTLE_ICON_COLORS
 from frontend.components_panel import ComponentsPanel
 from frontend.sidetabs import svg_icon
 from src.app.components.installer import HubInstaller

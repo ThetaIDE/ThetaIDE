@@ -220,8 +220,6 @@ class TestLogoAndF1OpenTheDocs(unittest.TestCase):
         self.assertTrue(hotkeys.switch_to_pane("settings"))
         self.assertIs(self.tabs.currentWidget(), self.window.settings_panel)
         self.assertFalse(hotkeys.switch_to_pane("about"))
-        self.assertTrue(hotkeys.switch_to_pane("settings_about"))  # the combined pane's old name
-        self.assertIs(self.tabs.currentWidget(), self.window.settings_panel)
 
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")

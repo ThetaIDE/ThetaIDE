@@ -32,7 +32,7 @@ def test_sweeps_without_visible_parameter_rows_are_editable(tmp_path, optional_t
 
 def test_optional_sweep_controls_and_nested_overrides(tmp_path, optional_tuner_metadata):
     from PyQt6.QtGui import QAction
-    from frontend.config_viewer import IndentedHierarchyBlock
+    from frontend.config_panel.controls import IndentedHierarchyBlock
     from frontend.widgets import SpinBox, ToggleSlider
 
     path = tmp_path / "experiment.yaml"

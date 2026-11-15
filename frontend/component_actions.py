@@ -228,7 +228,7 @@ class ComponentDevelopmentActions:
         self.editor = component_host_attribute(parent, "editor_service")
 
     def changed(self, component_id, action):
-        from .config_viewer import invalidate_config_tree
+        from .config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         if self.client:
             self.client.refresh_local_components()

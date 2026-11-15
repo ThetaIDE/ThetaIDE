@@ -309,7 +309,8 @@ def test_figures_box_adds_and_removes_cards(qapp, tmp_path, monkeypatch):
 
 def test_figures_box_is_optional_and_uses_two_column_cards(qapp, tmp_path, monkeypatch):
     from PyQt6.QtWidgets import QGridLayout, QLabel, QToolButton
-    from frontend.config_viewer import ConfigViewer, IndentedHierarchyBlock
+    from frontend.config_viewer import ConfigViewer
+    from frontend.config_panel.controls import IndentedHierarchyBlock
 
     path = tmp_path / "example.yaml"
     path.write_text("experiment_id: example\n", encoding="utf-8")

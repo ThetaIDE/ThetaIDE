@@ -142,13 +142,13 @@ def _pane_hotkeys(window) -> dict[str, str]:
 
 def collect_items(window) -> list[LaunchItem]:
     """Every panel, plugin, settings page and menu command the window offers right now."""
-    from .hotkeys import PANE_ALIASES
+    from .hotkeys import PANE_KEYWORDS
 
     items: list[LaunchItem] = []
     tabs = window.tabs
     hotkeys = _pane_hotkeys(window)
     aliases: dict[str, list[str]] = {}
-    for alias, pane in PANE_ALIASES.items():
+    for alias, pane in PANE_KEYWORDS.items():
         aliases.setdefault(pane, []).append(alias.replace("_", " "))
 
     manager = getattr(window, "plugin_manager", None)

@@ -41,7 +41,7 @@ def render_nodes(form, nodes, *, level=1):
 
 
 class ParameterRows(list):
-    """Compatibility iterable with explicit membership for specialized hosts."""
+    """Rendered parameter rows, with their group membership, that a specialized host mounts into its own form."""
 
     def __init__(self, nodes, *, level=1):
         form = ParameterForm()

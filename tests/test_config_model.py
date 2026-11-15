@@ -320,7 +320,7 @@ def test_tree_agent_and_model_helpers(tree):
 
 
 def test_candidate_hyperparameters_filtering(tree):
-    from frontend.config_viewer import get_method_candidate_hyperparameters
+    from frontend.config_panel.catalogs import get_method_candidate_hyperparameters
 
     # For pure DNN: blend_ent_coef must NOT be suggested
     dnn_hypers = get_method_candidate_hyperparameters("d3rlpy-dev/cql", "dnn", tree)

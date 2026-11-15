@@ -128,28 +128,17 @@ leader_timeout = 1.5
 # and shell keybindings (e.g. tmux prefix, ctrl/caps shortcuts) work uninterrupted.
 terminal_precedence = true
 
-# Pane navigation shortcuts (Action key + number):
-# Maps numbers [0, 1, 2, ...] to pane IDs.
-#   0 -> "settings"
-#   1 -> "components"
-#   2 -> "config" (experiments)
-#   3 -> "monitor"
-#   4 -> "results"
-#   5 -> "plots"
-#   6 -> "tensorboard"
-#   7 -> "terminal"
-#   8 -> "console"
-panes = [
-    "settings",
-    "components",
-    "config",
-    "monitor",
-    "results",
-    "plots",
-    "tensorboard",
-    "terminal",
-    "console",
-]
+# Pane navigation shortcuts: pane ID -> "Action + <key>" (a digit or a letter).
+[hotkeys.bindings]
+settings = "Action + 0"
+components = "Action + 1"
+config = "Action + 2"
+monitor = "Action + 3"
+results = "Action + 4"
+plots = "Action + 5"
+tensorboard = "Action + 6"
+terminal = "Action + 7"
+console = "Action + 8"
 
 [terminal]
 # Shell for the Terminal pane, as a command line. Empty = detect automatically
@@ -277,6 +266,16 @@ def _toml_key(key: Any) -> str:
 # ---------------------------------------------------------------------------
 # SettingsManager
 # ---------------------------------------------------------------------------
+
+# Action + <digit> pane shortcuts before the user edits them.
+DEFAULT_HOTKEY_PANES = (
+    "settings", "components", "config", "monitor", "results", "plots", "tensorboard", "terminal", "console",
+)
+
+
+def default_hotkey_bindings() -> dict[str, str]:
+    return {pane: f"Action + {digit}" for digit, pane in enumerate(DEFAULT_HOTKEY_PANES)}
+
 
 class SettingsManager(QObject):
     """Single source of truth for all Theta-IDE user preferences.
@@ -563,29 +562,7 @@ class SettingsManager(QObject):
     @property
     def hotkey_bindings(self) -> dict[str, str]:
         v = self.get("hotkeys", "bindings", default=None)
-        if isinstance(v, dict):
-            return dict(v)
-        # Default bindings derived from hotkey_panes
-        panes = self.hotkey_panes
-        return {pid: f"Action + {i}" for i, pid in enumerate(panes)}
-
-    @property
-    def hotkey_panes(self) -> list[str]:
-        v = self.get("hotkeys", "panes", default=None)
-        if isinstance(v, list) and v:
-            return list(v)
-        # Default order: settings, followed by sidebar panels in order
-        return [
-            "settings",
-            "components",
-            "config",
-            "monitor",
-            "results",
-            "plots",
-            "tensorboard",
-            "terminal",
-            "console",
-        ]
+        return dict(v) if isinstance(v, dict) else default_hotkey_bindings()
 
     @property
     def shortcuts(self) -> dict[str, str]:

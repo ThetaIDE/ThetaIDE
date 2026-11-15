@@ -115,7 +115,7 @@ def test_unrelated_settings_preserve_multiple_forms(settings, monkeypatch):
         viewer.deleteLater()
 
 
-def test_rebinding_clearing_and_legacy_navigation(settings):
+def test_rebinding_and_clearing_pane_hotkeys(settings):
     window = QWidget()
     manager = HotkeyManager(window, settings)
     handler = SimpleNamespace(window=SimpleNamespace(settings_manager=settings))
@@ -125,7 +125,6 @@ def test_rebinding_clearing_and_legacy_navigation(settings):
         assert manager.get_pane_id_by_index(2) == "config"
         SettingsView._on_pane_hotkey_changed(handler, "config", "Action + T")
         assert observed.call_count == 1
-        assert settings.hotkey_panes[2] == "none"
         assert manager.get_pane_id_by_index(2) is None
         switch = Mock()
         manager.switch_to_pane = switch
@@ -133,9 +132,6 @@ def test_rebinding_clearing_and_legacy_navigation(settings):
         manager.eventFilter(window, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_T,
                                              Qt.KeyboardModifier.NoModifier, "t"))
         switch.assert_called_once_with("config")
-        # A stale legacy slot cannot resurrect an explicit binding or clearing.
-        settings.set("hotkeys", "panes", ["settings", "components", "config"])
-        assert manager.get_pane_id_by_index(2) is None
         SettingsView._on_pane_hotkey_changed(handler, "config", "")
         assert "config" not in settings.hotkey_bindings
         assert manager.get_pane_id_by_index(2) is None

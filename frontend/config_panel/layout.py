@@ -108,7 +108,7 @@ class RegionRows:
 
 
 def two_column_form(form, *, identity, align_rows=False):
-    """Compatibility boundary for declared form rows during section migration."""
+    """Arrange a form's declared rows in a two-column region with a stable identity."""
     from ..parameter_reorder import form_groups
 
     groups = form_groups(form)
@@ -132,5 +132,5 @@ def two_column_form(form, *, identity, align_rows=False):
 
 
 def _two_column_parameter_layout(form, *, align_rows=False):
-    """Compatibility entry point; new compositions declare an explicit identity."""
+    """A two-column region identified by the form's ``parameterContext``."""
     return two_column_form(form, identity=form.property("parameterContext") or "context", align_rows=align_rows)

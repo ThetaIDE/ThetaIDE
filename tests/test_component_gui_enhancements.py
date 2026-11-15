@@ -11,7 +11,9 @@ import pytest
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QLineEdit, QComboBox, QWidget
 from frontend.widgets import TagCloudWidget, LayerStackWidget, ComboBox
-from frontend.config_viewer import ConfigViewer, CATEGORICAL_CHOICES, _get_component_kind, _get_available_paradigms
+from frontend.config_viewer import ConfigViewer
+from frontend.config_panel.controls import CATEGORICAL_CHOICES
+from frontend.config_panel.catalogs import _get_component_kind, _get_available_paradigms
 from frontend.settings import SettingsManager
 
 

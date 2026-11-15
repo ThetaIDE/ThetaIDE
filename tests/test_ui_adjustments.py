@@ -34,7 +34,7 @@ except ImportError:
 class TestUIAdjustments(unittest.TestCase):
     def setUp(self):
         from frontend.config_model import ConfigTree
-        from frontend.config_viewer import set_config_tree
+        from frontend.config_panel.catalogs import set_config_tree
 
         self.temp_dir = tempfile.TemporaryDirectory()
         self.tmp_root = Path(self.temp_dir.name)
@@ -76,7 +76,7 @@ class TestUIAdjustments(unittest.TestCase):
         self.viewer.load_file(self.exp_file, "experiment/cartpole/test_exp.yaml")
 
     def tearDown(self):
-        from frontend.config_viewer import invalidate_config_tree
+        from frontend.config_panel.catalogs import invalidate_config_tree
         invalidate_config_tree()
         self.viewer.close()
         self.temp_dir.cleanup()
@@ -217,7 +217,8 @@ class TestUIAdjustments(unittest.TestCase):
         self.viewer._cancel_group_edit()
 
         # 3. Method card title
-        from frontend.config_viewer import InlineTitleEditor, TitleLabel
+        from frontend.config_panel.controls import InlineTitleEditor
+        from frontend.config_panel.controls import TitleLabel
         m_titles = [w for w in self.viewer.findChildren(TitleLabel) if w.objectName() == "cardTitle"]
         self.assertTrue(len(m_titles) >= 1)
         m_title = m_titles[0]
@@ -306,7 +307,8 @@ class TestUIAdjustments(unittest.TestCase):
         from PyQt6.QtWidgets import QFormLayout, QHBoxLayout
 
         from frontend.config_model import ConfigTree
-        from frontend.config_viewer import IndentedHierarchyBlock, set_config_tree
+        from frontend.config_panel.controls import IndentedHierarchyBlock
+        from frontend.config_panel.catalogs import set_config_tree
 
         config_dir = self.tmp_root / "src/usr/config"
         model_dir = config_dir / "model"
