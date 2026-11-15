@@ -184,7 +184,6 @@ class ParameterReorder(QObject):
         self._timer.setInterval(30)
         self._timer.timeout.connect(self._autoscroll)
         counts = {}
-        aliases = {}
         for group in rows.groups:
             caption = group.caption
             if caption is None:
@@ -192,15 +191,11 @@ class ParameterReorder(QObject):
             text = caption.text() if isinstance(caption, QLabel) else next(
                 (w.text() for w in caption.findChildren(QLabel)), "")
             counts[text] = counts.get(text, 0) + 1
-            legacy_key = json.dumps([text, counts[text]])
-            if group.key:
-                aliases[legacy_key] = group.key
-            else:
-                group.key = legacy_key
+            if not group.key:
+                group.key = json.dumps([text, counts[text]])
             caption.installEventFilter(self)
             for child in caption.findChildren(QLabel):
                 child.installEventFilter(self)
-        order = [aliases.get(key, key) for key in order]
         self.order = list(order)
         if order:
             movable = sorted((g for g in rows.groups if g.caption is not None),

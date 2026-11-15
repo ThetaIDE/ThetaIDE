@@ -54,7 +54,7 @@ def component_identity(path, value):
 
 
 def method_parameter_path(data, method_name, kind, path=()):
-    """Resolve legacy flat, named and component-keyed method storage explicitly."""
+    """Resolve where a method parameter lives for scalar, named and component-keyed selections."""
     from ..config_model import COMPONENT_ID_KEYS, component_selection
 
     root = ("methods", method_name)

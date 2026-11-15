@@ -309,8 +309,8 @@ class TestBuildMethodOverrides:
                     "agent": "cql",
                     "model": "dnn",
                     "tune": {
-                        "lr": "interval(1e-4, 1e-2)",
-                        "cql_alpha": "choice(0.1, 1.0, 5.0)",
+                        "agent.lr": {"type": "float", "low": 1e-4, "high": 1e-2},
+                        "agent.cql_alpha": {"type": "choice", "values": [0.1, 1.0, 5.0]},
                     },
                 }
             },
@@ -329,8 +329,8 @@ class TestBuildMethodOverrides:
         assert '++hydra.sweeper.study_name="study_cql_v1"' in overrides
         assert "++hydra.sweeper.n_trials=25" in overrides
         assert "++hydra.sweeper.direction=minimize" in overrides
-        assert "agent.lr=interval(1e-4, 1e-2)" in overrides
-        assert "agent.cql_alpha=choice(0.1, 1.0, 5.0)" in overrides
+        assert "agent.lr=interval(0.0001, 0.01)" in overrides
+        assert "agent.cql_alpha=choice(0.1,1.0,5.0)" in overrides
         # Ensure tune dict is not passed as a hyperparameter
         assert not any("agent.tune" in o for o in overrides)
 
@@ -353,7 +353,7 @@ class TestBuildMethodOverrides:
         assert "agent.lr=range(0.1, 0.5, 0.2)" in overrides
 
     def test_setting_sweeper_option_still_selects_the_optuna_sweeper(self):
-        method = {"agent": "cql", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
+        method = {"agent": "cql", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
         overrides = build_method_overrides(
             "cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna"}}, is_sweep=True,
             extra_args=["hydra.sweeper.n_trials=5"],
@@ -381,7 +381,7 @@ class TestBuildMethodOverrides:
                     "agent": "ppo",
                     "model": "dnn",
                     "tune": {
-                        "lr": "interval(1e-4, 1e-2)",
+                        "agent.lr": {"type": "float", "low": 1e-4, "high": 1e-2},
                     },
                 },
             },
@@ -408,6 +408,6 @@ class TestBuildMethodOverrides:
         )
         assert "--multirun" in m2_overrides
         assert "hydra/sweeper=optuna_online" in m2_overrides
-        assert "agent.lr=interval(1e-4, 1e-2)" in m2_overrides
+        assert "agent.lr=interval(0.0001, 0.01)" in m2_overrides
 
 

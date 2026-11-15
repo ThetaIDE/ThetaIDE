@@ -39,7 +39,7 @@ def test_local_runner_uses_tuning_component_instead_of_context_flags(monkeypatch
     cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl", "tuning": {}})
     methods = {
         "ordinary": {"agent": "ppo", "model": "dnn"},
-        "tuned": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}},
+        "tuned": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}},
     }
     plans = []
     monkeypatch.setattr(local_runner, "run_experiment", lambda overrides, **kwargs: plans.append(overrides))
@@ -68,7 +68,7 @@ def test_method_preview_includes_the_search_space():
     from component_fixtures import optional_workspace
 
     cfg = OmegaConf.create({"paradigm": "online_rl", "tuning": {"component": "optuna"}, "methods": {
-        "method": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}},
+        "method": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}},
     }})
     composed = ComposedExperiment("example", cfg, [], [], False, workspace=optional_workspace("optuna"))
     overrides = method_plans(composed)["method"]["train_overrides"]
@@ -80,7 +80,7 @@ def test_command_compiler_never_drops_a_method_search_space():
     from src.app.pipeline.commands import build_method_overrides
     from component_fixtures import optional_workspace
 
-    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1, 0.2)"}}
+    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
     overrides = build_method_overrides("method", method, cfg={"paradigm": "online_rl", "tuning": {"component": "optuna"}},
                                        workspace=optional_workspace("optuna"))
     assert "--multirun" in overrides

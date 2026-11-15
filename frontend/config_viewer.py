@@ -300,7 +300,7 @@ class ConfigViewer(QWidget):
         self.btn_delete_component.clicked.connect(self._on_delete_component_clicked)
         hb_layout.addWidget(self.btn_delete_component)
 
-        # Maintained for programmatic and test compatibility; hidden from visual header
+        # Holds the view-mode state; the header does not show it.
         self.chk_view_mode = ToggleSlider()
         self.chk_view_mode.setAccessibleName("Show Resolved Defaults")
         self.chk_view_mode.setObjectName("chkViewMode")
@@ -1403,7 +1403,7 @@ class ConfigViewer(QWidget):
             combo.addItem(choice, choice)
         index = combo.findData(value)
         if index < 0 and value is not None:
-            # Preserve legacy bare names and unavailable resources until edited.
+            # Keep an unknown or unavailable value visible until it is edited.
             combo.insertItem(1, str(value), value)
             index = 1
         combo.setCurrentIndex(max(0, index))
@@ -2116,12 +2116,11 @@ class ConfigViewer(QWidget):
         for target, dimension in spec.get("tune", {}).items() if isinstance(spec.get("tune", {}), dict) else ():
             if (prefix and not target.startswith(prefix)) or (exclude_prefix and target.startswith(exclude_prefix)):
                 continue
-            if isinstance(dimension, dict):
-                if (method, target) in self._rendered_sweeps:
-                    continue
-                if not self._tuner_ready():
-                    form.add_parameter(("methods", method, "tune", target), "Sweep", label(f"{target}: {dimension}", "muted"))
-                    continue
+            if isinstance(dimension, dict) and (method, target) in self._rendered_sweeps:
+                continue
+            if not isinstance(dimension, dict) or not self._tuner_ready():
+                form.add_parameter(("methods", method, "tune", target), "Sweep", label(f"{target}: {dimension}", "muted"))
+            else:
                 row = QHBoxLayout()
                 row.addWidget(QLineEdit())
                 delete = _make_subtle_tool_button("close", "Remove sweep", size=20, icon_size=12)
@@ -2130,8 +2129,6 @@ class ConfigViewer(QWidget):
                 self._add_sweep_toggle(row, method, target, None)
                 form.add_parameter(("methods", method, "tune", target), target, row,
                     children=getattr(row, "_sweep_block", None))
-            else:
-                form.add_parameter(("methods", method, "tune", target), "Sweep (legacy)", label(f"{target}: {dimension}", "muted"))
 
     def _edit_sweep_dimension(self, method, target, key, text):
         from .config_panel.domain import _edit_sweep_dimension

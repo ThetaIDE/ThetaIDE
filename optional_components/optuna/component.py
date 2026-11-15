@@ -8,11 +8,9 @@ import math
 
 
 def _sweep_expression(target, dimension):
-    """Compile a typed dimension, preserving legacy Hydra expressions."""
-    if isinstance(dimension, str):
-        return dimension.strip()
+    """Compile a typed dimension into the Hydra Optuna sweeper's expression."""
     if not hasattr(dimension, "get"):
-        raise ValueError(f"Sweep dimension {target!r} must be a mapping or expression")
+        raise ValueError(f"Sweep dimension {target!r} must be a mapping")
     kind = dimension.get("type")
     if kind == "choice":
         values = dimension.get("values")
@@ -199,8 +197,8 @@ class OptunaTuner:
         return runtime.get("pruner", options.get("pruner", tuning.get("pruner", sweeper.get("pruner", "none")))) != "none"
 
     def validate_dimension(self, target, dimension):
-        if not isinstance(dimension, str) and not str(target).startswith(("agent.", "model.", "config.")):
-            raise ValueError(f"Typed sweep dimension {target!r} requires an explicit agent, model, or config path")
+        if not str(target).startswith(("agent.", "model.", "config.")):
+            raise ValueError(f"Sweep dimension {target!r} requires an explicit agent, model, or config path")
         _sweep_expression(target, dimension)
 
     def launch_dashboard(self, storage):

@@ -38,18 +38,18 @@ def _render_sweep_objective(self, form, data, resolved):
     from src.app.objectives.api import available_objectives, load_objective
 
     spec = self._effective_objective_spec(data, resolved)
-    legacy = not isinstance(spec, dict)
+    reported_metric = not isinstance(spec, dict)
     tuning = data.get("tuning") or resolved.get("tuning") or {}
     metric = str(
         tuning.get("metric")
         or ("eval/reward" if (data.get("paradigm") or resolved.get("paradigm")) == "online_rl" else "val/loss")
     )
-    spec = spec if not legacy else {"component": "final_metric", "params": {"metric": metric}}
+    spec = spec if not reported_metric else {"component": "final_metric", "params": {"metric": metric}}
     tree = self.tree
     workspace = tree.workspace.root if tree else PROJECT_ROOT
     params = spec.get("params") or {}
-    selected = "Reported metric" if legacy else str(spec.get("component") or "final_metric")
-    template = "final_metric" if legacy else selected
+    selected = "Reported metric" if reported_metric else str(spec.get("component") or "final_metric")
+    template = "final_metric" if reported_metric else selected
 
     def select(name):
         if not name:
@@ -68,7 +68,7 @@ def _render_sweep_objective(self, form, data, resolved):
     schema = {"type": "string", "enum": ["Reported metric", *sorted(set(available_objectives(workspace)) | {template})]}
     try:
         component = load_objective(template, workspace)
-        source = PROJECT_ROOT / "src/app/pipeline/objective.py" if legacy else component.source
+        source = PROJECT_ROOT / "src/app/pipeline/objective.py" if reported_metric else component.source
         schema["x-theta-actions"] = [{"type": "open-in-editor", "path": str(source), "label": "Open objective code"}]
     except (ValueError, OSError) as exc:
         component = None
@@ -78,16 +78,16 @@ def _render_sweep_objective(self, form, data, resolved):
     choice = selector if isinstance(selector, QComboBox) else selector.findChild(QComboBox)
     if choice is not None:
         choice.setObjectName("sweepObjective")
-    add_params = self._dict_parameter_adder(("objective", "params"), params) if not legacy else None
+    add_params = self._dict_parameter_adder(("objective", "params"), params) if not reported_metric else None
     details = IndentedHierarchyBlock()
     details.setProperty("parameterPath", "objective.params")
     form.add_parameter(("objective",), "Objective", _parameter_row(selector, add=add_params), children=details)
-    if legacy:
+    if reported_metric:
         field = QLineEdit(metric)
         field.setObjectName("sweepMetric")
         field.textChanged.connect(lambda value: self._on_nested_edited("tuning", "metric", value.strip()))
         details.form_layout.add_parameter(("tuning", "metric"), "Metric", _parameter_row(field))
-    if component and not legacy:
+    if component and not reported_metric:
         # Render defaults without converting them into explicit overrides.
         def merge(defaults, overrides):
             values = copy.deepcopy(defaults)
@@ -355,7 +355,7 @@ def _render_component_overrides(self, data: dict, resolved: dict) -> None:
         block.form_layout.set_compact(True)
         card_layout.addWidget(block)
         if values:
-            # Keep legacy inline options editable while giving explicit overrides precedence.
+            # Inline plot options stay editable; plot_overrides take precedence.
             for source, params in (
                 ("plots", {k: v for k, v in values.items() if k not in overrides}),
                 ("plot_overrides", overrides),

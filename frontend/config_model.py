@@ -190,9 +190,8 @@ class Agent:
         elif isinstance(paradigms, str):
             cp = (paradigms,)
         else:
-            # Compatibility is component metadata, not an inference from an
-            # implementation package name.  An omitted declaration means the
-            # component is unconstrained for legacy third-party packages.
+            # Compatibility is component metadata; an omitted declaration
+            # leaves the component unconstrained.
             cp = ()
 
         return cls(
@@ -446,18 +445,11 @@ class ConfigTree:
         for rel_name, a in profile_files("agent"):
             agent_obj = replace(Agent.from_file(a), name=rel_name)
             self.agents[rel_name] = agent_obj
-            if Path(rel_name).name not in self.agents:
-                self.agents[Path(rel_name).name] = agent_obj
 
         self.models = {}
         for rel_name, m in profile_files("model"):
             model_obj = replace(Model.from_file(m), name=rel_name)
             self.models[rel_name] = model_obj
-            if Path(rel_name).name not in self.models:
-                self.models[Path(rel_name).name] = model_obj
-        # ``models`` keeps short-name aliases for backwards-compatible lookups
-        # (e.g. ``profile`` for ``package/profile``). UI pickers should show each config
-        # file once, under its canonical path.
         from src.app.services.local_components import LocalComponents
         hidden_selectors = LocalComponents(self.workspace).hidden_selectors()
         self._hidden_names = {
@@ -466,8 +458,6 @@ class ConfigTree:
             for kind in ("model", "agent", "env", "data", "eval", "plot")
         }
         self.model_names = sorted({model.name for model in self.models.values()} - self._hidden_names["model"])
-        # ``agents`` also includes short-name aliases for older configs. Keep a
-        # canonical list for UI pickers so each installed profile appears once.
         self.agent_names = sorted({agent.name for agent in self.agents.values()} - self._hidden_names["agent"])
 
         env_dir = self.config_root / "env"
@@ -475,8 +465,6 @@ class ConfigTree:
         for rel_name, e in profile_files("env"):
             env_obj = Environment.from_file(e, env_dir)
             self.environments[rel_name] = env_obj
-            if e.stem not in self.environments:
-                self.environments[e.stem] = env_obj
 
         from src.app.sites import profiles
         self.sites = tuple(profiles(self.workspace))
@@ -491,9 +479,8 @@ class ConfigTree:
                 group, _, name = selector.partition("/")
                 name = str(Path(name).with_suffix(""))
                 collection = self.agents if group == "agent" else self.models if group == "model" else {}
-                for key in (name, Path(name).name):
-                    if key in collection and collection[key].name == name:
-                        collection[key] = replace(collection[key], parameter_schema=resolved.schema)
+                if name in collection:
+                    collection[name] = replace(collection[name], parameter_schema=resolved.schema)
 
         experiment_root = self.config_root / "experiment"
         self.experiments: dict[str, Experiment] = {}
@@ -591,29 +578,27 @@ class ConfigTree:
             parts = Path(config_path).parts
             if len(parts) < 2 or not parts[-1].endswith(".yaml"):
                 continue
-            component_name = Path(*parts[1:]).with_suffix("").as_posix()
-            aliases = {component_name, Path(parts[-1]).stem}
-            for name in aliases:
-                if parts[0] == "agent" and name in self.agents:
-                    existing = self.agents[name]
-                    self.agents[name] = Agent(
-                        name=existing.name,
-                        algorithm=existing.algorithm,
-                        compatible_paradigms=existing.compatible_paradigms,
-                        hyperparameters=existing.hyperparameters,
-                        parameter_schema=schema,
-                        raw=existing.raw,
-                    )
-                elif parts[0] == "model" and name in self.models:
-                    existing = self.models[name]
-                    self.models[name] = Model(
-                        name=existing.name,
-                        architecture=existing.architecture,
-                        compatible_paradigms=existing.compatible_paradigms,
-                        parameters=existing.parameters,
-                        parameter_schema=schema,
-                        raw=existing.raw,
-                    )
+            name = Path(*parts[1:]).with_suffix("").as_posix()
+            if parts[0] == "agent" and name in self.agents:
+                existing = self.agents[name]
+                self.agents[name] = Agent(
+                    name=existing.name,
+                    algorithm=existing.algorithm,
+                    compatible_paradigms=existing.compatible_paradigms,
+                    hyperparameters=existing.hyperparameters,
+                    parameter_schema=schema,
+                    raw=existing.raw,
+                )
+            elif parts[0] == "model" and name in self.models:
+                existing = self.models[name]
+                self.models[name] = Model(
+                    name=existing.name,
+                    architecture=existing.architecture,
+                    compatible_paradigms=existing.compatible_paradigms,
+                    parameters=existing.parameters,
+                    parameter_schema=schema,
+                    raw=existing.raw,
+                )
 
     def create_folder(self, group: str, subpath: str) -> Path:
         """Create a new organizational folder under an experiment group."""

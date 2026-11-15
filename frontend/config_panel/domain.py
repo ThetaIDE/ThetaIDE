@@ -124,7 +124,7 @@ def _environment_is_compatible(self, tree: ConfigTree | None, name: str | None, 
 
 
 def _set_experiment_env(self, env_name: str | None):
-    """Update or insert override /env in defaults, removing legacy scalar env."""
+    """Select the environment through defaults; the previous environment's overrides are dropped."""
     if not self.raw_data or not isinstance(self.raw_data, dict):
         return
     self.raw_data.pop("env", None)

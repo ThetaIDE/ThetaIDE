@@ -43,7 +43,7 @@ def test_optuna_component_settings_compile_with_legacy_fallback():
         "metric": "eval/reward", "direction": "maximize", "n_trials": 10,
         "options": {"optuna": {"n_trials": 7, "sampler": "random", "seed": 23}},
     }}
-    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1,0.2)"}}
+    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
     overrides = build_method_overrides("method", method, cfg=cfg, is_sweep=True, workspace=workspace)
     assert "++hydra.sweeper.n_trials=7" in overrides
     assert "++hydra.sweeper.sampler._target_=optuna.samplers.RandomSampler" in overrides
@@ -54,7 +54,7 @@ def test_qmc_and_tpe_specific_sampler_settings_compile():
     from src.app.pipeline.commands import build_method_overrides
     from component_fixtures import optional_workspace
     workspace = optional_workspace("optuna")
-    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1,0.2)"}}
+    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
     cfg = {"paradigm": "online_rl", "tuning": {"component": "optuna", "direction": "maximize", "options": {"optuna": {
         "sampler": "qmc", "seed": 8,
     }}}}
@@ -77,7 +77,7 @@ def test_pruning_time_and_failure_settings_compile():
         "pruner": "median", "pruner_startup_trials": 2, "pruner_warmup_steps": 3,
         "timeout_seconds": 60, "max_failed_trials": 1,
     }}}}
-    method = {"model": "dnn", "tune": {"model.lr": "interval(0.1,0.2)"}}
+    method = {"model": "dnn", "tune": {"model.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
     overrides = build_method_overrides("m", method, cfg=cfg, is_sweep=True, workspace=workspace)
     assert "++hydra.sweeper.pruner=median" in overrides
     assert "++hydra.sweeper.pruner_startup_trials=2" in overrides
@@ -98,7 +98,7 @@ def test_optuna_storage_override_is_identical_for_job_and_study():
                             "hydra": {"sweeper": {"storage": "sqlite:///old.db"}},
                             "tuning": {"component": "optuna", "direction": "maximize", "options": {"optuna": {
                                 "storage": "sqlite:///folder with spaces/new.db"}}}})
-    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": "interval(0.1,0.2)"}}
+    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
     overrides = build_method_overrides("method", method, cfg=cfg, is_sweep=True, study_name="study one", workspace=workspace)
     assert OptunaTuner().storage(cfg) == "sqlite:///folder with spaces/new.db"
     assert '++hydra.sweeper.storage="sqlite:///folder with spaces/new.db"' in overrides
