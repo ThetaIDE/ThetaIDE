@@ -51,6 +51,7 @@ def test_nested_results_can_be_discovered_read_and_plotted(tmp_path, monkeypatch
     from src.app.pipeline.local_runner import _setup_output_dirs
     from src.app.services import catalog, executions
 
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "results/logs"
     monkeypatch.setattr(catalog, "LOGS_DIR", logs)
@@ -67,15 +68,16 @@ def test_nested_results_can_be_discovered_read_and_plotted(tmp_path, monkeypatch
     assert catalog.run_metrics("group", "path/dir/run", "ppo")["total_rows"] == 1
     assert catalog.run_manifest("group", "path/dir/run")["agents"] == {"ppo": ["version_0"]}
     assert available_experiments(logs) == [("group", "path/dir/run")]
-    plotter = BasePlotter("test")
+    from src.app.workspace import WorkspacePaths
+    plotter = BasePlotter("test", paths=WorkspacePaths(tmp_path))
     assert plotter.get_experiment_config("group/path/dir/run")["seed"] == 73
     assert "ppo" in plotter.load_metrics("group", "group/path/dir/run")
-    assert plotter.get_effective_config("group/path/dir/run")[2].as_posix() == "results/plots/group/path/dir/run"
+    assert plotter.get_effective_config("group/path/dir/run")[2] == tmp_path / "results/plots/group/path/dir/run"
     manifest = tmp_path / "results/executions/group/path/dir/run/execution/manifest.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(json.dumps({"runs": [{"status": "completed", "experiment_id": cfg.experiment_id,
                                              "agent": "ppo", "version": "version_0", "training_seed": 73}]}))
-    assert executions.list_executions(completed_only=True) == [str(manifest.relative_to(tmp_path))]
+    assert executions.list_executions(completed_only=True) == [str(manifest)]
     details = catalog.run_manifest("group", "path/dir/run")["version_details"]
     assert details["ppo"]["version_0"] == {"seed": 73, "status": "completed"}
 
@@ -87,12 +89,15 @@ def test_nested_result_paths_reject_traversal(path):
 
 
 @pytest.mark.parametrize("consolidate", [False, True])
-def test_slurm_nested_results_use_valid_script_names(tmp_path, monkeypatch, consolidate):
+def test_slurm_nested_results_use_valid_script_names(tmp_path, tmp_path_factory, monkeypatch, consolidate):
     import sys
     from pathlib import Path
     from types import SimpleNamespace
+    from component_fixtures import install_optional
     from src.app.sites.execution import submit
 
+    install_optional(tmp_path, "slurm", tmp_path_factory.mktemp("archives"))
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     (tmp_path / "run_pipeline.py").write_text("# pipeline")
     submitted = []
@@ -102,7 +107,7 @@ def test_slurm_nested_results_use_valid_script_names(tmp_path, monkeypatch, cons
         return SimpleNamespace(returncode=0, stdout="123\n", stderr="")
     monkeypatch.setattr("subprocess.run", sbatch)
     cfg = OmegaConf.create({"group": "group", "experiment_id": "path/dir/run",
-                            "site": {"name": "cluster", "python_executable": sys.executable},
+                            "site": {"name": "cluster", "scheduler": "slurm", "python_executable": sys.executable},
                             "paradigm": "online_rl", "consolidate": consolidate, "plots": ["losses"]})
     record = submit(tmp_path, "group/path/dir/run", [], cfg)
     directory = tmp_path / "results/sites" / record["execution_id"]

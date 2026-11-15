@@ -4,5 +4,5 @@ defaults:
 
 methods:
   smoke:
-    agent: ppo
+    agent: sb3-dev/ppo
     model: dnn

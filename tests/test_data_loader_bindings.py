@@ -150,8 +150,30 @@ methods:
     assert OmegaConf.to_container(cli.cfg.symbolic_state_loader) == {'name': 'third', 'params': {'object_count': 4}}
 
 
+@pytest.fixture(scope='module')
+def blendrl_workspace(tmp_path_factory):
+    """The tracked blendrl-dev and sb3-dev with dnn, nsfr, neumann and gym_classic_control from THETA_HUB_ROOT."""
+    from component_fixtures import LocalHub
+    from conftest import checkout_workspace
+    from src.app.components.installer import HubInstaller
+    root = tmp_path_factory.mktemp('blendrl-workspace')
+    shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
+    paths = WorkspacePaths(root)
+    installer, hub = HubInstaller(paths.root, paths.data_dir), LocalHub()
+    for package in ('dnn', 'nsfr', 'neumann', 'gym_classic_control'):
+        hub.install(installer, package)
+    return paths
+
+
+@pytest.fixture
+def blendrl_paths(blendrl_workspace, monkeypatch):
+    monkeypatch.setenv('THETA_WORKSPACE', str(blendrl_workspace.root))
+    monkeypatch.setenv('THETA_DATA_DIR', str(blendrl_workspace.data_dir))
+    return blendrl_workspace
+
+
 @pytest.mark.parametrize('algorithm,actor_mode', [('ppo', 'hybrid'), ('ppo', 'logic'), ('ppo', 'neural'), ('dqn', 'hybrid'), ('dqn', 'neural'), ('dqn', 'logic')])
-def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(tmp_path, algorithm, actor_mode):
+def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(blendrl_paths, tmp_path, algorithm, actor_mode):
     import gymnasium as gym
     from stable_baselines3 import PPO, DQN
     from src.app.core.provider_loader import resolve_provider
@@ -159,8 +181,7 @@ def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(tmp_
     from types import SimpleNamespace
     from src.app.core.provider_catalog import get_catalog
     from src.app.core.provider_loader import load_module
-    from src.app.workspace import WorkspacePaths
-    policies = load_module(get_catalog(WorkspacePaths.for_process()).package('sb3-suite'), 'theta_sb3_policy.py')
+    policies = load_module(get_catalog(blendrl_paths).package('sb3-dev'), 'theta_sb3_policy.py', paths=blendrl_paths)
     adapter = SimpleNamespace(ThetaActorCriticPolicy=policies.ThetaActorCriticPolicy, ThetaDQNPolicy=policies.ThetaDQNPolicy)
     selected_cfg = {
         'model': {'architecture': 'blendrl-dev', 'actor_mode': actor_mode, 'blend_function': 'softmax',
@@ -260,7 +281,7 @@ def test_export_traces_method_state_loader_profiles(loader_workspace):
     assert any(path.name == 'cartpole_state.yaml' for path in files.values())
 
 
-def test_neural_actor_passes_loaded_states_to_its_symbolic_gate():
+def test_neural_actor_passes_loaded_states_to_its_symbolic_gate(blendrl_paths):
     from types import SimpleNamespace
     import inspect
     from src.app.core.provider_loader import resolve_provider

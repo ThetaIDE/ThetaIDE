@@ -1,4 +1,0 @@
-algorithm: cql
-compatible_paradigms: [offline_rl]
-defaults:
-  cql_alpha: 5.0

@@ -27,7 +27,7 @@ def qapp():
 def native_export_workspace(fixture_workspace):
     from src.app.workspace import WorkspacePaths
     paths=WorkspacePaths(fixture_workspace)
-    for kind,name,aliases in [('model','mlp_classifier',[]),('model','dnn',[]),('algorithm','ppo',[]),('env','cartpole',['gym_classic_control/cartpole'])]:
+    for kind,name,aliases in [('model','mlp_classifier',[]),('env','cartpole',[])]:
         root=paths.user(kind)/name;root.mkdir(parents=True,exist_ok=True)
         (root/'provider.py').write_text('class Provider: pass\n')
         (root/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,

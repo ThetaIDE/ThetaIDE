@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
 import yaml
 
 from frontend.config_model import (
@@ -22,6 +23,10 @@ from frontend.config_model import (
     remove_method,
     unique_method_name,
 )
+
+
+# Groups such as thetaide and tabular_classification are test profiles.
+pytestmark = pytest.mark.usefixtures("fixture_workspace")
 
 
 def parse(text):
@@ -65,7 +70,8 @@ class TestGroupDiscovery(unittest.TestCase):
 
     def test_groups_includes_directories_without_experiments(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            from src.app.workspace import WorkspacePaths
+            root = WorkspacePaths(Path(tmp)).config
             (root / "experiment" / "empty_group").mkdir(parents=True)
             self.assertIn("empty_group", ConfigTree(root).groups)
 

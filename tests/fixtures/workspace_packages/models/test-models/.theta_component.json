@@ -1,0 +1,19 @@
+{
+  "id": "test-models",
+  "name": "Test models",
+  "kind": "model",
+  "version": "1.0.0",
+  "storage_version": 3,
+  "api_version": 1,
+  "config_path": "model/basics/dnn.yaml",
+  "config_paths": ["model/basics/dnn.yaml"],
+  "capabilities": [
+    {"id": "dnn", "kind": "model", "entry_point": "models.py:DNN", "aliases": ["basics/dnn"]}
+  ],
+  "payload": {
+    "implementations": ["models.py"],
+    "resources": [],
+    "configs": {"model/basics/dnn.yaml": "configs/model/basics/dnn.yaml"}
+  },
+  "dependencies": {"components": [], "pip": []}
+}

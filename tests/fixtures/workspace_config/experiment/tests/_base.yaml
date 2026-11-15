@@ -10,5 +10,5 @@ eval_episodes: 10
 total_timesteps: 10000
 methods:
   ppo:
-    agent: ppo
+    agent: sb3-dev/ppo
     model: dnn

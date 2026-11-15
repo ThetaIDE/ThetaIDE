@@ -12,7 +12,7 @@ from src.app.pipeline.compose import comparable_config, compose_experiment, vali
 
 REFERENCE = "thetaide/cartpole_ppo_reference"
 
-TEST_COMPONENT_CONFIG = {"method_name": "ppo", "agent": "ppo", "model": "dnn"}
+TEST_COMPONENT_CONFIG = {"method_name": "ppo", "agent": "sb3-dev/ppo", "model": "dnn"}
 CASES = [
     Config(name="cartpole_ppo_baseline", **TEST_COMPONENT_CONFIG),
     Config(name="seed_study-7", seed=7, total_timesteps=25000, lr=1e-6, batch_size=256, gamma=0.9,
@@ -110,15 +110,17 @@ def test_builder_values_reach_the_method_config(config):
     assert cfg.experiment_id == config.name
     assert (cfg.seed, cfg.total_timesteps) == (config.seed, config.total_timesteps)
     method = cfg.methods.ppo
-    assert (method.agent, method.model) == ("ppo", "dnn")
+    assert (method.agent, method.model) == ("sb3-dev/ppo", "dnn")
     assert (method.lr, method.batch_size, method.gamma) == (config.lr, config.batch_size, config.gamma)
     assert isinstance(method.lr, float) and isinstance(method.gamma, float)
     assert cfg.tensorboard is config.tensorboard
 
 
-def test_sweep_preflight_checks_actual_trial_hydra_paths(monkeypatch):
+def test_sweep_preflight_checks_actual_trial_hydra_paths(fixture_workspace, tmp_path_factory, monkeypatch):
     import src.app.pipeline.compose as pipeline
+    from component_fixtures import install_optional
     from src.app.pipeline.exceptions import ConfigurationError
+    install_optional(fixture_workspace, "optuna", tmp_path_factory.mktemp("archives"))
 
     composed = compose_experiment(REFERENCE, [
         "++tuning.component=optuna",
@@ -152,15 +154,13 @@ def test_draft_preview_composes_the_yaml_without_writing_it(fixture_workspace, m
 def test_component_schema_applies_to_the_actual_method_config(fixture_workspace):
     import json
     from src.app.pipeline.exceptions import ConfigurationError
-    manifest_dir = fixture_workspace / "src/usr/models/dnn"
-    manifest_dir.mkdir(parents=True)
-    manifest_dir.joinpath(".theta_component.json").write_text(json.dumps({
-        "config_path": "model/dnn.yaml",
-        "parameter_schema": {"x-theta-validate": True, "type": "object", "properties": {
-            "hidden_sizes": {"type": "array", "items": {"type": "integer", "minimum": 1}}
-        }},
-    }))
-    base = ["++methods.ppo.agent=sb3/ppo", "++methods.ppo.hidden_sizes=[0,64]"]
+    manifest = fixture_workspace / "src/usr/models/test-models/.theta_component.json"
+    data = json.loads(manifest.read_text())
+    data["parameter_schema"] = {"x-theta-validate": True, "type": "object", "properties": {
+        "hidden_sizes": {"type": "array", "items": {"type": "integer", "minimum": 1}}
+    }}
+    manifest.write_text(json.dumps(data))
+    base = ["++methods.ppo.agent=sb3-dev/ppo", "++methods.ppo.hidden_sizes=[0,64]"]
     with pytest.raises(ConfigurationError, match="hidden_sizes"):
         validate_composed(compose_experiment(REFERENCE, base))
     base[-1] = "++methods.ppo.hidden_sizes=[16,64]"

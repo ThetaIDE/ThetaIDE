@@ -31,19 +31,6 @@ def isolated_job_config(fixture_workspace, monkeypatch):
     monkeypatch.chdir(fixture_workspace)
 
 
-@pytest.fixture(autouse=True)
-def _register_test_agents():
-    from src.app.core.agent_registry import AGENT_REGISTRY, register_agent
-    from src.app.core.base_agent import OfflineAgentBase
-
-    @register_agent("cql")
-    class MockCQL(OfflineAgentBase):
-        pass
-
-    yield
-
-    AGENT_REGISTRY.pop("cql", None)
-
 FAKE_PIPELINE = '''
 import os, sys, time
 from pathlib import Path
@@ -97,6 +84,8 @@ class Harness:
         settings.write_text('[training]\nmemory_percent = 95\nmax_parallel = 1\ncpu_percent=100\n')
         self.manager = JobManager(store_path=tmp_path / "jobs" / "jobs.db", project_root=self.root,
                                   logs_dir=self.logs, settings_path=settings)
+        pump(lambda: self.manager.ready or self.manager.readiness_error != "Connecting to training runner…", 30)
+        assert self.manager.ready, self.manager.readiness_error
         self.started, self.output, self.metrics, self.statuses = [], {}, {}, {}
         self.manager.job_changed.connect(self._changed)
         self.manager.job_output.connect(lambda job_id, lines: self.output.setdefault(job_id, []).extend(lines))
@@ -110,7 +99,7 @@ class Harness:
     def launch(self, name, queue=False):
         # The workspace fixture supplies these profiles; the test no longer
         # relies on locally installed component configs being present.
-        config = Config(name=name, method_name="ppo", agent="ppo", model="dnn")
+        config = Config(name=name, method_name="ppo", agent="sb3-dev/ppo", model="dnn")
         return self.manager.launch(BASE_EXPERIMENT, config.overrides(), queue=queue)
 
     def release(self, job, code=0):
@@ -219,7 +208,7 @@ def test_cancel_stops_a_running_job(jobs):
 
 def test_launch_rejects_an_invalid_config(jobs):
     with pytest.raises(LaunchError) as error:
-        jobs.manager.launch(BASE_EXPERIMENT, Config().overrides() + ["++methods.ppo.agent=cql"])
+        jobs.manager.launch(BASE_EXPERIMENT, Config(method_name="ppo", agent="d3rlpy-dev/cql", model="dnn").overrides())
     assert "forbidden" in str(error.value) or "not allowed" in str(error.value)
     assert not error.value.conflict
 

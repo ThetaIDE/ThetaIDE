@@ -4,4 +4,4 @@ defaults:
 
 methods:
   incomplete:
-    agent: ppo
+    agent: sb3-dev/ppo

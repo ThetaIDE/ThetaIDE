@@ -5,14 +5,14 @@ defaults:
   - _self_
 
 paradigm: online_rl
-env: gym_classic_control/cartpole
+env: gym_classic_control_dev/cartpole
 seed: 42
 total_timesteps: 10000
 eval_episodes: 10
 tensorboard: false
 methods:
   ppo:
-    agent: ppo
+    agent: sb3-dev/ppo
     model: dnn
     lr: 0.0003
     batch_size: 64

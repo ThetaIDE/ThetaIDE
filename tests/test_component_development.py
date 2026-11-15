@@ -193,16 +193,9 @@ def test_path_policy(tmp_path):
 
 def test_experiment_preflight_reports_effective_method_source(installed_model, fixture_workspace):
     root, _, _ = installed_model
-    shutil.copytree(fixture_workspace / "src/usr/config", root / "src/usr/config", dirs_exist_ok=True)
-    # The UI fixture stores legacy defaults as a mapping; actual Hydra method
-    # composition needs a normal runnable agent config.
-    (root / "src/usr/config/agent/ppo.yaml").write_text("algorithm: ppo\ncompatible_paradigms: [online_rl]\nlr: 0.0003\n")
-    for kind,name,aliases in [('algorithm','ppo',[]),('env','cartpole',['gym_classic_control/cartpole'])]:
-        package=WorkspacePaths(root).user(kind)/name;package.mkdir(parents=True)
-        (package/'provider.py').write_text('class Provider: pass\n')
-        (package/'.theta_component.json').write_text(json.dumps({'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
-            'capabilities':[{'id':name,'kind':kind,'entry_point':'provider.py:Provider','aliases':aliases}],
-            'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}))
+    # The fixture workspace's tracked sb3-dev and gym_classic_control_dev packages provide the
+    # recipe's algorithm and environment.
+    shutil.copytree(fixture_workspace / "src/usr", root / "src/usr", dirs_exist_ok=True)
     process, copied = cli(root, "copy", "original", "my_model")
     assert process.returncode == 0, copied
     arguments = ("validate-experiment", "thetaide/cartpole_ppo_reference", "++methods.ppo.model=my_model/default")

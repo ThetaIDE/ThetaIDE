@@ -54,17 +54,60 @@ def test_export_traces_mapping_component_names():
     assert _plot_names({"losses": {"dpi": 300}, "style": {"grid": True}}) == {"losses"}
 
 
-def test_registered_evaluator_receives_recipe_parameters():
-    from src.app.core.eval_registry import register_evaluator
+PROBES = """
+class Probe:
+    def __init__(self, threshold):
+        self.threshold = threshold
+
+    def evaluate(self, model, data_source, cfg):
+        return {"eval/probe": self.threshold}
+
+
+class OnlineOnlyProbe(Probe):
+    @classmethod
+    def get_supported_paradigms(cls):
+        return ["online_rl"]
+
+
+class Hook:
+    def __init__(self):
+        self.events = []
+
+    def on_eval_start(self, agent, env, stage="val"):
+        self.events.append("start")
+
+    def evaluate_step(self, agent, batch_or_transition):
+        self.events.append("step")
+        return {}
+
+    def on_eval_end(self):
+        self.events.append("end")
+        return {"eval/hook": 1.0}
+"""
+
+
+@pytest.fixture
+def probe_evaluators(tmp_path, monkeypatch):
+    """A workspace whose evaluator package declares the probes these tests select."""
+    import json
+    from src.app.workspace import WorkspacePaths
+    root = WorkspacePaths(tmp_path).user("evaluator") / "probes"
+    root.mkdir(parents=True)
+    (root / "probes.py").write_text(PROBES, encoding="utf-8")
+    capabilities = {"component_override_probe": "Probe", "online_only_probe": "OnlineOnlyProbe",
+                    "frequency_probe": "Hook"}
+    (root / ".theta_component.json").write_text(json.dumps({
+        "id": "probes", "name": "Probes", "kind": "evaluator", "version": "1.0.0",
+        "storage_version": 3, "api_version": 1,
+        "capabilities": [{"id": key, "kind": "evaluator", "entry_point": f"probes.py:{name}"}
+                         for key, name in capabilities.items()],
+        "payload": {"implementations": ["probes.py"], "resources": [], "configs": {}},
+        "dependencies": {"components": [], "pip": []}}))
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+
+
+def test_declared_evaluator_receives_recipe_parameters(probe_evaluators):
     from src.app.core.lightning_builder import ConfiguredEvaluatorCallback, configured_evaluator_callbacks
-
-    @register_evaluator("component_override_probe")
-    class Probe:
-        def __init__(self, threshold):
-            self.threshold = threshold
-
-        def evaluate(self, model, data_source, cfg):
-            return {"eval/probe": self.threshold}
 
     cfg = OmegaConf.create({"evaluator": {"name": "component_override_probe", "params": {"threshold": 0.8}}})
     callback, = configured_evaluator_callbacks(cfg)
@@ -81,12 +124,6 @@ def test_registered_evaluator_receives_recipe_parameters():
     with pytest.raises(ValueError, match="not registered"):
         configured_evaluator_callbacks(OmegaConf.create({"evaluator": "missing_probe"}))
 
-    @register_evaluator("online_only_probe")
-    class OnlineOnlyProbe(Probe):
-        @classmethod
-        def get_supported_paradigms(cls):
-            return ["online_rl"]
-
     with pytest.raises(ValueError, match="does not support paradigm"):
         configured_evaluator_callbacks(OmegaConf.create({
             "paradigm": "supervised", "evaluator": {"name": "online_only_probe", "params": {"threshold": 0.8}}
@@ -97,25 +134,8 @@ def test_registered_evaluator_receives_recipe_parameters():
     })) == []
 
 
-def test_evaluation_hook_honors_frequency():
-    from src.app.core.eval_registry import register_evaluator
+def test_evaluation_hook_honors_frequency(probe_evaluators):
     from src.app.core.lightning_builder import configured_evaluator_callbacks
-
-    @register_evaluator("frequency_probe")
-    class Hook:
-        def __init__(self):
-            self.events = []
-
-        def on_eval_start(self, agent, env, stage="val"):
-            self.events.append("start")
-
-        def evaluate_step(self, agent, batch_or_transition):
-            self.events.append("step")
-            return {}
-
-        def on_eval_end(self):
-            self.events.append("end")
-            return {"eval/hook": 1.0}
 
     callback, = configured_evaluator_callbacks(OmegaConf.create({
         "evaluator": {"name": "frequency_probe", "params": {"frequency": 2}}
@@ -399,8 +419,12 @@ def test_plot_manager_preserves_parameter_override_precedence(tmp_path, monkeypa
     monkeypatch.setattr(manager.BasePlotter, "get_group", lambda *args: "g")
     received = []
     class Sample:
+        def __init__(self, *, paths):
+            pass
+
         def run(self, exp_id, cli_overrides=None):
             received.append(cli_overrides)
-    monkeypatch.setattr(manager, "discover_plotters", lambda: {"sample": Sample})
+    monkeypatch.setattr(manager, "discover_plotters", lambda **kwargs: {"sample": Sample})
+    monkeypatch.setattr(manager, "get_plotter_class", lambda name, **kwargs: Sample if name == "sample" else None)
     manager.run_experiment_plots("run")
     assert received == [{"dpi": 200}]

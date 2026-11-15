@@ -4,5 +4,5 @@ defaults:
 
 methods:
   invalid_algorithm:
-    agent: cql
+    agent: d3rlpy-dev/cql
     model: dnn

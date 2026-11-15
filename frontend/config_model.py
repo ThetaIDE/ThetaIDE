@@ -643,14 +643,13 @@ class ConfigTree:
         return False
 
     @classmethod
-    def discover(cls, start: Path | None = None) -> ConfigTree:
-        """Walk upward from `start` looking for a workspace config root (``src/usr/config``)."""
-        current = Path(start or Path(__file__).resolve().parent)
-        for candidate in (current, *current.parents):
-            config_root = candidate / "src" / "usr" / "config"
-            if config_root.is_dir():
-                return cls(config_root)
-        raise FileNotFoundError(f"No src/usr/config directory found above {current}")
+    def discover(cls) -> ConfigTree:
+        """The config tree of the process workspace (``WorkspacePaths.for_process()``)."""
+        from src.app.workspace import WorkspacePaths
+        paths = WorkspacePaths.for_process()
+        if not paths.config.is_dir():
+            raise FileNotFoundError(f"No config directory in workspace {paths.root}")
+        return cls(paths.config, workspace=paths)
 
     def visible_environments(self):
         return {env.name: env for env in self.environments.values()
@@ -721,6 +720,9 @@ class ConfigTree:
         # tree reset it; anything else that changes the config root invalidates the whole tree.
         if self._experiment_groups is None:
             names = {Path(key).parts[1] for key in self.resolver.selectors("experiment") if len(Path(key).parts) > 2}
+            # A workspace group folder is a group before it holds any profile.
+            own = self.workspace.config / "experiment"
+            names |= {d.name for d in own.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))} if own.is_dir() else set()
             self._experiment_groups = {
                 name: ExperimentGroup.from_profile(name, self.workspace.resolve_config(f"experiment/{name}/_base.yaml"))
                 for name in sorted(names)

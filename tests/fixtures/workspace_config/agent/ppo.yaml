@@ -1,5 +1,0 @@
-algorithm: ppo
-compatible_paradigms: [online_rl]
-defaults:
-  lr: 0.0003
-  gamma: 0.99

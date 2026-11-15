@@ -18,6 +18,7 @@ except Exception:
 PROJECT_ROOT = Path(__file__).parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
 TEST_WORKSPACE_CONFIG = Path(__file__).parent / "fixtures" / "workspace_config"
+TEST_WORKSPACE_PACKAGES = Path(__file__).parent / "fixtures" / "workspace_packages"
 
 for p in [
     str(PROJECT_ROOT),
@@ -56,8 +57,17 @@ def checkout_workspace():
     return root
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _session_workspace():
+    """Select the checkout workspace before module- and class-scoped fixtures run."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("THETA_WORKSPACE", str(checkout_workspace()))
+        patch.delenv("THETA_DATA_DIR", raising=False)
+        yield
+
+
 @pytest.fixture(autouse=True)
-def tracked_workspace(monkeypatch):
+def tracked_workspace(_session_workspace, monkeypatch):
     """Select the checkout workspace as every test's process workspace.
 
     ``WorkspacePaths.for_process()``, ``get_catalog()``, Hydra composition and worker
@@ -95,12 +105,25 @@ def copy_research_config(target):
     return target
 
 
+def build_fixture_workspace(root):
+    """Copy the checkout workspace plus test profiles and fixture packages into ``root``.
+
+    The tracked packages (``sb3-dev``, ``d3rlpy-dev``, ``gym_classic_control_dev``,
+    ``blendrl-dev``) provide the algorithms, environment and composite model the fixture
+    recipes select; ``test-models`` provides ``dnn``.
+    """
+    from src.app.workspace import WorkspacePaths
+    root = Path(root)
+    shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
+    shutil.copytree(TEST_WORKSPACE_PACKAGES, root / "src/usr", dirs_exist_ok=True)
+    shutil.copytree(TEST_WORKSPACE_CONFIG, WorkspacePaths(root).config, dirs_exist_ok=True)
+    return root
+
+
 @pytest.fixture
 def fixture_workspace(tmp_path, monkeypatch):
-    """An isolated workspace with this checkout's effective profiles plus test profiles."""
-    from src.app.workspace import WorkspacePaths
-    target = copy_research_config(WorkspacePaths(tmp_path).config)
-    shutil.copytree(TEST_WORKSPACE_CONFIG, target, dirs_exist_ok=True)
+    """An isolated workspace: see ``build_fixture_workspace``."""
+    build_fixture_workspace(tmp_path)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     return tmp_path

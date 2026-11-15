@@ -1,8 +1,8 @@
 """Tests for the ThetaIDE config model.
 
-These run against the real src/usr/config tree rather than fixtures, so they fail if
-the backend's config schema moves in a way the panel would not survive. Where a
-concrete value would rot as configs are added, the assertion is written as a
+These run against the checkout workspace's tracked packages plus the test fixtures, so
+they fail if the backend's config schema moves in a way the panel would not survive.
+Where a concrete value would rot as configs are added, the assertion is written as a
 property instead.
 """
 
@@ -12,8 +12,11 @@ from frontend.config_model import Agent, ConfigTree, Environment, Model, Paradig
 
 
 @pytest.fixture(scope="module")
-def tree():
-    return ConfigTree.discover()
+def tree(tmp_path_factory):
+    from conftest import build_fixture_workspace
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(build_fixture_workspace(tmp_path_factory.mktemp("config-model")))
+    return ConfigTree(paths.config, workspace=paths)
 
 
 # --------------------------------------------------------------- loading
@@ -40,19 +43,13 @@ def test_known_agents_load(tree):
 
 
 def test_agents_expose_algorithm_and_hyperparameters(tree):
-    if "sb3/ppo" not in tree.agents:
-        pytest.skip("sb3/ppo agent plugin not installed")
-    ppo = tree.agents["sb3/ppo"]
-    assert ppo.algorithm.lower() == "ppo"
+    ppo = tree.agents["sb3-dev/ppo"]
+    assert ppo.algorithm == "sb3-dev/ppo"
     assert "lr" in ppo.hyperparameters or "learning_rate" in ppo.hyperparameters
     assert "algorithm" not in ppo.hyperparameters
 
 
 def test_models_expose_architecture(tree):
-    if "dnn" not in tree.models or "cew" not in tree.models:
-        pytest.skip("dnn or cew model plugin not installed")
-    assert "dnn" in tree.models
-    assert "cew" in tree.models
     assert tree.models["dnn"].architecture == "dnn"
     assert "architecture" not in tree.models["dnn"].parameters
 
@@ -128,8 +125,6 @@ def test_online_rl_offers_environments(tree):
 
 def test_offline_rl_offers_environments(tree):
     offline_envs = {e.name for e in tree.environments_for("offline_rl")}
-    if not offline_envs:
-        pytest.skip("No offline RL environment plugins installed")
     assert len(offline_envs) > 0
 
 
@@ -296,9 +291,7 @@ def test_compatible_paradigms_filter_environments(tree):
 # ------------------------------------------------ composite & dynamic parameters
 
 def test_model_parameter_domains(tree):
-    if "blendrl" not in tree.models or "dnn" not in tree.models:
-        pytest.skip("blendrl or dnn model plugins not installed")
-    blendrl = tree.models["blendrl"]
+    blendrl = tree.models["blendrl-dev"]
     blendrl_domains = {
         key for key, schema in blendrl.parameter_schema.get("properties", {}).items()
         if isinstance(schema, dict) and schema.get("x-theta-domain")
@@ -315,47 +308,36 @@ def test_model_parameter_domains(tree):
 
 
 def test_tree_agent_and_model_helpers(tree):
-    if "sb3/ppo" not in tree.agents or "dnn" not in tree.models:
-        pytest.skip("sb3/ppo or dnn not installed")
-    ppo_params = tree.agent_hyperparameters("sb3/ppo")
+    ppo_params = tree.agent_hyperparameters("sb3-dev/ppo")
     assert "clip_range" in ppo_params or "clip_coef" in ppo_params
     assert "learning_rate" in ppo_params or "lr" in ppo_params
     assert "batch_size" in ppo_params
 
     dnn_params = tree.model_parameters("dnn")
-    if not dnn_params:
-        pytest.skip("DNN defaults are supplied by its component package and are not installed here")
     assert "hidden_sizes" in dnn_params
     assert "activation" in dnn_params
     assert "blend_ent_coef" not in dnn_params
 
 
-def test_candidate_hyperparameters_filtering(fixture_workspace):
-    (fixture_workspace / "src/usr/config/agent/cql.yaml").write_text("algorithm: cql\ncql_alpha: 5.0\n")
-    tree = ConfigTree.discover()
-    tree.agents["cql"] = ConfigTree(fixture_workspace / "src/usr/config").agents["cql"]
-    if "dnn" not in tree.models or "blendrl" not in tree.models:
-        pytest.skip("dnn or blendrl model plugins not installed")
+def test_candidate_hyperparameters_filtering(tree):
     from frontend.config_viewer import get_method_candidate_hyperparameters
 
     # For pure DNN: blend_ent_coef must NOT be suggested
-    dnn_hypers = get_method_candidate_hyperparameters("cql", "dnn", tree)
+    dnn_hypers = get_method_candidate_hyperparameters("d3rlpy-dev/cql", "dnn", tree)
     assert "hidden_sizes" in dnn_hypers
     assert "activation" in dnn_hypers
-    assert "cql_alpha" in dnn_hypers
+    assert "learning_rate" in dnn_hypers
     assert "blend_ent_coef" not in dnn_hypers
     assert "logic_lr" not in dnn_hypers
 
     # For BlendRL: blend_ent_coef and logic_lr MUST be suggested
-    blend_hypers = get_method_candidate_hyperparameters("cql", "blendrl", tree)
+    blend_hypers = get_method_candidate_hyperparameters("d3rlpy-dev/cql", "blendrl-dev", tree)
     assert "blend_ent_coef" in blend_hypers
     assert "logic_lr" in blend_hypers
     assert "blend_q_values" in blend_hypers
 
 
 def test_model_component_domain_parameters_are_schema_declared(tree):
-    if "blendrl" not in tree.models or "dnn" not in tree.models:
-        pytest.skip("blendrl or dnn model plugins not installed")
     domains = {
         model_name: {
             key for key, schema in model.parameter_schema.get("properties", {}).items()
@@ -363,5 +345,5 @@ def test_model_component_domain_parameters_are_schema_declared(tree):
         }
         for model_name, model in tree.models.items()
     }
-    assert domains["blendrl"] == {"neural", "symbolic"}
+    assert domains["blendrl-dev"] == {"neural", "symbolic"}
     assert domains["dnn"] == set()

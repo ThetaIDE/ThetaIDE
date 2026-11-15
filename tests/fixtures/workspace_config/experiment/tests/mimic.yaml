@@ -10,5 +10,5 @@ eval_episodes: 0
 total_timesteps: 10000
 methods:
   cql:
-    agent: cql
+    agent: d3rlpy-dev/cql
     model: dnn
