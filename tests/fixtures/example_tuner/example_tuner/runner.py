@@ -5,10 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.app.api.workspace import WorkspacePaths
+
 
 def main():
     payload = json.loads(next(arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--example-tuner=")))
-    root = Path("results/checkpoints") / payload["group"] / payload["experiment"] / payload["method"]
+    root = WorkspacePaths.for_process().results / "checkpoints" / payload["group"] / payload["experiment"] / payload["method"]
     root.mkdir(parents=True, exist_ok=True)
     target, dimension = next(iter(payload["dimensions"].items()))
     trials = []

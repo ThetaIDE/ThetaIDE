@@ -51,7 +51,7 @@ def test_execution_isolated_and_failures_retained(tmp_path, monkeypatch):
     for _ in range(2):
         with pytest.raises(RuntimeError, match="replicates failed"):
             run_execution(cfg, ctx, make_plan(cfg, ctx))
-    manifests = list(tmp_path.glob("results/executions/g/e/*/manifest.json"))
+    manifests = list(tmp_path.glob("src/usr/results/executions/g/e/*/manifest.json"))
     assert len(manifests) == 2
     runs = [run for path in manifests for run in json.loads(path.read_text())["runs"]]
     assert len({run["run_id"] for run in runs}) == 8
@@ -76,7 +76,7 @@ def test_evaluation_event_records_episode_outcomes(tmp_path, monkeypatch):
     trainer = SimpleNamespace(loggers=[], global_step=10)
     module = SimpleNamespace(cfg={"paradigm": "online_rl"}, log=lambda *a, **kw: None)
     callback.evaluate_and_log(trainer, module, 10)
-    event = json.loads((tmp_path / "results/logs/g/e/m/version_0/evaluation_events.jsonl").read_text())
+    event = json.loads((tmp_path / "src/usr/results/logs/g/e/m/version_0/evaluation_events.jsonl").read_text())
     assert event["episode_outcomes"] == [1.0, 3.0]
     assert event["training_step"] == 10
     assert event["deterministic_actions"] is None
@@ -132,12 +132,12 @@ def test_cancel_only_matching_execution(tmp_path, monkeypatch):
     from src.app.workspace import WorkspacePaths
     monkeypatch.chdir(tmp_path.parent)  # the desktop's working directory is not the workspace
     for name, pid in [("first", 123), ("second", 456)]:
-        path = tmp_path / "results/executions/g/e" / name / "manifest.json"
+        path = tmp_path / "src/usr/results/executions/g/e" / name / "manifest.json"
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({"owner_pid": pid, "runs": [{"status": "completed"},
                                                                  {"status": "running"}, {"status": "queued"}]}))
     mark_cancelled("g", "e", 123, paths=WorkspacePaths(tmp_path))
-    first = json.loads((tmp_path / "results/executions/g/e/first/manifest.json").read_text())
-    second = json.loads((tmp_path / "results/executions/g/e/second/manifest.json").read_text())
+    first = json.loads((tmp_path / "src/usr/results/executions/g/e/first/manifest.json").read_text())
+    second = json.loads((tmp_path / "src/usr/results/executions/g/e/second/manifest.json").read_text())
     assert [r["status"] for r in first["runs"]] == ["completed", "cancelled", "cancelled"]
     assert second["runs"][1]["status"] == "running"

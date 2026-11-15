@@ -283,7 +283,7 @@ def test_independently_installed_tuner_runs_and_produces_plotman_artifacts(tmp_p
         "methods['m']['python'] = sys.executable\n"
         "_run_methods_sequential(cfg, {'methods':methods,'sanitized_extra_args':[],"
         "'storage_url':get_tuner(cfg).storage(cfg),'is_sweep':True})\n"
-        "p=Path('results/checkpoints/g/e/config.yaml'); p.parent.mkdir(parents=True,exist_ok=True)\n"
+        "p=Path('src/usr/results/checkpoints/g/e/config.yaml'); p.parent.mkdir(parents=True,exist_ok=True)\n"
         "p.write_text('group: g\\nplots:\\n  tuning: {}\\n')\n"
         "run_experiment_plots('g/e')\n",
         encoding="utf-8",
@@ -292,6 +292,6 @@ def test_independently_installed_tuner_runs_and_produces_plotman_artifacts(tmp_p
            "THETA_WORKSPACE": str(tmp_path), "THETA_DATA_DIR": str(tmp_path / '.thetaide')}
     result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (tmp_path / "results/checkpoints/g/e/m/best_params.yaml").read_text().strip() == "agent.lr: 0.1"
-    assert (tmp_path / "results/plots/g/e/tuning/m/trials.csv").is_file()
-    assert (tmp_path / "results/plots/g/e/tuning/m/objective.png").is_file()
+    assert (tmp_path / "src/usr/results/checkpoints/g/e/m/best_params.yaml").read_text().strip() == "agent.lr: 0.1"
+    assert (tmp_path / "src/usr/results/plots/g/e/tuning/m/trials.csv").is_file()
+    assert (tmp_path / "src/usr/results/plots/g/e/tuning/m/objective.png").is_file()

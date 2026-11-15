@@ -360,7 +360,7 @@ def test_no_plot_selection_skips_phase_and_plot_directory(qapp, tmp_path, monkey
     assert not should_run_plotting(OmegaConf.create({"plots": [], "no_plot": False}))
     assert not should_run_plotting(OmegaConf.create({"plots": ["losses"], "no_plot": True}))
     local_runner._setup_output_dirs(cfg)
-    assert not (tmp_path / "results/plots").exists()
+    assert not (tmp_path / "src/usr/results/plots").exists()
     from src.app.pipeline import datasets
     monkeypatch.setattr(datasets, "run_plotting", lambda *args, **kwargs: pytest.fail("plotting ran"))
     local_runner.run_plotting_phase(cfg, {})
@@ -387,7 +387,7 @@ def test_plot_manager_without_selection_writes_no_output(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(manager.BasePlotter, "get_experiment_config", lambda *args, **kwargs: {})
     manager.run_experiment_plots("run")
-    assert not (tmp_path / "results/plots").exists()
+    assert not (tmp_path / "src/usr/results/plots").exists()
 
 
 def test_plot_manager_preserves_parameter_override_precedence(tmp_path, monkeypatch):

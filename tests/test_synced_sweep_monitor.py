@@ -23,7 +23,7 @@ def snapshot(root):
     install_optional(root, "optuna", root.parent / (root.name + "-archives"))
     execution = "a" * 32
     experiment = "nested/sweep__" + execution
-    database = root / "results/optuna" / execution / "study.sqlite"
+    database = root / "src/usr/results/optuna" / execution / "study.sqlite"
     database.parent.mkdir(parents=True)
     study = optuna.create_study(storage="sqlite:///" + str(database), study_name="s")
     study.set_user_attr("theta_log_method", "m")
@@ -35,10 +35,10 @@ def snapshot(root):
         "runs": [{"method": "m", "agent": "m", "training_seed": seed, "status": status,
                   "version": version, "logs": "/scratch/not-on-this-machine/results/logs/g/old"}
                  for seed, status, version in [(11, "completed", "seed0"), (22, "running", "seed1"), (33, "queued", "seed2")]]}
-    path = root / "results/executions/g" / experiment / "x/manifest.json"
+    path = root / "src/usr/results/executions/g" / experiment / "x/manifest.json"
     write_json(path, manifest)
     for version in ("seed0", "seed1", "seed2"):
-        events = root / "results/logs/g" / experiment / "m" / version / "events.jsonl"
+        events = root / "src/usr/results/logs/g" / experiment / "m" / version / "events.jsonl"
         events.parent.mkdir(parents=True)
         events.write_text(json.dumps({"type": "start", "run": {"version": version}}) + "\n" +
                           json.dumps({"type": "metrics", "step": 10, "data": {"eval/reward": 123}}) + "\n")
@@ -78,7 +78,7 @@ def test_summary_saves_commit_metadata_for_running_cluster_publication(tmp_path,
     monkeypatch.setenv("THETA_COMMIT_DIR", str(tmp_path / ".thetaide/commits"))
     study = optuna.create_study(study_name="s")
     study.set_user_attr("theta_log_method", "m")
-    root = tmp_path / "results/checkpoints/g/e/m"
+    root = tmp_path / "src/usr/results/checkpoints/g/e/m"
     root.mkdir(parents=True)
     write_study_summary(study, root)
     commits = [json.loads(p.read_text()) for p in (tmp_path / ".thetaide/commits").glob("*.json")]
@@ -123,7 +123,7 @@ def test_newer_synced_trial_keeps_sweep_navigation_and_compact_title(tmp_path, s
     path.write_text(json.dumps(manifest))
     if summary_file:
         backend = run['backend']
-        summary = (tmp_path / 'results/checkpoints' / backend['group'] /
+        summary = (tmp_path / 'src/usr/results/checkpoints' / backend['group'] /
                    backend['experiment_id'] / 'm/tuning_summary.json')
         write_json(summary, {'schema_version': 1, 'component': 'optuna', 'study': 's', 'stop_reason': 'running', 'trials': [
             {'id': 0, 'state': 'complete', 'value': 12, 'parameters': {'rate': 0.1}}]})
@@ -170,8 +170,8 @@ def test_live_tuning_summary_is_published_as_metrics_without_weights(tmp_path):
     runtime.mkdir()
     work.mkdir()
     record = {'execution_id': 'a' * 32, 'project_id': 'p', 'group': 'g', 'result_experiment_id': 'e', 'tuner_execution': None}
-    (runtime / 'results/sites' / record['execution_id']).mkdir(parents=True)
-    summary = runtime / 'results/checkpoints/g/e/m/tuning_summary.json'
+    (runtime / 'src/usr/results/sites' / record['execution_id']).mkdir(parents=True)
+    summary = runtime / 'src/usr/results/checkpoints/g/e/m/tuning_summary.json'
     write_json(summary, {'schema_version': 1, 'component': 'optuna', 'study': 's', 'trials': []})
     (summary.parent / 'model.zip').write_bytes(b'uncommitted weights')
     publisher = Publisher(runtime, work, record, DEFAULTS)

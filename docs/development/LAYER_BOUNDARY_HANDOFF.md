@@ -4,7 +4,7 @@ Paste the prompt below into a new agent session in this repository to continue t
 
 ---
 
-You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch is pushed to `origin` (ThetaIDE/ThetaIDE) and has no PR. It is merged to `main` together with the v3 Hub publication, only when the user asks.
+You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch exists on `origin` (ThetaIDE/ThetaIDE), but 5b and the stabilized 5c code are local and unpushed. There is no PR. It is merged to `main` together with the v3 Hub publication, only when the user asks.
 
 **Read first, in this order:**
 1. `AGENTS.md` and `docs/README.md`.
@@ -14,9 +14,13 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 
 Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It is history: its "bounded" readers and adapters are being removed, not kept.
 
+## Current session priority
+
+The latest request is to stabilize 5c, then ask how the user wants the UI to change. The code is now stabilized and verified; ask for the UI requirements next. Vega is for later: the user has a specific design and has not provided it. Do not infer a Vega design or start implementing it. The data move remains unapproved.
+
 ## How the user wants you to work
 
-- Work through the items below to the end without stopping for confirmation. Do not ask about commits, pushes or other git steps mid-work; commit each unit, push `implement/layer-boundaries`, and report at the end.
+- Follow the current session priority above; when resuming the remaining architecture work, work through the authorized items without stopping for routine confirmation. Do not ask about commits, pushes or other git steps mid-work; commit each unit, push `implement/layer-boundaries`, and report at the end.
 - Remove legacy patterns whenever you find them. Do not ask whether to remove them.
 - Every setting has exactly one place it is defined. No fallback chains (for example, tuning settings come only from the `tuning` block, never from paradigms, environments or `hydra.sweeper`).
 - When a change makes one of the user's files out of date, say so in one line (file and what moves where). Do not edit it unless asked, and do not dramatize it.
@@ -24,22 +28,22 @@ Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It
 
 ## Where things stand (2026-11-15)
 
-- Phases 0–3 are done. Phase 4 (4a–4h) is done except the TensorBoard flag.
+- Phases 0–4 are done. Phase 5a/5b are done (`9129f8b` is 5b); 5c code is stabilized and verified. The user's results move and 5d/5e remain open. No module move is planned.
 - Tuning has one validated shape (`0f373a7`): `tuning.{component, metric, direction, options.<component>}` plus each method's `tune`. Optuna ships one sweeper config, `hydra/sweeper/theta_optuna`, compiled entirely from that block.
 - The `online_methods`/`task:` readers and the root `sweep` key are deleted.
 - **Core stays at `src/app` and `frontend`.** The `src/ide` move is dropped (user decision); phase 6 is only installed entry points and distribution verification. No forwarding modules exist or are allowed.
 - The v3 Hub releases are prepared in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpublished.
-- About 120 stale test failures predate this branch (listed by file in the status doc) and are deferred by the user.
+- Full 5c comparison: 2,636 passed, 52 skipped, 126 existing failures, zero new failure IDs against the saved 5b baseline. All sandbox-affected files pass outside the sandbox. Job-manager checks: 19 passed, 2 prerequisite skips. Evidence is linked from the status document.
 - The user's `src/usr/config/experiment/BlendRL/Cartpole/sweep_sustainedSolve.yaml` is out of date: `tuning.n_trials`/`n_jobs` belong under `tuning.options.optuna`. The user knows; leave it.
 
-## Work to do next, in order
+## Next work
 
-1. **TensorBoard flag (last 4h item).** Delete the root/agent `tensorboard` flag and its core translation; the form checkbox edits `logging.backends.tensorboard.enabled`. Every site is listed in the status doc under "Left in 4h: the TensorBoard flag".
-2. **Legacy sweep.** Search for remaining old patterns and delete them: `git grep -niE "legacy|deprecat|compat|historical|old (format|key|layout)"` across `src`, `frontend`, `optional_components`, `scripts`, `run_pipeline.py` and `tests`. Known lead: `docs/reference/SCHEDULER_CONTRACT.md:28` documents hiding "forwarding" site profiles as compatibility aliases; find the code behind it (site profile listing in the Slurm component or `src/app/sites`) and remove it with the doc sentence. Anything legitimately current gets reworded, not kept as "legacy".
-3. **Phase 5.** Write the phase 5 plan document first (bundle manifest, application/workspace resolution, inclusions and exclusions) and add it to `docs/README.md`. Then implement the plan's phase 5 units: every results path through `WorkspacePaths` (the full list is in the status doc), results moved to `src/usr/results` (moving the user's `results/` needs a backup, hash check and a dry run shown to the user, as in 4f; that is the one stop), explicit bundles, declared requirements, one versioned bundle manifest.
-4. **Phase 6**: installed CLI entry points and the wheel/sdist verification (`scripts/verify_installed_distribution.py`). No module moves.
-5. **Phase 7**: enforcement, as the plan describes.
-6. **Publication, only when the user asks:** follow `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`. Fix the published `blendrl` 1.3.0 schema types in `../theta-plugins-v3/models/blendrl` first (status doc, "Also left"). Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, push `theta-hub-v3` and `theta-plugins-v3`, verify the client feed from a clean workspace, set `published_at`, merge to `main` together with the Hub change, and remove the "pre-v3 Hub releases" row from the exception register.
+1. **Ask for the user's UI changes.** This is the next requested session step. Vega is deferred pending their specific design. UI work is intended to integrate on `implement/layer-boundaries` before phase 7.
+2. **Results move, only after approval.** The last dry run recorded 15,590 files (1.23 GB), no symlinks or conflicts. Revalidate before acting, create the timestamped backup, rename to `src/usr/results`, and verify every hash. The old location is not read by the app. Do not claim all of 5c is complete before the move.
+3. **Resume 5d/5e when requested:** explicit `theta.bundle/v1` bundles and declared requirements, following the phase 5 plan. No cluster run.
+4. **Phase 6:** installed CLI entry points and wheel/sdist verification. Core stays at `src/app` and `frontend`.
+5. **Phase 7:** boundary enforcement against the combined implementation.
+6. **Publication, only when requested:** follow `THETA_HUB_RELEASE_WORKFLOW.md`. Known prerequisites: fix the published BlendRL schema types, reward-shaping's cwd-relative checkpoint default/config-environment fallback, the native SB3 Optuna test bypassing pipeline tuner setup, and reinstall the corrected SB3 package in this workspace. The earlier package fix is `7b7a3ef` in `../theta-plugins-v3`, unpushed. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, verify the clean client feed, set `published_at`, and merge with the Hub changes only when asked.
 
 Left alone for now (user): checkpoint ranking by `monitor_metric`/`checkpoint.monitor` (`src/app/core/lightning_builder.py:376`–`:416`), the deferred stale tests, `prepare_tabular.py`.
 

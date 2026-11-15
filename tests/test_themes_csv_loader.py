@@ -187,7 +187,7 @@ def test_external_csv_recipes_preflight_and_real_worker_use_custom_loader(tmp_pa
         cwd=workspace, env={**os.environ, 'PYTHONPATH': str(ROOT), 'MPLCONFIGDIR': os.environ.get('MPLCONFIGDIR', str(tmp_path / 'mpl'))},
         text=True, capture_output=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr
-    record = json.loads(next((workspace / 'results').rglob('execution.json')).read_text())
+    record = json.loads(next((workspace / 'src/usr/results').rglob('execution.json')).read_text())
     assert record['metadata']['data_provider'] == 'themes-dev/csv_trajectories'
     assert record['status'] == 'completed'
     bundle = Path(record['result']['artifacts'][0]['path'])

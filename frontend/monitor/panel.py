@@ -652,9 +652,9 @@ class MonitorPanel(QWidget):
             from src.app.workspace import WorkspacePaths
             results = WorkspacePaths.for_process().results_relative
             where = f"{results}/logs/{run['backend']['group']}/{run['backend']['experiment_id']}/"
-            stored = where
+            stored = f"{where}  ·  {host.jobs.store_path}"
         else:
-            where, stored = "", "Simulated demo run (in-memory)"
+            where, stored = "", f"Simulated demo run (in-memory)  ·  {host.jobs.store_path}"
         about = f"{run_setup_label(run, config)}\n{stored}"
         self.run_title.setToolTip(about)
         self.run_caption.setToolTip(about)

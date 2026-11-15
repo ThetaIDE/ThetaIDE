@@ -117,7 +117,7 @@ def test_dead_lease_is_stale_after_host_rename_but_foreign_machine_lease_is_live
     assert (leases / "foreign.json").exists()
 
 
-@pytest.mark.parametrize("payload", [{"src/app/evil.py": "x=1"}, {"frontend/evil.py": "x=1"}, {"../escape": "bad"}, {"results/x.csv": "data"}])
+@pytest.mark.parametrize("payload", [{"src/app/evil.py": "x=1"}, {"frontend/evil.py": "x=1"}, {"../escape": "bad"}, {"src/usr/results/x.csv": "data"}])
 def test_archive_escape_and_protected_payload_rejected(tmp_path, payload):
     installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
     with pytest.raises(ValueError): installer.install(archive(tmp_path, files=payload), install_dependencies=False)

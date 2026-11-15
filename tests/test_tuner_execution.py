@@ -61,7 +61,7 @@ p.write_text(json.dumps({'trials': [{'id': 0, 'state': 'complete', 'value': 7}, 
     assert 'optuna' not in json.dumps(parent['overrides'])
     assert execution.run(root, parent['execution_id']) == 0
     parent = read_json(execution.receipt_path(root, parent['execution_id']))
-    manifest = read_json(work / 'results/sites' / parent['execution_id'] / 'publication.json')
+    manifest = read_json(work / 'src/usr/results/sites' / parent['execution_id'] / 'publication.json')
     export = next(item for item in manifest['files'] if item['category'] == 'database')
     assert export['path'].endswith('/search.json')
     assert 'optuna' not in manifest['dependencies']
@@ -146,7 +146,7 @@ def test_final_publication_drains_multiple_artifacts_with_one_queue_slot(tmp_pat
     plan = TunerExecutionPlan('fixture-grid', identity, artifacts=artifacts)
     record = {'execution_id': identity, 'project_id': 'fixture', 'group': 'g',
               'result_experiment_id': 'e', 'tuner_execution': plan.record()}
-    (runtime / 'results/sites' / identity).mkdir(parents=True)
+    (runtime / 'src/usr/results/sites' / identity).mkdir(parents=True)
     for artifact in artifacts:
         path = WorkspacePaths(runtime).results / artifact.path; path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"trials": []}')  # Complete snapshot bytes need no trailing newline.
@@ -164,7 +164,7 @@ def test_snapshot_hook_must_publish_a_closed_file(tmp_path, monkeypatch):
     plan = prepare_plan({'tuning': {'component': 'fixture-grid'}}, 'a'*32, paths=WorkspacePaths(runtime))
     record = {'execution_id': 'a'*32, 'project_id': 'fixture', 'group': 'g',
               'result_experiment_id': 'e', 'tuner_execution': plan.record()}
-    (runtime / 'results/sites' / ('a'*32)).mkdir(parents=True)
+    (runtime / 'src/usr/results/sites' / ('a'*32)).mkdir(parents=True)
     state = WorkspacePaths(runtime).results / plan.artifact('search').path; state.parent.mkdir(parents=True)
     state.write_text('{}')
     publisher = Publisher(runtime, tmp_path / 'work', record, DEFAULTS)

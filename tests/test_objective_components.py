@@ -148,7 +148,7 @@ def test_sampling_preserves_failed_runs_and_isolates_seed_outputs(tmp_path, monk
         events = [{"training_step": x, "metric": "eval/reward", "episode_outcomes": [500]} for x in [0, 100]]
         (directory / "evaluation_events.jsonl").write_text("\n".join(map(json.dumps, events)))
     assert run_objective(config(), execute=execute) == 0
-    paths = list(tmp_path.glob("results/logs/g/e/m/version_execution_*/objective.json"))
+    paths = list(tmp_path.glob("src/usr/results/logs/g/e/m/version_execution_*/objective.json"))
     manifest = json.loads(paths[0].read_text())
     assert [run["status"] for run in manifest["runs"]] == ["completed", "failed"]
     assert len({child.variability_version for child in calls}) == 2
@@ -162,7 +162,7 @@ def test_real_subprocess_samples_return_one_score(tmp_path, monkeypatch, sweep):
     script.write_text('''import json
 from pathlib import Path
 def main(cfg):
-    path = Path("results/logs") / cfg.group / cfg.experiment_id / cfg.agent.name / cfg.variability_version
+    path = Path("src/usr/results/logs") / cfg.group / cfg.experiment_id / cfg.agent.name / cfg.variability_version
     path.mkdir(parents=True, exist_ok=True)
     events = [{"training_step": x, "metric": "eval/reward", "episode_outcomes": [cfg.seed * 100]} for x in [0, 100]]
     (path / "evaluation_events.jsonl").write_text("\\n".join(map(json.dumps, events)))
@@ -182,7 +182,7 @@ def main(cfg):
     result = subprocess.run(command,
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=45)
     assert result.returncode == 0, result.stdout + result.stderr
-    manifest_path = next(tmp_path.glob("results/logs/g/e/m/version_*/objective.json"))
+    manifest_path = next(tmp_path.glob("src/usr/results/logs/g/e/m/version_*/objective.json"))
     manifest = json.loads(manifest_path.read_text())
     assert manifest["result"]["value"] == pytest.approx(0.2)
     assert all(run["status"] == "completed" for run in manifest["runs"])
@@ -196,7 +196,7 @@ def main(cfg):
         promote_best_trial_checkpoint = _optuna_utils.promote_best_trial_checkpoint
         monkeypatch.chdir(tmp_path)
         promote_best_trial_checkpoint("g", "e", "m", storage, "objectives")
-        summary = json.loads(Path("results/checkpoints/g/e/m/best_trial_summary.json").read_text())
+        summary = json.loads(Path("src/usr/results/checkpoints/g/e/m/best_trial_summary.json").read_text())
         assert summary["checkpoint"] is None
         assert len(summary["samples"]) == 2
 

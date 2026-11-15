@@ -83,7 +83,7 @@ def test_explicit_learning_rate_decay_is_validated_and_reaches_final_rate():
             runner.algorithm_options({"learning_rate": spec}, sb3.PPO)
 
 
-def test_qualified_dqn_job_saves_a_dqn_not_a_ppo(tmp_path, monkeypatch):
+def test_qualified_dqn_job_saves_a_dqn_not_a_ppo(own_workspace, tmp_path, monkeypatch):
     import json
     sb3 = pytest.importorskip("stable_baselines3")
     from hydra.core.hydra_config import HydraConfig
@@ -98,21 +98,21 @@ def test_qualified_dqn_job_saves_a_dqn_not_a_ppo(tmp_path, monkeypatch):
     monkeypatch.setattr(HydraConfig, "get", staticmethod(lambda: SimpleNamespace(mode=SimpleNamespace(name="RUN"))))
     runner.execute(cfg, RunContext(
         'test', WorkspacePaths.for_process(),
-        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        int(cfg.get('seed', 42)), tmp_path / 'src/usr/results/checkpoints' / cfg.group / cfg.experiment_id /
         cfg.agent.name / str(cfg.get('variability_version') or '')))
-    checkpoint = tmp_path / "results/checkpoints/g/e/dqn/best_model.zip"
+    checkpoint = tmp_path / "src/usr/results/checkpoints/g/e/dqn/best_model.zip"
     loaded = sb3.DQN.load(checkpoint)
     assert isinstance(loaded, sb3.DQN)
     assert loaded.buffer_size == 32
     assert loaded.n_envs == 2
     assert loaded.seed == 73
-    runtime = json.loads((tmp_path / "results/logs/g/e/dqn/version_0/runtime.json").read_text())
+    runtime = json.loads((tmp_path / "src/usr/results/logs/g/e/dqn/version_0/runtime.json").read_text())
     assert runtime["algorithm_class"].endswith(".DQN")
     assert runtime["policy_class"].endswith(".DQNPolicy")
     assert runtime["training_envs"] == 2
 
 
-def test_final_evaluation_uses_last_update_and_best_checkpoint_survives(tmp_path, monkeypatch):
+def test_final_evaluation_uses_last_update_and_best_checkpoint_survives(own_workspace, tmp_path, monkeypatch):
     import csv
     import json
     import torch
@@ -136,18 +136,18 @@ def test_final_evaluation_uses_last_update_and_best_checkpoint_survives(tmp_path
                             "model": {"sb3_native_policy": True}, "env": {"env_id": "CartPole-v1"}})
     runner.execute(cfg, RunContext(
         'test', WorkspacePaths.for_process(),
-        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        int(cfg.get('seed', 42)), tmp_path / 'src/usr/results/checkpoints' / cfg.group / cfg.experiment_id /
         cfg.agent.name / str(cfg.get('variability_version') or '')))
     assert evaluations == [0, 0, 2, 2]
-    root = tmp_path / "results/checkpoints/g/e/ppo/version_0"
+    root = tmp_path / "src/usr/results/checkpoints/g/e/ppo/version_0"
     best, latest = sb3.PPO.load(root / "best_model.zip"), sb3.PPO.load(root / "latest_model.zip")
     assert best._n_updates == 0
     assert latest._n_updates == 2
     assert any(not torch.equal(v, latest.policy.state_dict()[k]) for k, v in best.policy.state_dict().items())
-    events = [json.loads(line) for line in (tmp_path / "results/logs/g/e/ppo/version_0/evaluation_events.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (tmp_path / "src/usr/results/logs/g/e/ppo/version_0/evaluation_events.jsonl").read_text().splitlines()]
     assert [e["training_step"] for e in events if e["evaluation_mode"] == "greedy"] == [0, 8]
     assert events[-1]["episode_outcomes"] == [100.]
-    with (tmp_path / "results/logs/g/e/ppo/version_0/metrics.csv").open() as stream:
+    with (tmp_path / "src/usr/results/logs/g/e/ppo/version_0/metrics.csv").open() as stream:
         updates = [float(row["diagnostics/n_updates"]) for row in csv.DictReader(stream)
                    if row.get("diagnostics/n_updates")]
     assert updates[-1] == 2
@@ -178,14 +178,14 @@ def test_sb3_pruning_reports_evaluation_and_does_not_save_best(tmp_path, monkeyp
     monkeypatch.setattr(HydraConfig, "get", staticmethod(lambda: SimpleNamespace(mode=SimpleNamespace(name="RUN"))))
     result = runner.execute(cfg, RunContext(
         'test', WorkspacePaths.for_process(),
-        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        int(cfg.get('seed', 42)), tmp_path / 'src/usr/results/checkpoints' / cfg.group / cfg.experiment_id /
         cfg.agent.name / str(cfg.get('variability_version') or '')))
     assert result.status == "pruned"
     study.tell(trial, state=optuna.trial.TrialState.PRUNED)
     frozen = study.trials[-1]
     assert frozen.state == optuna.trial.TrialState.PRUNED
     assert 0 < frozen.intermediate_values[0] < 1000
-    assert not list((tmp_path / "results/checkpoints").rglob("best_model.zip"))
+    assert not list((WorkspacePaths.for_process().results / "checkpoints").rglob("best_model.zip"))
 
 
 def test_episode_metrics_reach_live_monitor_points(tmp_path):

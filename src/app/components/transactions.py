@@ -167,7 +167,7 @@ def implementation_edit(paths, target):
     """Serialize editor saves to authored implementation/resource files with job launch."""
     target = Path(target).resolve()
     roots = (paths.research, *paths.managed_roots, *paths.bundled_roots)
-    if any(target.is_relative_to(root) for root in roots):
+    if any(target.is_relative_to(root) for root in roots) and not target.is_relative_to(paths.results.resolve()):
         with workspace_lock(paths):
             assert_idle(paths)
             yield

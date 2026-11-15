@@ -83,7 +83,7 @@ def test_normalized_request_and_environment(monkeypatch, tmp_path):
     monkeypatch.setenv('SBATCH_GRES', 'gpu:8')
     with pytest.raises(ConfigurationError, match='SBATCH_GRES'):
         execution.submit(tmp_path, 'g/e', [], config)
-    assert not (tmp_path / 'results').exists()
+    assert not (tmp_path / 'src/usr/results').exists()
 
 
 @pytest.mark.parametrize('change', [{'tuning': {'options': {'optuna': {'n_jobs': 2}}}}, {'plot_only': True},
@@ -124,7 +124,7 @@ assert root == pathlib.Path(os.environ['THETA_WORKSPACE'])
 assert root == pathlib.Path(os.environ['THETA_OUTPUT_ROOT'])
 assert 'THETA_RESOURCE_POOL' not in os.environ
 name = json.loads(next(a.split('=',1)[1] for a in sys.argv if a.startswith('++experiment_id=')))
-p = root / 'results/logs/g' / name / 'm/version_0'
+p = root / 'src/usr/results/logs/g' / name / 'm/version_0'
 p.mkdir(parents=True)
 (p / 'metrics.csv').write_text('step,reward\\n1,7\\n')
 db = pathlib.Path(os.environ['THETA_SQLITE_ROOT']) / 'study.sqlite'
@@ -142,7 +142,7 @@ print(root)
     second = execution.submit(root, 'g/e', [], config)
     assert first['source_sha256'] == second['source_sha256']
     assert len(list((root / '.thetaide/sources').glob('*.zip'))) == 1
-    assert not list((root / 'results/sites').glob('*/workspace'))
+    assert not list((root / 'src/usr/results/sites').glob('*/workspace'))
     for record in (first, second):
         # This synthetic producer writes a study without running a real tuner.
         # Declare its state artifact explicitly; ordinary allocations own none.
@@ -155,7 +155,7 @@ print(root)
         final = read_json(execution.receipt_path(root, record['execution_id']))
         assert final['publication_state'] == 'sealed' and not final['artifacts_finalized']
         assert final['last_durable']['database']['sha256']
-        publication = read_json(work / 'results/sites' / record['execution_id'] / 'publication.json')
+        publication = read_json(work / 'src/usr/results/sites' / record['execution_id'] / 'publication.json')
         exported = next(item for item in publication['files'] if item['category'] == 'database')
         copy = tmp_path / (record['execution_id'] + '.sqlite')
         copy.write_bytes(b''.join((work / chunk['source']).read_bytes() for chunk in exported['chunks']))
@@ -175,8 +175,8 @@ def publisher_fixture(tmp_path):
     execution_id = 'a' * 32
     record = {'execution_id': execution_id, 'project_id': workspace_id(runtime), 'group': 'g', 'result_experiment_id': 'e__a',
               'tuner_execution': optuna_plan(execution_id)}
-    (runtime / 'results/sites' / record['execution_id']).mkdir(parents=True)
-    logs = runtime / 'results/logs/g/e__a/m/version_0'
+    (runtime / 'src/usr/results/sites' / record['execution_id']).mkdir(parents=True)
+    logs = runtime / 'src/usr/results/logs/g/e__a/m/version_0'
     logs.mkdir(parents=True)
     return runtime, work, record, logs
 
@@ -190,7 +190,7 @@ def test_atomic_publication_chunks_priority_coalescing_and_no_rehash(tmp_path, m
     publisher.tick()
     entry = publisher.entries[next(iter(publisher.entries))]
     assert b''.join((work / c['source']).read_bytes() for c in entry['chunks']) == b'{"step":1}\n'
-    db = runtime / 'results/optuna' / record['execution_id'] / 'study.sqlite'
+    db = runtime / 'src/usr/results/optuna' / record['execution_id'] / 'study.sqlite'
     db.parent.mkdir(parents=True)
     with sqlite3.connect(db) as connection: connection.execute('CREATE TABLE trials(score)')
     exports = []
@@ -229,9 +229,9 @@ def test_index_never_scans_payload_or_opens_database(tmp_path, monkeypatch):
     record = execution.submit(root, 'g/e', [], config)
     record.update(state='completed', scheduler_state='completed')
     write_json(execution.receipt_path(root, record['execution_id']), record)
-    files = [{'path': 'results/checkpoints/g/e/model.ckpt', 'category': 'checkpoints', 'size': 0,
+    files = [{'path': 'src/usr/results/checkpoints/g/e/model.ckpt', 'category': 'checkpoints', 'size': 0,
               'sha256': '0' * 64, 'chunks': []}]
-    write_json(work / 'results/sites' / record['execution_id'] / 'publication.json',
+    write_json(work / 'src/usr/results/sites' / record['execution_id'] / 'publication.json',
                {'schema': 'theta.publication/v1', 'sealed': True, 'files': files})
     monkeypatch.setattr(transfer, 'owned_files', lambda *_: pytest.fail('login scanned runtime'))
     monkeypatch.setattr(transfer, 'digest', lambda *_: pytest.fail('login hashed payload'))
@@ -240,7 +240,7 @@ def test_index_never_scans_payload_or_opens_database(tmp_path, monkeypatch):
         listing = transfer.index(root, 'results', record['execution_id'])
         assert listing['files'][0]['sha256'] == '0' * 64
         transfer.release(root, listing['generation'])
-    assert not list((root / 'results/sites/.sync').iterdir())
+    assert not list((root / 'src/usr/results/sites/.sync').iterdir())
 
 
 def test_diagnostic_budget_is_shared_and_optional(tmp_path, monkeypatch):
@@ -304,8 +304,8 @@ def test_continuation_history_reconciliation_ownership_and_compatibility(tmp_pat
     from component_fixtures import install_optional
     # A real allocation runtime is the extracted snapshot, including its frozen providers.
     install_optional(runtime, 'optuna', tmp_path / 'archives')
-    (runtime / 'results/sites' / parent['execution_id']).mkdir(parents=True)
-    db = runtime / 'results/optuna' / parent['execution_id'] / 'study.sqlite'
+    (runtime / 'src/usr/results/sites' / parent['execution_id']).mkdir(parents=True)
+    db = runtime / 'src/usr/results/optuna' / parent['execution_id'] / 'study.sqlite'
     db.parent.mkdir(parents=True)
     storage = optuna.storages.RDBStorage('sqlite:///' + str(db))
     study = optuna.create_study(storage=storage, study_name='cpu', direction='maximize')
@@ -324,7 +324,7 @@ def test_continuation_history_reconciliation_ownership_and_compatibility(tmp_pat
     fresh = scratch / 'new'; fresh.mkdir()
     install_optional(fresh, 'optuna', tmp_path / 'archives')
     restore(fresh, child)
-    url = 'sqlite:///' + str(fresh / 'results/optuna' / child['execution_id'] / 'study.sqlite')
+    url = 'sqlite:///' + str(fresh / 'src/usr/results/optuna' / child['execution_id'] / 'study.sqlite')
     continued = optuna.load_study(storage=url, study_name='cpu')
     assert [trial.state.name for trial in continued.trials] == ['COMPLETE', 'FAIL']
     assert continued.trials[0].value == 7 and continued.ask().number == 2
@@ -347,9 +347,9 @@ def test_gc_preserves_active_unknown_and_legacy_and_releases_verified_payload(tm
     root, scratch, work, config = managed(tmp_path)
     fake_submit(monkeypatch)
     record = execution.submit(root, 'g/e', [], config)
-    lease = root / 'results/sites/.sync' / ('b' * 32)
+    lease = root / 'src/usr/results/sites/.sync' / ('b' * 32)
     write_json(lease / '.theta-managed.json', {'project_id': record['project_id'], 'expires_at': time.time() + 7200})
-    old = root / 'results/sites/.sync/legacy'
+    old = root / 'src/usr/results/sites/.sync/legacy'
     old.mkdir()
     bundle = root / '.thetaide/sources' / (record['source_sha256'] + '.zip')
     assert collect(root, apply=True)['candidates'] == []
@@ -433,7 +433,7 @@ def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monk
     fake_submit(monkeypatch)
     record = execution.submit(root, composed.experiment, overrides, composed.cfg)
     code = execution.run(root, record['execution_id'])
-    publication = read_json(work / 'results/sites' / record['execution_id'] / 'publication.json')
+    publication = read_json(work / 'src/usr/results/sites' / record['execution_id'] / 'publication.json')
     log = next(item for item in publication['files'] if item['path'].endswith('pipeline.log'))
     text = b''.join((work / chunk['source']).read_bytes() for chunk in log['chunks']).decode(errors='replace')
     assert code == 0, text
@@ -454,7 +454,7 @@ def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monk
         continued = execution.submit(root, composed.experiment,
             [*overrides, '++tuning.options.optuna.n_trials=1'], composed.cfg)
         code = execution.run(root, continued['execution_id'])
-        manifest = read_json(work / 'results/sites' / continued['execution_id'] / 'publication.json')
+        manifest = read_json(work / 'src/usr/results/sites' / continued['execution_id'] / 'publication.json')
         log = next(item for item in manifest['files'] if item['path'].endswith('pipeline.log'))
         output = b''.join((work / chunk['source']).read_bytes() for chunk in log['chunks']).decode(errors='replace')
         assert code == 0, output
@@ -471,7 +471,7 @@ def test_signal_stageout_and_abrupt_unsealed_boundary(tmp_path, monkeypatch):
     script = '''import json,os,pathlib,sys,time
 root=pathlib.Path.cwd()
 name=json.loads(next(a.split('=',1)[1] for a in sys.argv if a.startswith('++experiment_id=')))
-p=root/'results/logs/g'/name/'m/version_0'
+p=root/'src/usr/results/logs/g'/name/'m/version_0'
 p.mkdir(parents=True)
 (p/'metrics.csv').write_text('step,reward\\n1,7\\n')
 print('ready',flush=True)
@@ -485,7 +485,7 @@ time.sleep(30)
     owner = subprocess.Popen([sys.executable, '-m', 'src.app.sites', '_run', '--root', str(root), record['execution_id']],
                              env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1])},
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    manifest = work / 'results/sites' / record['execution_id'] / 'publication.json'
+    manifest = work / 'src/usr/results/sites' / record['execution_id'] / 'publication.json'
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if any(item['path'].endswith('metrics.csv') for item in read_json(manifest).get('files', [])): break
@@ -557,7 +557,7 @@ def test_cancel_transfer_stops_only_transfer_process(tmp_path):
 def test_managed_cleanup_requires_full_copy_and_transfer_release(tmp_path, monkeypatch):
     script = '''import json,pathlib,sys
 name=json.loads(next(a.split('=',1)[1] for a in sys.argv if a.startswith('++experiment_id=')))
-root=pathlib.Path('results/checkpoints/g')/name
+root=pathlib.Path('src/usr/results/checkpoints/g')/name
 root.mkdir(parents=True)
 (root/'model.ckpt').write_bytes(b'committed checkpoint')
 '''
@@ -590,22 +590,22 @@ root.mkdir(parents=True)
     with pytest.raises(FileNotFoundError): transfer.clean(local, 'cluster', record['execution_id'])
     transfer.sync(local, 'cluster', 'results')
     preview = transfer.clean(local, 'cluster', record['execution_id'], preview=True)
-    assert preview['payload_bytes'] > 0 and (work / 'results/sites' / record['execution_id']).exists()
+    assert preview['payload_bytes'] > 0 and (work / 'src/usr/results/sites' / record['execution_id']).exists()
     lease = transfer.index(root, 'results')
     with pytest.raises(ValueError, match='lease'): transfer.clean(local, 'cluster', record['execution_id'])
     transfer.release(root, lease['generation'])
     assert transfer.clean(local, 'cluster', record['execution_id'])['removed'] > 0
-    assert not (work / 'results/sites' / record['execution_id']).exists()
+    assert not (work / 'src/usr/results/sites' / record['execution_id']).exists()
     assert not (work / 'inputs' / record['execution_id']).exists()
     assert path.exists() and (path.parent / 'artifacts.json').exists()
-    assert (local / 'results/checkpoints/g' / record['result_experiment_id'] / 'model.ckpt').read_bytes() == b'committed checkpoint'
+    assert (local / 'src/usr/results/checkpoints/g' / record['result_experiment_id'] / 'model.ckpt').read_bytes() == b'committed checkpoint'
 
 
 def test_collection_serializes_with_submission_and_preserves_foreign_leases(tmp_path):
     from src.app.sites.maintenance import collect
     from src.app.sites.storage import transfer_lock
     workspace_id(tmp_path)
-    foreign = tmp_path / 'results/sites/.sync' / ('c' * 32)
+    foreign = tmp_path / 'src/usr/results/sites/.sync' / ('c' * 32)
     write_json(foreign / '.theta-managed.json', {'project_id': 'different-project', 'expires_at': 0})
     with transfer_lock(tmp_path):
         with pytest.raises(RuntimeError, match='in progress'): collect(tmp_path, apply=True)
@@ -644,7 +644,7 @@ def test_append_segments_reuse_prefix_but_detect_csv_header_rewrite(tmp_path):
 
 def test_final_backup_supersedes_queued_precompletion_database(tmp_path):
     runtime, work, record, logs = publisher_fixture(tmp_path)
-    db = runtime / 'results/optuna' / record['execution_id'] / 'study.sqlite'
+    db = runtime / 'src/usr/results/optuna' / record['execution_id'] / 'study.sqlite'
     db.parent.mkdir(parents=True)
     with sqlite3.connect(db) as writer:
         writer.execute('CREATE TABLE trials(score)')

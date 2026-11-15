@@ -64,7 +64,7 @@ ARTICLES: List[DocArticle] = [
 
 <h3>Processes and the files between them</h3>
 <p><a href="diagram:architecture_overview"><img src="diagram:architecture_overview" width="860"></a></p>
-<p><i>Training never talks to the IDE except through its stdout. Everything else crosses through files. The highlighted path is the live one: the engine appends telemetry to <code>results/logs</code>, the IDE's file watcher picks it up, and the Monitor redraws. Runs started from the command line land in the same folders, so Results lists them too. The Theta Hub is the only network dependency.</i></p>
+<p><i>Training never talks to the IDE except through its stdout. Everything else crosses through files. The highlighted path is the live one: the engine appends telemetry to <code>src/usr/results/logs</code>, the IDE's file watcher picks it up, and the Monitor redraws. Runs started from the command line land in the same folders, so Results lists them too. The Theta Hub is the only network dependency.</i></p>
 
 <h3>What happens when you launch training</h3>
 <p><a href="diagram:launch_sequence"><img src="diagram:launch_sequence" width="860"></a></p>
@@ -83,13 +83,13 @@ ARTICLES: List[DocArticle] = [
   <tr><td><code>src/app/train.py</code>, component runner entry points</td><td>The built-in Lightning driver and runner entry points provided by installed components.</td></tr>
   <tr><td><code>src/usr/</code>, <code>src/usr/config/</code></td><td>Authored components, your configs and recipes, and overrides of package profiles. Managed packages live in <code>src/plugins/components/installed</code>; bundled providers ship in <code>src/plugins/components/bundled</code>.</td></tr>
   <tr><td><code>plot/</code></td><td><code>manager.py</code> runs the selected research plotters, supplied by installed components such as a figures suite.</td></tr>
-  <tr><td><code>results/</code>, <code>.thetaide/</code></td><td>Research outputs live under <code>results/</code>. IDE settings, run records, the queue (by default <code>.thetaide/runs/jobs/jobs.db</code>), installed GUI plugins, retained component snapshots and cache live under <code>.thetaide/</code>. These do not contain all active research source/configuration files.</td></tr>
+  <tr><td><code>src/usr/results/</code>, <code>.thetaide/</code></td><td>Research outputs live under <code>src/usr/results/</code>. IDE settings, run records, the queue (by default <code>.thetaide/runs/jobs/jobs.db</code>), installed GUI plugins, retained component snapshots and cache live under <code>.thetaide/</code>. These do not contain all active research source/configuration files.</td></tr>
 </table>
 
 <h3>Things that are easy to miss</h3>
 <ul>
   <li><b>One worker thread.</b> Composition and the run catalog run on <code>LocalBackend</code>'s single background thread, because Hydra's global state is not thread-safe. Results come back to the window as callbacks.</li>
-  <li><b>Files are the interface.</b> Apart from stdout, the IDE learns about a run only from <code>results/logs</code>.</li>
+  <li><b>Files are the interface.</b> Apart from stdout, the IDE learns about a run only from <code>src/usr/results/logs</code>.</li>
   <li><b>Two interpreters can be involved.</b> The IDE starts <code>run_pipeline.py</code> with its own Python, but <code>run_pipeline.py</code> starts each engine with <code>venv/bin/python3</code> when that exists (a site profile can name another venv with <code>venv_dir</code>). A project venv on an unsupported Python breaks training even when the IDE itself runs on a good one. On Windows a venv has no <code>bin/python3</code>, so the engine runs on the IDE's Python.</li>
   <li><b>Settings have two layers:</b> the workspace's <code>.thetaide/settings.toml</code> over <code>~/.config/thetaide/settings.toml</code>.</li>
 </ul>
@@ -266,7 +266,7 @@ python -m frontend</code></pre>
   <li><b>Open CSV / image&hellip;</b> shows a file from disk instead, such as a figure a run generated; ticking or unticking a run goes back to the runs.</li>
   <li><b>Zoom in</b>, <b>Zoom out</b> and <b>Fit</b> resize the view; <b>Export PNG&hellip;</b> saves what is shown.</li>
 </ul>
-<p>The figures and reports selected in the experiment configuration are generated at the end of a run under <code>results/plots/</code>; browse them in <a href="ide://results">Results &rarr; Figures</a>.</p>
+<p>The figures and reports selected in the experiment configuration are generated at the end of a run under <code>src/usr/results/plots/</code>; browse them in <a href="ide://results">Results &rarr; Figures</a>.</p>
 
 <h3>5. Embedded Terminal (<code>terminal</code>)</h3>
 <p>Built-in interactive terminal powered by xterm.js:</p>
@@ -706,7 +706,7 @@ symbolic:
   <li><b>Dependency Chaining:</b> Online data generation jobs automatically establish Slurm dependency holds (<code>--dependency=afterok:&lt;job_id&gt;</code>) on downstream offline comparison jobs.</li>
   <li><b>Status Notifications:</b> Configured with <code>--mail-type=END,FAIL</code> for immediate progress updates (a site profile can change it with <code>mail_type</code>).</li>
 </ul>
-<p>Runs that finish on the cluster land in the same <code>results/</code> folders, so once they are synced back the <a href="ide://results">Results</a> browser lists them alongside local runs.</p>
+<p>Runs that finish on the cluster land in the same <code>src/usr/results/</code> folders, so once they are synced back the <a href="ide://results">Results</a> browser lists them alongside local runs.</p>
 """,
     ),
     DocArticle(
@@ -1182,7 +1182,7 @@ python run_pipeline.py <group>/<experiment></code></pre>
 <pre><code># Re-run the plotting phase for an experiment
 python run_pipeline.py &lt;group&gt;/&lt;experiment&gt; plot_only=true
 
-# Or call the plot manager directly, with the run's ID (its folder under results/logs/&lt;group&gt;/)
+# Or call the plot manager directly, with the run's ID (its folder under src/usr/results/logs/&lt;group&gt;/)
 python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt;
 
 # Start from an empty plot directory
@@ -1215,10 +1215,10 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
                   "inspector", "tables", "figures", "reports", "config", "files", "live"],
         html_content=r"""
 <h2>Results Browser</h2>
-<p>The <a href="ide://results">Results</a> pane (<code>Action + 4</code>) shows everything your runs produced, from every logged value to every file, whichever engine trained them and however they were launched (Theta-IDE, the command line, or Slurm). It reads <code>results/</code> directly; the refresh button re-reads it.</p>
+<p>The <a href="ide://results">Results</a> pane (<code>Action + 4</code>) shows everything your runs produced, from every logged value to every file, whichever engine trained them and however they were launched (Theta-IDE, the command line, or Slurm). It reads <code>src/usr/results/</code> directly; the refresh button re-reads it.</p>
 
 <h3>Choosing Runs</h3>
-<p>The tree on the left lists every run in <code>results/logs</code>: group &rarr; experiment &rarr; agent. Tick a group, an experiment or an agent; ticking a parent ticks everything under it. When an agent has several <b>versions</b> (repeated runs, e.g. seeds, stored as <code>version_N</code> folders) they appear as children, with the newest ticked. Use the filter box to find runs by name.</p>
+<p>The tree on the left lists every run in <code>src/usr/results/logs</code>: group &rarr; experiment &rarr; agent. Tick a group, an experiment or an agent; ticking a parent ticks everything under it. When an agent has several <b>versions</b> (repeated runs, e.g. seeds, stored as <code>version_N</code> folders) they appear as children, with the newest ticked. Use the filter box to find runs by name.</p>
 
 <h3>Curves</h3>
 <ul>
@@ -1261,7 +1261,7 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
         keywords=["tensorboard", "logs", "dashboard", "scalars", "webengine", "browser"],
         html_content=r"""
 <h2>TensorBoard Tab</h2>
-<p>Runs with <b>Log to TensorBoard</b> turned on write event logs to <code>results/tensorboard/</code>. Add the option from the <b>+</b> beside the Experiment heading or set <code>tensorboard: true</code> in YAML. The <a href="ide://tensorboard">TensorBoard</a> tab runs a server over that folder. It is hidden by default; open it with <code>Action + 6</code> or <i>View &rarr; TensorBoard</i>. It comes from the TensorBoard core plugin in <i>Settings &rarr; Core Plugins</i>. Turning that plugin off removes its pane and Experiment control, and disables TensorBoard logging for runs launched by Theta-IDE.</p>
+<p>Runs with <b>Log to TensorBoard</b> turned on write event logs to <code>src/usr/results/tensorboard/</code>. Add the option from the <b>+</b> beside the Experiment heading or set <code>tensorboard: true</code> in YAML. The <a href="ide://tensorboard">TensorBoard</a> tab runs a server over that folder. It is hidden by default; open it with <code>Action + 6</code> or <i>View &rarr; TensorBoard</i>. It comes from the TensorBoard core plugin in <i>Settings &rarr; Core Plugins</i>. Turning that plugin off removes its pane and Experiment control, and disables TensorBoard logging for runs launched by Theta-IDE.</p>
 
 <h3>How It Works</h3>
 <ul>
@@ -1491,10 +1491,10 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
 <h3>4. Where are my training results and logs stored?</h3>
 <p>Results adhere to a standardized hierarchical structure:</p>
 <ul>
-  <li><b>Metrics & Logs:</b> <code>results/logs/[GROUP]/[EXP_ID]/[AGENT]/version_X/metrics.csv</code></li>
-  <li><b>Checkpoints:</b> <code>results/checkpoints/[GROUP]/[EXP_ID]/[AGENT]/</code></li>
-  <li><b>Replay Buffers:</b> <code>results/datasets/[GROUP]/[EXP_ID]/[AGENT]/</code></li>
-  <li><b>Plots & Reports:</b> <code>results/plots/[GROUP]/[EXP_ID]/</code></li>
+  <li><b>Metrics & Logs:</b> <code>src/usr/results/logs/[GROUP]/[EXP_ID]/[AGENT]/version_X/metrics.csv</code></li>
+  <li><b>Checkpoints:</b> <code>src/usr/results/checkpoints/[GROUP]/[EXP_ID]/[AGENT]/</code></li>
+  <li><b>Replay Buffers:</b> <code>src/usr/results/datasets/[GROUP]/[EXP_ID]/[AGENT]/</code></li>
+  <li><b>Plots & Reports:</b> <code>src/usr/results/plots/[GROUP]/[EXP_ID]/</code></li>
 </ul>
 
 <h3>5. How do I reset the IDE's layout or cached settings?</h3>

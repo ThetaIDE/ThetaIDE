@@ -20,11 +20,11 @@ def fixture(tmp_path, *, roots=1, generation=None):
         origin = tmp_path / f'remote-{index % roots}'
         data = f'payload-{index}'.encode()
         sha = hashlib.sha256(data).hexdigest()
-        source = f'results/sites/job/objects/{sha}'
+        source = f'src/usr/results/sites/job/objects/{sha}'
         path = origin / source
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        files.append({'path': f'results/output-{index}.bin', 'size': len(data), 'sha256': sha,
+        files.append({'path': f'src/usr/results/output-{index}.bin', 'size': len(data), 'sha256': sha,
                       'remote_root': str(origin), 'chunks': [{'source': source, 'size': len(data), 'sha256': sha}]})
     return local, {'host': 'fake', 'remote_root': '/control'}, {
         'files': files, 'executions': [], 'generation': generation}
@@ -58,7 +58,7 @@ def test_one_batch_per_root_and_no_transfer_when_unchanged(tmp_path, monkeypatch
     assert sum(map(len, calls)) == 6
     assert result['transferred'] == 6
     for index in range(6):
-        assert (local / f'results/output-{index}.bin').read_bytes() == f'payload-{index}'.encode()
+        assert (local / f'src/usr/results/output-{index}.bin').read_bytes() == f'payload-{index}'.encode()
     result = transfer.sync_objects(local, 'cluster', config, listing)
     assert result['transferred'] == result['bytes'] == 0
     assert len(calls) == roots
@@ -83,7 +83,7 @@ def test_failed_batch_retains_verified_objects_and_retry_requests_only_missing(t
     monkeypatch.setattr(transfer, 'run_transfer', pull)
     with pytest.raises(RuntimeError, match='connection lost'):
         transfer.sync_objects(local, 'cluster', config, listing)
-    assert not (local / 'results/output-0.bin').exists()
+    assert not (local / 'src/usr/results/output-0.bin').exists()
     assert list((local / '.thetaide').rglob('unfinished'))
     result = transfer.sync_objects(local, 'cluster', config, listing)
     assert len(calls[1]) == 4 and not set(calls[0][:2]) & set(calls[1])
@@ -101,7 +101,7 @@ def test_corrupt_batch_is_not_materialized(tmp_path, monkeypatch):
     monkeypatch.setattr(transfer, 'run_transfer', pull)
     with pytest.raises(ValueError, match='checksum mismatch'):
         transfer.sync_objects(local, 'cluster', config, listing)
-    assert not (local / 'results/output-0.bin').exists()
+    assert not (local / 'src/usr/results/output-0.bin').exists()
 
 
 def test_lease_renewal_is_time_based_within_a_single_batch(tmp_path, monkeypatch):

@@ -23,8 +23,8 @@ def test_load_metrics_filters_by_structured_methods(tmp_path, monkeypatch):
     exp_id = "test_exp"
 
     # Create dummy log dirs for two methods: method_a and method_b
-    log_dir_a = tmp_path / "results" / "logs" / group / exp_id / "method_a" / "version_0"
-    log_dir_b = tmp_path / "results" / "logs" / group / exp_id / "method_b" / "version_0"
+    log_dir_a = tmp_path / "src/usr/results" / "logs" / group / exp_id / "method_a" / "version_0"
+    log_dir_b = tmp_path / "src/usr/results" / "logs" / group / exp_id / "method_b" / "version_0"
     log_dir_a.mkdir(parents=True)
     log_dir_b.mkdir(parents=True)
 
@@ -98,8 +98,8 @@ def test_distinct_colors_and_plot_overrides(tmp_path, monkeypatch):
     exp_id = "test_exp"
 
     # Create dummy log dirs for two methods: method_one and method_two
-    log_dir_1 = tmp_path / "results" / "logs" / group / exp_id / "method_one" / "version_0"
-    log_dir_2 = tmp_path / "results" / "logs" / group / exp_id / "method_two" / "version_0"
+    log_dir_1 = tmp_path / "src/usr/results" / "logs" / group / exp_id / "method_one" / "version_0"
+    log_dir_2 = tmp_path / "src/usr/results" / "logs" / group / exp_id / "method_two" / "version_0"
     log_dir_1.mkdir(parents=True)
     log_dir_2.mkdir(parents=True)
 
@@ -108,7 +108,7 @@ def test_distinct_colors_and_plot_overrides(tmp_path, monkeypatch):
     df_1.to_csv(log_dir_1 / "metrics.csv", index=False)
     df_2.to_csv(log_dir_2 / "metrics.csv", index=False)
 
-    out_dir = tmp_path / "results" / "plots" / group / exp_id
+    out_dir = tmp_path / "src/usr/results" / "plots" / group / exp_id
     cfg = {
         "title": "Custom Benchmark Title",
         "xlabel": "Custom Env Steps",

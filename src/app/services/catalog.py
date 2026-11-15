@@ -25,12 +25,7 @@ from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, nest
 
 from .metrics import latest_version_file, read_metrics_table
 
-try:
-    from src.app.core.agent_registry import list_registered_agents
-except ImportError:  # pragma: no cover - registry is optional
-
-    def list_registered_agents():
-        return []
+from src.app.core.agent_registry import list_registered_agents
 
 
 def _workspace(workspace=None):

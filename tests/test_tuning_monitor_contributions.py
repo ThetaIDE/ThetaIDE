@@ -27,7 +27,7 @@ def fixture(tmp_path):
     config = {'tuning': {'component': 'lattice', 'options': {'lattice': {'token': 'configured'}}}}
     run = {'id': 'run', 'status': 'running', 'config': config,
            'backend': {'group': 'g', 'experiment_id': 'e'}}
-    summary = tmp_path / 'results/checkpoints/g/e/m/tuning_summary.json'
+    summary = tmp_path / 'src/usr/results/checkpoints/g/e/m/tuning_summary.json'
     summary.parent.mkdir(parents=True)
     summary.write_text(json.dumps({'schema_version': 1, 'component': 'lattice', 'study': 'search', 'stop_reason': 'running',
         'trials': [{'id': 0, 'state': 'running', 'execution_started': 1}]}))
@@ -145,7 +145,7 @@ def test_queue_tracks_independent_exports_even_without_installed_provider(applic
     data.update(component='another-tuner', requested_trials=2, initial_trials=0)
     data['trials'][0]['log_version'] = 'version_trial'
     summary.write_text(json.dumps(data))
-    manager = SimpleNamespace(project_root=tmp_path, logs_dir=tmp_path / 'results/logs')
+    manager = SimpleNamespace(project_root=tmp_path, results_root=tmp_path / 'src/usr/results', logs_dir=tmp_path / 'src/usr/results/logs')
     for name in ('_sweep_summaries', '_run_dir', '_replicate_state'):
         setattr(manager, name, getattr(JobManager, name).__get__(manager))
     job = {'job_id': 'job', 'status': 'running', 'group': 'g', 'experiment_id': 'e'}
@@ -181,7 +181,7 @@ def test_readiness_uses_monitored_launch_instead_of_flat_desktop_config(applicat
         live.start = {'type': 'start'}
         host.live_for_run = lambda *a, **k: {'m · search · trial 0': live}
     else:
-        folder = tmp_path / 'results/logs/g/e'
+        folder = tmp_path / 'src/usr/results/logs/g/e'
         folder.mkdir(parents=True)
         (folder / 'config.yaml').write_text(yaml.safe_dump(config))
         host.run_folder = lambda run: folder

@@ -26,8 +26,10 @@ class JobManager(RunnerManager):
         QObject.__init__(self, parent)
         paths = WorkspacePaths(project_root) if project_root else WorkspacePaths.for_process()
         self.project_root = paths.root
+        self.results_root = paths.results
         self.logs_dir = Path(logs_dir or paths.results / 'logs').resolve()
         store_path = Path(store_path or paths.data_dir / 'runs/jobs/jobs.db').resolve()
+        self.store_path = store_path
         self.jobs_dir = store_path.parent
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.ipc_dir = self.jobs_dir / 'runner'
@@ -49,6 +51,7 @@ class JobManager(RunnerManager):
         self._streaming_enabled = not defer_telemetry
         self._poll_cursor = 0
         self._queue = {"running": False, "active": [], "queued": [], "finished": []}
+        self._snapshot_updated = 0.0
         self._closed = False
         self.ready = False
         self.readiness_error = "Connecting to training runner…"
@@ -124,8 +127,13 @@ class JobManager(RunnerManager):
             data = json.loads((self.ipc_dir / "state.json").read_text())
             if time.time() - data.get("updated", 0) > 5:
                 raise LaunchError("Training runner is unavailable")
+            if data["updated"] < self._snapshot_updated:
+                return
+            self._snapshot_updated = data["updated"]
         else:
+            requested_at = time.time()
             data = self._rpc("snapshot")
+            self._snapshot_updated = requested_at
         self._apply_snapshot(data, emit)
 
     def _apply_snapshot(self, data, emit=True):
@@ -248,6 +256,9 @@ class JobManager(RunnerManager):
         plan = prepare_launch(experiment, overrides, overwrite=overwrite,
                               active_jobs=[j for j in self.jobs.values() if j.get('status') in ('queued', *ACTIVE_STATUSES)])
         result = self._rpc('launch', experiment, overrides, queue=queue, overwrite=overwrite, _plan=plan)
+        # A short job can finish before the next snapshot. Its final output
+        # still belongs to this client even if it was never observed running.
+        self._following_jobs.add(result['job_id'])
         self._refresh()
         return result
 

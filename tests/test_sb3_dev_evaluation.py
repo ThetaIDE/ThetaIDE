@@ -95,7 +95,7 @@ def test_failed_evaluation_also_restores_rng_and_policy_mode(monkeypatch):
     (False, None, "e"), (True, 1234, "e"), (True, 0, "path/dir/e"), (False, None, "path/dir/e"),
 ])
 def test_runner_records_both_modes_and_keeps_greedy_checkpoint_selection(
-    tmp_path, monkeypatch, repeated, evaluation_seed, experiment_id,
+    own_workspace, tmp_path, monkeypatch, repeated, evaluation_seed, experiment_id,
 ):
     calls = []
 
@@ -123,13 +123,13 @@ def test_runner_records_both_modes_and_keeps_greedy_checkpoint_selection(
                     "variability_version": "version_0", "variability_evaluation_seed": evaluation_seed})
     runner.execute(cfg, RunContext(
         'test', WorkspacePaths.for_process(),
-        int(cfg.get('seed', 42)), tmp_path / 'results/checkpoints' / cfg.group / cfg.experiment_id /
+        int(cfg.get('seed', 42)), tmp_path / 'src/usr/results/checkpoints' / cfg.group / cfg.experiment_id /
         cfg.agent.name / str(cfg.get('variability_version') or '')))
     base = evaluation_seed if repeated else 10000000
     assert calls == [(0, True, base, 2), (0, False, base, 2),
                      (0, True, base + 1, 2), (0, False, base + 1, 2),
                      (2, True, base + 2, 2), (2, False, base + 2, 2)]
-    directory = tmp_path / "results/logs/g" / experiment_id / "ppo/version_0"
+    directory = tmp_path / "src/usr/results/logs/g" / experiment_id / "ppo/version_0"
     rows = list(csv.DictReader((directory / "metrics.csv").open()))
     evaluations = [row for row in rows if row.get("eval/greedy_reward")]
     assert [float(row["step"]) for row in evaluations] == [0, 8, 16]
@@ -144,7 +144,7 @@ def test_runner_records_both_modes_and_keeps_greedy_checkpoint_selection(
     assert [event["metric"] for event in events[-2:]] == ["eval/reward", "eval/sampled_reward"]
     if repeated:
         assert all(event["run_id"] == "run-1" for event in events)
-    root = tmp_path / "results/checkpoints/g" / experiment_id / "ppo"
+    root = tmp_path / "src/usr/results/checkpoints/g" / experiment_id / "ppo"
     if repeated:
         root /= "version_0"
     assert PPO.load(root / "best_model.zip")._n_updates == 0

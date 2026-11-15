@@ -66,7 +66,8 @@ class JobManager(QObject):
         self.settings_path = Path(settings_path) if settings_path else None
         self.enabled_plugins_provider = enabled_plugins_provider
         self.jobs_dir = Path(store_path).parent if store_path else paths.data_dir / "runs" / "jobs"
-        self.store = JobStore(store_path or self.jobs_dir / "jobs.db")
+        self.store_path = Path(store_path or self.jobs_dir / "jobs.db")
+        self.store = JobStore(self.store_path)
         self.jobs: dict[str, dict[str, Any]] = {}
         self.queue_order: list[str] = []
         self.queue_running = False  # queued jobs start only after start_queue(); it pauses itself when drained

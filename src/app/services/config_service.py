@@ -40,6 +40,19 @@ _COMPOSE_CACHE_SIZE = 64
 _COMPOSE_CACHE_LOCK = threading.Lock()
 
 
+def _authored_sources(paths):
+    """Python sources and manifests under src/usr; run output in `paths.results` is never walked."""
+    import fnmatch
+    import os
+    found = []
+    for directory, children, names in os.walk(paths.research):
+        if Path(directory) == paths.results.parent:
+            children[:] = [name for name in children if Path(directory, name) != paths.results]
+        found.extend(Path(directory, name) for name in names
+                     if fnmatch.fnmatch(name, "*.py") or name in (".theta_component.json", "plugin.json"))
+    return sorted(found)
+
+
 def _inputs_fingerprint(workspace=None) -> int:
     """Hash of everything a compose can depend on: the files (paths and exact contents) and the
     agents registered in memory (hot reload and tests register agents without touching files)."""
@@ -48,14 +61,13 @@ def _inputs_fingerprint(workspace=None) -> int:
     parts: list[Any] = [tuple(sorted((name, id(cls)) for name, cls in registry.items()))]
     paths = _workspace(workspace)
     parts.append((str(paths.root), str(paths.application), str(paths.data_dir)))
-    sources = [(root, pattern) for root in paths.config_roots() for pattern in ("*.yaml", "*.yml")]
-    sources.extend((paths.research, pattern) for pattern in ("*.py", ".theta_component.json", "plugin.json"))
-    for root, pattern in sources:
-        for path in sorted(root.rglob(pattern)):
-            try:
-                parts.append((str(path), path.read_bytes()))
-            except OSError:
-                continue
+    files = [path for root in paths.config_roots() for pattern in ("*.yaml", "*.yml") for path in sorted(root.rglob(pattern))]
+    files.extend(_authored_sources(paths))
+    for path in files:
+        try:
+            parts.append((str(path), path.read_bytes()))
+        except OSError:
+            continue
     for path in [*paths.manifests(), paths.data_dir / "provider_overrides.json", paths.data_dir / "extensions.json"]:
         if path.is_file(): parts.append((str(path), path.read_bytes()))
     return hash(tuple(parts))

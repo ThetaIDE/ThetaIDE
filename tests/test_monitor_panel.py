@@ -317,7 +317,7 @@ def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     dqn = LiveRun()
     dqn.rows = [{"step": 1, "eval/reward": 42.0}]
     lives = {"dqn": dqn}
-    host = SimpleNamespace(selected=run, queue_running=False,
+    host = SimpleNamespace(selected=run, queue_running=False, jobs=SimpleNamespace(store_path="jobs.db", queue_changed=__import__("unittest.mock").mock.Mock()),
                            live_for_run=lambda run, load=True: lives)
     monitor = MonitorPanel(host)
     monitor.render()

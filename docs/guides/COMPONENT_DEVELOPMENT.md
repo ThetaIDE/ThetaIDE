@@ -88,7 +88,7 @@ All paths below are relative to the existing checkout, using the default app dat
 | Symbolic rules and ruleset-owned predicate code | `src/usr/rules/<environment>/<ruleset>/` |
 | Experiment recipes and profile overrides | `src/usr/config/` by category; package defaults stay in their package's `configs/` |
 | Local datasets | `src/usr/datasets/`, or explicitly configured data paths |
-| Research outputs | `results/` (logs, plots, checkpoints, exports and related outputs) |
+| Research outputs | `src/usr/results/` (logs, plots, checkpoints, exports and related outputs) |
 | Managed GUI plugins | `src/plugins/app/installed/<id>/`; custom data directories hold state, not new source installs |
 | Built-in GUI plugins | `src/plugins/app/bundled/` |
 | Retained component packages, collection state and generated context | `.thetaide/components/packages/`, `collection.json`, `context/` |

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 from pathlib import Path
 
@@ -16,7 +17,9 @@ EXCLUDED = {'__pycache__', '.git', 'node_modules', '.venv', 'venv', '.pytest_cac
 
 
 def source_files(root):
+    from src.app.workspace import WorkspacePaths
     root = Path(root)
+    skipped = {DATASET_ROOT, WorkspacePaths(root).results_relative}
     files = set()
     for name in SOURCE_FILES:
         path = safe_path(root, name)
@@ -24,13 +27,20 @@ def source_files(root):
     for name in SOURCE_ROOTS:
         directory = safe_path(root, name)
         if not directory.is_dir(): continue
-        for path in directory.rglob('*'):
-            relative = path.relative_to(root)
-            if any(part in EXCLUDED for part in relative.parts) or relative.as_posix().startswith(DATASET_ROOT + '/'): continue
-            if path.is_symlink():
-                raise ValueError(f'Source symlink needs an explicit cluster copy: {relative}')
-            if path.is_file() and path.suffix not in ('.pyc', '.pyo'):
-                files.add(relative.as_posix())
+        for current, children, names in os.walk(directory):
+            kept = []
+            for entry in [*children, *names]:
+                path = Path(current) / entry
+                relative = path.relative_to(root)
+                if entry in EXCLUDED or relative.as_posix() in skipped:
+                    continue
+                if path.is_symlink():
+                    raise ValueError(f'Source symlink needs an explicit cluster copy: {relative}')
+                if entry in children:
+                    kept.append(entry)
+                elif path.is_file() and path.suffix not in ('.pyc', '.pyo'):
+                    files.add(relative.as_posix())
+            children[:] = kept
     return sorted(files)
 
 

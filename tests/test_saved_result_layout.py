@@ -27,18 +27,18 @@ def mixed_results(tmp_path, monkeypatch):
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     for root in catalog.RESULT_ROOTS:
         for identity in ('run', 'run/20261112-120000'):
-            folder = tmp_path / 'results' / root / 'g' / identity
+            folder = tmp_path / 'src/usr/results' / root / 'g' / identity
             folder.mkdir(parents=True)
             (folder / 'config.yaml').write_text('seed: 1\n')
     for identity in ('run', 'run/20261112-120000'):
-        agent = (tmp_path / 'results/logs') / 'g' / identity / 'agent/version_0'
+        agent = (tmp_path / 'src/usr/results/logs') / 'g' / identity / 'agent/version_0'
         agent.mkdir(parents=True)
         (agent / 'metrics.csv').write_text('step,eval/reward\n1,42\n')
     return tmp_path
 
 
 def test_direct_and_nested_runs_are_discovered_without_mixing_artifacts(mixed_results):
-    assert {p.relative_to((mixed_results / 'results/logs')).as_posix() for p in iter_run_dirs((mixed_results / 'results/logs'))} == {
+    assert {p.relative_to((mixed_results / 'src/usr/results/logs')).as_posix() for p in iter_run_dirs((mixed_results / 'src/usr/results/logs'))} == {
         'g/run', 'g/run/20261112-120000'}
     manifest = catalog.run_manifest('g', 'run')
     assert manifest['agents'] == {'agent': ['version_0']}
@@ -49,16 +49,16 @@ def test_direct_and_nested_runs_are_discovered_without_mixing_artifacts(mixed_re
         assert all('/20261112-120000/' not in name for name in archive.namelist())
     catalog.delete_run('g', 'run')
     for root in catalog.RESULT_ROOTS:
-        assert (mixed_results / 'results' / root / 'g/run/20261112-120000/config.yaml').exists()
-        assert not (mixed_results / 'results' / root / 'g/run/config.yaml').exists()
+        assert (mixed_results / 'src/usr/results' / root / 'g/run/20261112-120000/config.yaml').exists()
+        assert not (mixed_results / 'src/usr/results' / root / 'g/run/config.yaml').exists()
 
 
 def test_overwriting_direct_run_preserves_saved_runs(mixed_results):
     from src.app.pipeline.local_runner import _setup_output_dirs
     _setup_output_dirs(OmegaConf.create({'group': 'g', 'experiment_id': 'run', 'no_plot': False, 'plots': ['losses']}))
     for root in ('logs', 'checkpoints', 'plots'):
-        assert (mixed_results / 'results' / root / 'g/run/20261112-120000/config.yaml').exists()
-        assert not (mixed_results / 'results' / root / 'g/run/config.yaml').exists()
+        assert (mixed_results / 'src/usr/results' / root / 'g/run/20261112-120000/config.yaml').exists()
+        assert not (mixed_results / 'src/usr/results' / root / 'g/run/config.yaml').exists()
 
 
 def test_timestamp_queue_ids_always_nest_and_handle_collisions(tmp_path, monkeypatch):
@@ -102,7 +102,7 @@ def test_variability_results_are_nested(tmp_path, monkeypatch, identity):
     context = {'methods': {'agent': {'name': 'agent'}}, 'sanitized_extra_args': []}
     plan = {'training_seeds': [1], 'parallel_runs': 1, 'evaluation_seed': None}
     run_execution(cfg, context, plan)
-    manifest_path, = tmp_path.glob('results/executions/g/' + identity + '/*/manifest.json')
+    manifest_path, = tmp_path.glob('src/usr/results/executions/g/' + identity + '/*/manifest.json')
     manifest = json.loads(manifest_path.read_text())
     assert manifest['result_experiment_id'].startswith('nested/run/')
     assert result_experiment_id(manifest['result_experiment_id']) == 'nested/run'
@@ -117,10 +117,10 @@ def test_renaming_nested_run_keeps_experiment_group(mixed_results):
     from PyQt6.QtWidgets import QApplication
     from frontend.results.explorer import RunExplorer
     application = QApplication.instance() or QApplication([])
-    snapshot = (mixed_results / 'results/logs') / 'g/run/20261112-120000/config.yaml'
+    snapshot = (mixed_results / 'src/usr/results/logs') / 'g/run/20261112-120000/config.yaml'
     snapshot.write_text('experiment_id: run/20261112-120000\n')
     rename_results('run', 'g', 'run/20261112-120000', 'best')
-    summary = catalog.run_config_summary((mixed_results / 'results/logs') / 'g/run/best')
+    summary = catalog.run_config_summary((mixed_results / 'src/usr/results/logs') / 'g/run/best')
     explorer = RunExplorer()
     explorer.set_runs([{'group': 'g', 'experiment_id': 'run/best', 'config': summary,
                         'agents': [{'name': 'agent'}]}])
@@ -130,14 +130,14 @@ def test_renaming_nested_run_keeps_experiment_group(mixed_results):
 
 def test_renaming_experiment_moves_nested_runs_and_execution_references(mixed_results):
     from src.app.services.result_rename import rename_results
-    manifest = mixed_results / 'results/executions/g/run/execution/manifest.json'
+    manifest = mixed_results / 'src/usr/results/executions/g/run/execution/manifest.json'
     manifest.parent.mkdir(parents=True)
     manifest.write_text(json.dumps({'group': 'g', 'experiment_id': 'run',
                                    'result_experiment_id': 'run/20261112-120000',
                                    'runs': [{'experiment_id': 'run/20261112-120000', 'status': 'completed'}]}))
     renamed = rename_results('experiment', 'g', 'run', 'renamed')
     assert renamed['runs']['g/run/20261112-120000'] == 'g/renamed/20261112-120000'
-    document = json.loads((mixed_results / 'results/executions/g/renamed/execution/manifest.json').read_text())
+    document = json.loads((mixed_results / 'src/usr/results/executions/g/renamed/execution/manifest.json').read_text())
     assert document['result_experiment_id'] == document['runs'][0]['experiment_id'] == 'renamed/20261112-120000'
     for root in catalog.RESULT_ROOTS:
-        assert (mixed_results / 'results' / root / 'g/renamed/20261112-120000/config.yaml').exists()
+        assert (mixed_results / 'src/usr/results' / root / 'g/renamed/20261112-120000/config.yaml').exists()

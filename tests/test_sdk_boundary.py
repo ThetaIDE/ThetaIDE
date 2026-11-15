@@ -73,9 +73,13 @@ def test_sdk_exports_are_canonical_host_objects():
     assert monitoring.validate_params is measurements.validate_params
     assert execution.execute_backend is core_execution.execute_backend
     assert data.create_state_loader is data_loaders.create_state_loader
+    from src.app.api import results
+    from src.app.services import catalog
+    assert results.list_runs is catalog.list_runs and results.read_run_file is catalog.read_run_file
     assert execution.task_worker_command("py", "a", 1) == ["py", "-u", "-m", "src.app.pipeline.task_worker", "a", "1"]
     for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "agents", "plotting",
-                   "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "monitoring", "desktop"):
+                   "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "monitoring", "results",
+                   "desktop"):
         sdk = importlib.import_module(f"src.app.api.{module}")
         for name in sdk.__all__:
             assert getattr(sdk, name) is not None, f"src.app.api.{module}.{name}"
@@ -86,8 +90,9 @@ def test_sdk_exports_are_canonical_host_objects():
 def test_headless_sdk_imports_without_qt_or_optional_libraries():
     import subprocess
     code = ("import sys\nfrom src.app.api import workspace, errors, config, execution, tuning, sites, packages,"
-            " evaluation, rulesets, telemetry\n"
-            "for m in (workspace, errors, config, execution, tuning, sites, packages, evaluation, rulesets, telemetry):\n"
+            " evaluation, rulesets, telemetry, results\n"
+            "for m in (workspace, errors, config, execution, tuning, sites, packages, evaluation, rulesets, telemetry,"
+            " results):\n"
             "    [getattr(m, n) for n in m.__all__]\n"
             "bad = [k for k in sys.modules if k.split('.')[0] in ('PyQt6', 'optuna', 'sqlalchemy')]\n"
             "assert not bad, bad\n")

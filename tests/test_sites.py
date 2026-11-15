@@ -47,11 +47,11 @@ def record(root, state='completed'):
              'state': state, 'scheduler_state': state, 'job_id': '123', 'artifacts_finalized': False}
     path = execution.receipt_path(root, execution_id)
     write_json(path, value)
-    logs = root / 'results/logs/demo' / value['result_experiment_id'] / 'agent/version_0'
+    logs = root / 'src/usr/results/logs/demo' / value['result_experiment_id'] / 'agent/version_0'
     logs.mkdir(parents=True)
     (logs / 'metrics.csv').write_text('step,reward\n1,2\n')
     (logs / 'events.jsonl').write_text('{"type":"metrics"}\n')
-    ckpt = root / 'results/checkpoints/demo' / value['result_experiment_id'] / 'model.ckpt'
+    ckpt = root / 'src/usr/results/checkpoints/demo' / value['result_experiment_id'] / 'model.ckpt'
     ckpt.parent.mkdir(parents=True)
     ckpt.write_bytes(b'weights')
     if state in execution.TERMINAL: execution.finalize(root, execution_id)
@@ -102,8 +102,9 @@ def test_path_traversal_rejected(tmp_path, relative):
 
 
 def test_destination_symlink_rejected(tmp_path):
-    (tmp_path / 'results').symlink_to(tmp_path.parent)
-    with pytest.raises(ValueError): safe_path(tmp_path, 'results/file')
+    (tmp_path / 'src/usr').mkdir(parents=True)
+    (tmp_path / 'src/usr/results').symlink_to(tmp_path.parent)
+    with pytest.raises(ValueError): safe_path(tmp_path, 'src/usr/results/file')
 
 
 def test_sync_metrics_then_results_is_idempotent(tmp_path, monkeypatch):
@@ -171,10 +172,10 @@ def test_unknown_submission_is_not_retried(tmp_path, monkeypatch):
     cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}})
     with pytest.raises(RuntimeError): execution.submit(root, 'demo/test', [], cfg)
     assert len(calls) == 1
-    receipt = read_json(next((root / 'results/sites').glob('*/submission.json')))
+    receipt = read_json(next((root / 'src/usr/results/sites').glob('*/submission.json')))
     assert receipt['state'] == 'submission_unknown'
     assert receipt['result_experiment_id'] == 'test/' + receipt['execution_id']
-    script = next((root / 'results/sites').glob('*/job.sbatch')).read_text()
+    script = next((root / 'src/usr/results/sites').glob('*/job.sbatch')).read_text()
     assert 'unset THETA_RESOURCE_POOL' in script
     assert '_run' in script
 
@@ -243,7 +244,7 @@ assert os.environ['THETA_IN_ALLOCATION'] == '1'
 assert 'THETA_RESOURCE_POOL' not in os.environ
 value = next(item.split('=', 1)[1] for item in sys.argv if item.startswith('++experiment_id='))
 name = json.loads(value)
-path = pathlib.Path('results/logs/demo') / name / 'agent/version_0'
+path = pathlib.Path('src/usr/results/logs/demo') / name / 'agent/version_0'
 path.mkdir(parents=True)
 (path / 'metrics.csv').write_text('step,reward\\n1,5\\n')
 print('frozen source executed')
@@ -261,7 +262,7 @@ print('frozen source executed')
     receipt = read_json(execution.receipt_path(root, result['execution_id']))
     assert receipt['state'] == 'completed'
     assert not receipt['artifacts_finalized']  # wait for scheduler termination before sealing stdout/stderr
-    assert list((root / 'results/logs').rglob('metrics.csv'))
+    assert list((root / 'src/usr/results/logs').rglob('metrics.csv'))
     assert 'frozen source executed' in (execution.receipt_path(root, result['execution_id']).parent / 'pipeline.log').read_text()
 
 
@@ -311,7 +312,7 @@ def test_repeat_results_sync_discovers_new_post_run_plot(tmp_path, monkeypatch):
     write_json(local_root / '.thetaide/workspace.json', {'id': value['project_id']})
     fake_pull(monkeypatch, remote_root, local_root)
     transfer.sync(local_root, 'cluster', 'results')
-    plot = remote_root / 'results/plots' / value['group'] / value['result_experiment_id'] / 'late.png'
+    plot = remote_root / 'src/usr/results/plots' / value['group'] / value['result_experiment_id'] / 'late.png'
     plot.parent.mkdir(parents=True)
     plot.write_bytes(b'new plot after completion')
     result = transfer.sync(local_root, 'cluster', 'results')

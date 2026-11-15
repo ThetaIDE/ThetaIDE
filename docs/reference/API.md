@@ -38,7 +38,7 @@ python run_pipeline.py component validate-experiment group/experiment
 
 Simulator recipes and offline-data recipes have different inputs. Obtain datasets required by the selected
 recipe and configure their paths; historical MIMIC/Pyrenees groups and private preprocessing scripts are
-not guaranteed to exist in a clean checkout. `results/` and local datasets are generally gitignored.
+not guaranteed to exist in a clean checkout. `src/usr/results/` and local datasets are generally gitignored.
 
 ---
 
@@ -67,9 +67,9 @@ Everything the GUI used to request over HTTP is now a direct call. The pure-Pyth
 | `config_service.config_schema()` | Health/catalog information for an available valid recipe, or a clean-setup composition check; it does not synthesize the editor's parameter forms | former `GET /api/config/schema` |
 | `config_service.compose_report(experiment, overrides)` | `{valid, argv, config, config_yaml, methods, methods_yaml, notices, errors}`, composed exactly as `run_pipeline.py` would | `POST /api/config/compose` |
 | `config_service.prepare_launch(experiment, overrides, overwrite, active_jobs)` | The job description (group, experiment ID, agents, effective timesteps); raises `LaunchError` (`.conflict` for existing results or a clashing job) | launch validation |
-| `catalog.list_runs()` | Every `results/logs/<group>/<id>` run folder, including nested IDs, with config summary and per-agent timing/reward | `GET /api/runs` |
+| `catalog.list_runs()` | Every `src/usr/results/logs/<group>/<id>` run folder, including nested IDs, with config summary and per-agent timing/reward | `GET /api/runs` |
 | `catalog.run_metrics(group, experiment_id, agent)` | All rows of the newest `metrics.csv`; raises `FileNotFoundError` | `GET /api/runs/.../metrics` |
-| `catalog.list_plots(group, experiment_id)` | Plot file names under `results/plots/` | `GET /api/runs/.../plots` |
+| `catalog.list_plots(group, experiment_id)` | Plot file names under `src/usr/results/plots/` | `GET /api/runs/.../plots` |
 | `catalog.list_environments()`, `list_experiments()`, `list_methods()` | Config catalog | `GET /api/environments`, `/experiments`, `/methods` |
 | `metrics.MetricsTail(path).read()` | `(new rows, reset)`: only rows appended since the last read; `reset` when Lightning rewrote the file | incremental telemetry |
 | `processes.kill_process_tree(pid)` | Stops the pipeline and every training/plotting subprocess it started | cancel |
@@ -78,7 +78,7 @@ Everything the GUI used to request over HTTP is now a direct call. The pure-Pyth
 Run identities preserve the recipe hierarchy: `experiment/group/path/dir/run.yaml`
 resolves to group `group` and experiment ID `path/dir/run`. Logs, checkpoints,
 plots, and execution records retain those subdirectories below their respective
-`results/<kind>/group/` roots. A custom leaf `experiment_id` or timestamp changes
+`src/usr/results/<kind>/group/` roots. A custom leaf `experiment_id` or timestamp changes
 the final directory name while preserving the recipe's parent subdirectories;
 an ID containing `/` is treated as an explicit path relative to the group.
 This resolution is shared by GUI and CLI launches and forwarded to every runner,
@@ -128,7 +128,7 @@ work is durable. On runner recovery, stale jobs whose processes are no longer ac
 
 ### 3.4 TensorBoard (`frontend/tensorboard.py`)
 
-`TensorBoardServer` runs `python -m tensorboard.main --logdir results/tensorboard` on a free local port. It
+`TensorBoardServer` runs `python -m tensorboard.main --logdir src/usr/results/tensorboard` on a free local port. It
 emits `ready(url)` when TensorBoard prints that it is serving and `stopped(error)` when it exits (`""` after
 a deliberate `stop()`).
 

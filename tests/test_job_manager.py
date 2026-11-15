@@ -5,6 +5,7 @@ then waits for a release file so the test decides when each job finishes. Two sl
 """
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -73,15 +74,30 @@ class Harness:
         self.root = tmp_path / "project"
         self.root.mkdir()
         (self.root / "run_pipeline.py").write_text(FAKE_PIPELINE, encoding="utf-8")
+        # The real runner resolves its launcher from the installed application,
+        # independently of the research workspace. Patch that application in
+        # the test runner subprocess so these tests execute their fake pipeline.
+        popen = subprocess.Popen
+
+        def start_runner(args, **kwargs):
+            if args[1:3] == ["-m", "frontend.job_runner"]:
+                bootstrap = (
+                    "from pathlib import Path; import src.app.workspace as workspace; "
+                    f"workspace.PROJECT_ROOT = Path({str(self.root)!r}); "
+                    "from frontend.job_runner import main; main()"
+                )
+                args = [args[0], "-c", bootstrap, *args[3:]]
+            return popen(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "Popen", start_runner)
         self.logs = tmp_path / "logs"
         self.control = tmp_path / "control"
         self.control.mkdir()
         monkeypatch.setenv("FAKE_LOGS", str(self.logs))
         monkeypatch.setenv("FAKE_CONTROL", str(self.control))
-        # Allow tiny test scripts on a busy machine. The old count setting is
-        # retained here to exercise compatibility; it no longer limits width.
+        # Allow tiny test scripts on a busy machine.
         settings = tmp_path / 'settings.toml'
-        settings.write_text('[training]\nmemory_percent = 95\nmax_parallel = 1\ncpu_percent=100\n')
+        settings.write_text('[training]\nmemory_percent = 95\ncpu_percent=100\n')
         self.manager = JobManager(store_path=tmp_path / "jobs" / "jobs.db", project_root=self.root,
                                   logs_dir=self.logs, settings_path=settings)
         pump(lambda: self.manager.ready or self.manager.readiness_error != "Connecting to training runner…", 30)
@@ -123,6 +139,26 @@ def jobs(tmp_path, monkeypatch):
 
 def tag():
     return uuid.uuid4().hex[:6]
+
+
+def test_cached_snapshot_cannot_replace_a_newer_rpc_snapshot(tmp_path, monkeypatch):
+    from PyQt6.QtCore import QObject
+
+    manager = JobManager.__new__(JobManager)
+    QObject.__init__(manager)
+    manager.ipc_dir = tmp_path
+    manager._snapshot_updated = 0.0
+    applied = []
+    monkeypatch.setattr(manager, "_rpc", lambda method: {"jobs": ["new"]})
+    monkeypatch.setattr(manager, "_apply_snapshot", lambda data, emit: applied.append(data))
+    now = time.time()
+    (tmp_path / "state.json").write_text(json.dumps({"updated": now - 1, "jobs": []}))
+    manager._refresh()
+    manager._refresh(cached=True)
+    assert applied == [{"jobs": ["new"]}]
+    (tmp_path / "state.json").write_text(json.dumps({"updated": time.time() + 1, "jobs": ["new", "next"]}))
+    manager._refresh(cached=True)
+    assert applied[-1]["jobs"] == ["new", "next"]
 
 
 # ── one job ──────────────────────────────────────────────────────────────────
@@ -231,8 +267,12 @@ def test_jobs_left_running_by_a_previous_session_are_marked_interrupted(tmp_path
     store = JobStore(tmp_path / "jobs.db")
     store.save_job({"job_id": "old", "status": "running", "pid": 999999, "group": "thetaide", "experiment_id": "x"})
     manager = JobManager(store_path=tmp_path / "jobs.db")
-    assert manager.job("old")["status"] in ("failed", "interrupted")
-    assert not manager.is_busy()
+    try:
+        pump(lambda: manager.ready)
+        assert manager.job("old")["status"] in ("failed", "interrupted")
+        assert not manager.is_busy()
+    finally:
+        manager.shutdown()
 
 
 # ── queue ────────────────────────────────────────────────────────────────────
@@ -337,7 +377,7 @@ def experiment_ids(project_root):
     yield make
     for experiment_id in created:
         for kind in ("logs", "checkpoints", "plots", "tensorboard"):
-            shutil.rmtree(project_root / "results" / kind / "thetaide" / experiment_id, ignore_errors=True)
+            shutil.rmtree(project_root / "src/usr/results" / kind / "thetaide" / experiment_id, ignore_errors=True)
 
 
 def real_overrides(experiment_id, total_timesteps):
@@ -473,9 +513,12 @@ def test_completion_while_disconnected_preserves_exit_code_and_output(jobs):
         time.sleep(.05)
     manager = JobManager(store_path=old.jobs_dir / 'jobs.db', project_root=jobs.root, logs_dir=jobs.logs)
     jobs.manager = manager
+    pump(lambda: manager.ready)
     assert manager.job(job['job_id'])['returncode'] == 7
     assert manager.job(job['job_id'])['status'] == 'failed'
-    pump(lambda: 'done' in manager.log_lines(job['job_id']))
+    # Reconnecting preserves durable output without replaying finished archives
+    # on the GUI thread (the Results panel reads those on demand).
+    assert 'done' in (manager.jobs_dir / f"{job['job_id']}.log").read_text()
 
 
 def test_cancel_after_reconnect_stops_the_original_process(jobs):
@@ -485,6 +528,7 @@ def test_cancel_after_reconnect_stops_the_original_process(jobs):
     old.shutdown()
     manager = JobManager(store_path=old.jobs_dir / 'jobs.db', project_root=jobs.root, logs_dir=jobs.logs)
     jobs.manager = manager
+    pump(lambda: manager.ready)
     assert manager.job(job['job_id'])['pid'] == job['pid']
     assert manager.cancel(job['job_id'])['status'] == 'cancelled'
     pump(lambda: manager.job(job['job_id']).get('finished'))

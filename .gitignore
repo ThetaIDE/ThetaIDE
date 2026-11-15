@@ -20,8 +20,8 @@ venv/
 /prompt_notes_sonnet5.md
 
 # Large Data & Logs
-# Anchored to the repository root: an unanchored "results/" also hid frontend/results/ (source code).
-/results/
+# Run output (WorkspacePaths.results). Anchored: an unanchored "results/" also hid frontend/results/ (source code).
+/src/usr/results/
 out/
 logs/
 plots/
@@ -40,7 +40,7 @@ cache/
 *.hdf5
 *.jsonl
 
-# Training output written outside results/ (ad-hoc scripts, notebooks, other loggers)
+# Training output written outside src/usr/results/ (ad-hoc scripts, notebooks, other loggers)
 lightning_logs/
 wandb/
 mlruns/
@@ -64,7 +64,7 @@ optuna.db
 .agents/
 scratch/
 
-# Local datasets (src/usr/datasets and results/datasets); add a shared file with git add -f
+# Local datasets (src/usr/datasets and src/usr/results/datasets); add a shared file with git add -f
 datasets/
 
 # Packaging / Distribution

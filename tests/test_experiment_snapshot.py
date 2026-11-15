@@ -8,7 +8,7 @@ def test_snapshots_preserve_original_recipe_across_recoveries(tmp_path, monkeypa
     cfg = SimpleNamespace(group="group", experiment_id="run")
     save_experiment_snapshot(cfg, {"experiment_yaml": b"seed: 1\n"})
     save_experiment_snapshot(cfg, {"experiment_yaml": b"seed: 2\n"})
-    directory = tmp_path / "results/logs/group/run"
+    directory = tmp_path / "src/usr/results/logs/group/run"
     assert (directory / "experiment.yaml").read_bytes() == b"seed: 1\n"
     assert [p.read_bytes() for p in directory.glob("experiment_*.yaml")] == [b"seed: 2\n"]
 
@@ -26,7 +26,7 @@ def test_run_snapshot_handles_hydra_runtime_interpolation(tmp_path, monkeypatch)
         "hydra": {"job": {"num": "???"}, "sweep": {"subdir": "${hydra.job.num}"}},
     })
     save_run_config(cfg)
-    saved = yaml.safe_load((tmp_path / "results/logs/group/run/config.yaml").read_text())
+    saved = yaml.safe_load((tmp_path / "src/usr/results/logs/group/run/config.yaml").read_text())
     assert saved["env"]["seed"] == 42
     assert saved["tuning"] == {"n_trials": 10}
     assert "hydra" not in saved
@@ -50,7 +50,7 @@ def test_run_snapshot_with_actual_composed_hydra_config(tmp_path, monkeypatch):
     cfg.experiment_id = "run"
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     save_run_config(cfg)
-    saved = yaml.safe_load((tmp_path / "results/logs/group/run/config.yaml").read_text())
+    saved = yaml.safe_load((tmp_path / "src/usr/results/logs/group/run/config.yaml").read_text())
     assert "hydra" not in saved
     assert saved["group"] == "group"
 
@@ -68,4 +68,4 @@ def test_local_launch_reaches_methods_with_hydra_runtime_placeholder(tmp_path, m
     monkeypatch.setattr(local_runner, "run_methods", lambda cfg, context: calls.append("methods"))
     local_runner.run_local_training(cfg, {})
     assert calls == ["methods"]
-    assert (tmp_path / "results/logs/group/run/config.yaml").is_file()
+    assert (tmp_path / "src/usr/results/logs/group/run/config.yaml").is_file()

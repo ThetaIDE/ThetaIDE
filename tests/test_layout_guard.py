@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RETIRED_PATHS = re.compile(r"(?<![\w.])in[/.](config|datasets|envs|inputs)\b")
 # Tests may build rejected layouts, and documentation records history (its current
 # guides are swept by hand). Results are run outputs, not source.
-EXEMPT = ("tests/", "docs/", "results/")
+EXEMPT = ("tests/", "docs/", "src/usr/results/")
 
 
 def tracked_text_files():

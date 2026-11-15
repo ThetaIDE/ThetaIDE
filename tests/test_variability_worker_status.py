@@ -16,7 +16,7 @@ def test_variance_waits_for_worker_start_before_marking_running(tmp_path, monkey
     seen = []
 
     def dispatch(cfg, context):
-        path = next(tmp_path.glob("results/executions/g/e/*/manifest.json"))
+        path = next(tmp_path.glob("src/usr/results/executions/g/e/*/manifest.json"))
         run = json.loads(path.read_text())["runs"][0]
         assert run["status"] == "pending"
         assert not run.get("execution_started")
@@ -31,7 +31,7 @@ def test_variance_waits_for_worker_start_before_marking_running(tmp_path, monkey
     monkeypatch.setattr(local_runner, "run_plotting_phase", lambda *_: None)
     run_execution(cfg, ctx, plan)
     assert len(seen) == 1
-    path = next(tmp_path.glob("results/executions/g/e/*/manifest.json"))
+    path = next(tmp_path.glob("src/usr/results/executions/g/e/*/manifest.json"))
     assert json.loads(path.read_text())["runs"][0]["status"] == "completed"
 
 

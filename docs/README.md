@@ -64,6 +64,8 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Phase 5c verification evidence](reports/LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json) — full per-file comparison against 5b, sandbox reruns, counts and remaining failure IDs.
+
 - [Layer boundary implementation history](reports/LAYER_BOUNDARY_HISTORY_20261115.md) — dated evidence for phases 0–4 (2026-11-13 to 11-15): commits, test counts and reasoning; superseded where later decisions differ.
 - [Installed layer-boundary distribution evidence](reports/LAYER_BOUNDARY_DISTRIBUTION_20261113.json) — artifact hashes, bundled inventory, dependency versions, external-workspace/worker agreement and relocated checkpoint reload.
 

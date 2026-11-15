@@ -44,7 +44,7 @@ Core dispatch lives in `src/app/sites/execution.py`. An independently named sche
 
 ## Receipts
 
-Receipts live in `results/sites/<execution>` for every scheduler. Each records the `scheduler_component` that owns it and its `tuner_execution` plan (or `null`); a receipt without either is refused. Scripts use the installed scheduler through these runtime methods; SSH shortcuts use `run_pipeline.py site ssh`.
+Receipts live in `src/usr/results/sites/<execution>` for every scheduler. Each records the `scheduler_component` that owns it and its `tuner_execution` plan (or `null`); a receipt without either is refused. Scripts use the installed scheduler through these runtime methods; SSH shortcuts use `run_pipeline.py site ssh`.
 
 ## Installing the Slurm component
 

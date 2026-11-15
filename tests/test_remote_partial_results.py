@@ -31,7 +31,7 @@ def test_results_tree_updates_when_partial_publication_is_later_sealed():
 
 @pytest.mark.parametrize('scheduler', ['completed', 'failed', 'cancelled', 'timeout', 'node_fail'])
 def test_terminal_snapshot_without_worker_end_marker_is_readable(tmp_path, monkeypatch, scheduler):
-    logs = tmp_path / 'results/logs'
+    logs = tmp_path / 'src/usr/results/logs'
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     directory = logs / 'group/run/agent/version_0'
     directory.mkdir(parents=True)

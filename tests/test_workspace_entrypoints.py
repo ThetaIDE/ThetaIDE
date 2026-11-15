@@ -38,18 +38,18 @@ def test_omitted_runner_context_uses_the_process_selection(tmp_path, monkeypatch
                                           'sanitized_extra_args': [], 'storage_url': None})
     assert calls == [selected.root, selected.root]
     assert (selected.results / 'logs/g/run/config.yaml').is_file()
-    assert not (launch / 'results').exists()
+    assert not (launch / 'src/usr/results').exists()
 
 
 def test_omitted_execution_context_uses_the_process_selection(tmp_path, monkeypatch):
     from src.app.services import executions
     launch, selected = decoy(tmp_path, monkeypatch)
     for root in (launch, selected.root):
-        target = root / 'results/executions/g/run/id/manifest.json'
+        target = root / 'src/usr/results/executions/g/run/id/manifest.json'
         target.parent.mkdir(parents=True)
         target.write_text(json.dumps({'schema_version': 1, 'runs': [], 'owner': str(root)}))
     listed = executions.list_executions()
-    assert listed == [str(selected.root / 'results/executions/g/run/id/manifest.json')]
+    assert listed == [str(selected.root / 'src/usr/results/executions/g/run/id/manifest.json')]
 
 
 def test_configure_workspace_selects_the_process_workspace(tmp_path, monkeypatch):
@@ -75,7 +75,7 @@ def test_desktop_job_managers_default_to_the_selected_workspace(tmp_path, monkey
         assert manager.jobs_dir == selected.data_dir / 'runs' / 'jobs'
     finally:
         manager.deleteLater()
-    assert not (launch / 'results').exists()
+    assert not (launch / 'src/usr/results').exists()
 
 
 def test_plugin_context_reports_the_hosts_workspace_and_state(tmp_path):

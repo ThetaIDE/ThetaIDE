@@ -11,7 +11,7 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
 | 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | — |
-| 5 — Results in `src/usr/results`, remote bundles (G) | [Phase 5 plan](../plans/LAYER_BOUNDARY_PHASE5_PLAN.md); 5a and 5b done (see below) | 5c (move, with the user's dry run), 5d bundles, 5e requirements |
+| 5 — Results in `src/usr/results`, remote bundles (G) | [Phase 5 plan](../plans/LAYER_BOUNDARY_PHASE5_PLAN.md); 5a/5b done, 5c code stabilized and verified | Moving the user's `results/` (dry run shown, waiting for a yes), 5d bundles, 5e requirements |
 | 6 — Installed distribution (H) | Not started; core stays at `src/app` (no move) | See the plan's phase 6 |
 | 7 — Enforcement (I) | Not started | See the plan's phase 7 |
 
@@ -19,7 +19,7 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 
 ## Repositories
 
-- **IDE:** `implement/layer-boundaries` is pushed to `origin` (ThetaIDE/ThetaIDE). No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
+- **IDE:** `implement/layer-boundaries` exists on `origin` (ThetaIDE/ThetaIDE); 5b and stabilized 5c are local and unpushed. No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
 - **Hub releases:** worktrees `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpushed. At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages are removed from the feed; until then the Hub validator fails on those seven storage-v2 entries. The user's own `../theta-plugins` and `../theta-hub` checkouts are never modified.
 - **Repository workspace:** runs the prepared v3 releases (20 packages). Optuna and Slurm are not installed there (Slurm collides with the authored `ncshare-site` package, which owns `site/ncshare/*`). The 4f backup is in `.thetaide/migrations/20261114T163513Z/`.
 
@@ -67,22 +67,30 @@ Two settings still have two homes, and fixing them needs v3 package changes and 
 
 ## Phase 5
 
-Unit 5b is done: every results path comes from `WorkspacePaths.results`, which is still `<workspace>/results`; 5c moves it to `src/usr/results`.
+Every results path comes from `WorkspacePaths.results`, which is `src/usr/results` (5c). The checkout's own `results/` has not moved yet: until it does, the desktop and pipeline started from this checkout see no earlier runs.
 
 - Pipeline processes (Lightning, telemetry, callbacks, sb3, Optuna) call `WorkspacePaths.for_process()`; nothing joins `results/` to the working directory or Hydra's original cwd. Hydra's `run.dir` and `sweep.dir` use the `${theta_results:}` resolver, which the Hydra plugin module registers. The unused `results_dir` key is gone.
 - Portable paths (site listings, run manifests, receipts) are workspace-relative strings built from `WorkspacePaths.results_relative`; site code uses `sites.storage.results_root` / `results_relative`.
 - Tuner artifacts are relative to the results directory (`optuna/<execution>/study.sqlite`); the host joins them to `WorkspacePaths(runtime).results`. `RunLoggerContext.base_root` became `results_root` (the results directory itself).
 - The desktop job database has one home, `.thetaide/runs/jobs/jobs.db`; the `results/jobs` default is gone.
 - Removed: `scripts/erase_experiment.py` and `scripts/clean_deleted.py` (the deletion-tracking and rsync-pull model they served is gone; the catalog deletes runs), the reports plotter's `results/logs/slurm` timing fallback, and the export dialog's working-directory fallback.
-- `tests/test_layout_guard.py` fails on any literal results path outside `src/app/workspace.py` (verbatim THEMES reference source excepted). Tests that still spell `results/...` move with 5c.
+- `tests/test_layout_guard.py` fails on any literal results path outside `src/app/workspace.py` (verbatim THEMES reference source excepted).
+- 5c: `.gitignore`, `MANIFEST.in`, the test leak check and the tests use `src/usr/results`. Walks of `src/usr` that look for source skip the results tree: remote source snapshots, the compose fingerprint, the workspace inventory and the implementation-edit lock.
+- `src.app.api.results` (SDK 2.4) gives packages and app plugins read-only access to runs: `list_runs`, `run_metrics`, `run_manifest`, `read_run_file`.
+- Stabilization: source snapshots prune results before traversal. Regression checks cover source inventory/cache stability, edit-lock exclusion, explicit SDK workspace selection and confined artifact reads. Desktop runner snapshots cannot roll back a newer RPC response, and jobs that finish before the next poll still have final output drained. Fake-pipeline tests explicitly substitute their application launcher and await asynchronous reconnect readiness.
+- The move of the user's `results/` (15,590 files, 1.23 GB, no symlinks or conflicts) runs from a scratch script: dry run, timestamped backup under `.thetaide/migrations/`, one rename, every hash checked. It moves `results/jobs`, `slurm`, `development` and `exports` as they are, though nothing reads them now.
+
+Session sequencing: stabilize 5c first, then ask for the user's specific UI changes. Vega design is deferred until the user provides their own design. The results move still requires approval.
 
 ## Tests
 
-Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. Compare against `main` by test ID before calling a failure a regression.
+5c verification (2026-11-15), all 225 test files in separate processes: **2,636 passed, 52 skipped, 126 failed**. There are **zero new failure IDs** against the 140 recorded 5b failures, and no unresolved aborts or timeouts after rerunning sandbox-affected files outside the sandbox. The job-manager file passes **19 tests, with 2 real-provider prerequisite skips**; the three new results-workspace checks and all 64 SDK-boundary checks pass. [Evidence and exact remaining failure IDs](../reports/LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json).
 
-- **Fixtures.** `tests/conftest.py`'s autouse `tracked_workspace` selects a temporary copy of the checkout's tracked `src/usr`; a session hook fails the run if tests create result groups in the checkout's `results/`. `fixture_workspace` adds `tests/fixtures/workspace_usr` and `tests/fixtures/workspace_config`. `optuna_workspace`, `component_fixtures.sweep_workspace(root)` and `install_optional` install the optional components. `tests/themes_fixtures.py` generates THEMES inputs. `LocalHub` and the authored-NSFR test read sibling checkouts only through `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT`.
+Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. For 5c, compare against the saved 5b baseline (`9129f8b`) by test ID before calling a failure a regression.
+
+- **Fixtures.** `tests/conftest.py`'s autouse `tracked_workspace` selects a temporary copy of the checkout's tracked `src/usr`; a session hook fails the run if tests create result groups in the checkout's `src/usr/results`. `fixture_workspace` adds `tests/fixtures/workspace_usr` and `tests/fixtures/workspace_config`. `optuna_workspace`, `component_fixtures.sweep_workspace(root)` and `install_optional` install the optional components. `tests/themes_fixtures.py` generates THEMES inputs. `LocalHub` and the authored-NSFR test read sibling checkouts only through `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT`.
 - **Package integration** lives in `../theta-plugins-v3`: `../Theta-IDE/venv/bin/python -m pytest -q tests/test_native_integration.py` (71 passed).
-- **Stale tests, deferred (user decision):** 119 failures in 27 files, none new against the session-start commit `b7c13ac` (file-by-file comparison by test ID, 2026-11-15; 2605 passed, 83 skipped): `test_results_panel` (32), `test_job_manager` (12), `test_queue_panel` (11), `test_experiment_pane`, `test_parallel_runs` (6 each), `test_tray`, `test_trial_seed_visibility` (5 each), `test_filetree_toolbar`, `test_monitor_live`, `test_objective_components`, `test_tuner_components` (4 each), `test_monitor_lifecycle`, `test_monitor_panel`, `test_panel_sections` (3 each), `test_component_plugins`, `test_component_validation_contract`, `test_launcher`, `test_tree_mouse_selection` (2 each), and one each in `test_cluster_error_logs`, `test_component_gui_enhancements`, `test_components_filetree`, `test_optuna_pruning`, `test_run_navigator`, `test_sidetabs_bins`, `test_splash`, `test_test_suite`, `test_tuning_objective`. Also failing since the autoencoder package was installed on 2026-11-14 (it skipped before): `test_paradigm_unsupervised` (20). Its import-time check reads the real workspace's catalog, while the tests run in the hermetic tracked workspace, which has no autoencoder; a fixture package would make it hermetic.
+- **Stale tests, deferred (user decision):** 126 failures in 27 files remain, all in the saved 5b baseline; exact IDs and file counts are in the evidence above. This includes 20 `test_paradigm_unsupervised` failures: its import-time check reads the real workspace catalog, while the hermetic fixture workspace has no autoencoder. The earlier 119-failure status predates the 5b comparison and is not the current total.
 - **Coverage gap:** no end-to-end test of managed parallel trials with a Theta-owned bootstrap.
 
 ## Desktop items not yet checked interactively

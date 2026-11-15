@@ -215,7 +215,7 @@ def test_metric_table_truncate_and_row():
 def test_backend_run_summaries_are_cached_until_files_change(tmp_path, monkeypatch):
     from src.app.services import catalog
 
-    logs = tmp_path / "results" / "logs"
+    logs = tmp_path / "src/usr/results" / "logs"
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     version = logs / "g" / "exp" / "ppo" / "version_0"
     version.mkdir(parents=True)

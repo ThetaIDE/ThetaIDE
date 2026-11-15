@@ -130,7 +130,7 @@ an early reward peak from sustained late performance.
 ## Results and current boundaries
 
 Each independent sample has its own log/checkpoint version and a worker log
-referenced by the shared execution manifest under `results/executions`.
+referenced by the shared execution manifest under `src/usr/results/executions`.
 The parent version's `execution.json` links to this manifest. The queue and
 monitor follow the individual seed sources while training is in progress;
 completed seeds leave the live monitor while their artifacts remain on disk.

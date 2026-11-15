@@ -95,7 +95,7 @@ class WorkspacePaths:
     @property
     def rules(self): return self.research / "rules"
     @property
-    def results(self): return self.root / "results"
+    def results(self): return self.research / "results"
     @property
     def results_relative(self):
         """The results root as a workspace-relative POSIX path, the prefix of portable result paths."""

@@ -214,7 +214,7 @@ def test_collapsed_queue_parents_follow_testing_without_loading_hidden_lives():
     panel.close()
 
 
-def test_sb3_initial_and_final_evaluations_are_testing_before_metrics(tmp_path, monkeypatch):
+def test_sb3_initial_and_final_evaluations_are_testing_before_metrics(own_workspace, tmp_path, monkeypatch):
     from types import SimpleNamespace
     from hydra.core.hydra_config import HydraConfig
     from src.app.core.provider_catalog import get_catalog
@@ -239,7 +239,7 @@ def test_sb3_initial_and_final_evaluations_are_testing_before_metrics(tmp_path, 
         runner.execute(cfg, context)
     finally:
         context.close()
-    rows = [json.loads(line) for line in next(tmp_path.glob('results/logs/g/e/dqn/version_0/events.jsonl')).read_text().splitlines()]
+    rows = [json.loads(line) for line in next(tmp_path.glob('src/usr/results/logs/g/e/dqn/version_0/events.jsonl')).read_text().splitlines()]
     stage = None
     evaluations = []
     for row in rows:

@@ -63,4 +63,4 @@ def test_fresh_editable_sb3_runs_selected_model_and_reloads(tmp_path):
     reload = subprocess.run([sys.executable, '-c', reload_code, str(checkpoint)], cwd=workspace,
                             env=environment, capture_output=True, text=True, timeout=30)
     assert reload.returncode == 0, reload.stdout + reload.stderr
-    assert next(workspace.glob('results/logs/g/e/m/*/metrics.csv')).is_file()
+    assert next(workspace.glob('src/usr/results/logs/g/e/m/*/metrics.csv')).is_file()

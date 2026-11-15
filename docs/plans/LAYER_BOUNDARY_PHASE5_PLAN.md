@@ -1,6 +1,6 @@
 # Phase 5 implementation plan: results in the user layer and explicit remote bundles
 
-Status: 5a and 5b done 2026-11-15; 5c–5e not started. This plan expands phase 5 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#phase-5--results-in-the-user-layer-and-remote-bundles); where they differ, its [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
+Status: 5a and 5b done 2026-11-15; 5c code stabilized and verified (2,636 passed, 52 skipped, 126 existing failures, no new failure IDs against 5b), the move of the user's `results/` waits for their yes; 5d–5e not started. This plan expands phase 5 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#phase-5--results-in-the-user-layer-and-remote-bundles); where they differ, its [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
 
 ## Goal
 

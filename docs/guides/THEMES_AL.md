@@ -50,7 +50,7 @@ interventions and the multiclass `Action` are excluded from policy inputs.
 ## Results, monitors and reload
 
 Results appear under
-`results/checkpoints/AL/<experiment>/themes/<run>/bundle/`.
+`src/usr/results/checkpoints/AL/<experiment>/themes/<run>/bundle/`.
 `manifest.json` records the effective algorithm settings, preprocessing, child
 model specifications, source checksum, per-round diagnostics and differences.
 `SUMMARY.md`, `overview.png`, segment/source-row tables and full round model
@@ -87,7 +87,7 @@ A successful run does not guarantee that later feedback rounds improve NLL.
 Only `AL/themes_mimic_q10_120` is exposed at the AL root. Development,
 synthetic and legacy recipes live in `AL/codex/`. Acceptance training runs use
 `AL/codex/themes_mimic_q10_120_port`; their results also live beneath
-`results/.../AL/codex/`. Existing legacy YAML content is retained there rather
+`src/usr/results/.../AL/codex/`. Existing legacy YAML content is retained there rather
 than discarded. Legacy recipes remain gated unless explicitly used by a
 historical test fixture.
 

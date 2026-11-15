@@ -17,7 +17,7 @@ def summary(**extra):
 
 
 def save(root, data, relative='m/tuning_summary.json'):
-    path = root / 'results/checkpoints/g/e' / relative
+    path = root / 'src/usr/results/checkpoints/g/e' / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data))
     return path

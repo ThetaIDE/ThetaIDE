@@ -1145,7 +1145,7 @@ def test_trial_toggle_loads_each_saved_seed_curve_and_preserves_selection(tmp_pa
     import json
     from src.app.services import catalog
 
-    logs = tmp_path / "results/logs"
+    logs = tmp_path / "src/usr/results/logs"
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     trial_version = "version_sweep_search_trial_35"
     run_dir = logs / "group/run"

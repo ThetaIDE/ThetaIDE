@@ -1,7 +1,9 @@
 """A tiny deterministic tuner demonstrating the external component contract."""
 
-from pathlib import Path
 import json
+from pathlib import Path
+
+from src.app.api.workspace import WorkspacePaths
 
 
 class ExampleTuner:
@@ -43,6 +45,6 @@ class ExampleTuner:
         pass
 
     def finalize(self, group, experiment, method, storage, study_name):
-        root = Path("results/checkpoints") / group / experiment / method
+        root = WorkspacePaths.for_process().results / "checkpoints" / group / experiment / method
         if not (root / "tuning_summary.json").is_file():
             raise RuntimeError("Example tuning job did not produce its summary")

@@ -85,7 +85,7 @@ def test_cluster_pipeline_err_contains_original_nested_exception(tmp_path, monke
 sys.path.insert(0, {str(REPO)!r})
 from src.app.pipeline.datasets import _execute_training
 print('pipeline started', flush=True)
-_execute_training([sys.executable, '-c', "raise RuntimeError('original child failure')"], dict(os.environ), pathlib.Path('results/executions/demo/child.log'))
+_execute_training([sys.executable, '-c', "raise RuntimeError('original child failure')"], dict(os.environ), pathlib.Path('src/usr/results/executions/demo/child.log'))
 '''
     root = project(tmp_path / 'control', pipeline)
     record = submit(root, monkeypatch)
@@ -146,7 +146,7 @@ finally:
     final = read_json(directory / 'submission.json')
     assert final['state'] == 'cancelled' and final['ended_at']
     assert final['publication_state'] == 'sealed'
-    manifest = read_json(work / 'results/sites' / record['execution_id'] / 'publication.json')
+    manifest = read_json(work / 'src/usr/results/sites' / record['execution_id'] / 'publication.json')
     assert manifest['sealed']
     item = next(item for item in manifest['files'] if item['path'].endswith('/pipeline.err'))
     text = b''.join((work / chunk['source']).read_bytes()[chunk.get('offset', 0):chunk.get('offset', 0)+chunk.get('length', chunk['size'])]
@@ -194,7 +194,7 @@ def test_remote_failed_run_opens_nonempty_log_without_local_job_id(tmp_path, mon
     app = QApplication.instance() or QApplication([])
     from src.app.workspace import WorkspacePaths
     paths = WorkspacePaths(tmp_path)
-    directory = tmp_path / 'results/sites/execution'
+    directory = tmp_path / 'src/usr/results/sites/execution'
     directory.mkdir(parents=True)
     for name, text in files.items():
         (directory / name).write_text(text)

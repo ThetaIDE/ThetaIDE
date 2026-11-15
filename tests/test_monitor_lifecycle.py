@@ -17,7 +17,7 @@ from frontend.runner_manager import JobManager
 def test_reused_experiment_streams_only_current_launch_and_all_parallel_seeds(tmp_path):
     app = QApplication.instance() or QApplication([])
     # Avoid starting a runner: these methods only need source paths and signals.
-    manager = SimpleNamespace(project_root=tmp_path, logs_dir=tmp_path / "results/logs",
+    manager = SimpleNamespace(project_root=tmp_path, results_root=tmp_path / "src/usr/results", logs_dir=tmp_path / "src/usr/results/logs",
                               _feeds={}, _streamed_hardware=set(), job_records=Mock(),
                               job_metrics=Mock(), job_hardware=Mock())
     for name in ("_execution_manifests", "_replicate_state", "_run_sources", "_run_dir", "_sweep_summaries"):
@@ -26,11 +26,11 @@ def test_reused_experiment_streams_only_current_launch_and_all_parallel_seeds(tm
                pid=20, started=100, agents=["ppo"])
     manager.jobs = {"job": job}
     for execution, pid, created, seeds in (("old", 10, 50, [1, 2]), ("current", 20, 110, [1, 3])):
-        root = tmp_path / "results/executions/g/variance" / execution
+        root = tmp_path / "src/usr/results/executions/g/variance" / execution
         root.mkdir(parents=True)
         runs = []
         for index, seed in enumerate(seeds):
-            logs = tmp_path / "results/logs/g" / execution
+            logs = tmp_path / "src/usr/results/logs/g" / execution
             version = f"version_{index}"
             directory = logs / "ppo" / version
             directory.mkdir(parents=True)
@@ -55,7 +55,7 @@ def test_reused_experiment_streams_only_current_launch_and_all_parallel_seeds(tm
         assert card.progress_fraction == expected
         card.close()
     # The coordinator records a resource wait as pending, independently of other seeds.
-    path = tmp_path / "results/executions/g/variance/current/manifest.json"
+    path = tmp_path / "src/usr/results/executions/g/variance/current/manifest.json"
     manifest = json.loads(path.read_text())
     manifest["runs"][1]["status"] = "pending"
     path.write_text(json.dumps(manifest))

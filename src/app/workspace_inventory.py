@@ -17,7 +17,9 @@ from src.app.workspace import WorkspacePaths
 EXCLUDED = {"__pycache__", ".git", "node_modules", ".pytest_cache"}
 
 
-def _files(root, excluded):
+def _files(root, excluded, skipped=()):
+    if root in skipped:
+        return
     if root.is_file() or root.is_symlink():
         yield root
     elif root.is_dir():
@@ -26,17 +28,17 @@ def _files(root, excluded):
             return
         for child in sorted(root.iterdir()):
             if child.name not in EXCLUDED:
-                yield from _files(child, excluded)
+                yield from _files(child, excluded, skipped)
 
 
 def inventory(paths: WorkspacePaths) -> dict:
-    """Record input/source/config bytes, symlinks, ownership state and references."""
+    """Record input/source/config bytes, symlinks, ownership state and references (run output is not an input)."""
     roots = [paths.research, *paths.managed_roots,
              paths.application / "src/app", paths.application / "frontend", *paths.bundled_roots]
     state = [paths.data_dir / name for name in ("components", "provider_overrides.json", "workspace.json",
                                                "config_overrides.json", "retained_packages")]
     excluded = set()
-    files = sorted(set(file for root in [*roots, *state] for file in _files(root, excluded)))
+    files = sorted(set(file for root in [*roots, *state] for file in _files(root, excluded, (paths.results,))))
     tracked = set()
     try:
         result = subprocess.run(["git", "ls-files", "-z"], cwd=paths.root, check=True, capture_output=True)

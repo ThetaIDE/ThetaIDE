@@ -24,7 +24,7 @@ def save_remote(tmp_path, remote):
 @pytest.mark.parametrize('scheduler', ['running', 'completed', 'failed', 'cancelled', 'timeout'])
 @pytest.mark.parametrize('marker', ['sealed', 'unmarked'])
 def test_completion_comes_from_artifacts_not_scheduler(tmp_path, monkeypatch, scheduler, marker):
-    logs = tmp_path / 'results/logs'
+    logs = tmp_path / 'src/usr/results/logs'
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     run = 'nested/run__execution'
     directory = logs / 'group' / run / 'agent/version_0'
@@ -70,7 +70,7 @@ def test_completion_comes_from_artifacts_not_scheduler(tmp_path, monkeypatch, sc
 
 
 def test_sealed_failed_run_without_runtime_exposes_saved_metrics(tmp_path, monkeypatch):
-    logs = tmp_path / 'results/logs'
+    logs = tmp_path / 'src/usr/results/logs'
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
     directory = logs / 'group/run/agent/version_0'
     directory.mkdir(parents=True)
@@ -83,7 +83,7 @@ def test_sealed_failed_run_without_runtime_exposes_saved_metrics(tmp_path, monke
 
 def test_sealed_failure_before_metrics_still_has_readable_result_files(tmp_path, monkeypatch):
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
-    directory = tmp_path / 'results/sites/execution'
+    directory = tmp_path / 'src/usr/results/sites/execution'
     directory.mkdir(parents=True)
     (directory / 'pipeline.log').write_text('Configuration failed')
     save_remote(tmp_path, dict(group='group', result_experiment_id='nested/run', execution_id='execution',
@@ -148,7 +148,7 @@ def test_shared_workspace_execution_completes_with_its_finalized_receipt():
 @pytest.mark.parametrize('state', ['failed', 'cancelled', 'timeout', 'out_of_memory', 'node_fail', 'submission_failed'])
 def test_terminated_unsealed_run_without_metrics_exposes_failure_logs(tmp_path, monkeypatch, state):
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
-    directory = tmp_path / 'results/sites/execution'
+    directory = tmp_path / 'src/usr/results/sites/execution'
     directory.mkdir(parents=True)
     (directory / 'pipeline.err').write_text('Worker stopped before final publication')
     record = dict(group='group', result_experiment_id='nested/run', execution_id='execution',

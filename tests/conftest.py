@@ -38,8 +38,10 @@ _RESULT_KINDS = ("logs", "checkpoints", "plots", "executions", "analysis")
 
 
 def _checkout_result_groups():
+    from src.app.workspace import WorkspacePaths
+    results = WorkspacePaths(PROJECT_ROOT).results
     return {f"{kind}/{group.name}" for kind in _RESULT_KINDS
-            for group in (PROJECT_ROOT / "results" / kind).glob("*") if group.is_dir()}
+            for group in (results / kind).glob("*") if group.is_dir()}
 
 
 def pytest_sessionstart(session):
@@ -53,7 +55,7 @@ def pytest_sessionfinish(session, exitstatus):
         reporter = session.config.pluginmanager.get_plugin("terminalreporter")
         if reporter is not None:
             reporter.write_line("Tests wrote results into the checkout: " + ", ".join(
-                f"results/{name}" for name in leaked), red=True)
+                f"src/usr/results/{name}" for name in leaked), red=True)
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
@@ -252,6 +254,15 @@ def _no_hub_network(monkeypatch):
     monkeypatch.setattr(
         sys.modules["frontend.hub.client"].HubClient, "fetch_index_async", lambda self, force=False: None
     )
+
+
+@pytest.fixture
+def own_workspace(tmp_path, monkeypatch):
+    """Select a copy of the checkout workspace in ``tmp_path``, so a run's results land in ``tmp_path``."""
+    shutil.copytree(checkout_workspace(), tmp_path, dirs_exist_ok=True)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("THETA_DATA_DIR", raising=False)
+    return tmp_path
 
 
 @pytest.fixture

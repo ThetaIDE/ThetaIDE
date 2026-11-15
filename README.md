@@ -131,7 +131,7 @@ plot_overrides:
 `data_module` and `evaluator` also accept a registered name as a string. `plots` selects figures as a list or mapping; `plot_overrides` adjusts a figure's parameters without changing that selection. Existing `plots.<figure>` options still work. Evaluators can implement Lightning's `Callback`, the `evaluate(model, data_source, cfg)` protocol, or the evaluation hook methods `on_eval_start`, `evaluate_step`, and `on_eval_end`. Evaluator parameters can include `enabled: false`; `frequency: 2` runs evaluation hooks every second validation epoch.
 
 Plots and reports are generated automatically at the end of a run. To regenerate them, pass the run's ID,
-which is its folder name under `results/logs/<group>/`:
+which is its folder name under `src/usr/results/logs/<group>/`:
 
 ```bash
 python -m src.app.core.plotting.manager thetaide/cartpole_ppo_baseline --wipe
@@ -156,11 +156,11 @@ python -m src.app.core.plotting.manager thetaide/cartpole_ppo_baseline --wipe
 │   │                          #   built-in app plugins (documentation, TensorBoard, arXiv papers) are in app/bundled/
 │   └── usr/                   # User-authored implementations, environments and rules
 │       ├── config/            # Your Hydra configs and profile overrides: experiment/, agent/, model/, env/, site/, plot/
-│       └── datasets/          # Local datasets (not tracked)
+│       ├── datasets/          # Local datasets (not tracked)
+│       └── results/           # Run output (not tracked): logs/, plots/, checkpoints/, tensorboard/
 ├── .thetaide/                 # IDE state, ownership records, retained packages and cache
 ├── tests/                     # pytest suite
-├── docs/                      # Documentation index, guides, reference, plans and media
-└── results/                   # Run output (not tracked): logs/, plots/, checkpoints/, tensorboard/
+└── docs/                      # Documentation index, guides, reference, plans and media
 ```
 
 ## Documentation

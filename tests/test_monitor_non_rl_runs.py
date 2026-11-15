@@ -124,7 +124,7 @@ def test_a_real_supervised_run_on_disk_charts():
     import csv
     from pathlib import Path
 
-    found = sorted(Path("results/logs").glob("*/*/*/version_*/metrics.csv"))
+    found = sorted(Path("src/usr/results/logs").glob("*/*/*/version_*/metrics.csv"))
     non_rl = []
     for path in found:
         with open(path) as handle:

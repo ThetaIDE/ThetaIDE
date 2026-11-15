@@ -104,7 +104,7 @@ def test_pipeline_invokes_registered_runner_once(tmp_path, runner):
         return
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / 'calls.txt').read_text() == ('alternate\n' if runner == 'Alternate' else 'called\n')
-    records = list((tmp_path / 'results/checkpoints').rglob('execution.json'))
+    records = list((tmp_path / 'src/usr/results/checkpoints').rglob('execution.json'))
     assert len(records) == 1
     record = json.loads(records[0].read_text())
     assert record['status'] == 'completed'
@@ -122,7 +122,7 @@ def test_pipeline_repeat_uses_worker_for_each_seed(tmp_path):
                             text=True, capture_output=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / 'calls.txt').read_text() == 'called\ncalled\n'
-    records = list((tmp_path / 'results/checkpoints').rglob('execution.json'))
+    records = list((tmp_path / 'src/usr/results/checkpoints').rglob('execution.json'))
     assert len(records) == 2
     assert len({json.loads(p.read_text())['run_id'] for p in records}) == 2
 
@@ -154,12 +154,12 @@ def test_pipeline_sweep_invokes_worker_once_per_trial(tmp_path):
     environment.pop('THETA_DATA_DIR', None)
     environment.pop('THETA_PROVIDER_SNAPSHOT', None)
     result = subprocess.run([sys.executable, str(root / 'run_pipeline.py'), 'probe',
-                             '++tuning.component=optuna', '++tuning.n_trials=2',
+                             '++tuning.component=optuna', '++tuning.options.optuna.n_trials=2',
                              '++tuning.metric=probe', '++tuning.direction=maximize'],
                             cwd=tmp_path, env=environment, text=True, capture_output=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / 'calls.txt').read_text() == 'called\ncalled\n'
-    records = list((tmp_path / 'results/checkpoints').rglob('execution.json'))
+    records = list((tmp_path / 'src/usr/results/checkpoints').rglob('execution.json'))
     assert len(records) == 2
     assert all(json.loads(p.read_text())['status'] == 'completed' for p in records)
 

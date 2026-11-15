@@ -13,7 +13,7 @@ def write_json(path, data):
 
 @pytest.fixture
 def logs(tmp_path, monkeypatch):
-    root = tmp_path / "results" / "logs"
+    root = tmp_path / "src/usr/results" / "logs"
     root.mkdir(parents=True)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     return root

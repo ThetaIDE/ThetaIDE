@@ -168,7 +168,7 @@ def test_sweep_card_labels_preserve_queue_identity_and_cancel_scope(tmp_path):
 
     app = QApplication.instance() or QApplication([])
     for method in ('ppo', 'dqn'):
-        root = tmp_path / 'results/checkpoints/g/experiment' / method
+        root = tmp_path / 'src/usr/results/checkpoints/g/experiment' / method
         root.mkdir(parents=True)
         (root / 'tuning_summary.json').write_text(json.dumps({
             'schema_version': 1, 'component': 'optuna', 'study': 'experiment-search', 'stop_reason': 'running',

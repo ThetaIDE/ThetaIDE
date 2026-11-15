@@ -53,7 +53,7 @@ def test_nested_results_can_be_discovered_read_and_plotted(tmp_path, monkeypatch
 
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
-    logs = tmp_path / "results/logs"
+    logs = tmp_path / "src/usr/results/logs"
     cfg = OmegaConf.create({"group": "group", "experiment_id": "path/dir/run", "seed": 73,
                             "plotting": {"enabled": True}, "plots": ["losses"]})
     _setup_output_dirs(cfg)
@@ -71,8 +71,8 @@ def test_nested_results_can_be_discovered_read_and_plotted(tmp_path, monkeypatch
     plotter = BasePlotter("test", paths=WorkspacePaths(tmp_path))
     assert plotter.get_experiment_config("group/path/dir/run")["seed"] == 73
     assert "ppo" in plotter.load_metrics("group", "group/path/dir/run")
-    assert plotter.get_effective_config("group/path/dir/run")[2] == tmp_path / "results/plots/group/path/dir/run"
-    manifest = tmp_path / "results/executions/group/path/dir/run/execution/manifest.json"
+    assert plotter.get_effective_config("group/path/dir/run")[2] == tmp_path / "src/usr/results/plots/group/path/dir/run"
+    manifest = tmp_path / "src/usr/results/executions/group/path/dir/run/execution/manifest.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(json.dumps({"runs": [{"status": "completed", "experiment_id": cfg.experiment_id,
                                              "agent": "ppo", "version": "version_0", "training_seed": 73}]}))
@@ -109,9 +109,9 @@ def test_slurm_nested_results_use_valid_script_names(tmp_path, tmp_path_factory,
                             "site": {"name": "cluster", "scheduler": "slurm", "python_executable": sys.executable},
                             "paradigm": "online_rl", "consolidate": consolidate, "plots": ["losses"]})
     record = submit(tmp_path, "group/path/dir/run", [], cfg)
-    directory = tmp_path / "results/sites" / record["execution_id"]
+    directory = tmp_path / "src/usr/results/sites" / record["execution_id"]
     assert (directory / "job.sbatch").is_file()
     assert len(submitted) == 1
     assert record["result_experiment_id"] == "path/dir/run/" + record["execution_id"]
     assert "#SBATCH --job-name=theta_" in submitted[0]
-    assert not (tmp_path / "results/plots/group/path/dir/run").exists()
+    assert not (tmp_path / "src/usr/results/plots/group/path/dir/run").exists()

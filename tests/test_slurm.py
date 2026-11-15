@@ -113,7 +113,7 @@ def test_slurm_script_is_depersonalized(site_configs):
     script = generate_sbatch_script(
         job_name="depersonalized_test",
         cmd_args=["+experiment=cartpole/test"],
-        log_dir="results/logs/slurm",
+        log_dir="src/usr/results/logs/slurm",
         cfg=cfg,
     )
     assert 'export PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"' in script

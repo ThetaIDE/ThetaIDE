@@ -14,8 +14,12 @@ def snapshots(lives):
                 continue
             path = Path(artifact["path"])
             if not path.is_absolute():
+                # Telemetry of a run with an output root names workspace-relative files under the
+                # results folder; the Results tab's manifest paths are results-relative and stay as they are.
                 from src.app.workspace import WorkspacePaths
-                path = WorkspacePaths.for_process().root / path
+                paths = WorkspacePaths.for_process()
+                if path.is_relative_to(paths.results_relative):
+                    path = paths.root / path
             # New telemetry carries only declarations, never arrays or graph payloads.
             data = artifact.get("data") or {}
             for visual in data.get("visuals", []):

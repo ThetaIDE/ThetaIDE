@@ -15,6 +15,7 @@ functionality from the modules of this package only:
 ``src.app.api.evaluation`` evaluator registration
 ``src.app.api.rulesets``   ruleset discovery and resolution
 ``src.app.api.telemetry``  run telemetry for engines outside Lightning
+``src.app.api.results``    read-only access to run results
 ``src.app.api.monitoring`` mechanistic monitors for engines outside Lightning
 ``src.app.api.plotting``   plotter base class and shared figure styling
 ``src.app.api.packages``   declared cross-package exports and selected capabilities
@@ -34,7 +35,7 @@ it.
 """
 from __future__ import annotations
 
-SDK_VERSION = "2.3"
+SDK_VERSION = "2.4"
 
 
 def sdk_requirement_error(spec) -> str | None:

@@ -242,7 +242,7 @@ def test_lightning_bridge_applies_live_settings_without_filtering_csv(tmp_path):
         logger.log_metrics({"val/loss": 1., "train/loss": 2.}, step=0)
         logger.save()
     finish_telemetry(SimpleNamespace(loggers=loggers))
-    version = next((tmp_path / "results/logs/g/e/m").glob("version_*"))
+    version = next((tmp_path / "logs/g/e/m").glob("version_*"))
     assert "val/loss" not in next(rec for rec in records(version) if rec["type"] == "metrics")["data"]
     assert "val/loss" in (version / "metrics.csv").read_text()
 

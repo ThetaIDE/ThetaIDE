@@ -23,7 +23,7 @@ def plots(tmp_path, monkeypatch):
     themes_package(tmp_path)
     selected = get_catalog(WorkspacePaths(tmp_path)).resolve('plotter', 'themes-dev/themes')
     cls = load_capability(*selected, paths=WorkspacePaths(tmp_path))
-    bundle = tmp_path / 'results/checkpoints/AL/codex/example/method/run-a/bundle'
+    bundle = tmp_path / 'src/usr/results/checkpoints/AL/codex/example/method/run-a/bundle'
     bundle.mkdir(parents=True)
     meta = {'artifact_version':1,'status':'complete','action_feature':'a_2',
         'metrics':{'heldout_constant_action_nll_per_scored_step':.67,'heldout_mixture_nll_per_scored_step':.47},

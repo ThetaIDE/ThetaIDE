@@ -15,7 +15,7 @@ def test_trial_log_versions_are_stable_and_study_specific():
 def test_sweep_queue_groups_active_trials_and_tracks_resume(tmp_path):
     from frontend.job_manager import JobManager
 
-    root = tmp_path / "results/checkpoints/g/e/m"
+    root = tmp_path / "src/usr/results/checkpoints/g/e/m"
     root.mkdir(parents=True)
     summary = {"schema_version": 1, "component": "optuna", "study": "s", "stop_reason": "running", "requested_trials": 4,
                "initial_trials": 1, "trials": [
@@ -25,7 +25,7 @@ def test_sweep_queue_groups_active_trials_and_tracks_resume(tmp_path):
                    {"id": 3, "state": "running", "log_version": "version_three"}]}
     (root / "tuning_summary.json").write_text(json.dumps(summary))
     manager = JobManager(store_path=tmp_path / "jobs/jobs.db", project_root=tmp_path,
-                         logs_dir=tmp_path / "results/logs")
+                         logs_dir=tmp_path / "src/usr/results/logs")
     job = {"job_id": "j", "group": "g", "experiment_id": "e", "status": "running", "agents": ["m"]}
     items = manager._execution_queue_items(job)
     assert len(items) == 4
