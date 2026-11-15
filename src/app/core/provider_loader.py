@@ -186,12 +186,16 @@ def discover_kind(kind, paths=None):
     return [(p, c) for p in get_catalog(paths).packages for c in p.capabilities if c.kind == kind]
 
 
+# Theta-owned worker bootstraps; they ship with the application, never with a workspace.
+APPLICATION_BOOTSTRAPS = frozenset({"src/app/train.py", "src/app/pipeline/repeated_task.py"})
+
+
 def resolve_resource(value, paths=None):
-    """Resolve an explicit package URI or workspace input path."""
+    """Resolve an application bootstrap, an explicit package URI or a workspace input path."""
     from src.app.core.provider_catalog import get_catalog
     paths = paths or WorkspacePaths.for_process()
     value = str(value).replace("\\", "/")
-    if value == 'src/app/train.py':
+    if value in APPLICATION_BOOTSTRAPS:
         return paths.application / value
     if value.startswith("package://"):
         package_id, _, relative = value[10:].partition("/")

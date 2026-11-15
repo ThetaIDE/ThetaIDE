@@ -10,18 +10,21 @@ from omegaconf import OmegaConf
 
 @pytest.mark.parametrize("explicit_searchpath", [False, True])
 def test_worker_composes_component_site_config(tmp_path, explicit_searchpath):
+    from component_fixtures import cluster_site
     root = Path(__file__).resolve().parents[1]
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "config.yaml").write_text("defaults:\n  - site: ncshare/common\n  - _self_\n")
+    workspace = tmp_path / "workspace"
+    cluster_site(workspace)
+    config = workspace / "src/usr/config"
+    config.mkdir(parents=True)
+    (config / "config.yaml").write_text("defaults:\n  - site: cluster/common\n  - _self_\n")
     command = [sys.executable, "-m", "src.app.pipeline.provider_worker",
                "src/app/pipeline/repeated_task.py"]
     if explicit_searchpath:
         from src.app.workspace import WorkspacePaths
-        roots = [p.as_uri() for p in WorkspacePaths(root).config_roots() if p.is_dir()]
+        roots = [p.as_uri() for p in WorkspacePaths(workspace).config_roots() if p.is_dir()]
         command.append("hydra.searchpath=[" + ",".join(roots) + "]")
-    command.extend(["--config-path", str(config), "--cfg", "job"])
-    environment = {**os.environ, "THETA_WORKSPACE": str(root),
+    command.extend(["--cfg", "job"])
+    environment = {**os.environ, "THETA_WORKSPACE": str(workspace),
                    "THETA_DATA_DIR": str(tmp_path / "data")}
     environment.pop("THETA_PROVIDER_SNAPSHOT", None)
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True,
@@ -33,21 +36,23 @@ def test_worker_composes_component_site_config(tmp_path, explicit_searchpath):
 
 
 def test_multirun_flag_before_overrides_launches_trials(tmp_path):
+    from component_fixtures import cluster_site
     root = Path(__file__).resolve().parents[1]
-    config = tmp_path / "config"
-    config.mkdir()
+    workspace = tmp_path / "workspace"
+    cluster_site(workspace)
+    config = workspace / "src/usr/config"
+    config.mkdir(parents=True)
     (config / "config.yaml").write_text(
-        "defaults:\n  - site: ncshare/common\n  - _self_\nprobe: 0\n")
+        "defaults:\n  - site: cluster/common\n  - _self_\nprobe: 0\n")
     # Exercise Hydra's real parser, sweeper and launcher without starting training.
     script = (
         "import sys; from src.app.pipeline import repeated_task as worker; "
         "worker.run_objective = lambda cfg: print('TRIAL_PROBE', cfg.probe); "
         "sys.argv = ['repeated_task.py', *sys.argv[1:]]; worker.launch()"
     )
-    command = [sys.executable, "-c", script, "--config-path", str(config),
-               "--multirun", "probe=1,2", "hydra/sweeper=basic",
+    command = [sys.executable, "-c", script, "--multirun", "probe=1,2", "hydra/sweeper=basic",
                "hydra.sweep.dir=" + (tmp_path / "sweep").as_posix()]
-    environment = {**os.environ, "THETA_WORKSPACE": str(root),
+    environment = {**os.environ, "THETA_WORKSPACE": str(workspace),
                    "THETA_DATA_DIR": str(tmp_path / "data")}
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True,
                             text=True, timeout=30)

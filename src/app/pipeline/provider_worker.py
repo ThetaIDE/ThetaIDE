@@ -90,8 +90,8 @@ def main():
     from src.app.services.resource_budget import configure_worker_threads
     configure_worker_threads()
     with research_activity():
-        allowed = {"src/app/train.py", "src/app/pipeline/repeated_task.py"}
-        if sys.argv[1] not in allowed:
+        from src.app.core.provider_loader import APPLICATION_BOOTSTRAPS
+        if sys.argv[1] not in APPLICATION_BOOTSTRAPS:
             raise ValueError("Training workers accept only Theta-owned bootstraps; select a registered paradigm runner")
         run(sys.argv[1], sys.argv[2:])
 
