@@ -12,24 +12,10 @@ import torch.nn as nn
 from omegaconf import OmegaConf
 
 # Core registries and factories
-from src.app.core.model_registry import MODEL_REGISTRY, build_model, register_model, get_model_class
-from src.app.core.datamodule_registry import (
-    DATAMODULE_REGISTRY,
-    get_datamodule_class,
-    register_datamodule,
-    list_registered_datamodules,
-)
-from src.app.core.eval_registry import (
-    EVALUATOR_REGISTRY,
-    get_evaluator_class,
-    register_evaluator,
-)
-from src.app.core.plotter_registry import (
-    PLOTTER_REGISTRY,
-    get_plotter_class,
-    register_plotter,
-)
-from src.app.core.agent_registry import AGENT_REGISTRY, register_agent
+from src.app.core.model_registry import build_model
+from src.app.core.datamodule_registry import get_datamodule_class
+from src.app.core.eval_registry import get_evaluator_class
+from src.app.core.plotter_registry import get_plotter_class
 from src.app.core.base_agent import OfflineAgentBase, OnlineAgentBase
 
 # Pipeline orchestration and command builders
@@ -48,6 +34,28 @@ from src.app.core.plotting.base import clean_label, get_style, get_style_info, m
 # ==============================================================================
 # 1. Algorithm & Runner Engine Configuration Adherence
 # ==============================================================================
+
+
+def declare_provider(workspace, kind, capability, source, entry_point):
+    """Author a native package for one capability and select its workspace for the process."""
+    import json
+    from src.app.workspace import WorkspacePaths
+    root = WorkspacePaths(workspace).user(kind) / capability
+    root.mkdir(parents=True)
+    (root / "provider.py").write_text(source, encoding="utf-8")
+    (root / ".theta_component.json").write_text(json.dumps({
+        "id": capability, "name": capability, "kind": kind, "version": "1.0.0",
+        "storage_version": 3, "api_version": 1,
+        "capabilities": [{"id": capability, "kind": kind, "entry_point": f"provider.py:{entry_point}"}],
+        "payload": {"implementations": ["provider.py"], "resources": [], "configs": {}},
+    }), encoding="utf-8")
+
+
+@pytest.fixture
+def provider_workspace(tmp_path, monkeypatch):
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    return tmp_path
+
 
 class TestAlgorithmConfigurationAdherence:
     """Verify that user algorithm choices and hyperparameters are faithfully passed to runners."""
@@ -174,19 +182,17 @@ class TestModelConfigurationAdherence:
         assert "++model.fyd=0.05" in overrides
         assert "++model.ecm_dthr=0.03" in overrides
 
-    def test_build_model_instantiates_with_user_hyperparameters(self):
-        """build_model must pass user hyperparameters into the registered model class constructor."""
-        @register_model("e2e_test_nn")
-        class MockCustomModel(nn.Module):
-            def __init__(self, hidden_dim: int = 32, num_layers: int = 1, use_norm: bool = False, **kwargs):
-                super().__init__()
-                self.hidden_dim = hidden_dim
-                self.num_layers = num_layers
-                self.use_norm = use_norm
-                self.linear = nn.Linear(hidden_dim, 2)
-
-            def forward(self, x):
-                return self.linear(x)
+    def test_build_model_instantiates_with_user_hyperparameters(self, provider_workspace):
+        """build_model must pass user hyperparameters into the declared model class constructor."""
+        declare_provider(provider_workspace, "model", "e2e_test_nn", (
+            "import torch.nn as nn\n"
+            "class MockCustomModel(nn.Module):\n"
+            "    def __init__(self, hidden_dim=32, num_layers=1, use_norm=False, **kwargs):\n"
+            "        super().__init__()\n"
+            "        self.hidden_dim, self.num_layers, self.use_norm = hidden_dim, num_layers, use_norm\n"
+            "        self.linear = nn.Linear(hidden_dim, 2)\n"
+            "    def forward(self, x):\n"
+            "        return self.linear(x)\n"), "MockCustomModel")
 
         # User passes non-default hyperparameters: hidden_dim=512, num_layers=4, use_norm=True
         user_cfg = OmegaConf.create({
@@ -199,7 +205,7 @@ class TestModelConfigurationAdherence:
         })
 
         model = build_model(user_cfg, env=None)
-        assert isinstance(model, MockCustomModel)
+        assert type(model).__name__ == "MockCustomModel"
         # Ensure user configuration wasn't ignored or reset to default (32 / 1 / False)
         assert model.hidden_dim == 512
         assert model.num_layers == 4
@@ -213,18 +219,16 @@ class TestModelConfigurationAdherence:
 class TestDataLoaderConfigurationAdherence:
     """Verify that pluggable DataLoaders honor user kwargs and respect the 5-tier precedence hierarchy."""
 
-    def test_datamodule_custom_kwargs_passed_to_instance(self):
+    def test_datamodule_custom_kwargs_passed_to_instance(self, provider_workspace):
         """Pluggable DataModule constructor must receive all user-specified data kwargs."""
-        @register_datamodule("e2e_custom_loader")
-        class MockCustomDataModule:
-            def __init__(self, batch_size: int = 32, normalize: bool = False, train_split: float = 0.8, **kwargs):
-                self.batch_size = batch_size
-                self.normalize = normalize
-                self.train_split = train_split
-                self.extra_kwargs = kwargs
+        declare_provider(provider_workspace, "datamodule", "e2e_custom_loader", (
+            "class MockCustomDataModule:\n"
+            "    def __init__(self, batch_size=32, normalize=False, train_split=0.8, **kwargs):\n"
+            "        self.batch_size, self.normalize, self.train_split = batch_size, normalize, train_split\n"
+            "        self.extra_kwargs = kwargs\n"), "MockCustomDataModule")
 
         cls = get_datamodule_class("e2e_custom_loader")
-        assert cls is MockCustomDataModule
+        assert cls.__name__ == "MockCustomDataModule"
 
         # User overrides batch_size to 128, normalize to True, train_split to 0.85
         user_data_cfg = {
@@ -351,19 +355,17 @@ class TestCheckpointAndEvaluatorAdherence:
         best_ckpts = [c for c in trainer.callbacks if isinstance(c, ModelCheckpoint) and c.filename == "best_model"]
         assert len(best_ckpts) == 0
 
-    def test_evaluator_registration_and_instantiation(self):
-        """Custom evaluators registered via @register_evaluator must resolve and accept parameters."""
-        @register_evaluator("e2e_clinical_verifier")
-        class MockClinicalVerifier:
-            def __init__(self, threshold: float = 0.5, horizon: int = 6):
-                self.threshold = threshold
-                self.horizon = horizon
-
-            def evaluate(self, predictions):
-                return {"compliance_score": 0.94}
+    def test_evaluator_registration_and_instantiation(self, provider_workspace):
+        """Declared evaluators must resolve and accept parameters."""
+        declare_provider(provider_workspace, "evaluator", "e2e_clinical_verifier", (
+            "class MockClinicalVerifier:\n"
+            "    def __init__(self, threshold=0.5, horizon=6):\n"
+            "        self.threshold, self.horizon = threshold, horizon\n"
+            "    def evaluate(self, predictions):\n"
+            "        return {'compliance_score': 0.94}\n"), "MockClinicalVerifier")
 
         cls = get_evaluator_class("e2e_clinical_verifier")
-        assert cls is MockClinicalVerifier
+        assert cls.__name__ == "MockClinicalVerifier"
 
         verifier = cls(threshold=0.85, horizon=12)
         assert verifier.threshold == 0.85
@@ -414,15 +416,15 @@ class TestPlottingConfigurationAdherence:
         # Verify edge handling and calculation
         assert smoothed[-1] == pytest.approx((6.0 + 7.0 + 8.0) / 3.0)
 
-    def test_plotter_registry_discovery(self):
-        """Plotter components registered via @register_plotter must be discoverable."""
-        @register_plotter("e2e_custom_reporter")
-        class MockReporterPlotter:
-            def plot(self):
-                return True
+    def test_plotter_registry_discovery(self, provider_workspace):
+        """Declared plotter components must be discoverable."""
+        declare_provider(provider_workspace, "plotter", "e2e_custom_reporter", (
+            "class MockReporterPlotter:\n"
+            "    def plot(self):\n"
+            "        return True\n"), "MockReporterPlotter")
 
         cls = get_plotter_class("e2e_custom_reporter")
-        assert cls is MockReporterPlotter
+        assert cls.__name__ == "MockReporterPlotter" and cls().plot() is True
 
 
 # ==============================================================================
