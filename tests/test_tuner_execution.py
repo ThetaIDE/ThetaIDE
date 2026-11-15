@@ -78,7 +78,7 @@ p.write_text(json.dumps({'trials': [{'id': 0, 'state': 'complete', 'value': 7}, 
     install(fresh)
     restore(fresh, child)
     plan = record_plan(child)
-    continued = read_json(fresh / plan.artifact('search').path)
+    continued = read_json(WorkspacePaths(fresh).results / plan.artifact('search').path)
     assert [item['state'] for item in continued['trials']] == ['complete', 'failed']
     assert continued['parent'] == parent['execution_id']
     assert not list(root.rglob('*.sqlite'))
@@ -117,7 +117,7 @@ def test_compatibility_keeps_objective_and_search_space_exact(tmp_path):
     assert compatibility(cfg, paths=paths) != compatibility(other, paths=paths)
 
 
-@pytest.mark.parametrize('path', ['/escape', '../escape', 'src/usr/input', 'results/grid/other/state.json'])
+@pytest.mark.parametrize('path', ['/escape', '../escape', 'grid/state.json', 'grid/other/state.json'])
 def test_artifacts_are_scoped_to_the_execution(path):
     with pytest.raises(ValueError):
         TunerExecutionPlan('grid', 'a'*32, artifacts=(TunerArtifact('state', path),))
@@ -141,18 +141,18 @@ def test_final_publication_drains_multiple_artifacts_with_one_queue_slot(tmp_pat
     runtime, work = tmp_path / 'runtime', tmp_path / 'work'
     runtime.mkdir(); work.mkdir(); install(runtime)
     identity = 'a' * 32
-    artifacts = (TunerArtifact('one', f'results/grid/{identity}/first.json'),
-                 TunerArtifact('two', f'results/grid/{identity}/second.csv'))
+    artifacts = (TunerArtifact('one', f'grid/{identity}/first.json'),
+                 TunerArtifact('two', f'grid/{identity}/second.csv'))
     plan = TunerExecutionPlan('fixture-grid', identity, artifacts=artifacts)
     record = {'execution_id': identity, 'project_id': 'fixture', 'group': 'g',
               'result_experiment_id': 'e', 'tuner_execution': plan.record()}
     (runtime / 'results/sites' / identity).mkdir(parents=True)
     for artifact in artifacts:
-        path = runtime / artifact.path; path.parent.mkdir(parents=True, exist_ok=True)
+        path = WorkspacePaths(runtime).results / artifact.path; path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('{"trials": []}')  # Complete snapshot bytes need no trailing newline.
     publisher = Publisher(runtime, work, record, {**DEFAULTS, 'max_queue_files': 1})
     publisher.finish(seconds=10)
-    assert {item['path'] for item in publisher.manifest['files']} == {item.path for item in artifacts}
+    assert {item['path'] for item in publisher.manifest['files']} == {WorkspacePaths(runtime).results_relative + '/' + item.path for item in artifacts}
     for item in publisher.manifest['files']:
         data = b''.join((work / chunk['source']).read_bytes() for chunk in item['chunks'])
         assert json.loads(data) == {'trials': []}
@@ -165,7 +165,7 @@ def test_snapshot_hook_must_publish_a_closed_file(tmp_path, monkeypatch):
     record = {'execution_id': 'a'*32, 'project_id': 'fixture', 'group': 'g',
               'result_experiment_id': 'e', 'tuner_execution': plan.record()}
     (runtime / 'results/sites' / ('a'*32)).mkdir(parents=True)
-    state = runtime / plan.artifact('search').path; state.parent.mkdir(parents=True)
+    state = WorkspacePaths(runtime).results / plan.artifact('search').path; state.parent.mkdir(parents=True)
     state.write_text('{}')
     publisher = Publisher(runtime, tmp_path / 'work', record, DEFAULTS)
     monkeypatch.setattr('src.app.pipeline.tuner_execution.remote_tuner',
@@ -194,4 +194,4 @@ p.write_text('{"trials": []}')
     fake_submit(monkeypatch)
     record = execution.submit(root, 'g/e', [], cfg)
     assert execution.run(root, record['execution_id']) == 0
-    assert (root / record_plan(record).artifact('search').path).is_file()
+    assert (WorkspacePaths(root).results / record_plan(record).artifact('search').path).is_file()

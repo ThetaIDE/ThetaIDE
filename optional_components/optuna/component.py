@@ -277,8 +277,8 @@ class OptunaTuner:
                 if explicit else get_next_study_name(cfg.group, cfg.experiment_id, method_name, self.storage(cfg)))
 
     def storage(self, cfg):
-        from .utils import DEFAULT_OPTUNA_DB_URL
-        value = str(self._options(cfg)["storage"] or DEFAULT_OPTUNA_DB_URL)
+        from .utils import default_storage_url
+        value = str(self._options(cfg)["storage"] or default_storage_url())
         return value.replace("${experiment_id}", str(cfg["experiment_id"])) if "${experiment_id}" in value else value
 
     def prepare(self, cfg, storage, study_name):
@@ -326,11 +326,13 @@ class OptunaTuner:
         """Close interrupted trials before the allocation's final database export."""
         import optuna
         from .utils import write_study_summary
-        database = runtime / 'results/optuna' / record['execution_id'] / 'study.sqlite'
+        from src.app.api.workspace import WorkspacePaths
+        results = WorkspacePaths(runtime).results
+        database = results / 'optuna' / record['execution_id'] / 'study.sqlite'
         if not database.is_file():
             return
         storage = 'sqlite:///' + str(database.resolve())
-        checkpoint = runtime / 'results/checkpoints' / record['group'] / record['result_experiment_id']
+        checkpoint = results / 'checkpoints' / record['group'] / record['result_experiment_id']
         import json
         for summary in checkpoint.glob('*/tuning_summary.json'):
             name = json.loads(summary.read_text())['study']
@@ -347,12 +349,11 @@ class OptunaTuner:
     def cancel(self, cfg, method, storage, study_name):
         """The selected method stopped: close only this launch's outstanding trials."""
         import optuna
-        from pathlib import Path
-        from .utils import write_study_summary
+        from .utils import results_root, write_study_summary
         study = optuna.load_study(study_name=study_name, storage=storage)
         initial = int(study.user_attrs.get("theta_initial_trials", 0))
         for trial in study.trials[initial:]:
             if trial.state == optuna.trial.TrialState.RUNNING:
                 study.tell(trial.number, state=optuna.trial.TrialState.PRUNED)
         study.set_user_attr("theta_last_stop_reason", "cancelled")
-        write_study_summary(study, Path("results/checkpoints") / str(cfg.group) / str(cfg.experiment_id) / method)
+        write_study_summary(study, results_root() / "checkpoints" / str(cfg.group) / str(cfg.experiment_id) / method)

@@ -226,10 +226,17 @@ class Run:
 
 
 def version_dir_for(
-    group: str, experiment_id: str, agent: str, base_dir: str | Path = "results/logs", version: str | None = None
+    group: str, experiment_id: str, agent: str, base_dir: str | Path | None = None, version: str | None = None
 ) -> Path:
-    """results/logs/<group>/<experiment_id>/<agent>/version_N: the next free N unless `version` is given."""
+    """<logs>/<group>/<experiment_id>/<agent>/version_N: the next free N unless `version` is given.
+
+    <logs> is `base_dir`, or the workspace's results logs.
+    """
     from src.app.core.contract_logger import ContractLogger
+
+    if base_dir is None:
+        from src.app.workspace import WorkspacePaths
+        base_dir = WorkspacePaths.for_process().results / "logs"
 
     return ContractLogger._resolve_version_dir(
         Path(base_dir) / group / experiment_id / agent.replace("/", "_"), version
@@ -243,7 +250,7 @@ def init(
     *,
     version_dir: str | Path | None = None,
     version: str | None = None,
-    base_dir: str | Path = "results/logs",
+    base_dir: str | Path | None = None,
     sinks: Iterable[str | Sink] | None = None,
     config: dict[str, Any] | None = None,
     system_interval: float = DEFAULT_INTERVAL,

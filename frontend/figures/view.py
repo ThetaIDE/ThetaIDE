@@ -225,7 +225,7 @@ class FigureWorkspace(QWidget):
         if self.cmb_experiment.count():
             self._on_experiment_changed()
         else:
-            self.lbl_catalog_note.setText("No runs with metrics found under results/logs.")
+            self.lbl_catalog_note.setText(f"No runs with metrics found under {self.source.paths.results / 'logs'}.")
 
     def _rescan(self) -> None:
         self.source.invalidate()

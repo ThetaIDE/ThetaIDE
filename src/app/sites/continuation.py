@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from .storage import digest, read_json, safe_path, write_json
+from .storage import digest, read_json, results_relative, results_root, safe_path, write_json
 
 
 def compatibility(config, *, paths=None):
@@ -32,14 +32,14 @@ def pin(root, record, request):
     if not previous.get('execution_policy') or previous.get('remote_cleaned_at'):
         raise ValueError('Prior execution has no retained managed publication')
     work = Path(previous['execution_policy']['work_root'])
-    publication = read_json(work / 'results/sites' / previous['execution_id'] / 'publication.json')
+    publication = read_json(results_root(work) / 'sites' / previous['execution_id'] / 'publication.json')
     from src.app.pipeline.tuner_execution import record_plan, record_config
     from src.app.workspace import WorkspacePaths
     paths = WorkspacePaths(root)
     prior_plan, next_plan = record_plan(previous, paths=paths), record_plan(record, paths=paths)
     if not prior_plan or not next_plan or prior_plan.component != next_plan.component:
         raise ValueError('Continuation requires the same portable tuner provider')
-    artifacts = {item.path: item for item in prior_plan.artifacts if item.continuation}
+    artifacts = {results_relative(work, item.path): item for item in prior_plan.artifacts if item.continuation}
     matches = [item for item in publication.get('files', []) if item['path'] in artifacts and item['sha256'] == request['export_sha256']]
     if len(matches) != 1: raise ValueError('Selected verified database export is missing')
     if not next_plan.artifact(artifacts[matches[0]['path']].id).continuation:
@@ -49,7 +49,7 @@ def pin(root, record, request):
     if record['source_sha256'] != previous['source_sha256']:
         raise ValueError('Continuation requires identical source/dependency pins; migration is explicit')
     lineage = previous.get('continuation', {}).get('lineage_id', previous['execution_id'])
-    for path in (Path(root) / 'results/sites').glob('*/submission.json'):
+    for path in (results_root(root) / 'sites').glob('*/submission.json'):
         other = read_json(path)
         if other['execution_id'] == record['execution_id']: continue
         if other.get('continuation', {}).get('lineage_id') == lineage:
@@ -85,7 +85,7 @@ def restore(runtime, record):
     artifact = plan.artifact(lineage.get('artifact_id', next((item.id for item in plan.artifacts if item.continuation), '')))
     if not artifact.continuation:
         raise ValueError('Tuner artifact does not support continuation')
-    target = safe_path(runtime, artifact.path)
+    target = safe_path(results_root(runtime), artifact.path)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix('.restoring')
     try:
@@ -111,4 +111,4 @@ def restore(runtime, record):
         if digest(destination) != item['sha256']: raise ValueError('Checkpoint dependency checksum mismatch')
     remote_tuner(plan, paths=paths).restore_continuation(record['config'], plan=plan,
         runtime=Path(runtime), lineage=lineage)
-    write_json(Path(runtime) / 'results/sites' / record['execution_id'] / 'lineage.json', lineage)
+    write_json(results_root(runtime) / 'sites' / record['execution_id'] / 'lineage.json', lineage)

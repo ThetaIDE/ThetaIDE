@@ -1,6 +1,6 @@
 # Phase 5 implementation plan: results in the user layer and explicit remote bundles
 
-Status: written 2026-11-15; units 5a–5e not started. This plan expands phase 5 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#phase-5--results-in-the-user-layer-and-remote-bundles); where they differ, its [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
+Status: 5a and 5b done 2026-11-15; 5c–5e not started. This plan expands phase 5 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#phase-5--results-in-the-user-layer-and-remote-bundles); where they differ, its [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
 
 ## Goal
 
@@ -50,7 +50,7 @@ Excluded: `src/usr/results`, `src/usr/datasets` (data has its own transfer and m
 
 ## Results paths
 
-`docs/development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md` lists every literal `results/...` path. Each moves to `WorkspacePaths.results` (or a path derived from it). Site paths name the remote layout as well; the remote workspace is a workspace like any other, so its results are also `src/usr/results` and they move together with the bundle format.
+Every results path is `WorkspacePaths.results` or derived from it (unit 5b); portable strings use `WorkspacePaths.results_relative`. Site paths name the remote layout as well; the remote workspace is a workspace like any other, so its results are also `src/usr/results` and they move together with the bundle format.
 
 ## Units
 

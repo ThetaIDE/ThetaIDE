@@ -51,17 +51,9 @@ class SaveInitialCheckpointCallback(Callback):
         if self.isolated or self.cfg.get("theta_tuning"):
             trainer.save_checkpoint(os.path.join(self.ckpt_dir, "epoch_000.ckpt"))
             return
-        from hydra.utils import get_original_cwd
+        from src.app.workspace import WorkspacePaths
 
-        try:
-            base_root = get_original_cwd()
-        except (ValueError, AttributeError) as e:
-            logger.debug("Hydra original cwd unavailable (%s), using os.getcwd()", e)
-            base_root = os.getcwd()
-        except Exception as e:
-            logger.debug("Unexpected error getting Hydra original cwd (%s), using os.getcwd()", e)
-            base_root = os.getcwd()
-        parent_ckpt_root = os.path.join(base_root, "results/checkpoints", self.cfg.group, self.cfg.experiment_id)
+        parent_ckpt_root = os.path.join(WorkspacePaths.for_process().results, "checkpoints", self.cfg.group, self.cfg.experiment_id)
         os.makedirs(parent_ckpt_root, exist_ok=True)
         method_name = get_method_name(self.cfg)
         named_ckpt = os.path.join(parent_ckpt_root, f"{method_name}.ckpt")
@@ -228,7 +220,7 @@ def _record_only(logger_, selection):
     return logger_
 
 
-def setup_loggers(cfg, base_root):
+def setup_loggers(cfg, results_root):
     from src.app.telemetry.selection import selection_from_config
     from src.app.core.run_logger_plugins import RunLoggerContext, create_run_loggers
 
@@ -240,7 +232,7 @@ def setup_loggers(cfg, base_root):
     exp_id = str(
         cfg.get("experiment_id", "default_exp") if hasattr(cfg, "get") else getattr(cfg, "experiment_id", "default_exp")
     )
-    log_dir = os.path.join(base_root, "results/logs", group_name, exp_id)
+    log_dir = os.path.join(results_root, "logs", group_name, exp_id)
     logger_kwargs = {}
     if cfg.get("variability_run_id"):
         logger_kwargs["version"] = str(cfg.get("variability_version", "version_0")).removeprefix("version_")
@@ -251,7 +243,7 @@ def setup_loggers(cfg, base_root):
             logger_kwargs["version"] = version
     loggers = [_record_only(CSVLogger(log_dir, name=method_name, **logger_kwargs), selection)]
     run_context = RunLoggerContext(
-        base_root=Path(base_root).resolve(),
+        results_root=Path(results_root).resolve(),
         group_name=group_name,
         experiment_id=exp_id,
         method_name=method_name,
@@ -303,18 +295,10 @@ def build_trainer(cfg, model=None, *, context=None):
         agent_seed = agent_seed.get("seed", default_seed)
     L.seed_everything(context.seed if context is not None else agent_seed)
 
-    from hydra.utils import get_original_cwd
+    from src.app.workspace import WorkspacePaths
 
-    try:
-        base_root = get_original_cwd()
-    except (ValueError, AttributeError) as e:
-        logger.debug("Hydra original cwd unavailable (%s), using os.getcwd()", e)
-        base_root = os.getcwd()
-    except Exception as e:
-        logger.debug("Unexpected error getting Hydra original cwd (%s), using os.getcwd()", e)
-        base_root = os.getcwd()
-
-    loggers = setup_loggers(cfg, base_root)
+    results_root = WorkspacePaths.for_process().results
+    loggers = setup_loggers(cfg, results_root)
 
     from hydra.core.hydra_config import HydraConfig
 
@@ -332,13 +316,13 @@ def build_trainer(cfg, model=None, *, context=None):
         cfg.get("experiment_id", "default_exp") if hasattr(cfg, "get") else getattr(cfg, "experiment_id", "default_exp")
     )
     if cfg.get("variability_run_id"):
-        ckpt_dir = os.path.join(base_root, "results/checkpoints", group_name, exp_id, method_name,
+        ckpt_dir = os.path.join(results_root, "checkpoints", group_name, exp_id, method_name,
                                 str(cfg.get("variability_version", "version_0")))
     else:
-        ckpt_dir = os.path.join(base_root, "results/checkpoints", group_name, exp_id, method_name, trial_id)
+        ckpt_dir = os.path.join(results_root, "checkpoints", group_name, exp_id, method_name, trial_id)
     from src.app.pipeline.trial_artifacts import trial_checkpoint_dir_from_config
 
-    method_root = Path(base_root) / "results/checkpoints" / group_name / exp_id / method_name
+    method_root = Path(results_root) / "checkpoints" / group_name / exp_id / method_name
     trial_dir = trial_checkpoint_dir_from_config(method_root, cfg)
     if trial_dir is not None:
         ckpt_dir = str(trial_dir)
@@ -573,6 +557,9 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
     from hydra.core.hydra_config import HydraConfig
 
     from src.app.core.metadata import collect_run_metadata, save_git_diff
+    from src.app.workspace import WorkspacePaths
+
+    results_root = WorkspacePaths.for_process().results
 
     hydra_output_dir = None
     if HydraConfig.initialized():
@@ -624,7 +611,7 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
 
     try:
         atomic_yaml_save(cfg, os.path.join(ckpt_dir, "config.yaml"))
-        exp_ckpt_root = os.path.join("results/checkpoints", cfg.group, cfg.experiment_id)
+        exp_ckpt_root = os.path.join(results_root, "checkpoints", cfg.group, cfg.experiment_id)
         os.makedirs(exp_ckpt_root, exist_ok=True)
         if context is None:
             atomic_yaml_save(cfg, os.path.join(exp_ckpt_root, "config.yaml"))
@@ -658,7 +645,7 @@ def finalize_training(trainer, cfg, ckpt_dir, training_time, start_time, end_tim
             except Exception as e:
                 logger.warning("Failed to save/flush logger %s: %s", lg, e)
 
-    exp_log_root = os.path.join("results/logs", cfg.group, cfg.experiment_id)
+    exp_log_root = os.path.join(results_root, "logs", cfg.group, cfg.experiment_id)
     os.makedirs(exp_log_root, exist_ok=True)
     try:
         if context is None:

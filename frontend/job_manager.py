@@ -27,7 +27,7 @@ class JobManager(RunnerManager):
         paths = WorkspacePaths(project_root) if project_root else WorkspacePaths.for_process()
         self.project_root = paths.root
         self.logs_dir = Path(logs_dir or paths.results / 'logs').resolve()
-        store_path = Path(store_path or paths.results / 'jobs/jobs.db').resolve()
+        store_path = Path(store_path or paths.data_dir / 'runs/jobs/jobs.db').resolve()
         self.jobs_dir = store_path.parent
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.ipc_dir = self.jobs_dir / 'runner'

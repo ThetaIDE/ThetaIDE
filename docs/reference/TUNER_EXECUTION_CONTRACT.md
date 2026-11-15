@@ -33,23 +33,25 @@ A portable tuner implements these methods in addition to the local protocol:
 For example:
 
 ```python
-from src.app.pipeline.tuner_execution import (
+from src.app.api.tuning import (
     TunerArtifact, TunerExecutionPlan, TunerLaunchBindings,
 )
 
 plan = TunerExecutionPlan(
     component="example", execution_id=execution_id,
     artifacts=(TunerArtifact(
-        "search", f"results/example/{execution_id}/state.json", continuation=True,
+        "search", f"example/{execution_id}/state.json", continuation=True,
     ),),
     storage_kind="managed", concurrency=1, trials=20,
     distributions=("example-tuner",),
 )
 ```
 
-Artifact IDs are stable logical names across attempts. Paths must be canonical,
-relative, inside `results`, and include the allocation's execution ID as a path
-segment. Duplicate IDs/paths and escaping paths are rejected. V1 permits multiple
+Artifact IDs are stable logical names across attempts. Paths are canonical and
+relative to the workspace's results directory (`<namespace>/<execution>/<file>`),
+and include the allocation's execution ID as a path segment. A tuner never names
+the results directory; it joins a path to `WorkspacePaths(runtime).results` where it
+needs the file. Duplicate IDs/paths and escaping paths are rejected. V1 permits multiple
 published state artifacts but one continuation state artifact. External storage
 can declare no local artifacts; core does not invent a local database for it.
 `storage_kind` is `managed`, `external` or `none`. Trial count and concurrency are

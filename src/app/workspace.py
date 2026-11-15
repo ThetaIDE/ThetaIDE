@@ -97,6 +97,10 @@ class WorkspacePaths:
     @property
     def results(self): return self.root / "results"
     @property
+    def results_relative(self):
+        """The results root as a workspace-relative POSIX path, the prefix of portable result paths."""
+        return self.results.relative_to(self.root).as_posix()
+    @property
     def collection(self): return self.data_dir / "components"
     @property
     def bundled_components(self): return self.application / "src/plugins/components/bundled"

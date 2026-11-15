@@ -2,6 +2,7 @@
 import json
 
 from src.app.api.tuning import TunerArtifact, TunerExecutionPlan, TunerLaunchBindings
+from src.app.api.workspace import WorkspacePaths
 
 
 class GridTuner:
@@ -21,11 +22,11 @@ class GridTuner:
     def execution_plan(self, cfg, *, execution_id):
         options = ((cfg.get('tuning') or {}).get('options') or {}).get('fixture-grid') or {}
         return TunerExecutionPlan('fixture-grid', execution_id,
-            artifacts=(TunerArtifact('search', f'results/grid/{execution_id}/search.json', True),),
+            artifacts=(TunerArtifact('search', f'grid/{execution_id}/search.json', True),),
             concurrency=options.get('workers', 1), trials=options.get('attempts', 2), storage_kind='managed')
 
     def launch_bindings(self, cfg, *, plan, runtime, continuation=None):
-        return TunerLaunchBindings(environment={'GRID_STATE_PATH': str(runtime / plan.artifact('search').path)})
+        return TunerLaunchBindings(environment={'GRID_STATE_PATH': str(WorkspacePaths(runtime).results / plan.artifact('search').path)})
 
     def continuation_config(self, tuning):
         tuning = json.loads(json.dumps(tuning))
@@ -39,7 +40,7 @@ class GridTuner:
         target.write_text(json.dumps(data))
 
     def restore_continuation(self, cfg, *, plan, runtime, lineage):
-        target = runtime / plan.artifact(lineage['artifact_id']).path
+        target = WorkspacePaths(runtime).results / plan.artifact(lineage['artifact_id']).path
         data = json.loads(target.read_text())
         for trial in data['trials']:
             if trial['state'] == 'running': trial['state'] = 'failed'

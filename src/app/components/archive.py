@@ -122,12 +122,14 @@ def validate_native_package(meta, source):
             key = (kind_name(cap["kind"]), selector.casefold())
             if key in selectors: raise ValueError(f"Duplicate capability selector: {key}")
             selectors.add(key)
+    from src.app.workspace import WorkspacePaths
+    protected = ('src/app/', 'frontend/', WorkspacePaths().results_relative + '/')
     for path in source.rglob("*"):
         if any(part in ("node_modules", "__pycache__", ".git") for part in path.relative_to(source).parts): continue
         if path.is_symlink(): raise ValueError(f"Package contains symlink: {path}")
         if not path.is_file(): continue
         relative = path.relative_to(source).as_posix()
-        if relative.startswith(('src/app/', 'frontend/', 'results/')):
+        if relative.startswith(protected):
             raise ValueError(f"Protected workspace payload: {relative}; use package-owned resources")
     for key in ('rules_root',):
         if key in meta and not resource(meta[key]).is_dir(): raise ValueError(f'{key} must name a package directory')

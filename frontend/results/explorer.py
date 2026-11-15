@@ -17,6 +17,13 @@ from ..tree_tools import (DraggableToolButton, GroupItemDelegate, TreeHeaderActi
 from .data import Manifest, Source
 from src.app.pipeline.result_paths import SAVED_RUN_NAME, result_experiment_id
 
+
+def _results_label() -> str:
+    """The workspace-relative results folder, as shown in tooltips."""
+    from src.app.workspace import WorkspacePaths
+
+    return WorkspacePaths.for_process().results_relative
+
 _KIND, _DATA, _TIME = Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 1, Qt.ItemDataRole.UserRole + 2
 _CHECKABLE = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 _PARENT = _CHECKABLE
@@ -55,7 +62,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         def button(icon, tooltip):
             return style_tool_button(DraggableToolButton(icon), icon, tooltip)
 
-        self.btn_refresh = button("reload", "Re-read results/ from disk")
+        self.btn_refresh = button("reload", "Re-read results from disk")
         self.btn_refresh.clicked.connect(self.refresh_requested)
         self.btn_collapse = button("collapse_all", "Collapse all groups")
         self.btn_collapse.clicked.connect(self.collapse_all)
@@ -135,7 +142,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             if key not in experiments:
                 exp_item = self._item(groups[group], PurePosixPath(name).name, "experiment", key,
                                       Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                exp_item.setToolTip(0, f"results/logs/{group}/{name}")
+                exp_item.setToolTip(0, f"{_results_label()}/logs/{group}/{name}")
                 exp_item.setIcon(0, folder_icon())
                 experiments[key] = exp_item
             run_item = self._item(experiments[key], PurePosixPath(exp).name, "run", f"{group}/{exp}", _PARENT)
@@ -143,7 +150,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             stamp = SAVED_RUN_NAME.fullmatch(PurePosixPath(exp).name)
             fallback_time = stamp.group()[:15].replace("-", "T") if stamp and stamp.group()[8:9] == "-" else ""
             run_item.setData(0, _TIME, max(times, default=fallback_time))
-            note = f"results/logs/{group}/{exp}"
+            note = f"{_results_label()}/logs/{group}/{exp}"
             if entry.get('incomplete_results'):
                 run_item.setText(0, run_item.text(0) + ' · incomplete results')
                 note += '\nJob ended before result publication completed. Showing the downloaded partial results.'

@@ -17,7 +17,7 @@ from .execution import TERMINAL, finalize, owned_files, receipt_path, refresh_st
 from .snapshot import DATASET_ROOT, archive, freeze, source_files
 from .transport import rsync_shell
 from . import transfer_output
-from .storage import digest, read_json, safe_path, transfer_lock, workspace_id, write_json
+from .storage import digest, read_json, results_relative, results_root, safe_path, transfer_lock, workspace_id, write_json
 
 
 def configure(root, site, host, remote_root, python='venv/bin/python3', *, scheduler=None):
@@ -201,11 +201,11 @@ def _index(root, mode, execution_id=None, diagnostics=False):
     root = Path(root).resolve()
     records, files = [], []
     generation = uuid.uuid4().hex
-    cache = root / 'results/sites/.sync' / generation
+    cache = results_root(root) / 'sites/.sync' / generation
     cache.mkdir(parents=True, exist_ok=True)
     write_json(cache / '.theta-managed.json', {'project_id': workspace_id(root), 'expires_at': __import__('time').time() + 7200})
     try:
-        selected = [read_json(receipt) for receipt in sorted((root / 'results/sites').glob('*/submission.json'))]
+        selected = [read_json(receipt) for receipt in sorted((results_root(root) / 'sites').glob('*/submission.json'))]
         selected = [record for record in selected if not execution_id or record['execution_id'] == execution_id]
         managed = refresh_many(root, [record for record in selected if record.get('execution_policy')])
         by_id = {record['execution_id']: record for record in managed}
@@ -213,7 +213,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
             receipt = receipt_path(root, record['execution_id'])
             record = by_id[record['execution_id']] if record['execution_id'] in by_id else refresh_status(root, record)
             if record.get('execution_policy'):
-                publication = read_json(Path(record['execution_policy']['work_root']) / 'results/sites' / record['execution_id'] / 'publication.json')
+                publication = read_json(results_root(record['execution_policy']['work_root']) / 'sites' / record['execution_id'] / 'publication.json')
                 if publication and publication.get('schema') != 'theta.publication/v1': raise ValueError('Unknown publication schema')
                 if publication.get('sealed') and record.get('scheduler_state') in TERMINAL and not record.get('artifacts_finalized'):
                     record = finalize(root, record['execution_id'])
@@ -232,7 +232,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
                     with log.open('rb') as stream:
                         stream.seek(max(0, log.stat().st_size - 65536))
                         data = stream.read(65536)
-                    relative = f'results/sites/{record["execution_id"]}/scheduler.{suffix}.preview.log'
+                    relative = results_relative(root, f'sites/{record["execution_id"]}/scheduler.{suffix}.preview.log')
                     target = cache / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(data)
@@ -265,7 +265,7 @@ def _index(root, mode, execution_id=None, diagnostics=False):
             known = {item['path']: item for item in (artifacts or [])}
             for path in sorted(set(paths)):
                 relative = path.relative_to(root).as_posix()
-                if mode == 'metrics' and (relative.startswith('results/checkpoints/') or
+                if mode == 'metrics' and (relative.startswith(results_relative(root, 'checkpoints/')) or
                         (path.suffix.lower() not in ('.json', '.jsonl', '.csv', '.log', '.out', '.err', '.yaml', '.yml', '.sbatch')
                          and not ('/monitors/' in relative and path.name.startswith('snapshot_') and path.suffix == '.npz'))):
                     continue
@@ -358,7 +358,7 @@ def _sync(root, site, config, mode, *, execution_id=None, experiment=None, diagn
             for item in listing['files']:
                 path = safe_path(root, item['path'])
                 safe_path(root, item['source'])
-                if not item['path'].startswith('results/') or not item['source'].startswith('results/'):
+                if not item['path'].startswith(results_relative(root) + '/') or not item['source'].startswith(results_relative(root)+'/'):
                     raise ValueError('Remote artifact lies outside results')
                 previous = ledger.get(site + ':' + item['path'])
                 stamp = [path.stat().st_size, path.stat().st_mtime_ns] if path.is_file() else None
@@ -440,11 +440,11 @@ def _clean_remote(root, execution_id, proof, *, preview=False):
             or not record.get('artifacts_finalized') or proof.get('files') != manifest.get('files')):
         raise ValueError('Cleanup requires a matching verified terminal execution')
     # Conservatively prevent cleanup while any other allocation is nonterminal.
-    for other in (root / 'results/sites').glob('*/submission.json'):
+    for other in (results_root(root) / 'sites').glob('*/submission.json'):
         value = refresh_status(root, read_json(other))
         if value.get('state') != 'submission_failed' and value.get('scheduler_state') not in TERMINAL:
             raise ValueError('Another execution may depend on these outputs; wait for it to finish')
-    for other in (root / 'results/sites').glob('*/submission.json'):
+    for other in (results_root(root) / 'sites').glob('*/submission.json'):
         value = read_json(other)
         if value.get('continuation', {}).get('parent_execution_id') == execution_id and not value.get('remote_cleaned_at'):
             raise ValueError('Continuation pins these study/checkpoint dependencies')
@@ -458,7 +458,7 @@ def _clean_remote(root, execution_id, proof, *, preview=False):
         from .maintenance import active_leases
         if active_leases(root): raise ValueError('Active transfer lease pins publication; retry after release/expiry')
         work = Path(record['execution_policy']['work_root'])
-        published = work / 'results/sites' / execution_id
+        published = results_root(work) / 'sites' / execution_id
         if published.exists() and published.is_symlink(): raise ValueError('Invalid publication ownership')
         # All proofs were compared above; immutable objects were verified locally.
         # Delete only this execution's namespace; retained receipt/manifests are tombstones.
@@ -535,7 +535,7 @@ def activate(root, source):
 
 def release(root, generation):
     if not re.fullmatch(r'[a-f0-9]{32}', generation): raise ValueError('Invalid transfer generation')
-    directory = safe_path(root, 'results/sites/.sync/' + generation)
+    directory = safe_path(root, results_relative(root, 'sites/.sync/' + generation))
     if directory.exists(): shutil.rmtree(directory)
     return {'released': generation}
 
@@ -543,7 +543,7 @@ def release(root, generation):
 def status_local(root):
     root = Path(root).resolve()
     return refresh_many(root, [read_json(path)
-            for path in sorted((root / 'results/sites').glob('*/submission.json'))])
+            for path in sorted((results_root(root) / 'sites').glob('*/submission.json'))])
 
 
 def sync_objects(root, site, config, listing, *, cancel_event=None, progress=None):
@@ -556,7 +556,7 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
     transferred_bytes = 0
     for item in listing['files']:
         target = safe_path(root, item['path'])
-        if not item['path'].startswith('results/'): raise ValueError('Artifact outside results')
+        if not item['path'].startswith(results_relative(root) + '/'): raise ValueError('Artifact outside results')
         previous = ledger.get(site + ':' + item['path'])
         stamp = [target.stat().st_size, target.stat().st_mtime_ns] if target.is_file() else None
         if previous and previous.get('sha256') == item['sha256'] and previous.get('local_stamp') == stamp: continue
@@ -567,7 +567,7 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
         for chunk in chunks:
             if not re.fullmatch(r'[a-f0-9]{64}', chunk['sha256']): raise ValueError('Invalid object ID')
             safe_path(root, chunk['source'])
-            if not chunk['source'].startswith('results/'): raise ValueError('Object outside results')
+            if not chunk['source'].startswith(results_relative(root) + '/'): raise ValueError('Object outside results')
             objects[(item.get('remote_root', config['remote_root']), chunk['sha256'])] = chunk
         pending.append((item, chunks))
     try:
@@ -687,7 +687,7 @@ def sync_objects(root, site, config, listing, *, cancel_event=None, progress=Non
 def renew(root, generation):
     if not re.fullmatch(r'[a-f0-9]{32}', generation): raise ValueError('Invalid transfer generation')
     with transfer_lock(root):
-        path = safe_path(root, 'results/sites/.sync/' + generation + '/.theta-managed.json')
+        path = safe_path(root, results_relative(root, 'sites/.sync/' + generation + '/.theta-managed.json'))
         lease = read_json(path)
         if lease.get('project_id') != workspace_id(root): raise ValueError('Transfer lease is missing or owned by another project')
         lease['expires_at'] = __import__('time').time() + 7200

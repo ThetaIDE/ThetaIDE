@@ -108,11 +108,11 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     # there so cluster publication includes every replicate.
     result_experiment_id = (identity if parent or experiment_folder(identity) != identity else
                             saved_run_id(identity, f"_{datetime.now():%Y%m%d-%H%M%S}_{execution_id[:8]}"))
-    relative_root = Path("results/executions") / str(cfg.group) / str(cfg.experiment_id) / execution_id
+    relative_root = Path(paths.results_relative) / "executions" / str(cfg.group) / str(cfg.experiment_id) / execution_id
     root = paths.root / relative_root
     root.mkdir(parents=True, exist_ok=False)
     runs = []
-    relative_logs = Path("results/logs") / str(cfg.group) / result_experiment_id
+    relative_logs = Path(paths.results_relative) / "logs" / str(cfg.group) / result_experiment_id
     logs_root = paths.root / relative_logs
     for method in context["methods"]:
         for version_index, seed in enumerate(plan["training_seeds"]):
@@ -126,7 +126,7 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
                          "output_log": str(relative_root / "runs" / f"{run_id}.log"),
                          "logs": str(relative_logs),
                          "event_path": str(relative_logs / agent / version / "evaluation_events.jsonl"),
-                         "checkpoints": str(Path("results/checkpoints") / str(cfg.group) / result_experiment_id / agent / version)})
+                         "checkpoints": str(Path(paths.results_relative) / "checkpoints" / str(cfg.group) / result_experiment_id / agent / version)})
     if OmegaConf.is_config(cfg):
         from src.app.pipeline.compose import effective_config
         config = effective_config(cfg)

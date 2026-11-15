@@ -20,8 +20,8 @@ class TunerArtifact:
         path = PurePosixPath(self.path)
         if (not self.id or not isinstance(self.id, str) or not isinstance(self.path, str)
                 or path.is_absolute() or '..' in path.parts or '\\' in self.path or ':' in self.path
-                or len(path.parts) < 4 or path.parts[0] != 'results' or str(path) != self.path):
-            raise ValueError('Tuner artifacts must name an ID and a relative results/<namespace>/<execution>/file path')
+                or len(path.parts) < 3 or str(path) != self.path):
+            raise ValueError('Tuner artifacts must name an ID and a <namespace>/<execution>/file path relative to the results directory')
         if type(self.continuation) is not bool:
             raise ValueError('Tuner artifact continuation must be a boolean')
 
@@ -187,7 +187,7 @@ def read_remote_snapshots(root, record, *, paths=None):
         return []
     found = []
     for artifact in plan.artifacts:
-        path = safe_path(root, artifact.path)
+        path = safe_path(paths.results, artifact.path)
         if path.is_file():
             from .tuning_monitor import valid_study_summary
             for method, summary in reader(artifact, path):

@@ -103,10 +103,11 @@ def main():
         wheel_files = sorted(archive.namelist())
     with tarfile.open(args.sdist) as archive:
         sdist_files = sorted('/'.join(p.split('/')[1:]) for p in archive.getnames())
-    forbidden = ('src/plugins/components/installed/', 'src/plugins/app/installed/',
-                 'in/', 'src/usr/datasets/', 'src/usr/config/', 'results/', '.thetaide/', 'node_modules/', '.venv/', 'optional_components/')
+    # The authoring workspace (src/usr, results included) and workspace state are never distributed.
+    rooted = ('src/usr/', '.thetaide/')
+    anywhere = ('src/plugins/components/installed/', 'src/plugins/app/installed/', 'node_modules/', '.venv/', 'optional_components/')
     for files in (wheel_files, sdist_files):
-        assert not any(any(name.startswith(part) if part in ('in/', 'results/', '.thetaide/') else part in name for part in forbidden) for name in files)
+        assert not any(name.startswith(rooted) or any(part in name for part in anywhere) for name in files)
         assert 'src/plugins/inventory.json' in files
         assert 'src/app/config_defaults/config.yaml' in files
         assert 'frontend/icons/play.svg' in files or any(n.startswith('frontend/icons/') for n in files)

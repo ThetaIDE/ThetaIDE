@@ -72,7 +72,7 @@ def test_desktop_job_managers_default_to_the_selected_workspace(tmp_path, monkey
     try:
         assert manager.project_root == selected.root
         assert manager.logs_dir == selected.results / 'logs'
-        assert manager.jobs_dir == selected.results / 'jobs'
+        assert manager.jobs_dir == selected.data_dir / 'runs' / 'jobs'
     finally:
         manager.deleteLater()
     assert not (launch / 'results').exists()

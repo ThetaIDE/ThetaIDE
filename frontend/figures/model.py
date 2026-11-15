@@ -22,7 +22,6 @@ from typing import Any, Callable
 
 from matplotlib.figure import Figure
 
-LOGS_ROOT = Path("results/logs")
 MAX_SLOTS = 24
 
 
@@ -280,14 +279,14 @@ def _mark_empty(ax, message: str) -> None:
 # ── Discovery ─────────────────────────────────────────────────────────────
 
 
-def available_experiments(logs_root: Path | None = None) -> list[tuple[str, str]]:
+def available_experiments(logs_root: Path) -> list[tuple[str, str]]:
     """(group, exp_id) for every run directory that holds metrics.
 
     Read off disk rather than from configs: a figure is made from runs that
     actually happened, and a configured experiment that never ran has
     nothing to plot.
     """
-    root = Path(logs_root) if logs_root is not None else LOGS_ROOT
+    root = Path(logs_root)
     if not root.is_dir():
         return []
 

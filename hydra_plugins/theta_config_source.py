@@ -3,8 +3,11 @@ from hydra.plugins.config_source import ConfigSource, ConfigResult
 from hydra.core.object_type import ObjectType
 from omegaconf import OmegaConf
 
-from src.app.config_resolution import resolver_from_uri, composition_source
+from src.app.config_resolution import composition_source, register_results_resolver, resolver_from_uri
 from hydra.plugins.search_path_plugin import SearchPathPlugin
+
+# Hydra imports this module during plugin discovery, before it resolves run and sweep dirs.
+register_results_resolver()
 
 
 class ThetaSearchPath(SearchPathPlugin):

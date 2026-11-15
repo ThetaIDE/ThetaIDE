@@ -155,7 +155,7 @@ class ResultsPanel(QWidget):
         self.site_sync = SiteSyncControl('results', self)
         self.site_sync.synced.connect(lambda _: self.refresh())
         self.refresh_button = QPushButton("↻  Refresh")
-        self.refresh_button.setToolTip("Re-read results/ through the backend")
+        self.refresh_button.setToolTip("Re-read results through the backend")
         self.refresh_button.clicked.connect(self.refresh)
 
         self.explorer = RunExplorer(settings_manager=settings)

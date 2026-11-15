@@ -11,7 +11,7 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
 | 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | — |
-| 5 — Results in `src/usr/results`, remote bundles (G) | [Phase 5 plan](../plans/LAYER_BOUNDARY_PHASE5_PLAN.md) written (5a); tuner continuation artifacts and site dependencies landed in phase 2 | Units 5b–5e |
+| 5 — Results in `src/usr/results`, remote bundles (G) | [Phase 5 plan](../plans/LAYER_BOUNDARY_PHASE5_PLAN.md); 5a and 5b done (see below) | 5c (move, with the user's dry run), 5d bundles, 5e requirements |
 | 6 — Installed distribution (H) | Not started; core stays at `src/app` (no move) | See the plan's phase 6 |
 | 7 — Enforcement (I) | Not started | See the plan's phase 7 |
 
@@ -65,9 +65,16 @@ Two settings still have two homes, and fixing them needs v3 package changes and 
 - Deferred tests (user decision): tests that read `~/.config/thetaide/settings.toml` (`frontend/runner_manager.py` `_load_resource_settings`) or QSettings, and `test_ncshare_hardening` loading Slurm from source instead of the installed component.
 - The published `blendrl` 1.3.0 source in `theta-plugins-v3` declares `neural`/`symbolic` as strings and `logic_lr`/`blender_lr` as numbers, contradicting its profile defaults (fixed in `blendrl-dev`, `e3c98cd`). Fix it before the Hub publication.
 
-## Results paths for phase 5, unit 1
+## Phase 5
 
-Every literal `results/...` path moves to `WorkspacePaths.results`. Paths relative to the working directory (they work only because pipeline processes start in the workspace): `src/app/core/callbacks.py:76`, `lightning_builder.py` (`get_original_cwd()` at `:57`, `:309`; literals at `:627`, `:661`), the defaults in `src/app/telemetry/run.py:229`, `:246` and `src/app/core/contract_logger.py:32`, `src/app/pipeline/variability.py:111`–`:129`, `src/plugins/components/bundled/standard_figures/reports.py:44`–`:109`, `optional_components/optuna/utils.py` (`DEFAULT_OPTUNA_DB_URL`, `:128`, `:214`, `:267`, `:420`), `optuna/sweeper.py:71`, `optuna/component.py:383`, and `src/usr/algorithms/sb3-dev/sb3_runner.py`. Paths joined to a root but spelled `results/...`: `src/app/pipeline/tuning_monitor.py`, `execution_data.py`, `src/app/sites/*` (`execution.py`, `transfer.py`, `publication.py`, `continuation.py`, `maintenance.py`), `optional_components/optuna/component.py:354`, `optuna/remote.py:14`, `slurm/execution.py:325`, and `scripts/erase_experiment.py`. Site paths name the remote layout as well, so they move together with the remote bundle format.
+Unit 5b is done: every results path comes from `WorkspacePaths.results`, which is still `<workspace>/results`; 5c moves it to `src/usr/results`.
+
+- Pipeline processes (Lightning, telemetry, callbacks, sb3, Optuna) call `WorkspacePaths.for_process()`; nothing joins `results/` to the working directory or Hydra's original cwd. Hydra's `run.dir` and `sweep.dir` use the `${theta_results:}` resolver, which the Hydra plugin module registers. The unused `results_dir` key is gone.
+- Portable paths (site listings, run manifests, receipts) are workspace-relative strings built from `WorkspacePaths.results_relative`; site code uses `sites.storage.results_root` / `results_relative`.
+- Tuner artifacts are relative to the results directory (`optuna/<execution>/study.sqlite`); the host joins them to `WorkspacePaths(runtime).results`. `RunLoggerContext.base_root` became `results_root` (the results directory itself).
+- The desktop job database has one home, `.thetaide/runs/jobs/jobs.db`; the `results/jobs` default is gone.
+- Removed: `scripts/erase_experiment.py` and `scripts/clean_deleted.py` (the deletion-tracking and rsync-pull model they served is gone; the catalog deletes runs), the reports plotter's `results/logs/slurm` timing fallback, and the export dialog's working-directory fallback.
+- `tests/test_layout_guard.py` fails on any literal results path outside `src/app/workspace.py` (verbatim THEMES reference source excepted). Tests that still spell `results/...` move with 5c.
 
 ## Tests
 

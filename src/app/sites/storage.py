@@ -11,6 +11,19 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+def results_root(root):
+    """The results directory of the workspace at `root`."""
+    from src.app.workspace import WorkspacePaths
+    return WorkspacePaths(root).results
+
+
+def results_relative(root, tail=''):
+    """A workspace-relative POSIX path under the results directory of the workspace at `root`."""
+    from src.app.workspace import WorkspacePaths
+    prefix = WorkspacePaths(root).results_relative
+    return prefix + '/' + tail if tail else prefix
+
+
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -16,7 +16,7 @@ class TuningPlotter(BasePlotter):
 
     def run(self, exp_id: str, cli_overrides: dict | None = None):
         cfg, group, output_dir = self.get_effective_config(exp_id, cli_overrides)
-        root = Path("results/checkpoints") / group / Path(exp_id).stem
+        root = self.workspace.results / "checkpoints" / group / Path(exp_id).stem
         summaries = sorted(root.glob("*/tuning_summary.json")) + sorted(root.glob("*/sweeps/*/tuning_summary.json"))
         for summary_path in summaries:
             summary = json.loads(summary_path.read_text(encoding="utf-8"))

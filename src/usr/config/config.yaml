@@ -46,15 +46,12 @@ resources:
   nodes: null
   gpu_type: null
 
-# Paths
-results_dir: "results"
-
-# Redirect Hydra output and multirun directories inside results/hydra/
+# Hydra output and multirun directories live in the workspace's results/hydra.
 hydra:
   job:
     chdir: false
   run:
-    dir: results/hydra/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ${theta_results:}/hydra/outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
   sweep:
-    dir: results/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: ${theta_results:}/hydra/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${hydra.job.num}

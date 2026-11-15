@@ -19,10 +19,10 @@ def replicate_label(manifest, run):
 
 def synced_execution_sources(project_root, group, experiment):
     """Rebase cluster seed feeds onto the exact downloaded execution directory."""
-    from src.app.sites.storage import safe_path
+    from src.app.sites.storage import results_relative, safe_path
     relative = str(group) + '/' + str(experiment)
-    manifests = safe_path(project_root, 'results/executions/' + relative)
-    logs = safe_path(project_root, 'results/logs/' + relative)
+    manifests = safe_path(project_root, results_relative(project_root, 'executions/' + relative))
+    logs = safe_path(project_root, results_relative(project_root, 'logs/' + relative))
     found, sources = False, []
     for path in sorted(manifests.glob('*/manifest.json')):
         try:

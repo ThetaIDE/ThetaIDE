@@ -59,7 +59,7 @@ def _distribution_from_override(override):
 
 
 def _export_summary(config, study):
-    from .utils import write_study_summary
+    from .utils import results_root, write_study_summary
 
     agent = config.get("agent")
     model = config.get("model")
@@ -68,7 +68,7 @@ def _export_summary(config, study):
     group, experiment = config.get("group"), config.get("experiment_id")
     if not name or not group or not experiment:
         return
-    root = Path("results/checkpoints") / str(group) / str(experiment) / str(name).replace("/", "_")
+    root = results_root() / "checkpoints" / str(group) / str(experiment) / str(name).replace("/", "_")
     try:
         if study.user_attrs.get("theta_log_method") != str(name):
             study.set_user_attr("theta_log_method", str(name))

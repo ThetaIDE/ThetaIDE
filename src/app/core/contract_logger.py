@@ -29,7 +29,7 @@ class ContractLogger:
         group: str | None = None,
         experiment_id: str | None = None,
         method_name: str | None = None,
-        base_dir: str | Path = "results/logs",
+        base_dir: str | Path | None = None,
         version: str | None = None,
         flush_interval: int = 1,
     ):
@@ -40,7 +40,7 @@ class ContractLogger:
             group: Experiment group name.
             experiment_id: Unique experiment name.
             method_name: Algorithm/Agent identifier.
-            base_dir: Root logs directory (defaults to 'results/logs').
+            base_dir: Root logs directory (defaults to the workspace's results logs).
             version: Explicit version directory name (e.g. 'version_0'). If None, auto-resolved.
             flush_interval: Flush file to disk every N logged rows.
         """
@@ -48,6 +48,9 @@ class ContractLogger:
             self.target_dir = Path(log_dir)
         elif group and experiment_id and method_name:
             method_clean = method_name.replace("/", "_")
+            if base_dir is None:
+                from src.app.workspace import WorkspacePaths
+                base_dir = WorkspacePaths.for_process().results / "logs"
             self.target_dir = Path(base_dir) / group / experiment_id / method_clean
         else:
             raise ValueError("Either 'log_dir' or all of ('group', 'experiment_id', 'method_name') must be provided.")

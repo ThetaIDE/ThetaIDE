@@ -236,7 +236,7 @@ class SiteSyncControl(QWidget):
             if 'bytes' in result:
                 summary += f'; {result["bytes"]:,} bytes downloaded'
             self.console_output.emit(f'{prefix}: {summary}.')
-            self.console_output.emit(f'[site {site}] Local destination: {self.paths.root / "results"}')
+            self.console_output.emit(f'[site {site}] Local destination: {self.paths.results}')
             for error in result.get('diagnostic_report_errors', []):
                 self.console_output.emit(f'[site {site}] Monitor report warning: {error}')
             self.synced.emit(site)

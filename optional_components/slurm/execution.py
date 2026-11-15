@@ -133,10 +133,12 @@ def _submit(root, experiment, overrides, cfg):
                 raise
         else:
             source = freeze(root, snapshot)
-            (snapshot / 'results').symlink_to(root / 'results', target_is_directory=True)
-            if (root / 'src/usr/datasets').exists():
-                (snapshot / 'src/usr').mkdir(parents=True, exist_ok=True)
-                (snapshot / 'src/usr/datasets').symlink_to(root / 'src/usr/datasets', target_is_directory=True)
+            control, frozen = paths, WorkspacePaths(snapshot)
+            # The frozen workspace writes results and reads datasets in the control workspace.
+            for link, target in ((frozen.results, control.results), (frozen.datasets, control.datasets)):
+                if link == frozen.results or target.exists():
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    link.symlink_to(target, target_is_directory=True)
         result_id = saved_run_id(str(cfg.experiment_id), f'__{execution_id}')
         command_overrides = [arg for arg in overrides if not arg.lstrip('+').startswith(('experiment_id=', 'group='))]
         command_overrides += [f'++experiment_id={json.dumps(result_id)}', f'++group={json.dumps(str(cfg.group))}']
@@ -322,7 +324,7 @@ def run(root, execution_id):
             from src.app.api.sites import restore_continuation as restore
             restore(runtime, record)
         publisher = Publisher(runtime, policy['work_root'], record, policy)
-        controls = runtime / 'results/sites' / execution_id
+        controls = WorkspacePaths(runtime).results / 'sites' / execution_id
         controls.mkdir(parents=True, exist_ok=True)
         for name in ('config.json', 'job.sbatch'):
             shutil.copyfile(path.parent / name, controls / name)

@@ -34,3 +34,20 @@ def test_tracked_source_never_mentions_retired_workspace_paths():
                  for number, line in enumerate(text.splitlines(), start=1)
                  if RETIRED_PATHS.search(line)]
     assert not offenders, "use src/usr/config or src/usr/datasets:\n" + "\n".join(offenders)
+
+
+# A results path spelled as a literal: "results/...", Path("results"), root / "results", or a
+# SQLite URL under it. `WorkspacePaths.results` is the one definition.
+RESULTS_LITERAL = re.compile(r"""["']results/|/\s*["']results["']|Path\(\s*["']results|sqlite:///results""")
+RESULTS_OWNER = "src/app/workspace.py"
+# Verbatim third-party research source, mirrored for provenance.
+VERBATIM = ("src/usr/packages/themes-dev/reference/",)
+
+
+def test_results_paths_come_only_from_the_workspace():
+    offenders = [f"{name}:{number}: {line.strip()[:120]}"
+                 for name, text in tracked_text_files()
+                 if name.endswith((".py", ".yaml", ".yml")) and name != RESULTS_OWNER and not name.startswith(VERBATIM)
+                 for number, line in enumerate(text.splitlines(), start=1)
+                 if RESULTS_LITERAL.search(line)]
+    assert not offenders, "derive results paths from WorkspacePaths.results:\n" + "\n".join(offenders)

@@ -5,14 +5,14 @@ import re
 import subprocess  # noqa: F401  (API-1 tests and adapters patch execution.subprocess)
 from pathlib import Path
 
-from .storage import digest, read_json, safe_path, write_json
+from .storage import digest, read_json, results_relative, results_root, safe_path, write_json
 
 TERMINAL = {'completed', 'failed', 'cancelled', 'timeout', 'out_of_memory', 'node_fail', 'preempted', 'boot_fail', 'deadline', 'revoked'}
 
 
 def close_unfinished_runs(runtime, record, status, *, paths=None):
     """Called only after allocation-owned producers have stopped, before publication."""
-    directory = safe_path(runtime, 'results/executions/' + record['group'] + '/' + record['result_experiment_id'])
+    directory = safe_path(runtime, results_relative(runtime, 'executions/' + record['group'] + '/' + record['result_experiment_id']))
     for path in directory.glob('*/manifest.json'):
         manifest = read_json(path)
         for run in manifest.get('runs', []):
@@ -30,7 +30,7 @@ def close_unfinished_runs(runtime, record, status, *, paths=None):
 
 def receipt_path(root, execution_id):
     if not re.fullmatch(r'[a-f0-9]{32}', execution_id): raise ValueError('Invalid execution ID')
-    return Path(root) / 'results/sites' / execution_id / 'submission.json'
+    return results_root(root) / 'sites' / execution_id / 'submission.json'
 
 
 def _regular_output(path):
@@ -44,7 +44,7 @@ def owned_files(root, record):
     root = Path(root)
     prefix = record['result_experiment_id']
     for category in ('logs', 'checkpoints', 'plots', 'datasets', 'executions'):
-        parent = safe_path(root, f'results/{category}/{record["group"]}')
+        parent = safe_path(root, results_relative(root, f'{category}/{record["group"]}'))
         if not parent.is_dir(): continue
         # Preserve recipe subdirectories and allow variability's stamped suffix.
         parent = parent / str(Path(prefix).parent)
@@ -58,7 +58,7 @@ def owned_files(root, record):
     from src.app.pipeline.tuner_execution import record_plan
     plan = record_plan(record)
     for artifact in plan.artifacts if plan else ():
-        path = safe_path(root, artifact.path)
+        path = safe_path(results_root(root), artifact.path)
         if _regular_output(path):
             yield path
     directory = receipt_path(root, record['execution_id']).parent
@@ -73,7 +73,7 @@ def finalize(root, execution_id):
     if record.get('state') not in TERMINAL or record.get('scheduler_state') not in TERMINAL:
         raise ValueError('Finalization requires confirmed scheduler termination')
     if record.get('execution_policy'):
-        publication = read_json(Path(record['execution_policy']['work_root']) / 'results/sites' / execution_id / 'publication.json')
+        publication = read_json(results_root(record['execution_policy']['work_root']) / 'sites' / execution_id / 'publication.json')
         if not publication.get('sealed'):
             raise ValueError('Payload is unsealed; explicit scheduled repair is required')
         write_json(path.parent / 'artifacts.json', {'execution_id': execution_id, 'files': publication['files']})

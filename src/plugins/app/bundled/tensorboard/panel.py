@@ -55,7 +55,7 @@ class TensorBoardPanel(QWidget):
         card_layout.addLayout(status_row)
 
         self.info_text = label(
-            "ThetaIDE runs TensorBoard over results/tensorboard/.\n"
+            f"ThetaIDE runs TensorBoard over {server.logdir}.\n"
             "Runs configured with 'Log to TensorBoard' write event files here.",
             "muted"
         )

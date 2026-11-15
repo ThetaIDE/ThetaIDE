@@ -13,7 +13,7 @@ def snapshots(lives):
             if artifact.get("kind") != "monitor_snapshot":
                 continue
             path = Path(artifact["path"])
-            if not path.is_absolute() and path.parts[:1] == ("results",):
+            if not path.is_absolute():
                 from src.app.workspace import WorkspacePaths
                 path = WorkspacePaths.for_process().root / path
             # New telemetry carries only declarations, never arrays or graph payloads.

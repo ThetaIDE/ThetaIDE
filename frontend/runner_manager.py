@@ -55,16 +55,17 @@ class JobManager(QObject):
         # Omitted context is the entry point's selected workspace, never an import-time constant.
         paths = WorkspacePaths(project_root) if project_root else WorkspacePaths.for_process()
         self.project_root = paths.root
+        self.results_root = paths.results
         if not python:
             venv_bin = self.project_root / "venv" / ("Scripts" if sys.platform == "win32" else "bin")
             venv_python = venv_bin / ("python.exe" if sys.platform == "win32" else "python")
             if venv_python.is_file():
                 python = str(venv_python)
         self.python = python or sys.executable
-        self.logs_dir = Path(logs_dir or paths.results / "logs")  # where run_pipeline.py writes results/logs/<group>/<id>
+        self.logs_dir = Path(logs_dir or paths.results / "logs")  # where run_pipeline.py writes <results>/logs/<group>/<id>
         self.settings_path = Path(settings_path) if settings_path else None
         self.enabled_plugins_provider = enabled_plugins_provider
-        self.jobs_dir = Path(store_path).parent if store_path else paths.results / "jobs"
+        self.jobs_dir = Path(store_path).parent if store_path else paths.data_dir / "runs" / "jobs"
         self.store = JobStore(store_path or self.jobs_dir / "jobs.db")
         self.jobs: dict[str, dict[str, Any]] = {}
         self.queue_order: list[str] = []
@@ -206,7 +207,7 @@ class JobManager(QObject):
         """Only manifests owned by this launch, even when an experiment name is reused."""
         if job.get("status") == "queued":
             return
-        root = self.project_root / "results" / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
+        root = self.results_root / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
         seen = set()
         for path in sorted(root.glob("*/manifest.json")):
             try:
@@ -588,9 +589,9 @@ class JobManager(QObject):
 
     def _watch(self, job: dict[str, Any]):
         paths = [self.logs_dir, self._run_dir(job).parent]
-        execution_root = self.project_root / "results" / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
-        checkpoint_root = self.project_root / "results" / "checkpoints" / str(job.get("group")) / str(job.get("experiment_id"))
-        paths.extend([self.project_root / "results", self.project_root / "results" / "checkpoints",
+        execution_root = self.results_root / "executions" / str(job.get("group")) / str(job.get("experiment_id"))
+        checkpoint_root = self.results_root / "checkpoints" / str(job.get("group")) / str(job.get("experiment_id"))
+        paths.extend([self.results_root, self.results_root / "checkpoints",
                       checkpoint_root.parent, checkpoint_root])
         paths.extend(checkpoint_root.glob("*/tuning_summary.json"))
         paths.extend(checkpoint_root.glob("*"))
@@ -613,7 +614,7 @@ class JobManager(QObject):
     def _unwatch(self, job: dict[str, Any]):
         roots = [str(run_dir) for _, run_dir, _, _, _ in self._run_sources(job)]
         roots.append(str(self._run_dir(job)))
-        roots.append(str(self.project_root / "results" / "checkpoints" / str(job.get("group")) / str(job.get("experiment_id"))))
+        roots.append(str(self.results_root / "checkpoints" / str(job.get("group")) / str(job.get("experiment_id"))))
         stale = [p for p in self.watcher.directories() + self.watcher.files()
                  if any(p.startswith(root) for root in roots)]
         if stale:

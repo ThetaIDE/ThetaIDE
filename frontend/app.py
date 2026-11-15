@@ -88,7 +88,7 @@ from .workflows import WorkflowsPanel
 
 startup_mark("imports_complete")
 
-REPO_ROOT = Path(__file__).resolve().parent.parent  # holds venv/, in/, results/
+REPO_ROOT = Path(__file__).resolve().parent.parent  # holds venv/
 PERSIST_SECONDS = 5.0  # how often a training run's growing record is saved to the run store
 
 # Metrics the monitor's second chart can show: key -> (card title, chart title, subtitle, value format)
@@ -2270,7 +2270,7 @@ class Window(QMainWindow):
         if not self.persist(run):
             return
         self.activate(run)
-        self.log(f"Job {job['job_id']} started. Metrics: results/logs/{job['group']}/{job['experiment_id']}/")
+        self.log(f"Job {job['job_id']} started. Metrics: {self.jobs.logs_dir / job['group'] / job['experiment_id']}/")
         self.on_job_changed(job)  # it may have started (or failed to start) before the run existed
         self.on_queue_changed(self.jobs.queue_state())
 

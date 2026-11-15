@@ -38,6 +38,13 @@ from ..tree_tools import folder_icon
 from ..widgets import SortableItem, YamlHighlighter, label
 from .data import Manifest, decode_text, read_csv_rows, to_float
 
+
+def _results_label() -> str:
+    """The workspace-relative results folder, as shown in tooltips."""
+    from src.app.workspace import WorkspacePaths
+
+    return WorkspacePaths.for_process().results_relative
+
 PREVIEW_LIMIT = 25 * 1024 * 1024  # larger files are listed with Save a copy, not previewed
 TABLE_ROW_LIMIT = 5000
 
@@ -204,7 +211,7 @@ class InfoViewer(QWidget):
             return
         modified = time.strftime("%Y-%m-%d %H:%M", time.localtime(artifact.get("modified") or 0))
         details = [
-            f"results/{artifact['path']}",
+            f"{_results_label()}/{artifact['path']}",
             f"Kind: {artifact.get('kind')}",
             f"Size: {human_size(artifact.get('size'))}",
             f"Modified: {modified}",
@@ -324,7 +331,7 @@ class ArtifactBrowser(QWidget):
                     [parts[-1]],
                 )
                 item.setData(0, _ARTIFACT, (manifest.run_key, artifact))
-                item.setToolTip(0, f"results/{artifact['path']}")
+                item.setToolTip(0, f"{_results_label()}/{artifact['path']}")
                 if keep == (manifest.run_key, artifact["path"]):
                     restore = item
             run_item.setExpanded(not had_items or (manifest.run_key, "") in expanded)

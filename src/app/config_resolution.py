@@ -147,3 +147,10 @@ def resolver_from_uri(value):
     context = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
     config_root = context.pop("config_root", None)
     return ConfigResolver(WorkspacePaths(**context), config_root=config_root)
+
+
+def register_results_resolver():
+    """`${theta_results:}` is the results directory of the process's workspace (Hydra run and sweep dirs)."""
+    from omegaconf import OmegaConf
+    if not OmegaConf.has_resolver("theta_results"):
+        OmegaConf.register_new_resolver("theta_results", lambda: str(WorkspacePaths.for_process().results))

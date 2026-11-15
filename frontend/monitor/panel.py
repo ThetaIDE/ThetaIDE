@@ -649,10 +649,12 @@ class MonitorPanel(QWidget):
         group = (run.get("backend") or {}).get("group")
         self.run_title.setText(f"{group} / {title}" if group else title)
         if live:
-            where = f"results/logs/{run['backend']['group']}/{run['backend']['experiment_id']}/"
-            stored = f"{where}  ·  results/jobs/jobs.db"
+            from src.app.workspace import WorkspacePaths
+            results = WorkspacePaths.for_process().results_relative
+            where = f"{results}/logs/{run['backend']['group']}/{run['backend']['experiment_id']}/"
+            stored = where
         else:
-            where, stored = "", "Simulated demo run (in-memory)  ·  results/jobs/jobs.db"
+            where, stored = "", "Simulated demo run (in-memory)"
         about = f"{run_setup_label(run, config)}\n{stored}"
         self.run_title.setToolTip(about)
         self.run_caption.setToolTip(about)
@@ -667,7 +669,9 @@ class MonitorPanel(QWidget):
                 if not host.queue_running:
                     note += " The queue is paused: use Start or pause queue (Ctrl+Shift+R)."
             elif run["status"] == "running" and run.get("phase") == "plotting":
-                note = f"Training finished — the pipeline is generating plots in results/plots/{run['backend']['group']}/…"
+                from src.app.workspace import WorkspacePaths
+                plots = WorkspacePaths.for_process().results_relative + "/plots"
+                note = f"Training finished — the pipeline is generating plots in {plots}/{run['backend']['group']}/…"
             elif run["status"] == "incomplete":
                 note = (f"Metrics from {where} · this run was started outside the app and has no recorded end "
                         "time: it may still be training, or it stopped early.")

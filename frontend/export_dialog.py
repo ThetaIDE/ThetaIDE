@@ -44,8 +44,8 @@ class ExportComponentDialog(QDialog):
         super().__init__(parent)
         self.config_path = Path(config_path)
         self.rel_path = rel_path
-        self.workspace_root = Path(workspace_root) if workspace_root else Path.cwd()
-        self.exporter = ComponentExporter(workspace_root=self.workspace_root)
+        self.exporter = ComponentExporter(workspace_root=workspace_root)
+        self.workspace_root = self.exporter.paths.root
         self.export_result: Optional[ComponentExportResult] = None
 
         from src.app.services.component_exporter import find_component_assets
@@ -205,7 +205,7 @@ class ExportComponentDialog(QDialog):
     def _update_default_destination(self):
         clean_name = self.comp_id.replace("/", "_")
         ver = self.edit_version.text().strip() or "1.0.0"
-        exports_dir = self.workspace_root / "results" / "exports"
+        exports_dir = self.exporter.paths.results / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)
 
         if self.radio_zip.isChecked():
@@ -230,7 +230,7 @@ class ExportComponentDialog(QDialog):
             path = QFileDialog.getExistingDirectory(
                 self,
                 "Select Export Directory",
-                self.edit_dest.text() or str(self.workspace_root / "results" / "exports"),
+                self.edit_dest.text() or str(self.exporter.paths.results / "exports"),
             )
         if path:
             self.edit_dest.setText(path)

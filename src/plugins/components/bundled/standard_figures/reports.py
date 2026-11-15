@@ -41,7 +41,7 @@ class ReportsPlotter(BasePlotter):
 
         for alias in aliases:
             # 1. Check method-specific checkpoint directory
-            ckpt_method_dir = Path("results/checkpoints") / group / clean_exp / alias
+            ckpt_method_dir = (self.workspace.results / "checkpoints") / group / clean_exp / alias
             if ckpt_method_dir.exists():
                 for cfg_path in sorted(ckpt_method_dir.rglob("config.yaml")):
                     try:
@@ -53,7 +53,7 @@ class ReportsPlotter(BasePlotter):
                         pass
 
             # 2. Check method-specific logs directory
-            log_method_dir = Path("results/logs") / group / clean_exp / alias
+            log_method_dir = (self.workspace.results / "logs") / group / clean_exp / alias
             if log_method_dir.exists():
                 for cfg_path in sorted(log_method_dir.rglob("config.yaml")):
                     try:
@@ -78,8 +78,8 @@ class ReportsPlotter(BasePlotter):
 
         # 3. Check experiment root configs
         for root_cand in [
-            Path("results/checkpoints") / group / clean_exp / "config.yaml",
-            Path("results/logs") / group / clean_exp / "config.yaml",
+            (self.workspace.results / "checkpoints") / group / clean_exp / "config.yaml",
+            (self.workspace.results / "logs") / group / clean_exp / "config.yaml",
         ]:
             if root_cand.exists():
                 try:
@@ -106,7 +106,7 @@ class ReportsPlotter(BasePlotter):
                 pass
 
         # 5. Search recent Hydra outputs
-        hydra_base = Path("results/hydra/outputs")
+        hydra_base = (self.workspace.results / "hydra" / "outputs")
         if hydra_base.exists():
             for date_dir in sorted(hydra_base.iterdir(), reverse=True):
                 if not date_dir.is_dir():
@@ -251,11 +251,11 @@ class ReportsPlotter(BasePlotter):
                     for alias in aliases:
                         json_candidates.extend(
                             [
-                                Path("results/logs") / group / clean_exp / alias / v_name / "runtime.json",
-                                Path("results/checkpoints") / group / clean_exp / alias / v_num / "runtime.json",
-                                Path("results/logs") / group / clean_exp / alias / "runtime.json",
-                                Path("results/checkpoints") / group / clean_exp / alias / "runtime.json",
-                                Path("results/checkpoints") / group / clean_exp / alias / "0" / "runtime.json",
+                                (self.workspace.results / "logs") / group / clean_exp / alias / v_name / "runtime.json",
+                                (self.workspace.results / "checkpoints") / group / clean_exp / alias / v_num / "runtime.json",
+                                (self.workspace.results / "logs") / group / clean_exp / alias / "runtime.json",
+                                (self.workspace.results / "checkpoints") / group / clean_exp / alias / "runtime.json",
+                                (self.workspace.results / "checkpoints") / group / clean_exp / alias / "0" / "runtime.json",
                             ]
                         )
 
@@ -289,8 +289,8 @@ class ReportsPlotter(BasePlotter):
                 if not times:
                     for alias in aliases:
                         for scan_dir in [
-                            Path("results/checkpoints") / group / clean_exp / alias,
-                            Path("results/logs") / group / clean_exp / alias,
+                            (self.workspace.results / "checkpoints") / group / clean_exp / alias,
+                            (self.workspace.results / "logs") / group / clean_exp / alias,
                         ]:
                             if scan_dir.exists():
                                 for r_json in sorted(scan_dir.rglob("runtime.json")):
@@ -306,34 +306,6 @@ class ReportsPlotter(BasePlotter):
                                                 peak_vram = float(rdata["gpu_peak_alloc_gb"])
                                             if t_sec > 0:
                                                 times.append((r_json.parent.name, t_sec))
-                                    except Exception:
-                                        pass
-
-                # If still no times found, check Slurm output logs for execution time
-                if not times:
-                    for slurm_dir in [
-                        Path("results/logs/slurm") / group / clean_exp,
-                        Path("results/logs/slurm") / clean_exp,
-                    ]:
-                        if slurm_dir.exists():
-                            for alias in aliases:
-                                for out_file in sorted(slurm_dir.glob(f"*{alias}*.out")):
-                                    try:
-                                        with open(out_file) as sf:
-                                            text = sf.read()
-                                        import re
-
-                                        time_match = re.search(r"Total execution time:\s*([0-9.]+)\s*seconds", text)
-                                        if time_match:
-                                            t_sec = float(time_match.group(1))
-                                            if t_sec > 0:
-                                                times.append((out_file.stem, t_sec))
-                                        gpu_match = re.search(r"Device:\s*([^\n]+)", text)
-                                        if gpu_match and not gpu_device:
-                                            gpu_device = gpu_match.group(1).strip()
-                                        vram_match = re.search(r"Peak Allocated:\s*([0-9.]+)\s*GB", text)
-                                        if vram_match and peak_vram is None:
-                                            peak_vram = float(vram_match.group(1))
                                     except Exception:
                                         pass
 

@@ -4,12 +4,12 @@ import shutil
 import time
 from pathlib import Path
 
-from .storage import read_json, transfer_lock, workspace_id, safe_path
+from .storage import read_json, results_relative, results_root, transfer_lock, workspace_id, safe_path
 
 
 def inventory(root):
     root = Path(root)
-    return {'unmanaged': [str(path.relative_to(root)) for pattern in ('results/sites/*/workspace', 'results/sites/.sync/*', '.thetaide/uploads/*')
+    return {'unmanaged': [str(path.relative_to(root)) for pattern in (results_relative(root, 'sites/*/workspace'), results_relative(root, 'sites/.sync/*'), '.thetaide/uploads/*')
                           for path in root.glob(pattern) if not (path / '.theta-managed.json').is_file()],
             'note': 'Paths without a Theta lease are preserved. Export live studies on their owning compute node; do not open NFS WAL from login.'}
 
@@ -19,11 +19,11 @@ def collect(root, *, apply=False, temporary_only=False):
     root = Path(root)
     with transfer_lock(root):
         project = workspace_id(root)
-        records = [read_json(path) for path in (root / 'results/sites').glob('*/submission.json')]
+        records = [read_json(path) for path in (results_root(root) / 'sites').glob('*/submission.json')]
         pinned = {record.get('source_sha256') for record in records if not record.get('remote_cleaned_at') and record.get('state') != 'submission_failed'}
         pinned.add(read_json(root / '.thetaide/source.json').get('sha256'))
         candidates = []
-        for directory in (list((root / 'results/sites/.sync').glob('*')) + list((root / '.thetaide/uploads').glob('*')))[:100]:
+        for directory in (list((results_root(root) / 'sites/.sync').glob('*')) + list((root / '.thetaide/uploads').glob('*')))[:100]:
             try: safe_path(root, directory.relative_to(root).as_posix())
             except ValueError: continue
             lease = read_json(directory / '.theta-managed.json')
@@ -45,5 +45,5 @@ def collect(root, *, apply=False, temporary_only=False):
 
 
 def active_leases(root):
-    return [path for path in (Path(root) / 'results/sites/.sync').glob('*/.theta-managed.json')
+    return [path for path in (results_root(root) / 'sites/.sync').glob('*/.theta-managed.json')
             if read_json(path).get('expires_at', 0) >= time.time()]

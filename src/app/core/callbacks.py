@@ -73,7 +73,8 @@ class EnvironmentEvaluatorCallback(L.Callback):
         transitions = int(round(transitions))
 
         if self.cfg is not None and self.cfg.get("variability_run_id"):
-            event_path = (Path("results/logs") / str(self.cfg.group) / str(self.cfg.experiment_id)
+            from src.app.workspace import WorkspacePaths
+            event_path = (WorkspacePaths.for_process().results / "logs" / str(self.cfg.group) / str(self.cfg.experiment_id)
                           / str(self.cfg.get("variability_method", "run")).replace("/", "_")
                           / str(self.cfg.get("variability_version", "version_0")) / "evaluation_events.jsonl")
             event_path.parent.mkdir(parents=True, exist_ok=True)

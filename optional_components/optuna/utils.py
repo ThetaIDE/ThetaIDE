@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 from typing import Any
 from weakref import WeakKeyDictionary
 
@@ -20,10 +21,18 @@ MIN_IMPORTANCE_TRIALS = 5
 _importance_cache = WeakKeyDictionary()
 
 
-DEFAULT_OPTUNA_DB_URL = "sqlite:///results/optuna/optuna.db"
-
-
 from src.app.api.execution import get_python_executable
+
+
+def results_root() -> Path:
+    """The results directory of the workspace this process runs in."""
+    from src.app.api.workspace import WorkspacePaths
+    return WorkspacePaths.for_process().results
+
+
+def default_storage_url() -> str:
+    """The study database used when the tuning settings name no storage."""
+    return "sqlite:///" + str(results_root() / "optuna" / "optuna.db")
 
 
 def is_valid_storage_url(storage_url) -> bool:
@@ -125,7 +134,7 @@ def launch_optuna_dashboard(storage_url):
                 break
 
         # Ensure logging directory exists
-        log_file_path = "results/optuna/dashboard.log"
+        log_file_path = str(results_root() / "optuna" / "dashboard.log")
         os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
         log_file = open(log_file_path, "w")
 
@@ -211,8 +220,8 @@ def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage
         if match:
             version = max(version, int(match[1]) + 1)
 
-    for directory in (Path("results/logs") / group / experiment_id / agent_name,
-                      Path("results/checkpoints") / group / experiment_id / agent_name):
+    for directory in (results_root() / "logs" / group / experiment_id / agent_name,
+                      results_root() / "checkpoints" / group / experiment_id / agent_name):
         for path in (directory / "sweeps").glob("*"):
             if path.is_dir():
                 include_study(unquote(path.name))
@@ -264,7 +273,7 @@ def find_best_trial_from_logs(group: str, experiment_id: str, agent_name: str, d
 
     import pandas as pd
 
-    log_dir = Path("results/logs") / group / experiment_id / agent_name
+    log_dir = results_root() / "logs" / group / experiment_id / agent_name
     best_id = "0"
     best_val = float("inf") if direction == "minimize" else float("-inf")
 
@@ -417,7 +426,7 @@ def promote_best_trial_checkpoint(
         raise ValueError(f"Study {study_name!r} has no completed trial to promote") from exc
     if trial.value is None or not math.isfinite(trial.value):
         raise ValueError(f"Best trial in study {study_name!r} does not have a finite objective")
-    ckpt_root = Path("results/checkpoints") / group / experiment_id / agent_name
+    ckpt_root = results_root() / "checkpoints" / group / experiment_id / agent_name
     trial_dir = trial_checkpoint_dir(ckpt_root, study_name, trial.number)
     objective_path = trial_dir / "objective.json"
     if objective_path.is_file():

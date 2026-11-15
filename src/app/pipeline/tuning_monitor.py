@@ -4,12 +4,17 @@ import json
 import math
 
 
+def _results(project_root):
+    from src.app.workspace import WorkspacePaths
+    return WorkspacePaths(project_root).results
+
+
 def local_study_summaries(project_root, group, experiment_id, *, started=None):
     """Read normalized provider exports; never open live tuner state.
 
     ``started`` excludes files left by an earlier launch of the same recipe.
     """
-    root = Path(project_root) / 'results/checkpoints' / str(group) / str(experiment_id)
+    root = _results(project_root) / 'checkpoints' / str(group) / str(experiment_id)
     found = {}
     for path in sorted(root.glob('*/sweeps/*/tuning_summary.json')) + sorted(root.glob('*/tuning_summary.json')):
         try:
@@ -60,11 +65,11 @@ def study_summaries(project_root, run, *, paths=None):
     backend = (run or {}).get("backend") or {}
     if not backend.get("group") or not backend.get("experiment_id"):
         return []
-    executions = (Path(project_root) / 'results/executions' / backend['group'] / backend['experiment_id']
+    executions = (_results(project_root) / 'executions' / backend['group'] / backend['experiment_id']
                   if (run or {}).get('remote') else None)
     found = {}
     for method, data in local_study_summaries(project_root, backend["group"], backend["experiment_id"]):
-        logs = Path(project_root) / "results/logs" / backend["group"] / backend["experiment_id"]
+        logs = _results(project_root) / "logs" / backend["group"] / backend["experiment_id"]
         found[(method, data["study"])] = study_execution_states(
             data, logs, data.get("log_method") or method, executions_root=executions)
     # Older compute snapshots omitted commits for live tuning summaries. Recover
@@ -75,7 +80,7 @@ def study_summaries(project_root, run, *, paths=None):
         from src.app.pipeline.exceptions import ConfigurationError
         from src.app.pipeline.tuner_execution import read_remote_snapshots
         try:
-            logs = Path(project_root) / 'results/logs' / backend['group'] / backend['experiment_id']
+            logs = _results(project_root) / 'logs' / backend['group'] / backend['experiment_id']
             for method, data in read_remote_snapshots(project_root, remote, paths=paths):
                 found[(method, data['study'])] = study_execution_states(
                     data, logs, data.get('log_method') or method, executions_root=executions)

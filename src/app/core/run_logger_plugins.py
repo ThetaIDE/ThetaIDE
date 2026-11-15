@@ -21,7 +21,7 @@ from typing import Any, Callable
 class RunLoggerContext:
     """Stable run information shared with logger providers."""
 
-    base_root: Path
+    results_root: Path
     group_name: str
     experiment_id: str
     method_name: str

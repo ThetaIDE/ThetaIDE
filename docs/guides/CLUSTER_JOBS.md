@@ -109,7 +109,7 @@ Slurm admits **one active trial and one active training seed per allocation**. R
 
 ## Allocation-owned publication
 
-The allocation runs with the home interpreter and scratch cwd/workspace/output roots. SQLite defaults and SQLite tuning URLs resolve to one `results/optuna/EXECUTION/study.sqlite` under that scratch root. Workers/callbacks use the same resolved storage. Explicit external backends remain external; errors do not redirect to SQLite. Put credentials in environment references, never literal captured URLs.
+The allocation runs with the home interpreter and scratch cwd/workspace/output roots. SQLite defaults and SQLite tuning URLs resolve to one `optuna/EXECUTION/study.sqlite` in that scratch workspace's results directory. Workers/callbacks use the same resolved storage. Explicit external backends remain external; errors do not redirect to SQLite. Put credentials in environment references, never literal captured URLs.
 
 Consistent SQLite backups run on the owning compute node. Published copies are closed, integrity-checked, standalone DELETE-mode databases; live DB/WAL/SHM files are never copied or opened by a login helper.
 

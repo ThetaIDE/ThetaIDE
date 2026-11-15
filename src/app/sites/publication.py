@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .storage import read_json, safe_path, write_json
+from .storage import read_json, results_relative, results_root, safe_path, write_json
 
 SCHEMA = 'theta.publication/v1'
 SMALL = {'.json', '.jsonl', '.csv', '.yaml', '.yml', '.log', '.out', '.err', '.sbatch'}
@@ -71,7 +71,7 @@ class Publisher:
         from src.app.workspace import WorkspacePaths
         self.paths = WorkspacePaths(self.runtime)
         self.tuner_plan = record_plan(record, paths=self.paths)
-        self.directory = self.work / 'results/sites' / record['execution_id']
+        self.directory = results_root(self.work) / 'sites' / record['execution_id']
         self.directory.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.directory / 'publication.json'
         self.manifest = {'schema': SCHEMA, 'execution_id': record['execution_id'],
@@ -130,7 +130,7 @@ class Publisher:
 
     def _object(self, data):
         sha = hashlib.sha256(data).hexdigest()
-        relative = f'results/sites/{self.record["execution_id"]}/objects/{sha}'
+        relative = results_relative(self.work, f'sites/{self.record["execution_id"]}/objects/{sha}')
         target = safe_path(self.work, relative)
         if not target.exists():
             if self.object_bytes + len(data) > self.policy['max_published_bytes']:
@@ -158,7 +158,7 @@ class Publisher:
         final = final or self.finalizing
         budget = self.runtime / '.thetaide/diagnostic-budget.json'
         if budget.exists() and budget.stat().st_mtime_ns != self.budget_stamp:
-            destination = self.runtime / 'results/sites' / self.record['execution_id'] / 'diagnostic-budget.json'
+            destination = results_root(self.runtime) / 'sites' / self.record['execution_id'] / 'diagnostic-budget.json'
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(budget, destination)
             self.budget_stamp = budget.stat().st_mtime_ns
@@ -181,11 +181,11 @@ class Publisher:
         paths.sort(key=lambda path: (2 if '/monitors/' in str(path) else 1 if 'checkpoints' in path.parts else 0, str(path)))
         for path in paths:
             relative = path.relative_to(self.runtime).as_posix()
-            if self.tuner_plan and relative in {item.path for item in self.tuner_plan.artifacts}: continue
+            if self.tuner_plan and relative in {results_relative(self.runtime, item.path) for item in self.tuner_plan.artifacts}: continue
             if path.name.startswith('.') or path.name.endswith(('-wal', '-shm', '-journal')): continue
             if path.suffix in ('.sqlite', '.db', '.sqlite3'): continue
             category = ('metrics' if path.name == 'tuning_summary.json' else
-                        'checkpoints' if relative.startswith('results/checkpoints/') else
+                        'checkpoints' if relative.startswith(results_relative(self.runtime, 'checkpoints/')) else
                         'diagnostics' if '/monitors/' in relative else 'metrics')
             small = path.suffix in SMALL and category != 'checkpoints'
             try: info = path.stat()
@@ -206,7 +206,7 @@ class Publisher:
         snapshot_started = False
         from src.app.pipeline.tuner_execution import remote_tuner
         for artifact in self.tuner_plan.artifacts if self.tuner_plan else ():
-            relative = artifact.path
+            relative = results_relative(self.runtime, artifact.path)
             source = safe_path(self.runtime, relative)
             due = ((final and relative not in self.final_artifacts) or
                    (not final and (now - self.last_database >= self.policy['database_seconds'] or

@@ -188,7 +188,7 @@ class ComponentExporter:
         if options.output_path:
             out_zip = Path(options.output_path)
         else:
-            exports_dir = self.workspace_root / "results" / "exports"
+            exports_dir = self.paths.results / "exports"
             exports_dir.mkdir(parents=True, exist_ok=True)
             out_zip = exports_dir / f"{comp_id}_v{options.version}.zip"
 
@@ -232,7 +232,7 @@ class ComponentExporter:
         if options.output_path:
             out_dir = Path(options.output_path)
         else:
-            exports_dir = self.workspace_root / "results" / "exports"
+            exports_dir = self.paths.results / "exports"
             exports_dir.mkdir(parents=True, exist_ok=True)
             out_dir = exports_dir / comp_id
 
