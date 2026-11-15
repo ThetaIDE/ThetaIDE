@@ -77,7 +77,7 @@ class Package:
                   "writable": self.writable, "aliases": self.manifest.get("aliases", []),
                   "capabilities": [vars(c) for c in self.capabilities],
                   "configs": self.manifest.get("config_paths", []), "dependencies": self.manifest.get("dependencies", {}),
-                  "source": self.manifest.get("installed_from"), "legacy": False}
+                  "source": self.manifest.get("installed_from")}
         if hashes: result["hashes"] = {p.relative_to(self.root).as_posix(): file_hash(p) for p in self.root.rglob("*")
                                       if p.is_file() and not any(v in p.parts for v in ("__pycache__","node_modules",".git"))}
         return result

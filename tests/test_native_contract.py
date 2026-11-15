@@ -21,7 +21,7 @@ def package(root, name='native', **changes):
     return meta
 
 
-@pytest.mark.parametrize('field,value', [('storage_version',None),('storage_version',1),('storage_version',2),('api_version',None),('legacy_paths',{}),('module_aliases',{}),('target_path','src/usr/models/native')])
+@pytest.mark.parametrize('field,value', [('storage_version',None),('storage_version',1),('storage_version',2),('api_version',None)])
 def test_legacy_or_missing_contract_is_rejected_without_installation(tmp_path,field,value):
     source=tmp_path/'source';meta=package(source,**{field:value})
     archive=tmp_path/'native.zip'

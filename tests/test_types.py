@@ -19,10 +19,10 @@ class TestActionResult:
         assert torch.equal(res.logprob, lp)
         assert torch.equal(res.entropy, ent)
         assert torch.equal(res.value, val)
-        assert res.blend_entropy == 0.25
+        assert res.get_aux("blend_entropy") == 0.25
 
     def test_four_tuple_unpacking(self):
-        """Ensure backward compatibility with standard 4-element unpacking."""
+        """ActionResult unpacks as (action, logprob, entropy, value)."""
         res = ActionResult(
             action=torch.tensor(0),
             logprob=torch.tensor(-0.1),
@@ -45,12 +45,13 @@ class TestActionResult:
         assert res[0] == 2
         assert res[3] == 1.0
 
-    def test_default_blend_entropy(self):
-        """When aux has no blend_entropy, it should gracefully return scalar 0.0."""
+    def test_missing_aux_uses_the_default(self):
+        """Model-specific tensors live only in aux; a missing key returns the default."""
         res = ActionResult(
             action=torch.tensor(1),
             logprob=torch.tensor(-0.2),
             entropy=torch.tensor(0.4),
             value=torch.tensor(2.0),
         )
-        assert res.blend_entropy == 0.0
+        assert res.get_aux("blend_entropy") is None
+        assert not hasattr(res, "blend_entropy")

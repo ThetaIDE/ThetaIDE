@@ -84,7 +84,7 @@ def test_standard_gymnasium_vector_env_resolution():
 
     env = VectorizedBaseEnv.from_name("CartPole-v1", n_envs=2)
     assert isinstance(env, StandardGymVectorEnv)
-    assert env.n_actions() == 2
+    assert env.n_actions == 2
 
     obs = env.reset()
     assert obs.shape == (2, 4)

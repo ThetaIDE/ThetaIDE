@@ -10,10 +10,7 @@ from src.app.core.utils import load_module
 
 
 class ActionCount(int):
-    """Integer representing action count that can also be called as a nullary function for backwards compatibility."""
-
-    def __call__(self) -> int:
-        return int(self)
+    """The number of discrete actions an environment exposes."""
 
 
 class VectorizedBaseEnv(ABC):

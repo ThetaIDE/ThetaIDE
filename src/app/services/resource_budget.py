@@ -204,10 +204,6 @@ def learned_usage(path):
             'active': active, 'used_memory': used_memory or 0, 'used_cpu': used_cpu or 0}
 
 
-class ResourceCapacityRetry(RuntimeError):
-    """Legacy retry signal; built-in training launchers no longer emit it."""
-
-
 class ResourcePool:
     """Shared local task estimates and leases, across experiments and trials.
 
@@ -386,20 +382,6 @@ class ResourcePool:
             self._sample(db)
             db.execute('DELETE FROM tasks WHERE id=?', (token,))
 
-    def release_coordinator_reservation(self, pid):
-        """Upgrade compatibility: an older launcher may have leased the coordinator.
-
-        Resolved seed workers now acquire their own leases. Drop only this
-        coordinator's legacy reservation before any children are launched.
-        """
-        with self.connect() as db:
-            db.execute('DELETE FROM tasks WHERE pid=? AND birth=?',
-                       (pid, psutil.Process(pid).create_time()))
-
-    def should_retry(self, token):
-        """Compatibility for older launchers: resource growth never evicts a run."""
-        return False
-
     def sample(self):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -415,9 +397,6 @@ class ResourcePool:
         last_reason = None
         token = None
         ticket = ticket or self.enqueue()[0]
-        with self.connect() as db:
-            row = db.execute('SELECT position FROM waiters WHERE id=?', (ticket,)).fetchone()
-        retry = False
         try:
             while token is None:
                 if check_cancel:
@@ -431,19 +410,7 @@ class ResourcePool:
                 if token is None:
                     time.sleep(.5)
             yield token
-        except ResourceCapacityRetry as exc:
-            # Keep the original place: moving a retry behind not-yet-dispatched
-            # seeds can deadlock a bounded coordinator thread pool.
-            if row:
-                pid = os.getpid()
-                with self.connect() as db:
-                    db.execute('INSERT OR REPLACE INTO waiters VALUES(?,?,?,?)',
-                               (ticket, row[0], pid, psutil.Process(pid).create_time()))
-                retry = True
-                exc.resource_ticket = ticket
-            raise
         finally:
-            if not retry:
-                self.dequeue(ticket)
+            self.dequeue(ticket)
             if token:
                 self.release(token)

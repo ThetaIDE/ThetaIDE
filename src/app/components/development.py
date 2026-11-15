@@ -22,7 +22,7 @@ class ComponentDevelopment:
     def _records(self):
         from src.app.core.provider_catalog import get_catalog
         return [(p.root / ".theta_component.json", {**p.manifest, "origin": p.origin, "writable": p.writable})
-                for p in get_catalog(self.paths).packages if p.origin != "python_distribution" and not p.manifest.get("legacy_loose")]
+                for p in get_catalog(self.paths).packages if p.origin != "python_distribution"]
 
     def _resolve(self, reference):
         reference = str(reference)

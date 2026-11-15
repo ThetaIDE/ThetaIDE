@@ -57,8 +57,6 @@ def test_growth_learns_usage_and_blocks_new_starts_without_evicting_workers(tmp_
             db.execute('INSERT INTO tasks(id,key,pid,birth,memory,admitted_memory,cpu,created) VALUES(?,?,?,?,?,?,?,?)',
                        (name, name + '-method', pid, 1, reserved * GIB, reserved * GIB, 1, time.time() - 10))
     pool.sample()
-    assert not pool.should_retry("old")
-    assert not pool.should_retry("new")
     memory, _, _ = pool.estimate({"key": "new-method", "memory": GIB})
     assert memory == pytest.approx(4.6 * GIB)
     token, reason = pool.acquire({'key': 'next', 'memory': GIB, 'cpu': 1},
@@ -70,20 +68,6 @@ def test_growth_learns_usage_and_blocks_new_starts_without_evicting_workers(tmp_
         # Sampling preserved the first worker's unused admission headroom.
         assert db.execute('SELECT memory FROM tasks WHERE id="old"').fetchone()[0] == 3 * GIB
         assert not db.execute('SELECT 1 FROM tasks WHERE retry=1').fetchone()
-
-
-def test_legacy_retry_flags_do_not_restart_workers_or_block_new_starts(tmp_path, monkeypatch):
-    from src.app.services import resource_budget
-    pool = ResourcePool(tmp_path / "pool.db")
-    with pool.connect() as db:
-        db.execute('INSERT INTO tasks(id,key,retry) VALUES(?,?,1)', ('legacy', 'legacy'))
-    monkeypatch.setattr(pool, '_sample', lambda db: [])
-    monkeypatch.setattr(resource_budget.psutil, 'cpu_percent', lambda _: 0)
-    monkeypatch.setattr(resource_budget, 'load_training_settings', lambda _: {})
-    assert not pool.should_retry('legacy')
-    token, reason = pool.acquire({'key': 'next', 'memory': GIB, 'cpu': 1},
-                                capacity=(8, 32 * GIB, 24 * GIB))
-    assert token and not reason
 
 
 def test_training_holds_one_slot_until_completion_without_capacity_rechecks(monkeypatch):
@@ -107,9 +91,6 @@ def test_training_holds_one_slot_until_completion_without_capacity_rechecks(monk
 
         def attach(self, *args):
             pass
-
-        def should_retry(self, token):
-            raise AssertionError('Running training must not be evicted for capacity')
 
     monkeypatch.setattr(runtime, "get_subprocess_env", lambda _, **__: {
         "THETA_RESOURCE_POOL": "unused.db", "THETA_RESOURCE_SPEC": json.dumps({"memory": 1})})
@@ -145,7 +126,6 @@ def test_trial_runs_once_without_capacity_restarts(tmp_path, monkeypatch):
         def acquire(self, *args, **kwargs): return 'token', ''
         def attach(self, *args): pass
         def release(self, *args): pass
-        def should_retry(self, token): raise AssertionError('Running trial must not be evicted')
 
     class Process:
         pid = 123

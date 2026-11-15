@@ -46,14 +46,6 @@ class ActionResult:
         """Retrieve an auxiliary metric or tensor by key."""
         return self.aux.get(key, default)
 
-    @property
-    def blend_entropy(self) -> torch.Tensor:
-        """Backward-compatibility accessor for legacy blend_entropy auxiliary tensor."""
-        if "blend_entropy" in self.aux:
-            return self.aux["blend_entropy"]
-        device = getattr(self.action, "device", None)
-        return torch.tensor(0.0, device=device)
-
     def __repr__(self):
         return (
             f"ActionResult(action={self.action.shape if hasattr(self.action, 'shape') else self.action}, "

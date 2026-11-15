@@ -47,7 +47,7 @@ def installed_model(tmp_path):
     source = root / "src/plugins/components/installed/original"
     source.mkdir(parents=True)
     (source / "__init__.py").write_text("from .model import Example\n")
-    (source / "model.py").write_text('''from src.app.core.model_registry import register_model
+    (source / "model.py").write_text('''from src.app.api.models import register_model
 @register_model('original')
 class Example:
     def __init__(self, **kwargs): pass

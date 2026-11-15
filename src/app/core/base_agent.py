@@ -150,7 +150,7 @@ class BaseAgent(L.LightningModule, ABC):
         if isinstance(obs, tuple):
             obs = obs[0]
         self.observation_space = obs.shape[1:]
-        self.n_actions = self.env.n_actions if not callable(self.env.n_actions) else self.env.n_actions()
+        self.n_actions = self.env.n_actions
 
         return obs
 
@@ -163,7 +163,7 @@ class BaseAgent(L.LightningModule, ABC):
         """Compute action, log probability, entropy, and value for given observations.
 
         Returns:
-            Tuple of (action, logprob, entropy, value) — or with blend_entropy for hybrid agents.
+            An ActionResult, which unpacks as (action, logprob, entropy, value); model-specific tensors go in its aux.
         """
         ...
 

@@ -84,31 +84,6 @@ def test_flat_queue_preserves_fifo_across_running_and_pending_states():
     assert app is not None
 
 
-def test_capacity_retry_keeps_its_place_ahead_of_undispatched_seeds(tmp_path, monkeypatch):
-    import pytest
-    from src.app.services.resource_budget import ResourcePool, ResourceCapacityRetry
-    pool = ResourcePool(tmp_path / 'resources.db')
-    first, later = pool.enqueue(2)
-    starts = []
-    def acquire(spec, *, ticket, **kwargs):
-        with pool.connect() as db:
-            head = db.execute('SELECT id FROM waiters ORDER BY position LIMIT 1').fetchone()[0]
-            assert ticket == head
-            starts.append(ticket)
-            db.execute('DELETE FROM waiters WHERE id=?', (ticket,))
-        return 'lease', ''
-    monkeypatch.setattr(pool, 'acquire', acquire)
-    monkeypatch.setattr(pool, 'release', lambda token: None)
-    with pytest.raises(ResourceCapacityRetry) as caught:
-        with pool.slot({}, ticket=first):
-            raise ResourceCapacityRetry()
-    assert caught.value.resource_ticket == first
-    with pool.slot({}, ticket=caught.value.resource_ticket):
-        pass
-    assert starts == [first, first]
-    pool.dequeue(later)
-
-
 def test_trial_progress_keeps_finished_seeds_in_denominator_and_updates_collapsed():
     from types import SimpleNamespace
     from frontend.runner_manager import JobManager

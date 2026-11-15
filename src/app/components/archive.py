@@ -34,8 +34,6 @@ def validate_native_package(meta, source):
         raise ValueError("Unsupported or missing native contract: packages require explicit storage_version: 3 and api_version: 1")
     valid, error = validate_manifest_data({k: v for k, v in meta.items() if v is not None})
     if not valid: raise ValueError(f"Invalid package manifest: {error}")
-    for field in ("legacy_paths", "module_aliases", "legacy_archive", "target_path"):
-        if field in meta: raise ValueError(f"Native packages cannot declare {field}; use package-relative entry points/resources")
     if not isinstance(meta.get("capabilities"), list): raise ValueError("Declare capabilities explicitly (an empty list is valid for a config/dependency package)")
     payload = meta.get("payload")
     if not isinstance(payload, dict) or not all(k in payload for k in ("implementations", "resources", "configs")):

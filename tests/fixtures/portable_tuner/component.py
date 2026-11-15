@@ -1,7 +1,7 @@
 """Independent JSON tuner: no Optuna, SQLAlchemy, or private scheduler imports."""
 import json
 
-from src.app.pipeline.tuner_execution import TunerArtifact, TunerExecutionPlan, TunerLaunchBindings
+from src.app.api.tuning import TunerArtifact, TunerExecutionPlan, TunerLaunchBindings
 
 
 class GridTuner:

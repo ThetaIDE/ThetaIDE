@@ -56,15 +56,12 @@ def execute_resolved(cfg, run, on_start, on_wait):
 
 
 def run_objective(cfg, *, execute=None):
-    """Compatibility API: execution is shared; the scoring component only sees results."""
+    """Run an objective: execution is shared; the scoring component only sees results."""
     from src.app.objectives.api import validate_objective
     from src.app.objectives.evaluation import score_execution
     from src.app.pipeline.trial_artifacts import trial_log_version, trial_checkpoint_dir_from_config
     if cfg.get("objective") is not None:
         validate_objective(cfg)
-    if os.environ.get("THETA_RESOURCE_POOL"):
-        from src.app.services.resource_budget import ResourcePool
-        ResourcePool(os.environ["THETA_RESOURCE_POOL"], os.environ.get("THETAIDE_SETTINGS_FILE")).release_coordinator_reservation(os.getpid())
     name = str(OmegaConf.select(cfg, "agent.name") or OmegaConf.select(cfg, "model.name") or "run").replace("/", "_")
     planning_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     if planning_cfg.get("variability") is None:
