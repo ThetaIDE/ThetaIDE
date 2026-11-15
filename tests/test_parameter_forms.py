@@ -598,7 +598,7 @@ def test_sweep_is_inherited_and_can_be_masked_without_a_separate_switch(viewer):
     base = group / "_base.yaml"
     inherited = {"tuning": {"component": "optuna", "metric": "eval/reward", "direction": "maximize"}}
     base.write_text(yaml.safe_dump(inherited))
-    widget = load(viewer, {"sweep": False, "methods": {"m": {"agent": "ppo", "model": "dnn", "tune": {
+    widget = load(viewer, {"methods": {"m": {"agent": "ppo", "model": "dnn", "tune": {
         "agent.lr": {"type": "float", "low": .001, "high": .01}}}}})
     assert "tuning" not in widget.raw_data
     assert not any(w.text().lower() == "sweep" for w in boxes(widget)[0].findChildren(QLabel))
@@ -614,16 +614,6 @@ def test_sweep_is_inherited_and_can_be_masked_without_a_separate_switch(viewer):
     assert yaml.safe_load(base.read_text()) == inherited
     assert widget.save_to_disk()
     assert yaml.safe_load(widget.current_path.read_text())["tuning"] is None
-
-
-@pytest.mark.parametrize("flag", [True, False])
-def test_legacy_sweep_flag_does_not_show_a_slider_or_add_tuning(viewer, flag):
-    from src.app.pipeline.tuning_config import tuning_enabled
-
-    widget = load(viewer, {"methods": {}, "sweep": flag})
-    assert not any(w.text().lower() == "sweep" for w in widget.findChildren(QLabel))
-    assert not tuning_enabled(widget._parameter_context_config())
-    assert not any(b.property("configSection") == "sweep" for b in boxes(widget))
 
 
 def test_shared_method_parameter_drag_preserves_group_and_edit_callbacks(viewer):
