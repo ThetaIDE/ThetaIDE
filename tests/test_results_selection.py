@@ -46,14 +46,14 @@ def test_delete_selection_expands_experiments_and_deduplicates_groups():
     explorer = RunExplorer()
     explorer.set_runs([
         {"group": "g", "experiment_id": name, "agents": [{"name": "a"}]}
-        for name in ("x_20260101-000000", "x_20260102-000000", "y")
+        for name in ("x/20260101-000000", "x/20260102-000000", "y")
     ])
     group = explorer.tree.topLevelItem(0)
     group.child(0).setSelected(True)
     group.child(0).child(0).setSelected(True)
     group.child(1).setSelected(True)
     assert explorer.deletion_targets() == [
-        ("g", "x_20260101-000000"), ("g", "x_20260102-000000"), ("g", "y")]
+        ("g", "x/20260101-000000"), ("g", "x/20260102-000000"), ("g", "y")]
     received = []
     explorer.delete_selection_requested.connect(received.append)
     explorer.btn_delete.click()

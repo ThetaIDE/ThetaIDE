@@ -103,7 +103,7 @@ def test_missing_winner_never_promotes_an_unrelated_checkpoint(tmp_path, monkeyp
     root = Path("results/checkpoints/g/e/m")
     root.mkdir(parents=True)
     (root / "best_model.ckpt").write_text("existing")
-    with pytest.raises(FileNotFoundError, match="explicit trial-to-checkpoint mapping"):
+    with pytest.raises(FileNotFoundError, match="Expected one checkpoint"):
         promote_best_trial_checkpoint("g", "e", "m", storage, "old")
     assert (root / "best_model.ckpt").read_text() == "existing"
 
