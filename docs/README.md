@@ -49,6 +49,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
+- [Phase 5 plan: results in `src/usr/results` and explicit bundles](plans/LAYER_BOUNDARY_PHASE5_PLAN.md) — bundle manifest `theta.bundle/v1`, application/workspace resolution, bundle inclusions and exclusions, units 5a–5e.
 - [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — units 4a–4g implemented; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
 - [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active; confirmed decisions (no legacy support, generic rejection, results in `src/usr/results`), phase 4 close-out, remote bundles, `src/ide` consolidation and enforcement.
 

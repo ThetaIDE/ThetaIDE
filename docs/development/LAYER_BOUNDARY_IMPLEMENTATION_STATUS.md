@@ -11,7 +11,7 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
 | 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | — |
-| 5 — Results in `src/usr/results`, remote bundles (G) | Not started; tuner continuation artifacts and site dependencies landed in phase 2 | Plan document first; see the plan's phase 5 |
+| 5 — Results in `src/usr/results`, remote bundles (G) | [Phase 5 plan](../plans/LAYER_BOUNDARY_PHASE5_PLAN.md) written (5a); tuner continuation artifacts and site dependencies landed in phase 2 | Units 5b–5e |
 | 6 — Installed distribution (H) | Not started; core stays at `src/app` (no move) | See the plan's phase 6 |
 | 7 — Enforcement (I) | Not started | See the plan's phase 7 |
 
@@ -53,6 +53,12 @@ The `online_methods`/`offline_methods`/`offline_datasets` rejection and the `tas
 
 `logging.backends.<id>.enabled` is the only switch for a run logger; the root and `agent.tensorboard` flags and their translation are gone. The experiment form shows one toggle per available `run_logger` capability, labelled by the capability's `label` and hidden while its `activation_plugin` is disabled. The form names no backend.
 
+### Legacy sweep
+
+Old paths, shims and fallbacks found by a repository-wide search are gone (`547fd3f`): the ignored `is_sweep` argument, the Optuna `trial_worker` and `objectives.runner` shims, the `BaseMetaPipeline` stub, the site-profile forwarding filter, the second paradigm key per source, swallowed registry errors, the `blendrl-dev` null confidence floor, agent-level rates and comma-joined rules, and the `themes-dev` version-1 policy reader and missing `component_ids` fallback. What a search for legacy wording still finds is current: THEMES' "historical demo" (a research term), CodeMirror's `legacy-modes` package, bare ruleset names, and the `compatibility` manifest field.
+
+Two settings still have two homes, and fixing them needs v3 package changes and a republish: paradigm compatibility (the profile's `compatible_paradigms` wins over the manifest's `paradigms`, `frontend/config_viewer.py`) and the data-module `role` (profile first, then capability metadata). The plugin scaffolder (`src/app/services/plugin_scaffolder.py`) generates agent code that imports the private `src.app.core.protocols` and `agent_registry`; phase 7 enforcement will catch it.
+
 ### Also left
 
 - The resource pool's SQLite `ALTER TABLE ADD COLUMN` upgrade (`src/app/services/resource_budget.py`) stays: the running desktop may hold that database.
@@ -69,7 +75,7 @@ Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cach
 
 - **Fixtures.** `tests/conftest.py`'s autouse `tracked_workspace` selects a temporary copy of the checkout's tracked `src/usr`; a session hook fails the run if tests create result groups in the checkout's `results/`. `fixture_workspace` adds `tests/fixtures/workspace_usr` and `tests/fixtures/workspace_config`. `optuna_workspace`, `component_fixtures.sweep_workspace(root)` and `install_optional` install the optional components. `tests/themes_fixtures.py` generates THEMES inputs. `LocalHub` and the authored-NSFR test read sibling checkouts only through `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT`.
 - **Package integration** lives in `../theta-plugins-v3`: `../Theta-IDE/venv/bin/python -m pytest -q tests/test_native_integration.py` (71 passed).
-- **Stale tests, deferred (user decision):** 119 failures in 27 files, none new against the session-start commit `b7c13ac` (file-by-file comparison by test ID, 2026-11-15; 2605 passed, 83 skipped): `test_results_panel` (32), `test_job_manager` (12), `test_queue_panel` (11), `test_experiment_pane`, `test_parallel_runs` (6 each), `test_tray`, `test_trial_seed_visibility` (5 each), `test_filetree_toolbar`, `test_monitor_live`, `test_objective_components`, `test_tuner_components` (4 each), `test_monitor_lifecycle`, `test_monitor_panel`, `test_panel_sections` (3 each), `test_component_plugins`, `test_component_validation_contract`, `test_launcher`, `test_tree_mouse_selection` (2 each), and one each in `test_cluster_error_logs`, `test_component_gui_enhancements`, `test_components_filetree`, `test_optuna_pruning`, `test_run_navigator`, `test_sidetabs_bins`, `test_splash`, `test_test_suite`, `test_tuning_objective`.
+- **Stale tests, deferred (user decision):** 119 failures in 27 files, none new against the session-start commit `b7c13ac` (file-by-file comparison by test ID, 2026-11-15; 2605 passed, 83 skipped): `test_results_panel` (32), `test_job_manager` (12), `test_queue_panel` (11), `test_experiment_pane`, `test_parallel_runs` (6 each), `test_tray`, `test_trial_seed_visibility` (5 each), `test_filetree_toolbar`, `test_monitor_live`, `test_objective_components`, `test_tuner_components` (4 each), `test_monitor_lifecycle`, `test_monitor_panel`, `test_panel_sections` (3 each), `test_component_plugins`, `test_component_validation_contract`, `test_launcher`, `test_tree_mouse_selection` (2 each), and one each in `test_cluster_error_logs`, `test_component_gui_enhancements`, `test_components_filetree`, `test_optuna_pruning`, `test_run_navigator`, `test_sidetabs_bins`, `test_splash`, `test_test_suite`, `test_tuning_objective`. Also failing since the autoencoder package was installed on 2026-11-14 (it skipped before): `test_paradigm_unsupervised` (20). Its import-time check reads the real workspace's catalog, while the tests run in the hermetic tracked workspace, which has no autoencoder; a fixture package would make it hermetic.
 - **Coverage gap:** no end-to-end test of managed parallel trials with a Theta-owned bootstrap.
 
 ## Desktop items not yet checked interactively
