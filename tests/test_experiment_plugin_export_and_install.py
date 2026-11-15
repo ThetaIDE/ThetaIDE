@@ -1,8 +1,6 @@
 """Tests for Experiment Plugin abstraction: grouping, export, Hub display, and installation."""
 from pathlib import Path
 import json
-import shutil
-import tempfile
 import pytest
 
 from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions
@@ -23,24 +21,6 @@ def qapp():
         app = QApplication([])
     return app
 
-
-
-@pytest.fixture
-def mock_isolated_workspace():
-    """Create a temporary isolated workspace for testing experiment plugin install/uninstall."""
-    temp_dir = tempfile.mkdtemp(prefix="theta_exp_ws_")
-    ws = Path(temp_dir)
-    (ws / "src/usr/config" / "experiment").mkdir(parents=True)
-    (ws / "src/usr/config" / "env").mkdir(parents=True)
-    (ws / "src/usr/config" / "data").mkdir(parents=True)
-    (ws / "src/usr/config" / "eval").mkdir(parents=True)
-    (ws / "src/usr/config" / "plot").mkdir(parents=True)
-    (ws / "plot").mkdir(parents=True)
-    (ws / "src" / "usr" / "data").mkdir(parents=True)
-    (ws / "src" / "usr" / "eval").mkdir(parents=True)
-    (ws / ".thetaide").mkdir(parents=True)
-    yield ws
-    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -147,34 +127,6 @@ def test_hub_experiment_filtering_and_hidden_subcomponents(qapp, tmp_path):
         assert card.component.kind == "experiment"
 
     view_comp.deleteLater()
-
-
-def test_experiment_plugin_mock_install_and_clean_uninstall(mock_isolated_workspace):
-    """Test full lifecycle install and clean uninstall of an experiment plugin."""
-    ws = mock_isolated_workspace
-    installer = HubInstaller(workspace_dir=ws, data_dir=ws / ".thetaide")
-
-    dist_pkg = Path(__file__).resolve().parents[2] / "theta-plugins" / "dist" / "pyrenees-1.0.0.zip"
-    try:
-        if not dist_pkg.is_file():
-            pytest.skip("pyrenees-1.0.0.zip dist package not built")
-        with dist_pkg.open("rb"):
-            pass
-    except (OSError, PermissionError):
-        pytest.skip("pyrenees-1.0.0.zip dist package not accessible")
-
-    # Load component definition from index
-    data = json.loads(HUB_INDEX.read_text(encoding="utf-8"))
-    pyrenees_data = next(c for c in data["components"] if c["id"] == "pyrenees")
-    comp = HubComponent.from_dict(pyrenees_data)
-
-    comp.releases["1.0.0"].url = f"file://{dist_pkg.resolve()}"
-
-    # This historical archive predates package format v3, so it is unsupported.
-    with pytest.raises(ValueError, match="Unsupported"):
-        installer.install(comp)
-    assert not installer.resolve_target_dir(comp).exists()
-    assert not (ws / 'src/usr/eval/pyrenees_evaluator.py').exists()
 
 
 def test_canonical_experiment_bundle_manages_one_owned_payload(tmp_path):

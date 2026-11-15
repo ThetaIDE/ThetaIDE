@@ -388,7 +388,10 @@ def test_scheduler_queries_are_batched_cached_and_preserve_training_outcome(tmp_
 
 @pytest.mark.parametrize('recipe', ['cpu_smoke', 'cpu_study'])
 def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monkeypatch, recipe):
+    """Train SB3 on CartPole through the managed CPU path, with real packages from THETA_HUB_ROOT."""
     pytest.importorskip('stable_baselines3')
+    from component_fixtures import LocalHub, cluster_site, install_optional
+    from src.app.components.installer import HubInstaller
     from src.app.sites.snapshot import freeze
     from src.app.pipeline.compose import compose_experiment, validate_composed
     from src.app.workspace import WorkspacePaths
@@ -396,10 +399,25 @@ def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monk
     root, scratch, work = [tmp_path / name for name in ('control', 'scratch', 'work')]
     for path in (root, scratch, work): path.mkdir()
     freeze(project, root)
+    # The control checkout holds the application only: no authored or installed packages and no
+    # package selections of whoever runs the test.
+    paths = WorkspacePaths(root, application=root)
+    for directory in (paths.research, *paths.managed_roots):
+        shutil.rmtree(directory, ignore_errors=True)
+    for name in ('provider_overrides.json', 'extensions.json'):
+        (root / '.thetaide' / name).unlink(missing_ok=True)
+    installer = HubInstaller(paths.root, paths.data_dir)
+    hub = LocalHub()
+    for package in ('sb3-suite', 'gym_classic_control', 'dnn'):
+        hub.install(installer, package)
+    install_optional(paths, 'slurm', tmp_path / 'archives')
+    install_optional(paths, 'optuna', tmp_path / 'archives')
+    cluster_site(paths, execution=DEFAULTS)
     target = root / 'src/usr/config/experiment/ncshare'
     target.mkdir(parents=True, exist_ok=True)
     for name in ('cpu_smoke', 'cpu_study'):
-        shutil.copyfile(project / f'docs/development/examples/ncshare_{name}.yaml', target / f'{name}.yaml')
+        text = (project / f'docs/development/examples/ncshare_{name}.yaml').read_text()
+        (target / f'{name}.yaml').write_text(text.replace('override /site: ncshare/common', 'override /site: cluster/common'))
     bundle = root / 'source.zip'
     source = archive(root, bundle)
     destination = root / '.thetaide/sources' / (source['sha256'] + '.zip')

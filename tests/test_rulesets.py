@@ -111,8 +111,9 @@ def test_canonical_package_lifecycle_preserves_shared_and_user_rules(tmp_path):
 
 def test_authored_nsfr_package_loads_ruleset_predicates_in_fresh_process(tmp_path):
     import os
-    plugins = Path(os.environ.get("THETA_PLUGINS_ROOT") or Path(__file__).resolve().parents[2] / "theta-plugins")
-    source = plugins / "models/nsfr"
+    if not os.environ.get("THETA_PLUGINS_ROOT"):
+        pytest.skip("Set THETA_PLUGINS_ROOT to a Theta plugins checkout to run real-package tests")
+    source = Path(os.environ["THETA_PLUGINS_ROOT"]) / "models/nsfr"
     if not (source / "resources/rules/cartpole/anticipatory_v1/ruleset.yaml").exists():
         pytest.skip("Authoritative NSFR source with the new resource format is not available")
     from src.app.components.installer import HubInstaller

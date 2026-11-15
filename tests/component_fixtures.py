@@ -20,12 +20,12 @@ def install_optional(paths, name, output):
     HubInstaller(paths.root, paths.data_dir).install(component, install_dependencies=False)
 
 
-def cluster_site(root):
+def cluster_site(root, *, execution=None):
     """Author a two-partition Slurm site, `cluster`, in the workspace at `root`.
 
     `cluster/common` is a CPU partition without --time or --gres, `cluster/gpu` a consolidated
-    GPU partition, and `cluster/default` inherits the shared defaults. Tests use it instead of
-    any institution's real site package.
+    GPU partition, and `cluster/default` inherits the shared defaults. `execution` adds a managed
+    execution policy to `cluster/common`. Tests use it instead of any institution's real site package.
     """
     from src.app.sites.catalog import create
     root = root.root if isinstance(root, WorkspacePaths) else Path(root)
@@ -42,6 +42,8 @@ def cluster_site(root):
                 'resources': {'partition': 'gpu', 'gpus': 1, 'cores': 16, 'memory': '32G',
                               'no_gres': False}, 'module_loads': ['cuda']},
     }
+    if execution is not None:
+        variants['common']['execution'] = dict(execution)
     return create(root, 'cluster', defaults, variants)
 
 
@@ -78,14 +80,17 @@ def optuna_plan(execution_id):
 class LocalHub:
     """Current storage-v3 releases of a Theta Hub checkout, installed from its packages/ directory.
 
-    The checkout is THETA_HUB_ROOT, else ../theta-hub beside the IDE. Tests that need a release it
-    lacks skip; they never download or pip-install anything.
+    The checkout is the explicit THETA_HUB_ROOT; nothing beside the IDE checkout is read. Without
+    it, or when it lacks a release, tests skip; they never download or pip-install anything.
     """
 
     def __init__(self, root=None):
         import os
-        self.root = Path(root or os.environ.get('THETA_HUB_ROOT') or Path(__file__).resolve().parents[2] / 'theta-hub')
+        root = root or os.environ.get('THETA_HUB_ROOT')
+        self.root = Path(root) if root else None
         self.entries = {}
+        if self.root is None:
+            return
         for path in sorted((self.root / 'registry').rglob('*.json')) if (self.root / 'registry').is_dir() else ():
             entry = json.loads(path.read_text())
             if entry.get('storage_version') == 3:
@@ -95,6 +100,8 @@ class LocalHub:
         import pytest
         entry = self.entries.get(component_id)
         archive = self.root / 'packages' / Path(entry['releases'][entry['version']]['url']).name if entry else None
+        if self.root is None:
+            pytest.skip('Set THETA_HUB_ROOT to a Theta Hub checkout to run real-package tests')
         if archive is None or not archive.is_file():
             pytest.skip(f'No storage-v3 release of {component_id} in {self.root}')
         release = entry['releases'][entry['version']]
