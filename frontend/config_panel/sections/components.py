@@ -187,13 +187,8 @@ def _render_component_overrides(self, data: dict, resolved: dict) -> None:
 
     context = deep_merge(resolved, self.raw_data)
     methods = parse_methods_dict(context, paths=self._loader_paths())
-    legacy_env = context.get("env")
-    legacy_inputs = isinstance(legacy_env, dict) and any(
-        legacy_env.get(key) is not None for key in ("data_module", "symbolic_observation_builder")
-    )
     if "data_module" not in data and (
-        legacy_inputs
-        or context.get("symbolic_state_loader") is not None
+        context.get("symbolic_state_loader") is not None
         or any(
             any(slot in method for slot in ("data_module", "symbolic_state_loader"))
             or input_requirements(context, method, paths=self._loader_paths())

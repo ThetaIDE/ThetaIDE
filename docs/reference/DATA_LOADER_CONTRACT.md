@@ -68,19 +68,6 @@ A model or algorithm capability declares `input_requirements`, for example:
 
 The authoring panel and launch preflight use the same metadata check. Missing providers, wrong roles, missing output contracts, incompatible paradigms, and invalid declared parameters produce actionable errors. The panel shows effective providers and their source for each enabled method. It surfaces required slots without silently writing a selection or marking the recipe dirty. Runtime validates the converted tensor shape and device.
 
-## Migrating existing recipes
-
-Preview a migration before applying it:
-
-```sh
-venv/bin/python scripts/migrate_data_loaders.py path/to/experiment.yaml \
-  --state-provider blendrl_symbolic_state
-```
-
-Add `--write` to apply the displayed changes. Use `blendrl-dev_symbolic_state` for the editable dev package. The converter provider must be installed before running the migrated recipe.
-
-Migration moves `env.data_module` into the experiment default and moves `env.symbolic_observation_builder` or `model.symbolic.observation_builder` into an explicit state-loader binding, including method-local hooks. Explicit new bindings take precedence. Existing builder functions and model construction settings are retained. Custom builders may specify `object_count: null` to preserve their own object count. Migration does not modify installed Hub packages or old checkpoint files. YAML is rewritten with its global Hydra package directive preserved; review the diff for comments and formatting.
-
 ## Numerical trajectory providers
 
 The apprenticeship runner consumes `themes.trajectories/v1` from a training

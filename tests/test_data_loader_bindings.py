@@ -59,6 +59,7 @@ def test_method_bindings_replace_provider_params_and_preserve_shared_data_policy
     assert (base['dataset_path'], base['seed'], base['val_split']) == ('/shared/data', 12, .2)
     assert deep_merge(base, method)['data_module'] == method['data_module']
     assert merge_loader_selection(base['data_module'], None) is None
+    assert merge_loader_selection('one', {'params': {'batch_size': 5}}) == {'name': 'one', 'params': {'batch_size': 5}}
 
 
 def test_requirements_follow_selected_model_mode_and_reject_wrong_role(loader_workspace):
@@ -199,22 +200,6 @@ def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(tmp_
             torch.testing.assert_close(actual.build_logic_observation(state), state.unsqueeze(1).expand(-1, 2, -1))
     finally:
         env.close()
-
-
-def test_migration_is_explicit_and_keeps_model_construction_settings():
-    from src.app.core.loader_migration import migrate_loader_config
-    original = {'env': {'data_module': 'replay', 'symbolic_observation_builder': 'domain:convert'},
-                'methods': {'blend': {'model': {'name': 'blendrl', 'blender': {'mode': 'neural'},
-                                                'symbolic': {'type': 'nsfr', 'rules': 'custom'}}}}}
-    with pytest.raises(ValueError, match='Choose a symbolic state provider'):
-        migrate_loader_config(original)
-    migrated, changed = migrate_loader_config(original, state_provider='test_state')
-    assert migrated['env'] == {} and migrated['data_module'] == 'replay'
-    assert migrated['symbolic_state_loader'] == {'name': 'test_state', 'params': {'builder': 'domain:convert', 'object_count': None}}
-    assert migrated['methods'] == original['methods']
-    assert len(changed) == 2
-    assert original['env']['data_module'] == 'replay'
-    assert merge_loader_selection('one', {'params': {'batch_size': 5}}) == {'name': 'one', 'params': {'batch_size': 5}}
 
 
 def test_authoring_exposes_required_loader_and_uses_shared_preflight_status(loader_workspace, monkeypatch):

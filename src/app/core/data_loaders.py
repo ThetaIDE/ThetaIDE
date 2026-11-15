@@ -190,11 +190,6 @@ def data_loader_errors(cfg, method=None, *, paths=None):
     paths = paths or WorkspacePaths.for_process()
     requirements = input_requirements(cfg, method, paths=paths)
     errors = []
-    env = cfg.get("env")
-    if (hasattr(env, "get") and env.get("data_module") is not None and cfg.get("data_module") is None
-            and (method is None or method.get("data_module") is None)):
-        errors.append("Move env.data_module to the experiment's data_module default. "
-                      "scripts/migrate_data_loaders.py can migrate authored recipes.")
     for slot in LOADER_SLOTS:
         selection, _ = loader_selection(cfg, slot, method, paths=paths)
         needs = [r for r in requirements if r["slot"] == slot]
