@@ -53,9 +53,8 @@ def test_inventory_preserves_ignored_bytes_modes_and_external_references(tmp_pat
     assert dataset.read_bytes() == b"ignored local input"
 
 
-def test_plot_and_export_consume_effective_profiles_from_two_workspaces(tmp_path, monkeypatch):
+def test_plot_and_component_export_consume_effective_profiles_from_two_workspaces(tmp_path, monkeypatch):
     from src.app.core.plotting.base import BasePlotter
-    from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions
     from src.app.services.component_exporter import ComponentExporter, ComponentExportOptions
     from src.app.components.configuration import ConfigurationFiles
     from test_config_provenance import provider
@@ -74,10 +73,6 @@ def test_plot_and_export_consume_effective_profiles_from_two_workspaces(tmp_path
         assert result.success, result.error
         with ZipFile(result.export_path) as archive:
             assert f'width: {width + 10}' in archive.read('configs/model/fixture/net.yaml').decode()
-        exported = ExperimentExporter(paths).export('probe/run', ExportOptions(output_path=paths.root / 'recipe.zip'))
-        assert exported.success, exported.error
-        with ZipFile(exported.archive_path) as archive:
-            assert f'seed: {width}' in archive.read('configs/experiment/probe/run.yaml').decode()
         plotter = BasePlotter('manager', paths=paths)
         assert plotter.get_experiment_config('probe/run')['seed'] == width
         saved = paths.results / 'logs/probe/run/config.yaml'

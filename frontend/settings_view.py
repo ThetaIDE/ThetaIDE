@@ -175,7 +175,7 @@ DEFAULT_MENU_SHORTCUTS = [
     ("new_experiment", "New document / experiment", "Ctrl+N"),
     ("open_text_file", "Open text file", "Ctrl+O"),
     ("reload_components", "Reload component code", "Ctrl+Alt+R"),
-    ("export_config", "Save As / Export YAML…", "Ctrl+Shift+S"),
+    ("export_config", "Save As YAML…", "Ctrl+Shift+S"),
     ("save_config", "Save document / configuration", "Ctrl+S"),
     ("add_to_queue", "Add to queue", "Ctrl+Shift+Q"),
     ("toggle_queue", "Start or pause queue", "Ctrl+Shift+R"),

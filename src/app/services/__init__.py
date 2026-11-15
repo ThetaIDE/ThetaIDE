@@ -23,7 +23,6 @@ from .component_exporter import (  # noqa: E402
     find_component_assets,
     find_workspace_root,
 )
-from .experiment_exporter import ExperimentExporter, ExportOptions, ExportResult  # noqa: E402
 from .plugin_scaffolder import PluginScaffolder, ScaffoldOptions, ScaffoldResult  # noqa: E402
 from .test_suite import (  # noqa: E402
     TEST_SUITE_FORMAT,

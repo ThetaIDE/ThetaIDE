@@ -182,7 +182,7 @@ python -m frontend</code></pre>
     <td>Actions</td>
   </tr>
   <tr><td>An experiment</td><td><b>Load in Config Viewer</b>, <b>Open in New Tab</b>, <b>Duplicate Experiment&hellip;</b>, <b>Rename&hellip;</b> (the <code>experiment_id</code> inside is updated to match), <b>Delete&hellip;</b></td></tr>
-  <tr><td>A group</td><td><b>New Experiment in this group&hellip;</b>, <b>New Subfolder&hellip;</b>, <b>Export Experiment Plugin&hellip;</b> (the whole group as a Hub package), <b>Refresh Group</b>, <b>Delete Group&hellip;</b></td></tr>
+  <tr><td>A group</td><td><b>New Experiment in this group&hellip;</b>, <b>New Subfolder&hellip;</b>, <b>Refresh Group</b>, <b>Delete Group&hellip;</b></td></tr>
   <tr><td>A subfolder</td><td><b>New Experiment&hellip;</b>, <b>New Subfolder&hellip;</b>, <b>Rename Folder&hellip;</b>, <b>Delete Folder&hellip;</b></td></tr>
   <tr><td>Anywhere</td><td><b>Collapse All</b> / <b>Expand All</b></td></tr>
 </table>
@@ -1114,18 +1114,6 @@ num_checkpoints: 10              # or checkpoint_every_steps: 10000 (one or the 
 
 <h3>6. Packaging & Publishing to the Theta Hub</h3>
 
-<h4>1-Click Experiment-to-Plugin Export</h4>
-<p>Theta-IDE provides export of an experiment and its recognized configuration/source/asset dependencies:</p>
-<ul>
-  <li><b>One experiment:</b> Click <b>Export</b> in the experiment tree's toolbar (or <code>Ctrl+Shift+S</code>) &rarr; choose <i>Theta Hub Component Archive (.zip)</i>. The IDE automatically traces the recipe YAML, base configs, environment wrappers, domain rules, custom model architectures, and optional checkpoint weights (<i>Include trained checkpoint weights</i>).</li>
-  <li><b>A whole group:</b> right-click the group in the tree &rarr; <b>Export Experiment Plugin&hellip;</b>.</li>
-  <li><b>CLI Command:</b>
-    <pre><code>python run_pipeline.py export &lt;group&gt;/&lt;experiment&gt;
-# With trained checkpoints:
-python run_pipeline.py export &lt;group&gt;/&lt;experiment&gt; --include-weights --out results/exports/my_exp.zip</code></pre>
-  </li>
-</ul>
-
 <h4>Universal Python Packaging (<code>pyproject.toml</code>)</h4>
 <p>Some components can also be packaged as a standard Python package and installed via <code>pip</code>, declaring entry points:</p>
 <pre><code>[project.entry-points."theta.models"]
@@ -1199,10 +1187,6 @@ python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt;
 
 # Start from an empty plot directory
 python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt; --wipe</code></pre>
-
-<h3>Exporting</h3>
-<pre><code># An experiment and everything it depends on, as a Theta Hub archive
-python run_pipeline.py export &lt;group&gt;/&lt;experiment&gt; --include-weights --out results/exports/my_exp.zip</code></pre>
 
 <h3>Optuna Hyperparameter Sweeps</h3>
 <p>Sweeps use the optional Optuna tuner component. Install it into the workspace (for example <code>python run_pipeline.py component install optuna-1.0.0.zip</code>, built with <code>scripts/package_optional_components.py</code>) and install its declared Python dependencies. Without an installed tuner the editor shows no sweep controls.</p>

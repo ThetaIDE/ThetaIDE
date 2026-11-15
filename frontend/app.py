@@ -54,7 +54,6 @@ from .config_model import config_fingerprint
 from .config_tab_manager import ConfigTabManager
 from .config_tree import ConfigTreeWidget
 from .config_viewer import ConfigViewer
-from .export_dialog import ExportExperimentDialog
 from .editor_service import EditorService
 from .hub import HubClient, HubDialog
 from .job_manager import JobManager
@@ -1411,7 +1410,7 @@ class Window(QMainWindow):
             ("open_text_file", "Open text file…", "Ctrl+O", self.open_text_file),
             ("scaffold_plugin", "Scaffold New Component Plugin…", "Ctrl+Shift+P", self.scaffold_plugin),
             ("reload_components", "Reload Component Code", "Ctrl+Alt+R", self.reload_components),  # Ctrl+Shift+R is the queue's
-            ("export_config", "Save As / Export YAML…", "Ctrl+Shift+S", lambda: self._editor_action("save_as", self.export_config)),
+            ("export_config", "Save As YAML…", "Ctrl+Shift+S", lambda: self._editor_action("save_as", self.export_config)),
             ("save_config", "Save", "Ctrl+S", lambda: self._editor_action("save", self.save_current_config)),
             ("close_tab", "Close tab", "Ctrl+W", lambda: self._editor_action("close", self.close_active_tab)),
             ("restart_app", "Restart ThetaIDE", "", self.reload_frontend),
@@ -2989,23 +2988,21 @@ class Window(QMainWindow):
         elif hasattr(config, "recipe_yaml"):
             raw_yaml = config.recipe_yaml()
 
-        dialog = ExportExperimentDialog(
-            experiment_id=str(exp_target),
-            workspace_root=self.workspace_paths.root,
-            raw_yaml_text=raw_yaml,
-            parent=self,
-        )
-        if dialog.exec():
-            if dialog.export_result and dialog.export_result.success:
-                res = dialog.export_result
-                self.log(f"Exported Theta Hub component package ({len(res.files_included)} files) to {res.archive_path}.")
-                QMessageBox.information(
-                    self,
-                    "Export Successful",
-                    f"Successfully exported experiment component package:\n\n{res.archive_path}\n\nBundled {len(res.files_included)} files (manifest, configs, rules, models).",
-                )
-            else:
-                self.log(f"Exported configuration to {dialog.edit_dest.text()}.")
+        if not raw_yaml:
+            source = self.workspace_paths.resolve_config(f"experiment/{exp_target}.yaml")
+            raw_yaml = source.read_text(encoding="utf-8") if source.is_file() else ""
+        from PyQt6.QtWidgets import QFileDialog
+        default = self.workspace_paths.results / "exports" / f"{Path(str(exp_target)).name}.yaml"
+        path, _ = QFileDialog.getSaveFileName(self, "Save recipe YAML", str(default), "YAML (*.yaml *.yml)")
+        if not path:
+            return
+        try:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(raw_yaml, encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "Save Failed", f"Could not write YAML: {exc}")
+            return
+        self.log(f"Saved recipe YAML to {path}.")
 
     def scaffold_plugin(self):
         from .scaffold_dialog import ScaffoldPluginDialog

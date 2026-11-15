@@ -152,29 +152,3 @@ print("ruleset valuation loaded from installed canonical resource")
     assert "canonical resource" in result.stdout
 
 
-def test_experiment_export_keeps_ruleset_owned_valuations_and_symbolic_environment(tmp_path):
-    from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions
-    folder = resource(tmp_path, name="anticipatory_v1")
-    (folder / "ruleset.yaml").write_text("valuation: valuation.py\n")
-    (folder / "valuation.py").write_text("# user-owned predicates\n")
-    config = tmp_path / "src/usr/config"
-    profile = config / "env/gym/cartpole.yaml"
-    profile.parent.mkdir(parents=True)
-    profile.write_text("symbolic_name: cartpole\nenv_id: CartPole-v1\n")
-    environment = tmp_path / "src/usr/environments/cartpole"
-    environment.mkdir(parents=True)
-    (environment / "valuation.py").write_text("# observation builder\n")
-    (environment / 'env_vectorized.py').write_text('class Env: pass\n')
-    (environment / '.theta_component.json').write_text(json.dumps({'id':'cartpole','name':'CartPole','kind':'env','version':'1.0.0','storage_version':3,'api_version':1,
-        'capabilities':[{'id':'cartpole','aliases':['gym/cartpole'],'kind':'env','entry_point':'env_vectorized.py:Env','resource_root':'.'}],
-        'payload':{'implementations':['env_vectorized.py'],'resources':['valuation.py'],'configs':{}}}))
-    recipe = config / "experiment/demo/check.yaml"
-    recipe.parent.mkdir(parents=True)
-    recipe.write_text("defaults:\n- override /env: gym/cartpole\nenv: {num_envs: 1}\n")
-    result = ExperimentExporter(tmp_path).export("demo/check", ExportOptions(output_path=tmp_path / "experiment.zip"))
-    assert result.success, result.error
-    with ZipFile(result.archive_path) as z:
-        assert "resources/rules/cartpole/anticipatory_v1/valuation.py" in z.namelist()
-        assert "resources/rules/cartpole/anticipatory_v1/ruleset.yaml" in z.namelist()
-        assert "cartpole" in [d["id"] for d in json.loads(z.read(".theta_component.json"))["dependencies"]["components"]]
-        assert not any(name.startswith("providers/") for name in z.namelist())

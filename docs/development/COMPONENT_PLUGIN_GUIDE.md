@@ -406,53 +406,7 @@ An environment entry point may be a class or factory. Theta-IDE calls it with th
 
 ---
 
-## 4. 1-Click Experiment-to-Plugin Exporter
-
-Researchers can package any experiment into a self-contained, shareable, installable Theta Hub component archive (`.zip`) with one click.
-
-### 4.1 Exporting from the GUI
-
-1. Open Theta-IDE and select any experiment recipe in the Config Tree.
-2. Click the **Export** button on the Action Bar (or press `Ctrl+Shift+S`):
-   - **Theta Hub Component Archive (`.zip`)** (Recommended): Packages the recipe YAML, base templates, referenced environment definitions, valuation rules, custom model architectures, and optional checkpoint weights.
-   - **Standalone Recipe YAML (`.yaml`)**: Exports only the composed recipe YAML for manual reproduction.
-3. Configure packaging options (include rules, models, weights) and click **Export**.
-
-### 4.2 Exporting from the CLI
-
-Export any experiment directly from the command line:
-
-```bash
-# Export experiment with all dependencies
-python run_pipeline.py export cartpole/quick_test
-
-# Include trained model checkpoints & specify output archive
-python run_pipeline.py export cartpole/quick_test --include-weights --out results/exports/cartpole_release.zip
-
-# Or via Hydra override during execution
-python run_pipeline.py cartpole/quick_test export=true
-```
-
-### 4.3 What Gets Packaged
-
-The [`ExperimentExporter`](../../src/app/services/experiment_exporter.py) collects recognized recipe,
-profile, source and asset references. Declare additional resources and verify archive contents;
-arbitrary dynamically computed Python dependencies cannot be inferred reliably. The archive is a
-storage-v3 package. Code owned by an installed or authored package is not copied: that package
-becomes a pinned dependency. A typical archive is:
-```
-cartpole_quick_test_v1.0.0.zip
-├── .theta_component.json                          # v3 manifest with dependencies on owning packages
-├── README.md                                      # Auto-generated reproduction guide
-├── configs/experiment/cartpole/
-│   ├── quick_test.yaml                            # Experiment recipe
-│   └── _base.yaml                                 # Group base template
-├── configs/env/cartpole.yaml                      # Environment profile
-├── resources/rules/cartpole/                      # Domain logic rules (rules_root)
-└── resources/results/checkpoints/cartpole/quick_test/   # Checkpoint weights (optional)
-```
-
-### 4.4 1-Click Roundtrip Installation via Theta Hub
+## 4. Installing a package archive
 
 Publish a release following [the production workflow](THETA_HUB_RELEASE_WORKFLOW.md),
 then install it from the Hub in the receiving checkout. The GUI currently does not
@@ -538,7 +492,6 @@ class BlenderActorCritic(nn.Module):
    - Agents also register with `@register_agent("<name>")` from `src.app.api.agents`
 4. **Publishing options**:
    - **Component archive**: Include `.theta_component.json` and export with `python run_pipeline.py component export <id> --out package.zip`.
-   - **Experiment archive**: Use `python run_pipeline.py export <group>/<experiment>`.
    - **Python package**: Declare entry points for supported consumers; observe section 3's loading limitations.
    - **Hub publication**: Follow [the production release workflow](THETA_HUB_RELEASE_WORKFLOW.md). Export alone does not publish.
 5. **Verify**: Run the component's own tests and a fresh-process experiment. The framework's

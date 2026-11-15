@@ -2123,8 +2123,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 action_new.triggered.connect(lambda: self._create_in_specific_group(group_name))
                 action_new_folder = menu.addAction("New Subfolder…")
                 action_new_folder.triggered.connect(lambda: self.prompt_new_folder(rel))
-                action_export_plugin = menu.addAction("Export Experiment Plugin…")
-                action_export_plugin.triggered.connect(lambda: self.prompt_export_experiment_group(group_name))
                 action_refresh = menu.addAction("Refresh Group")
                 action_refresh.triggered.connect(self.populate)
                 action_delete_dir = menu.addAction("Delete Group…")
@@ -2164,20 +2162,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def _create_in_specific_group(self, group_name):
         self.prompt_new_in_group(group=group_name)
-
-    def prompt_export_experiment_group(self, group_name: str):
-        """Prompt to export an entire experiment group as an installable Experiment Plugin."""
-        try:
-            from .export_dialog import ExportExperimentDialog
-            dlg = ExportExperimentDialog(
-                experiment_id=group_name,
-                workspace_root=self._workspace_paths().root,
-                group=group_name,
-                parent=self,
-            )
-            dlg.exec()
-        except Exception as exc:
-            QMessageBox.critical(self, "Export Failed", f"Could not launch export dialog:\n{exc}")
 
     def prompt_new_component(self):
         """Prompt to create a new component configuration (agent, env, model, etc.)."""

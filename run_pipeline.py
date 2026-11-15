@@ -64,33 +64,6 @@ def main():
         # One worker at a time shares the allocation's one training device.
         extra_args += ["++run_in_parallel=false"]
 
-    # Direct CLI experiment component export
-    if raw_experiment == "export":
-        if not extra_args:
-            print("Usage: python run_pipeline.py export <group>/<experiment_id> [--include-weights] [--out bundle.zip]")
-            sys.exit(1)
-        target_exp = extra_args[0]
-        include_weights = "--include-weights" in extra_args or "include_weights=true" in extra_args
-        out_path = None
-        for i, a in enumerate(extra_args):
-            if a in ("--out", "-o") and i + 1 < len(extra_args):
-                out_path = Path(extra_args[i + 1])
-            elif a.startswith("out="):
-                out_path = Path(a.split("=", 1)[1])
-
-        from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions
-
-        exporter = ExperimentExporter(workspace_root=Path(PROJECT_ROOT))
-        opts = ExportOptions(include_checkpoints=include_weights, output_path=out_path)
-        res = exporter.export(target_exp, options=opts)
-        if res.success:
-            print(f"Successfully exported experiment '{target_exp}' to {res.archive_path}")
-            print(f"Total bundled assets: {len(res.files_included)}")
-            sys.exit(0)
-        else:
-            print(f"Export failed: {res.error}")
-            sys.exit(1)
-
     # Direct CLI component scaffolding
     if raw_experiment in ("scaffold", "new-plugin"):
         if len(extra_args) < 2:
@@ -124,21 +97,6 @@ def main():
 
     # Resolve experiment config path
     experiment_arg = resolve_experiment_config_name(raw_experiment)
-
-    if any(a.lower() in ("export=true", "export=1", "--export") for a in extra_args):
-        include_weights = any(a.lower() in ("include_weights=true", "include_checkpoints=true") for a in extra_args)
-        from src.app.services.experiment_exporter import ExperimentExporter, ExportOptions
-
-        exporter = ExperimentExporter(workspace_root=Path(PROJECT_ROOT))
-        opts = ExportOptions(include_checkpoints=include_weights)
-        res = exporter.export(experiment_arg, options=opts)
-        if res.success:
-            print(f"Successfully exported experiment '{experiment_arg}' to {res.archive_path}")
-            print(f"Total bundled assets: {len(res.files_included)}")
-            sys.exit(0)
-        else:
-            print(f"Export failed: {res.error}")
-            sys.exit(1)
 
     # Load configuration (shared with the HTTP API so GUI and CLI configs compose identically)
     try:

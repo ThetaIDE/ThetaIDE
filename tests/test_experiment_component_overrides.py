@@ -7,7 +7,6 @@ import yaml
 from omegaconf import OmegaConf
 
 from src.app.pipeline.compose import compose_experiment
-from src.app.services.experiment_exporter import _component_names, _plot_names
 
 
 @pytest.fixture
@@ -46,12 +45,6 @@ def test_hydra_composes_component_overrides(isolated_component_workspace):
         assert cfg.plot_overrides.losses.smoothing_window == 7
     finally:
         path.unlink(missing_ok=True)
-
-
-def test_export_traces_mapping_component_names():
-    assert _component_names({"name": "my_evaluator", "params": {"threshold": 0.8}}) == {"my_evaluator"}
-    assert _component_names([{"name": "one"}, "two"]) == {"one", "two"}
-    assert _plot_names({"losses": {"dpi": 300}, "style": {"grid": True}}) == {"losses"}
 
 
 PROBES = """

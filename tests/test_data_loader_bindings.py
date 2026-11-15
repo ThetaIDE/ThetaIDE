@@ -272,15 +272,6 @@ def test_algorithms_can_require_different_training_contracts(loader_workspace):
     assert data_loader_errors(settings, method, paths=paths) == []
 
 
-def test_export_traces_method_state_loader_profiles(loader_workspace):
-    from src.app.services.experiment_exporter import ExperimentExporter
-    files = {}
-    ExperimentExporter(loader_workspace.root)._trace_data_modules('probe', None, files, raw_cfg={
-        'methods': {'hybrid': {'symbolic_state_loader': 'blendrl-dev/cartpole_state'}}})
-    assert any(path.name == 'symbolic_state.py' for path in files.values())
-    assert any(path.name == 'cartpole_state.yaml' for path in files.values())
-
-
 def test_neural_actor_passes_loaded_states_to_its_symbolic_gate(blendrl_paths):
     from types import SimpleNamespace
     import inspect
