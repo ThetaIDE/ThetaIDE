@@ -17,64 +17,47 @@ from .templates import (
 )
 
 
+# Presets describe workflow shapes only. They name no research package or
+# experiment: choose each node's experiment in the inspector before running.
+
+
 def create_transfer_learning_preset() -> WorkflowGraph:
-    """1. Transfer Learning: Experiment 1 trains a policy, passed into Experiment 2 in a different env."""
+    """Transfer learning: a source run's checkpoint warm-starts a target run."""
     graph = WorkflowGraph(
         id="transfer_learning",
-        name="Transfer Learning (CartPole -> MountainCar)",
-        description="Trains a source policy on CartPole, then wires the checkpoint weights to warm-start fine-tuning on MountainCar.",
+        name="Transfer Learning",
+        description="Trains a source policy, then wires its checkpoint into a second experiment as initial weights.",
     )
-    n1 = make_online_rl_node(
-        "source_trainer", "CartPole PPO (Source)", experiment_ref="csc510/cartpole_demo", pos_x=60, pos_y=120
-    )
-    n2 = make_online_rl_node(
-        "target_fine_tuner", "MountainCar PPO (Target)", experiment_ref="cartpole/quick_test", pos_x=440, pos_y=120
-    )
-    n2.overrides = ["env=gym_classic_control/mountaincar", "++train.freeze_backbone=false"]
-
-    graph.add_node(n1)
-    graph.add_node(n2)
-    graph.connect("source_trainer", "checkpoint", "target_fine_tuner", "initial_weights")
+    graph.add_node(make_online_rl_node("source", "Source Training", pos_x=60, pos_y=120))
+    graph.add_node(make_online_rl_node("target", "Target Fine-Tuning", pos_x=440, pos_y=120))
+    graph.connect("source", "checkpoint", "target", "initial_weights")
     return graph
 
 
 def create_online_vs_offline_preset() -> WorkflowGraph:
-    """2. Online vs Offline RL Comparison: Online agent's explored buffer feeds offline agent."""
+    """Online vs. offline comparison: an online run's buffer trains an offline run."""
     graph = WorkflowGraph(
         id="online_vs_offline_comparison",
         name="Online vs. Offline RL Comparison",
-        description="Exploration buffer collected by online PPO is piped to offline IQL, and both performance curves are compared.",
+        description="The buffer an online agent collects trains an offline agent, and both learning curves are compared.",
     )
-    n1 = make_online_rl_node(
-        "online_ppo", "CartPole PPO (Online)", experiment_ref="csc510/cartpole_demo", pos_x=60, pos_y=80
-    )
-    n2 = make_offline_rl_node(
-        "offline_iql", "CartPole IQL (Offline)", experiment_ref="cartpole/offline_cartpole", pos_x=440, pos_y=80
-    )
-    n3 = make_plot_evaluator_node("comparator", "Convergence Comparator", pos_x=800, pos_y=150)
-
-    graph.add_node(n1)
-    graph.add_node(n2)
-    graph.add_node(n3)
-
-    graph.connect("online_ppo", "dataset", "offline_iql", "dataset")
-    graph.connect("online_ppo", "metrics", "comparator", "metrics_a")
-    graph.connect("offline_iql", "metrics", "comparator", "metrics_b")
+    graph.add_node(make_online_rl_node("online", "Online Agent", pos_x=60, pos_y=80))
+    graph.add_node(make_offline_rl_node("offline", "Offline Agent", pos_x=440, pos_y=80))
+    graph.add_node(make_plot_evaluator_node("comparator", "Convergence Comparator", pos_x=800, pos_y=150))
+    graph.connect("online", "dataset", "offline", "dataset")
+    graph.connect("online", "metrics", "comparator", "metrics_a")
+    graph.connect("offline", "metrics", "comparator", "metrics_b")
     return graph
 
 
 def create_model_distillation_preset() -> WorkflowGraph:
-    """3. Model Distillation: Teacher model generates dataset of soft rollouts to train a compact student model."""
+    """Model distillation: a teacher's rollouts with soft targets train a student."""
     graph = WorkflowGraph(
         id="model_distillation",
-        name="Model Distillation (NeSy Teacher -> Student MLP)",
-        description="A large hybrid BlendRL teacher model generates rollout transitions with soft action logits to train a fast student MLP.",
+        name="Model Distillation",
+        description="A trained teacher generates rollouts with soft action targets that train a smaller student model.",
     )
-    teacher = make_online_rl_node(
-        "teacher_model", "Pretrained BlendRL (Teacher)", experiment_ref="cartpole/quick_test", pos_x=60, pos_y=120
-    )
-
-    # Rollout generator node
+    teacher = make_online_rl_node("teacher", "Teacher", pos_x=60, pos_y=120)
     generator = WorkflowNode(
         id="rollout_generator",
         label="Trajectory Rollout Generator",
@@ -100,30 +83,26 @@ def create_model_distillation_preset() -> WorkflowGraph:
             description="Dataset with soft targets and state visits",
         )
     )
-
-    student = make_distillation_node("student_mlp", "Compact Student MLP", pos_x=780, pos_y=120)
+    student = make_distillation_node("student", "Student", pos_x=780, pos_y=120)
 
     graph.add_node(teacher)
     graph.add_node(generator)
     graph.add_node(student)
-
-    graph.connect("teacher_model", "checkpoint", "rollout_generator", "teacher_checkpoint")
-    graph.connect("rollout_generator", "soft_dataset", "student_mlp", "dataset")
+    graph.connect("teacher", "checkpoint", "rollout_generator", "teacher_checkpoint")
+    graph.connect("rollout_generator", "soft_dataset", "student", "dataset")
     return graph
 
 
-def create_sepsis_reciprocal_preset() -> WorkflowGraph:
-    """4. Sepsis Clinician Behavior -> Early Prediction (Reciprocal Co-Training)."""
+def create_reciprocal_refinement_preset() -> WorkflowGraph:
+    """Reciprocal refinement: a policy's values and a predictor's potential improve each other."""
     graph = WorkflowGraph(
-        id="sepsis_reciprocal_refinement",
-        name="Sepsis Clinician Behavior ↔ Early Prediction",
-        description="CQL clinician policy outputs V(s) to augment MIMIC patient records for Early Prediction, whose shock risk Phi(s) shapes CQL rewards.",
+        id="reciprocal_refinement",
+        name="Reciprocal Refinement",
+        description="An offline policy's state values augment a dataset for a supervised predictor, "
+                    "whose output shapes the rewards the policy trains on.",
     )
-    cql = make_offline_rl_node(
-        "cql_clinician", "MIMIC CQL Clinician Model", experiment_ref="mimic/cql_literature", pos_x=60, pos_y=80
-    )
-    # Add value_estimator output to CQL
-    cql.add_output(
+    policy = make_offline_rl_node("policy", "Offline Policy", pos_x=60, pos_y=80)
+    policy.add_output(
         Port(
             name="value_estimator",
             direction=PortDirection.OUTPUT,
@@ -131,37 +110,19 @@ def create_sepsis_reciprocal_preset() -> WorkflowGraph:
             description="State-value estimates V(s) and action Q-values",
         )
     )
-
-    mimic_data = make_dataset_source_node(
-        "mimic_dataset", "MIMIC Patient Transitions", "src/usr/datasets/mimic", pos_x=60, pos_y=300
-    )
+    dataset = make_dataset_source_node("dataset", "Transitions Dataset", pos_x=60, pos_y=300)
     augmenter = make_feature_augmenter_node("feature_augmenter", "V(s) Feature Augmenter", pos_x=440, pos_y=80)
-    ep = make_supervised_node(
-        "ep_transformer",
-        "Early Prediction (Transformer)",
-        experiment_ref="early_prediction/quick_test",
-        pos_x=800,
-        pos_y=80,
-    )
+    predictor = make_supervised_node("predictor", "Supervised Predictor", pos_x=800, pos_y=80)
     shaper = make_reward_shaper_node("reward_shaper", "Potential Reward Shaper", pos_x=440, pos_y=300)
 
-    graph.add_node(cql)
-    graph.add_node(mimic_data)
-    graph.add_node(augmenter)
-    graph.add_node(ep)
-    graph.add_node(shaper)
-
-    # Base data flow
-    graph.connect("mimic_dataset", "dataset", "feature_augmenter", "dataset")
-    graph.connect("mimic_dataset", "dataset", "reward_shaper", "dataset")
-
-    # Forward pipeline
-    graph.connect("cql_clinician", "value_estimator", "feature_augmenter", "value_estimator")
-    graph.connect("feature_augmenter", "augmented_dataset", "ep_transformer", "dataset")
-    graph.connect("ep_transformer", "value_estimator", "reward_shaper", "potential_function")
-
-    # Feedback loop string back to CQL
-    graph.connect("reward_shaper", "shaped_dataset", "cql_clinician", "dataset")
+    for node in (policy, dataset, augmenter, predictor, shaper):
+        graph.add_node(node)
+    graph.connect("dataset", "dataset", "feature_augmenter", "dataset")
+    graph.connect("dataset", "dataset", "reward_shaper", "dataset")
+    graph.connect("policy", "value_estimator", "feature_augmenter", "value_estimator")
+    graph.connect("feature_augmenter", "augmented_dataset", "predictor", "dataset")
+    graph.connect("predictor", "value_estimator", "reward_shaper", "potential_function")
+    graph.connect("reward_shaper", "shaped_dataset", "policy", "dataset")
     return graph
 
 
@@ -169,7 +130,7 @@ BUILTIN_PRESETS: dict[str, Callable[[], WorkflowGraph]] = {
     "transfer_learning": create_transfer_learning_preset,
     "online_vs_offline": create_online_vs_offline_preset,
     "model_distillation": create_model_distillation_preset,
-    "sepsis_reciprocal": create_sepsis_reciprocal_preset,
+    "reciprocal_refinement": create_reciprocal_refinement_preset,
 }
 
 

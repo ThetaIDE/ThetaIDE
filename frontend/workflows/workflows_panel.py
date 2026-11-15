@@ -90,10 +90,8 @@ class WorkflowsPanel(QWidget):
         actions_bar.addWidget(label("Preset:", "muted"))
         self.preset_combo = QComboBox()
         self.preset_combo.addItem("Select a preset…", "")
-        self.preset_combo.addItem("1. Transfer Learning (CartPole → Acrobot)", "transfer_learning")
-        self.preset_combo.addItem("2. Online vs. Offline RL Comparison", "online_vs_offline")
-        self.preset_combo.addItem("3. Model Distillation (Teacher → Student)", "model_distillation")
-        self.preset_combo.addItem("4. Sepsis Clinician V(s) ↔ Early Prediction", "sepsis_reciprocal")
+        for number, (preset_id, factory) in enumerate(BUILTIN_PRESETS.items(), 1):
+            self.preset_combo.addItem(f"{number}. {factory().name}", preset_id)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_selected)
         actions_bar.addWidget(self.preset_combo)
 

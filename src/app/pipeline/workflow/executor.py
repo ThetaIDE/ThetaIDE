@@ -59,7 +59,7 @@ def run_workflow(workflow_id: str, cfg: Any, context: dict) -> None:
     handled by the workflow's data flow bindings and executed as subprocesses.
 
     Args:
-        workflow_id: Stem of the workflow YAML file (e.g. 'sepsis_reciprocal').
+        workflow_id: Stem of the workflow YAML file (e.g. 'reciprocal_refinement').
         cfg: Resolved Hydra experiment config.
         context: Pipeline execution context dict from run_pipeline.py.
     """
@@ -67,6 +67,10 @@ def run_workflow(workflow_id: str, cfg: Any, context: dict) -> None:
     issues = graph.validate()
     if issues:
         log.warning("Workflow '%s' has validation issues:\n  %s", workflow_id, "\n  ".join(issues))
+
+    unassigned = sorted(node.id for node in graph.nodes.values() if node.category == "paradigm" and not node.experiment_ref)
+    if unassigned:
+        raise ValueError(f"Workflow '{workflow_id}': choose an experiment for {', '.join(unassigned)} before running it")
 
     levels = graph.topological_levels()
     is_interactive = context.get("is_interactive", True)

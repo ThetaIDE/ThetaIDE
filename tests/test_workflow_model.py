@@ -13,7 +13,7 @@ from src.app.pipeline.workflow.presets import (
     BUILTIN_PRESETS,
     create_model_distillation_preset,
     create_online_vs_offline_preset,
-    create_sepsis_reciprocal_preset,
+    create_reciprocal_refinement_preset,
     create_transfer_learning_preset,
     get_preset,
 )
@@ -66,8 +66,8 @@ def test_graph_connect_and_validate():
 def test_graph_serialization_yaml():
     preset = create_online_vs_offline_preset()
     yaml_str = preset.to_yaml()
-    assert "online_ppo" in yaml_str
-    assert "offline_iql" in yaml_str
+    assert "id: online" in yaml_str
+    assert "id: offline" in yaml_str
 
     restored = WorkflowGraph.from_yaml(yaml_str)
     assert len(restored.nodes) == 3
@@ -79,10 +79,9 @@ def test_topological_sort_levels():
     preset = create_online_vs_offline_preset()
     levels = preset.topological_levels()
     assert len(levels) >= 2
-    # First level must contain online_ppo
-    assert "online_ppo" in levels[0]
-    # offline_iql must depend on online_ppo
-    assert any("offline_iql" in lvl for lvl in levels[1:])
+    # The online agent runs first; the offline agent depends on it
+    assert "online" in levels[0]
+    assert any("offline" in lvl for lvl in levels[1:])
 
 
 def test_all_builtin_presets():
@@ -94,3 +93,15 @@ def test_all_builtin_presets():
         # All builtin forward connections should be type valid
         issues = g.validate()
         assert len(issues) == 0, f"Preset {pid} had validation errors: {issues}"
+
+
+def test_presets_name_no_experiment_and_refuse_to_run_until_assigned(monkeypatch):
+    from src.app.pipeline.workflow import executor
+
+    for pid, factory in BUILTIN_PRESETS.items():
+        graph = factory()
+        assert all(not node.experiment_ref for node in graph.nodes.values()), pid
+        monkeypatch.setattr(executor, "load_workflow", lambda ref, graph=graph: graph)
+        monkeypatch.setattr(executor, "_execute_node", lambda *args: pytest.fail("ran a node"))
+        with pytest.raises(ValueError, match="choose an experiment for"):
+            executor.run_workflow(pid, {}, {})
