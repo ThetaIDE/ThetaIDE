@@ -153,6 +153,7 @@ def test_final_evaluation_uses_last_update_and_best_checkpoint_survives(tmp_path
     assert updates[-1] == 2
 
 
+@pytest.mark.usefixtures("optuna_workspace")
 def test_sb3_pruning_reports_evaluation_and_does_not_save_best(tmp_path, monkeypatch):
     optuna = pytest.importorskip("optuna")
     pytest.importorskip("stable_baselines3")

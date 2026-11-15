@@ -41,20 +41,18 @@ def test_preview_submits_yaml_draft_instead_of_reconstructed_overrides():
 
 
 @pytest.mark.parametrize("action,previously_valid", [("install", False), ("uninstall", True)])
-def test_component_change_revalidates_selected_experiment(action, previously_valid):
+def test_component_change_revalidates_selected_experiment(action, previously_valid, tmp_path):
+    from src.app.workspace import WorkspacePaths
     timer = Mock()
     launch = Mock()
     component = SimpleNamespace(kind="model", id="example", extra={})
-    client = SimpleNamespace(
-        get_component=lambda _: component,
-        local_components=SimpleNamespace(installed_config=Mock(side_effect=ValueError("No profile"))),
-        installer=object(),
-    )
+    client = SimpleNamespace(get_component=lambda _: component)
     window = SimpleNamespace(
         current_experiment="g/e", compose_serial=7, compose_valid=previously_valid,
         composed_config={"model": "example"},
         compose_timer=SimpleNamespace(start=timer), update_launch_state=launch,
         hub_client=client, statusBar=lambda: SimpleNamespace(showMessage=Mock()),
+        workspace_paths=WorkspacePaths(tmp_path), findChildren=lambda _kind: [],
     )
     window.update_config = lambda: Window.update_config(window)
 
