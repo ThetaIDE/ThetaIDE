@@ -34,6 +34,29 @@ for p in [
 
 
 
+_RESULT_KINDS = ("logs", "checkpoints", "plots", "executions", "analysis")
+
+
+def _checkout_result_groups():
+    return {f"{kind}/{group.name}" for kind in _RESULT_KINDS
+            for group in (PROJECT_ROOT / "results" / kind).glob("*") if group.is_dir()}
+
+
+def pytest_sessionstart(session):
+    session.config._theta_result_groups = _checkout_result_groups()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail a run whose tests wrote results into the checkout instead of their own workspace."""
+    leaked = sorted(_checkout_result_groups() - session.config._theta_result_groups)
+    if leaked:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter is not None:
+            reporter.write_line("Tests wrote results into the checkout: " + ", ".join(
+                f"results/{name}" for name in leaked), red=True)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
 @functools.cache
 def checkout_workspace():
     """A workspace holding exactly this checkout's tracked ``src/usr`` files.
