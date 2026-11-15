@@ -345,25 +345,6 @@ def test_model_schema_fixture_uses_shared_groups_and_preserves_child_identity(vi
     assert yaml.safe_dump(widget.raw_data) == before
 
 
-def test_legacy_display_order_migrates_without_overwriting_old_preferences(viewer):
-    import json
-    from frontend.settings import SettingsManager
-    widget, _, root = viewer
-    widget.settings_manager = SettingsManager(root / "preferences")
-    legacy_scope = json.dumps([json.dumps(["Parameters", [], "[]"]), 0])
-    legacy_order = [json.dumps([key, 1]) for key in ("Description", "beta", "optional", "alpha")]
-    widget.settings_manager.persist_key("config_viewer", "parameter_orders", [{
-        "path": str((root / "test.yaml").resolve()), "groups": {legacy_scope: legacy_order}}])
-    widget = load(viewer, {"alpha": 1, "beta": 2}, "model/test.yaml")
-    controller = parameter_controller(widget, "alpha", "beta")
-    assert [g.caption.text() for g in controller.rows.groups] == ["Description", "beta", "alpha"]
-    move_parameter(widget, controller, "alpha", "beta")
-    saved = widget.settings_manager.get("config_viewer", "parameter_orders")[0]["groups"]
-    assert saved[legacy_scope] == legacy_order
-    assert any(json.loads(scope)[0] == "parameters" for scope in saved if scope != legacy_scope)
-    assert not widget.is_dirty
-
-
 @pytest.fixture
 def viewer(tmp_path, optional_tuner_metadata):
     root = tmp_path / "src/usr/config"

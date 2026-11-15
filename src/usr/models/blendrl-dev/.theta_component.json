@@ -87,20 +87,32 @@
         "description": "Blend entropy coefficient. SB3 currently requires zero or null."
       },
       "logic_lr": {
-        "type": "number",
+        "type": [
+          "number",
+          "null"
+        ],
         "description": "Logic optimizer learning rate; null inherits the agent learning rate."
       },
       "blender_lr": {
-        "type": "number",
+        "type": [
+          "number",
+          "null"
+        ],
         "description": "Blender optimizer learning rate; null inherits the agent learning rate."
       },
       "neural": {
-        "type": "string",
+        "type": [
+          "string",
+          "object"
+        ],
         "x-theta-domain": "model",
         "description": "Neural policy and critic module."
       },
       "symbolic": {
-        "type": "string",
+        "type": [
+          "string",
+          "object"
+        ],
         "x-theta-domain": "model",
         "description": "Symbolic reasoning module."
       },
