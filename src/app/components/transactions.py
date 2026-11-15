@@ -1,11 +1,13 @@
 """Recoverable, serialized filesystem lifecycle. Python dependency installs are separate."""
 from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
 import socket
 import stat
+import sys
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -61,10 +63,37 @@ def workspace_lock(paths, *, wait=False):
             else: fcntl.flock(stream, fcntl.LOCK_UN)
 
 
+@functools.cache
+def machine_id():
+    """This computer's stable identity. The host name is not one: macOS renames the host when
+    the network changes, which would make every lease written before look like another machine's."""
+    try:
+        if sys.platform == "darwin":
+            import ctypes, ctypes.util
+            libc = ctypes.CDLL(ctypes.util.find_library("c"))
+            value = ctypes.create_string_buffer(16)
+            wait = (ctypes.c_long * 2)(1, 0)  # struct timespec: give up after one second
+            if libc.gethostuuid(value, wait) == 0:
+                return str(uuid.UUID(bytes=value.raw))
+        elif os.name == "nt":
+            import winreg
+            access = winreg.KEY_READ | winreg.KEY_WOW64_64KEY
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, access) as key:
+                return str(winreg.QueryValueEx(key, "MachineGuid")[0])
+        else:
+            for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+                path = Path(candidate)
+                if path.is_file() and path.read_text().strip():
+                    return path.read_text().strip()
+    except (OSError, AttributeError, ValueError):
+        pass
+    return "host:" + socket.gethostname()
+
+
 def assert_idle(paths, package_id=None):
     for lease in (paths.root / ".thetaide/provider_leases").glob("*.json"):
         record = json.loads(lease.read_text())
-        if record.get("host") != socket.gethostname() or alive(record["pid"]):
+        if record.get("machine") != machine_id() or alive(record["pid"]):
             if package_id is None or not record.get("packages") or package_id in record["packages"]:
                 raise RuntimeError(f"Implementation is in use by {record.get('purpose', 'an active job')} (PID {record['pid']}). Stop it or wait, then retry.")
         else: lease.unlink(missing_ok=True)
@@ -74,7 +103,7 @@ def assert_idle(paths, package_id=None):
 def provider_lease(paths, packages=(), purpose="active job"):
     lease = paths.root / ".thetaide/provider_leases" / (uuid.uuid4().hex + ".json")
     with workspace_lock(paths, wait=True):
-        write_json(lease, {"pid": os.getpid(), "host": socket.gethostname(), "packages": list(packages), "purpose": purpose})
+        write_json(lease, {"pid": os.getpid(), "machine": machine_id(), "packages": list(packages), "purpose": purpose})
     try: yield lease
     finally: lease.unlink(missing_ok=True)
 

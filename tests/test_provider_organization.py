@@ -96,6 +96,27 @@ def test_active_jobs_and_concurrent_operations_defer_changes(tmp_path):
     installer.install(component, install_dependencies=False)
 
 
+def test_dead_lease_is_stale_after_host_rename_but_foreign_machine_lease_is_live(tmp_path, monkeypatch):
+    import json, socket, subprocess, sys
+    from src.app.components import transactions
+    installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
+    leases = installer.paths.root / ".thetaide/provider_leases"
+    monkeypatch.setattr(socket, "gethostname", lambda: "MacBookPro.lan")
+    with provider_lease(installer.paths) as lease:
+        record = json.loads(lease.read_text())
+    dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
+    record["pid"] = int(dead.stdout)
+    transactions.write_json(leases / "dead.json", record)
+    # macOS renames the host when the network changes; the machine identity does not change.
+    monkeypatch.setattr(socket, "gethostname", lambda: "MacBook-Pro-8.local")
+    transactions.assert_idle(installer.paths)
+    assert not (leases / "dead.json").exists()
+    transactions.write_json(leases / "foreign.json", {**record, "machine": "another-computer"})
+    with pytest.raises(RuntimeError, match="in use"):
+        transactions.assert_idle(installer.paths)
+    assert (leases / "foreign.json").exists()
+
+
 @pytest.mark.parametrize("payload", [{"src/app/evil.py": "x=1"}, {"frontend/evil.py": "x=1"}, {"../escape": "bad"}, {"results/x.csv": "data"}])
 def test_archive_escape_and_protected_payload_rejected(tmp_path, payload):
     installer = HubInstaller(tmp_path / "ws", tmp_path / "state")
