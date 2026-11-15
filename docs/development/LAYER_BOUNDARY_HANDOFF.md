@@ -12,56 +12,35 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 3. `docs/development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md`: the progress outline and dated sections.
 4. `docs/reference/LAYER_BOUNDARIES.md` (contract and exception register), `docs/reference/SDK.md` and `docs/reference/PLUGIN_STORAGE.md`.
 
-## Where things stand (2026-11-14)
+## Where things stand (2026-11-15)
 
 - **Phases 0–3** are complete locally. The only open items are external gates (see the last section).
-- **Phase 4 (units 4a–4g) has landed locally.** Package format v3 only, `src/usr` layout, every compatibility adapter retired, SDK 2.2 (`src.app.api`), the user's workspace moved.
-- **The v3 Hub releases are prepared, not published.** Worktrees `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) hold the sources and 39 release archives with registry entries and feeds. The user's own `../theta-plugins` and `../theta-hub` checkouts have uncommitted work of their own; never modify them.
-- **The repository workspace runs the prepared releases.** All 20 installed packages were updated from `../theta-hub-v3` (for example `sb3-suite` and `d3rlpy-suite` 2.0.0, `blendrl` 1.3.0). Optuna and Slurm are deliberately not installed there.
+- **Phase 4 (units 4a–4g) has landed locally**, with its close-out: the IDE suite is hermetic, the phase 4 leftovers are fixed, and authored packages import only SDK 2.3. See "Hermetic tests and phase 4 leftovers" in the status doc. All branch commits are local and unpushed.
+- **The v3 Hub releases are prepared, not published.** Worktrees `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) hold the sources, archives, registry entries and feeds. `mimic`, `mimic-early-prediction`, `reward-shaping`, `mimic-env` and `mimic-clinical-suite` are held back at their published storage-v2 releases (user decision). The user's own `../theta-plugins` and `../theta-hub` checkouts have uncommitted work of their own; never modify them.
+- **The repository workspace runs the prepared releases** (20 packages). Optuna and Slurm are not installed there.
+- **Tests:** 122 failures in 27 files remain. Every one also fails on `main` and comes from a stale test, not from user state. The list is in the status doc.
 
 ## User decisions (2026-11-14)
 
 - **`ai_assistant` and `theta_mcp`** stay as they are. The user tells their author. Do not port, drop or rebuild them.
 - **SDK namespace at phase 6:** the user accepted the current wording. `src.app.api` moves to `src.ide.api` with a forwarding `src.app.api` package, as `SDK.md` and `LAYER_BOUNDARIES.md` say. That is the single exception to "no forwarding modules in phase 6": it exists so the published packages keep working without another republish. Every other module moves without forwarders.
+- **MIMIC packages are held back** from v3 rather than ported; their experiments select a `cql` agent no package provides.
+- **`ncshare-site` owns the NCShare site profiles**; Slurm ships only the generic template.
 - **No publishing yet.** Do not publish to Theta Hub, push any repository or merge to `main` until the user asks.
 - **Tests must not depend on what the user has installed** (see "Hermetic tests").
 
 ## Work to do next, in order
 
-### 1. Phase 4 close-out: MIMIC configurations in `theta-plugins-v3`
+### 1. Remaining phase 4 cleanup
 
-The only CQL agent is `d3rlpy/cql` (in `d3rlpy-suite`). Some MIMIC files in `theta-plugins-v3` still select an agent named plain `cql`, which no package provides, so they fail. Fix them before publishing `mimic`, `mimic-early-prediction` and `reward-shaping`:
-- `experiments/mimic/configs/experiment/mimic/*.yaml` and `methods/cql_*.yaml`: methods with `agent: cql` and parameters `epochs`, `cql_alpha`, `pos_action_weight`, `bellman_loss`, combined with the `blendrl`, `dueling_resnet`, `transformer` and `cew` models.
-- `get_agent_class("cql")` in `eval/mimic-early-prediction/data_module.py`, `eval/mimic-early-prediction/eval_logic.py` and `eval/reward-shaping/reward_shaping.py`.
-- A comment in `models/cew/cew_model.py`.
+- **v1 `episode_outcomes` reader.** `src/app/core/execution_features.py` still reads a capability's top-level `episode_outcomes`. Move the flag into `execution_features` in `src/usr/algorithms/sb3-dev` and `../theta-plugins-v3/methods/sb3`, rebuild that unpublished archive (`scripts/package_plugins.py`; in `theta-hub-v3`, replace it with `scripts/add_releases.py`, then `scripts/build_index.py` and `scripts/validate_manifest.py --check-archives`), reinstall `sb3-suite` in the repository workspace, and delete the reader.
+- **Stale tests (122, optional before phase 5).** The largest are `test_results_panel` (32; the results explorer moved to current-item selection on `main`), `test_job_manager` (14; the runner now launches `APPLICATION_ROOT/run_pipeline.py`, so its fake pipeline needs a redesign) and `test_queue_panel` (11). `test_trial_seed_visibility`, `test_objective_components` and `test_tuner_components` use the removed `theta_execution.script` and `theta_objective_runner.script`; rewrite them against a Theta-owned bootstrap with fixture packages, or move real-package coverage to `theta-plugins-v3`. Use the fixture conventions in the status doc. Compare against `main` by test ID before calling anything a regression.
 
-`d3rlpy/cql` uses d3rlpy's own `d3rlpy/vector` encoder, so it cannot take those models or those parameters. Ask the user how each experiment should change: port it to `d3rlpy/cql` with d3rlpy parameters, or remove it. Do not invent an agent. Then rebuild the affected archives with `scripts/package_plugins.py` in `theta-plugins-v3`. The prepared versions are unpublished, so remove the old copies from `../theta-hub-v3/packages`, add the new ones with `../theta-hub-v3/scripts/add_releases.py`, rebuild the feeds with `scripts/build_index.py`, and check with `scripts/validate_manifest.py --check-archives`. Confirm the archives are deterministic (two builds, identical bytes) and rerun `tests/test_native_integration.py` in `theta-plugins-v3`.
-
-### 2. Hermetic tests
-
-The IDE suite must pass on a fresh checkout without the user's installed packages, ignored recipes or rules, or sibling checkouts. Today a fresh worktree fails about 289 tests and the populated workspace about 49, so about 240 tests depend on ignored workspace content. The work:
-- **Inventory.** Run each test file in a fresh worktree (`git worktree add`), one file at a time. Classify every failure by what it reads: installed packages, `src/usr/config` recipes, `src/usr/datasets`, authored `src/usr` packages, `../theta-plugins`, `../theta-hub`, the environment.
-- **Fixture packages.** Replace those dependencies with small fixture packages and configs created in `tmp_path` (follow `tests/test_provider_exports.py` and `tests/test_app_plugin_sdk.py`). Tracked fixtures go under `tests/fixtures`. Behavior that genuinely needs the real research packages (training SB3, BlendRL or d3rlpy end to end) belongs in `theta-plugins` `tests/test_native_integration.py`, which already builds and installs every archive.
-- **`tests/component_fixtures.LocalHub`** must not fall back to `../theta-hub` or `../theta-plugins`. Build the needed releases from tracked fixtures, or skip when the explicit `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT` is unset.
-- **Known cases:**
-  - `test_ncshare_hardening`: two real-pipeline cases need Optuna and Slurm installed in the root workspace. Install them into a `tmp_path` workspace with `install_optional` instead.
-  - `test_blendrl_rich_monitors::test_recipe_preserves_dnn...` reads the user's ignored `src/usr/config/experiment/newMonitors/onlineRL.yaml`, whose PPO method is disabled. Use `tests/fixtures/workspace_config/experiment/newMonitors/onlineRL.yaml`.
-  - `test_rulesets::test_authored_nsfr...` reads `../theta-plugins`, which is still storage v2.
-  - `test_sb3_theta_policy` (13 failures) imports `src.usr.models.blendrl`, decorator-registered models and `in.envs.cartpole.valuation`, none of which exist. Rewrite it against fixture packages or move its real-package coverage to `theta-plugins`.
-- **Exit:** the full suite, run per file in a fresh worktree, has no failures that come from missing user state. Record the before and after counts in the status doc.
-
-### 3. Bugs and leftovers found in phase 4
-
-- **Lease host identity.** `src/app/components/transactions.py` (`assert_idle`, lines ~67 and ~77) stores `socket.gethostname()` and treats a lease from any other host name as live. On macOS the host name changes with the network (`MacBookPro.lan`, `MacBook-Pro-8.local`, `MacBookPro.attlocal.net`), so dead leases block updates forever. 83 such leases were moved to `.thetaide/stale-provider-leases-20261114T200025/`. Use a stable machine identity (for example a machine ID persisted in the user's state directory), and add a test with a changed host name.
-- **Slurm vs `ncshare-site`.** Installing Slurm 1.1.0 into this repository's workspace is refused because the authored `ncshare-site` package owns `site/ncshare/*` and Slurm ships the same profiles. Ask the user which should own them, then remove the duplicate from the other.
-- **`src/app/core/loader_migration.py`** is used only by `tests/test_data_loader_bindings.py` and `scripts/migrate_data_loaders.py`. Under the no-legacy decision, check whether it is migration code that should go, and delete it with its script and tests if so.
-- **Authored packages still import private host modules.** `src/usr/models/blendrl-dev` (`src.app.monitoring.api`, `src.app.monitoring.measurements`, `src.app.core.types`, `src.app.core.protocols`, `src.app.core.provider_loader`, `src.app.core.data_loaders`) and `src/usr/packages/themes-dev` (`src.app.core.provider_catalog`, `src.app.monitoring.api`, `src.app.services.cancellation`). Port them to SDK 2.2 (`selected_capability`, `src.app.api.monitoring`, `src.app.api.execution.TrainingCancelled`), adding SDK exports only when they are general. This is a prerequisite for phase 7.
-
-### 4. Publication (only when the user asks)
+### 2. Publication (only when the user asks)
 
 Follow `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`: push `theta-hub-v3` and `theta-plugins-v3`, verify the client feed from a clean workspace, set `published_at` in the registry entries, merge `implement/layer-boundaries` to `main` together with the Hub change, and remove the last exception-register row ("Direct host imports in Hub package releases published before package format v3") from `docs/reference/LAYER_BOUNDARIES.md`. `ai_assistant` and `theta_mcp` stay in the feed at storage v2 until their author updates them.
 
-### 5. Phase 5: remote bundles (delivery G)
+### 3. Phase 5: remote bundles (delivery G)
 
 Tuner continuation artifacts and declared site dependencies already landed with delivery D. Remaining, per the plan:
 - Replace broad checkout copying with an explicit bundle: the application build plus the selected providers and their dependencies, and snapshots of the authored sources and configs used. Record IDs, versions, digests, contract versions and input mappings. Unselected experiments and providers are not required.
@@ -70,15 +49,16 @@ Tuner continuation artifacts and declared site dependencies already landed with 
 - Version the bundle manifest. **No readers for old jobs or snapshots** (confirmed decision); confirm with the user that no site job is running before the cutover.
 - Exit: an external workspace prepares and runs a reproducible bundle with the installed IDE, selected providers and declared data mappings, and continuation verifies provenance. The real cluster smoke run is a separate rollout gate.
 
-### 6. Phase 6: consolidate core into `src/ide` (delivery H)
+### 4. Phase 6: consolidate core into `src/ide` (delivery H)
 
 - Move `src/app` and the desktop host `frontend` into `src/ide`. Extension contracts live in `src.ide.api`; `src.app.api` stays as the one forwarding package (user decision above). Generic plotting infrastructure moves with the host; research plotting stays in packages.
 - Add installed CLI entry points. Keep the small root launchers and Hydra discovery adapters already in the exception register. Runtime services resolve resources from the installed application, not a repository root.
 - Update bundled providers, inventory, package data, docs, tests and tooling in the same change; there must not be two core trees. No other forwarders: saved Hydra targets and checkpoints that name old module paths stop working by decision.
 - Build and inspect the wheel and sdist, install them in an isolated environment, and launch the desktop and headless CLI against a clean external workspace with `scripts/verify_installed_distribution.py`.
+- Replace the remaining working-directory `results/` paths in the pipeline (listed in the status doc) with the selected workspace.
 - Exit: substantial core code lives under `src/ide`; fresh-process checkpoint reload and workspace relocation pass; installed entry points do not need the repository as working directory.
 
-### 7. Phase 7: enforcement (delivery I)
+### 5. Phase 7: enforcement (delivery I)
 
 - Extend `tests/test_sdk_boundary.py` from the optional components and bundled packages to installed and authored packages and the whole desktop and core tree. Cover `import`, `from` and dynamic imports. Check package imports against the SDK and the package's declared dependencies; a broad `src.ide` prefix is not permission.
 - Keep a finite, reviewed exception list (the register in `LAYER_BOUNDARIES.md`).
@@ -104,7 +84,8 @@ Tuner continuation artifacts and declared site dependencies already landed with 
 
 - Run tests per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. A whole-suite run in one process can die silently.
 - Before calling a failure a regression, compare with and without your change (`git stash push -u`, rerun, `git stash pop`), or compare fresh worktrees by test ID.
-- Package integration: in `../theta-plugins-v3`, `../Theta-IDE/venv/bin/python -m pytest -q tests/test_native_integration.py` (57 passed at 4g).
+- Package integration: in `../theta-plugins-v3`, `../Theta-IDE/venv/bin/python -m pytest -q tests/test_native_integration.py` (71 passed).
+- Tests select their workspace through fixtures (`fixture_workspace`, `optuna_workspace`, `sweep_workspace`, `themes_fixtures`); never `monkeypatch.chdir` alone. A run fails if tests write results into the checkout.
 - For the installed-distribution probe, build with a fresh setuptools build base and follow `scripts/verify_installed_distribution.py`.
 
 ## When you stop

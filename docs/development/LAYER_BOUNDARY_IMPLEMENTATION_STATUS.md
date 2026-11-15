@@ -4,7 +4,7 @@ Branch: `implement/layer-boundaries`. The [implementation plan](../plans/LAYER_B
 
 ## Progress outline
 
-Snapshot as of 2026-11-14, after the [phase 4 follow-up](#phase-4-follow-up-workspace-update-and-decisions--2026-11-14). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the remaining work in order. Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
+Snapshot as of 2026-11-15, after [hermetic tests and phase 4 leftovers](#hermetic-tests-and-phase-4-leftovers--2026-11-15). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the remaining work in order. Each row summarizes the detailed evidence below; where they disagree, the newest dated section wins. "Local gate" means the plan's exit gate as far as it can be shown without a real cluster or an installed-GUI desktop session.
 
 | Phase (delivery) | State | Local gate | What is left |
 | --- | --- | --- | --- |
@@ -12,12 +12,60 @@ Snapshot as of 2026-11-14, after the [phase 4 follow-up](#phase-4-follow-up-work
 | 1 — Workspace/config ownership (B) | Implemented | Met headless | Installed-GUI desktop editor/figure/export matrix; legacy materialized profiles stay undeduplicated until phase 4 |
 | 2 — Runner features, tuner/site extraction (C, D) | Implemented | Met | Real cluster smoke run |
 | 3 — App-plugin SDK (E) | Implemented | Met locally | Installed-GUI check of the migrated panels |
-| 4 — `in/` migration (F) | Implemented locally; Hub releases prepared, not published | Met locally | Fix the MIMIC configurations that select a nonexistent `cql` agent; hermetic tests; publish when the user asks, then remove the last exception-register row |
-| 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format, cutover and old-job readers remain |
+| 4 — `in/` migration (F) | Implemented locally; Hub releases prepared, not published; suite hermetic | Met locally | Publish when the user asks (MIMIC packages held back), then remove the last exception-register row; 122 stale tests remain (none from user state) |
+| 5 — Remote bundles (G) | Partly prepared by D | — | Tuner continuation artifacts and declared site dependencies landed with D; bundle format and cutover remain (no readers for old jobs) |
 | 6 — `src/ide` consolidation (H) | Not started | — | Move `src.app.api` to `src.ide.api`, keeping `src.app.api` as the one forwarding package (user decision); `scripts/verify_installed_distribution.py` is ready to reuse as its installed-distribution gate |
-| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages (`blendrl-dev` and `themes-dev` still import private host modules). Adapter retirement landed in phase 4 |
+| 7 — Enforcement and retirement (I) | Not started | — | Extend `tests/test_sdk_boundary.py` from optional components and bundled component and app-plugin packages to installed and authored packages (authored packages now import only SDK 2.3). Adapter retirement landed in phase 4 |
 
 Phase 4 depends on the phase 3 consumers being ready, which they now are. The user settled its decisions on 2026-11-14: no legacy support of any kind. That means package format v3 only (v2 retired on the Hub too), no detection of `in/`, a complete move of the user's workspace, and retirement of every compatibility adapter, including the checkpoint aliases (see the [phase 4 plan](../plans/LAYER_BOUNDARY_PHASE4_PLAN.md)). The real cluster smoke run and the installed-GUI matrix need the user's environment and authorization; they do not block phase 4.
+
+## Hermetic tests and phase 4 leftovers — 2026-11-14/15
+
+**Status:** the IDE suite no longer depends on the user's installed packages, ignored recipes, rules, datasets, `.thetaide` state or sibling checkouts. Every failure that remains also fails on `main` and comes from stale tests, not from user state. Nothing was published or pushed.
+
+### Counts
+
+Per-file runs in fresh worktrees (`git worktree add`, no `THETA_*` variables):
+
+| Tree | Files | Failures |
+| --- | --- | --- |
+| `main` 4738cae | 208 | 306 |
+| Branch 64a0f61 (start of this work) | 229 | 323 |
+| Branch 06e8755 | 229 | 149 in 34 files; none fail that pass on `main` |
+| HEAD (06e8755 plus the fixes after it) | — | 122 in 27 files (by test ID, not rerun as a whole) |
+
+### Fixture conventions
+
+- `tests/conftest.py`: the autouse `tracked_workspace` selects a temporary copy of the checkout's tracked `src/usr` (`checkout_workspace()`), so populated and fresh checkouts behave the same. A session hook fails the run if tests create new result groups in the checkout's `results/`.
+- `build_fixture_workspace(root)` / `fixture_workspace`: the checkout workspace plus `tests/fixtures/workspace_usr` (fixture packages such as `test-models`, `probe_evaluators` and the `mountaincar/monitoring_default` ruleset) and `tests/fixtures/workspace_config` (recipes selecting `sb3-dev/ppo`, `d3rlpy-dev/cql`, `gym_classic_control_dev/cartpole`).
+- `optuna_workspace` (session-built, read-only) and `component_fixtures.sweep_workspace(root)` install the optional Optuna tuner; `install_optional` does the same for Slurm.
+- `tests/themes_fixtures.py` generates THEMES inputs with `themes-dev`'s `generate_time_csv` and `write_resources`; the parity fixture skips when its local `.npz` is absent.
+- `LocalHub` and the authored-NSFR test read sibling checkouts only through `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT` and skip otherwise.
+- Tests that need real research packages (SB3 policies with BlendRL, BlendRL stability) live in `theta-plugins-v3` `tests/test_native_integration.py` (71 passed).
+
+### Regressions found and fixed
+
+- `prepare_launch` compared the site to `local` while the choice is `local/default`, so local launches skipped the resource budget and the one-device guard (682dd21).
+- `ConfigTree` dropped the workspace's own `experiment/` group folders (7cdcace).
+- Execution manifests, worker logs, seed folders and cancellation used the working directory, not the selected workspace; the desktop's cancellation looked in the wrong place (6bee081).
+- `resolve_experiment_config_name` passed unknown names through to Hydra when no experiments existed (f39292b).
+- The shared editor could not edit a nullable (`[type, "null"]`) number; a plain number schema now flags a cleared draft (d4682bd).
+- The tracked `fast_stable` objective was not a package and could not be selected (ac72ef0).
+- Tests had leaked results into the checkout (`results/*/g`, `results/*/group`); they were moved to the session scratchpad.
+
+### Leftovers retired
+
+Stable machine identity for provider leases (ffcf82f); Slurm without the NCShare profiles (fec5a8a, Hub 0e5f929); sweep bootstrap from the application (f80e6ac); data-loader migration removed (9db5a2a); SDK 2.3 and authored packages on the SDK only (71d3070, 64a0f61); `migrate_execution` removed (ed4bca3); objective-runner trial readers and `LegacyExecutionData` removed (6f63c8d); monitor suggestions from installed capabilities instead of hard-coded package IDs (5847bf3). MIMIC packages are held back from v3 (Hub 5047598).
+
+### Still open
+
+- **122 stale tests**, failing on `main` too: `test_results_panel` (32; explorer moved to current-item selection on `main`), `test_job_manager` (14; the runner launches `APPLICATION_ROOT/run_pipeline.py`, so the fake pipeline needs a redesign), `test_queue_panel` (11), `test_parallel_runs` (6), `test_experiment_pane` (6), `test_tuner_components` (5), `test_trial_seed_visibility` (5) and `test_objective_components` (4) (removed `theta_execution.script` / `theta_objective_runner.script`), `test_tray` (5), `test_monitor_live` (4), `test_filetree_toolbar` (4), `test_panel_sections`, `test_monitor_panel`, `test_monitor_lifecycle` (3 each), `test_tree_mouse_selection`, `test_launcher`, `test_component_validation_contract`, `test_component_plugins` (2 each), and one each in `test_tuning_objective`, `test_test_suite`, `test_splash`, `test_sidetabs_bins`, `test_run_navigator`, `test_optuna_pruning`, `test_components_filetree`, `test_component_gui_enhancements`, `test_cluster_error_logs`. `test_config_viewer_composite` (17) skips because it needs the user's MIMIC/BlendRL recipes.
+- **v1 `episode_outcomes` reader.** `execution_features.from_metadata` still reads a capability's top-level `episode_outcomes`, which `sb3-dev` and the prepared `sb3-suite` 2.0.0 declare. Move the flag into `execution_features` in both, rebuild the unpublished archive in `theta-hub-v3`, reinstall it in the repository workspace, then delete the reader.
+- **Working-directory results paths in the pipeline:** `core/callbacks.py`, `core/lightning_builder.py` (`get_original_cwd()`), `telemetry/run.py` and `core/contract_logger.py` defaults, `pipeline/config.py` best-params lookup, `tuning_monitor.py`, `sb3-dev/sb3_runner.py`. They work because pipeline processes run with the workspace as working directory, but `LAYER_BOUNDARIES.md` forbids the guess; fix with phase 6.
+- Experiment exports copy package-owned profiles (for example `configs/agent/<id>.yaml`) as well as pinning the package; capability selection makes the copy inert.
+- `test_ncshare_hardening` imports `optional_components.slurm` directly. `~/.config/thetaide/settings.toml` and QSettings are user-level state that tests can still read.
+- The `theta-hub-v3` validator fails on the seven storage-v2 entries (five MIMIC packages, `ai_assistant`, `theta_mcp`) until they are republished.
+- Coverage gap: an end-to-end test of managed parallel trials with a Theta-owned bootstrap (the synthetic-script versions were removed in 44fc7a1 and 340bb41).
 
 ## Phase 4 follow-up: workspace update and decisions — 2026-11-14
 
