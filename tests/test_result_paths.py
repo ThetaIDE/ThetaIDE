@@ -54,7 +54,6 @@ def test_nested_results_can_be_discovered_read_and_plotted(tmp_path, monkeypatch
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "results/logs"
-    monkeypatch.setattr(catalog, "LOGS_DIR", logs)
     cfg = OmegaConf.create({"group": "group", "experiment_id": "path/dir/run", "seed": 73,
                             "plotting": {"enabled": True}, "plots": ["losses"]})
     _setup_output_dirs(cfg)

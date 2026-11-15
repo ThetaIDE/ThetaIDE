@@ -23,7 +23,6 @@ import yaml
 
 from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, nested_run_names, SAVED_RUN_NAME
 
-from . import LOGS_DIR
 from .metrics import latest_version_file, read_metrics_table
 
 try:
@@ -34,22 +33,16 @@ except ImportError:  # pragma: no cover - registry is optional
         return []
 
 
-_DEFAULT_LOGS_DIR = LOGS_DIR
-
-
 def _workspace(workspace=None):
-    """Explicit service context; omitted context is the legacy desktop adapter."""
+    """The explicit workspace, or the process workspace when omitted."""
     from src.app.workspace import WorkspacePaths
     if workspace is not None:
         return workspace if isinstance(workspace, WorkspacePaths) else WorkspacePaths(workspace)
-    if LOGS_DIR != _DEFAULT_LOGS_DIR:
-        return WorkspacePaths(LOGS_DIR.parent.parent)
     return WorkspacePaths.for_process()
 
 
 def _logs_dir(workspace=None):
-    # Preserve the old explicitly rebound LOGS_DIR adapter for existing hosts/tests.
-    return LOGS_DIR if workspace is None and LOGS_DIR != _DEFAULT_LOGS_DIR else _workspace(workspace).results / "logs"
+    return _workspace(workspace).results / "logs"
 
 
 def _config_resolver(workspace=None):
@@ -119,7 +112,7 @@ _RUN_METADATA_CACHE: dict[Path, tuple[tuple, dict[str, Any]]] = {}
 # read again. The file is a convenience: if it can't be read or written, listing works as before.
 _PERSISTED_CACHES = {"agents": _SUMMARY_CACHE, "configs": _CONFIG_SUMMARY_CACHE, "metadata": _RUN_METADATA_CACHE}
 _PERSISTED_FORMAT = 2
-_persisted_loaded_for: Path | None = None  # the LOGS_DIR whose cache file has been read this session
+_persisted_loaded_for: Path | None = None  # the logs folder whose cache file has been read this session
 _cache_dirty = False  # an entry was computed since the cache file was last written
 
 
@@ -206,7 +199,7 @@ def agent_summary(agent_dir: Path) -> dict[str, Any] | None:
     """
     runtime_file = latest_version_file(agent_dir, "runtime.json")
     metrics_file = latest_version_file(agent_dir, "metrics.csv")
-    # No .resolve(): the paths come from LOGS_DIR, already absolute, and resolving three paths per agent
+    # No .resolve(): the paths come from the workspace logs folder, already absolute, and resolving three paths per agent
     # (an lstat for every path segment) was most of a repeated list_runs
     key = agent_dir
     stamp = (_file_stamp(runtime_file), _file_stamp(metrics_file))
@@ -676,7 +669,7 @@ _KIND_BY_SUFFIX = {
 
 
 def results_dir(*, workspace=None) -> Path:
-    """results/, the parent of results/logs (follows LOGS_DIR, so tests can point it elsewhere)."""
+    """The workspace results folder, the parent of its logs folder."""
     logs_dir = _logs_dir(workspace)
     return logs_dir.parent
 

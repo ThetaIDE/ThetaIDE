@@ -15,7 +15,7 @@ def write_json(path, data):
 def logs(tmp_path, monkeypatch):
     root = tmp_path / "results" / "logs"
     root.mkdir(parents=True)
-    monkeypatch.setattr(catalog, "LOGS_DIR", root)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     return root
 
 

@@ -25,21 +25,20 @@ def test_saved_ids_nest_inside_the_experiment(identity):
 def mixed_results(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))
-    monkeypatch.setattr(catalog, 'LOGS_DIR', tmp_path / 'results/logs')
     for root in catalog.RESULT_ROOTS:
         for identity in ('run', 'run/20261112-120000'):
             folder = tmp_path / 'results' / root / 'g' / identity
             folder.mkdir(parents=True)
             (folder / 'config.yaml').write_text('seed: 1\n')
     for identity in ('run', 'run/20261112-120000'):
-        agent = catalog.LOGS_DIR / 'g' / identity / 'agent/version_0'
+        agent = (tmp_path / 'results/logs') / 'g' / identity / 'agent/version_0'
         agent.mkdir(parents=True)
         (agent / 'metrics.csv').write_text('step,eval/reward\n1,42\n')
     return tmp_path
 
 
 def test_direct_and_nested_runs_are_discovered_without_mixing_artifacts(mixed_results):
-    assert {p.relative_to(catalog.LOGS_DIR).as_posix() for p in iter_run_dirs(catalog.LOGS_DIR)} == {
+    assert {p.relative_to((mixed_results / 'results/logs')).as_posix() for p in iter_run_dirs((mixed_results / 'results/logs'))} == {
         'g/run', 'g/run/20261112-120000'}
     manifest = catalog.run_manifest('g', 'run')
     assert manifest['agents'] == {'agent': ['version_0']}
@@ -118,10 +117,10 @@ def test_renaming_nested_run_keeps_experiment_group(mixed_results):
     from PyQt6.QtWidgets import QApplication
     from frontend.results.explorer import RunExplorer
     application = QApplication.instance() or QApplication([])
-    snapshot = catalog.LOGS_DIR / 'g/run/20261112-120000/config.yaml'
+    snapshot = (mixed_results / 'results/logs') / 'g/run/20261112-120000/config.yaml'
     snapshot.write_text('experiment_id: run/20261112-120000\n')
     rename_results('run', 'g', 'run/20261112-120000', 'best')
-    summary = catalog.run_config_summary(catalog.LOGS_DIR / 'g/run/best')
+    summary = catalog.run_config_summary((mixed_results / 'results/logs') / 'g/run/best')
     explorer = RunExplorer()
     explorer.set_runs([{'group': 'g', 'experiment_id': 'run/best', 'config': summary,
                         'agents': [{'name': 'agent'}]}])

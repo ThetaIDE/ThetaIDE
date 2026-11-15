@@ -13,7 +13,7 @@ from typing import Any, Mapping
 import yaml
 from PyQt6.QtCore import QTimer
 
-from src.app.services import PROJECT_ROOT
+from src.app.workspace import PROJECT_ROOT
 from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 
 from ..config_model import COMPONENT_ID_KEYS, ConfigTree, component_selection, is_group_defaults_path

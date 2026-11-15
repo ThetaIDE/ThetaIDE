@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from frontend.job_manager import JobManager  # noqa: E402
 from frontend.model import BASE_EXPERIMENT, Config, metric_points  # noqa: E402
-from src.app.services import LOGS_DIR  # noqa: E402
+from src.app.workspace import WorkspacePaths  # noqa: E402
 from src.app.services.config_service import LaunchError  # noqa: E402
 from src.app.services.job_store import JobStore  # noqa: E402
 
@@ -215,7 +215,7 @@ def test_launch_rejects_an_invalid_config(jobs):
 
 def test_launch_refuses_to_overwrite_existing_results(jobs):
     experiment_id = f"pytest_existing_{tag()}"
-    log_dir = LOGS_DIR / "thetaide" / experiment_id
+    log_dir = WorkspacePaths.for_process().results / "logs" / "thetaide" / experiment_id
     log_dir.mkdir(parents=True)
     try:
         (log_dir / "config.yaml").write_text("previous run", encoding="utf-8")
@@ -407,7 +407,7 @@ def test_real_cancel_stops_pipeline_and_training_subprocesses(tmp_path, experime
 
     # train.py is a grandchild of the job; if it survived, its telemetry stream would keep growing
     # (its system sampler alone appends a record every two seconds).
-    stream = next((LOGS_DIR / "thetaide" / experiment_id / "ppo").glob("version_*/events.jsonl"))
+    stream = next((WorkspacePaths.for_process().results / "logs" / "thetaide" / experiment_id / "ppo").glob("version_*/events.jsonl"))
     size = stream.stat().st_size
     time.sleep(4)
     assert stream.stat().st_size == size

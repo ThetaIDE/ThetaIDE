@@ -255,6 +255,15 @@ def _no_hub_network(monkeypatch):
 
 
 @pytest.fixture
+def workspace_results(tmp_path, monkeypatch):
+    """Select ``tmp_path`` as the process workspace and return its results folder."""
+    from src.app.workspace import WorkspacePaths
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("THETA_DATA_DIR", raising=False)
+    return WorkspacePaths.for_process().results
+
+
+@pytest.fixture
 def project_root():
     """Return the project root directory."""
     return PROJECT_ROOT

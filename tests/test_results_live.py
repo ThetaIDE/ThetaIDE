@@ -216,7 +216,7 @@ def test_backend_run_summaries_are_cached_until_files_change(tmp_path, monkeypat
     from src.app.services import catalog
 
     logs = tmp_path / "results" / "logs"
-    monkeypatch.setattr(catalog, "LOGS_DIR", logs)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     version = logs / "g" / "exp" / "ppo" / "version_0"
     version.mkdir(parents=True)
     metrics = version / "metrics.csv"

@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.app.services import PROJECT_ROOT
+from src.app.workspace import PROJECT_ROOT
 
 from .hotkeys import parse_action_key
 from .theme import current_theme, theme_color

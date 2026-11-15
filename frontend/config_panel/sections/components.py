@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.app.services import PROJECT_ROOT
+from src.app.workspace import PROJECT_ROOT
 
 from ...widgets import (
     label,

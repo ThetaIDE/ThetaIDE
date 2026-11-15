@@ -249,7 +249,7 @@ def test_artifact_rename_cancel_and_failure_preserve_current_file(monkeypatch):
 
 
 @pytest.mark.parametrize("kind", ["group", "experiment", "run"])
-def test_main_results_context_menu_renames_on_disk(tmp_path, monkeypatch, kind):
+def test_main_results_context_menu_renames_on_disk(tmp_path, monkeypatch, kind, workspace_results):
     import json
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QInputDialog, QMenu
@@ -257,9 +257,8 @@ def test_main_results_context_menu_renames_on_disk(tmp_path, monkeypatch, kind):
     from src.app.services.result_rename import rename_results
     from frontend.results.explorer import _DATA, _KIND
 
-    monkeypatch.setattr(catalog, "LOGS_DIR", tmp_path / "logs")
     for run in ("run", "run_20261110-120000"):
-        logs = tmp_path / "logs/group" / run
+        logs = workspace_results / "logs/group" / run
         version = logs / "agent/version_0"
         version.mkdir(parents=True)
         (logs / "config.yaml").write_text("seed: 1")
@@ -317,7 +316,7 @@ def test_main_results_context_menu_renames_on_disk(tmp_path, monkeypatch, kind):
     browser = panel.browser("Files")
     panel.update_artifacts()
     assert browser.artifacts()
-    assert all((tmp_path / artifact["path"]).is_file() for _, artifact in browser.artifacts())
+    assert all((workspace_results / artifact["path"]).is_file() for _, artifact in browser.artifacts())
     assert "eval/reward" in panel.grid.cards
     panel.close()
 
@@ -1147,7 +1146,7 @@ def test_trial_toggle_loads_each_saved_seed_curve_and_preserves_selection(tmp_pa
     from src.app.services import catalog
 
     logs = tmp_path / "results/logs"
-    monkeypatch.setattr(catalog, "LOGS_DIR", logs)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     trial_version = "version_sweep_search_trial_35"
     run_dir = logs / "group/run"
 

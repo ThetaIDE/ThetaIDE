@@ -72,9 +72,9 @@ def write_run(root, group, experiment_id, *, env="cartpole", seed=7, versions=No
 
 @pytest.fixture
 def logs(tmp_path, monkeypatch):
-    root = tmp_path / "logs"
-    root.mkdir()
-    monkeypatch.setattr(catalog, "LOGS_DIR", root)
+    root = tmp_path / "results" / "logs"
+    root.mkdir(parents=True)
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     return root
 
 
@@ -117,7 +117,7 @@ def test_run_metrics_missing_raises(logs):
 
 
 def test_no_logs_folder_means_no_runs(tmp_path, monkeypatch):
-    monkeypatch.setattr(catalog, "LOGS_DIR", tmp_path / "missing")
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     assert catalog.list_runs() == []
 
 

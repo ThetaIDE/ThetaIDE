@@ -52,16 +52,14 @@ def test_omitted_execution_context_uses_the_process_selection(tmp_path, monkeypa
     assert listed == [str(selected.root / 'results/executions/g/run/id/manifest.json')]
 
 
-def test_configure_workspace_selects_without_rebinding_module_constants(tmp_path, monkeypatch):
+def test_configure_workspace_selects_the_process_workspace(tmp_path, monkeypatch):
     from src.app import services
     from src.app.services import catalog, config_service
     from src.app.pipeline import compose
-    before = (services.LOGS_DIR, catalog.LOGS_DIR)
     for name in ('THETA_WORKSPACE', 'THETA_DATA_DIR'):
         monkeypatch.setenv(name, str(tmp_path / 'previous'))  # restored after the test
     selected = WorkspacePaths(tmp_path / 'selected', tmp_path / 'state')
     services.configure_workspace(selected)
-    assert (services.LOGS_DIR, catalog.LOGS_DIR) == before
     assert not hasattr(compose, "CONFIG_DIR") and not hasattr(catalog, "CONFIG_DIR")
     assert WorkspacePaths.for_process() == selected
     assert catalog.results_dir() == selected.results
