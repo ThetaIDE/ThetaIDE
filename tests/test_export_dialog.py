@@ -1,5 +1,4 @@
 """Unit tests for ExportExperimentDialog."""
-from pathlib import Path
 import pytest
 import yaml
 
@@ -15,8 +14,13 @@ def qapp():
     return app
 
 
-def test_export_dialog_initialization(qapp, tmp_path):
-    workspace = Path(__file__).resolve().parents[1]
+@pytest.fixture
+def workspace(fixture_workspace):
+    """The fixture workspace supplies tabular_classification/quick_test and its providers."""
+    return fixture_workspace
+
+
+def test_export_dialog_initialization(qapp, workspace):
     dialog = ExportExperimentDialog(
         experiment_id="tabular_classification/quick_test",
         workspace_root=workspace,
@@ -30,8 +34,7 @@ def test_export_dialog_initialization(qapp, tmp_path):
     dialog.deleteLater()
 
 
-def test_export_dialog_format_toggle(qapp, tmp_path):
-    workspace = Path(__file__).resolve().parents[1]
+def test_export_dialog_format_toggle(qapp, workspace):
     dialog = ExportExperimentDialog(
         experiment_id="tabular_classification/quick_test",
         workspace_root=workspace,
@@ -49,9 +52,8 @@ def test_export_dialog_format_toggle(qapp, tmp_path):
     dialog.deleteLater()
 
 
-def test_export_dialog_export_zip(qapp, tmp_path, monkeypatch):
-    workspace = Path(__file__).resolve().parents[1]
-    out_zip = tmp_path / "exported_cartpole.zip"
+def test_export_dialog_export_zip(qapp, workspace, tmp_path_factory, monkeypatch):
+    out_zip = tmp_path_factory.mktemp("export") / "exported_cartpole.zip"
 
     dialog = ExportExperimentDialog(
         experiment_id="tabular_classification/quick_test",
@@ -72,9 +74,8 @@ def test_export_dialog_export_zip(qapp, tmp_path, monkeypatch):
     dialog.deleteLater()
 
 
-def test_export_dialog_export_yaml(qapp, tmp_path):
-    workspace = Path(__file__).resolve().parents[1]
-    out_yaml = tmp_path / "exported_cartpole.yaml"
+def test_export_dialog_export_yaml(qapp, workspace, tmp_path_factory):
+    out_yaml = tmp_path_factory.mktemp("export") / "exported_cartpole.yaml"
 
     sample_yaml = "total_timesteps: 5000\nseed: 99\n"
     dialog = ExportExperimentDialog(
