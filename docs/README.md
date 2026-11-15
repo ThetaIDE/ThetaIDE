@@ -33,8 +33,8 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Development
 
-- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — per-phase progress outline, implemented changes, acceptance evidence and outstanding gates.
-- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: phase 4 close-out, hermetic tests, open bugs, phases 5–7 and external gates.
+- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — current state only: per-phase progress, the phase 4 close-out list, phase 5 inputs and test conventions.
+- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: phase 4 close-out, phases 5–7 and publication.
 - [Config panel implementation and extension guide](development/CONFIG_PANEL_IMPLEMENTATION_STATUS.md) — shared document, rows, regions, section adapters, verification and remaining integration gates.
 - [Measure startup and understand deferred services](development/STARTUP_PERFORMANCE.md)
 - [Author component plugins](development/COMPONENT_PLUGIN_GUIDE.md)
@@ -49,8 +49,8 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
-- [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — decisions settled; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
-- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active (phases 0–4 locally complete, Hub releases prepared but unpublished); contract boundaries, recoverable `in/` migration, provider-neutral execution, and eventual `src/ide` consolidation.
+- [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — units 4a–4g implemented; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
+- [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active; confirmed decisions (no legacy support, generic rejection, results in `src/usr/results`), phase 4 close-out, remote bundles, `src/ide` consolidation and enforcement.
 
 - [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.
 
@@ -63,6 +63,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Layer boundary implementation history](reports/LAYER_BOUNDARY_HISTORY_20261115.md) — dated evidence for phases 0–4 (2026-11-13 to 11-15): commits, test counts and reasoning; superseded where later decisions differ.
 - [Installed layer-boundary distribution evidence](reports/LAYER_BOUNDARY_DISTRIBUTION_20261113.json) — artifact hashes, bundled inventory, dependency versions, external-workspace/worker agreement and relocated checkpoint reload.
 
 - [IDE, plugin, and user layer boundary audit](reports/LAYER_BOUNDARY_AUDIT_20261113.md) — ownership gaps in `in/`, execution, desktop extensions, package APIs, distribution, and remote snapshots.

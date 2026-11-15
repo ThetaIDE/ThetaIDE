@@ -1,22 +1,39 @@
 # IDE, plugin, and user layer implementation plan
 
-Status: in implementation on `implement/layer-boundaries`. Phases 0–3 have met their local exit gates; phase 4 is next ([phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md)). See the [progress outline](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md#progress-outline) for per-phase state and remaining external gates. Plan written 2026-11-13 with user decisions incorporated; this document itself makes no runtime changes. Based on the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md) and the clarified user architecture. This plan replaces the older organization proposal's target layout for this work; update the current [storage contract](../reference/PLUGIN_STORAGE.md) as implementation lands.
+Status: in implementation on `implement/layer-boundaries`. Phases 0–4 are implemented; the phase 4 close-out (unit 4h) comes next, then phase 5. The [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) tracks progress and the [handoff prompt](../development/LAYER_BOUNDARY_HANDOFF.md) lists the work in order. Plan written 2026-11-13 from the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md); rewritten 2026-11-15 so every phase matches the confirmed decisions below. The [storage contract](../reference/PLUGIN_STORAGE.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) describe supported behavior as it lands.
 
 ## Confirmed decisions
 
-- User datasets belong in `src/usr/datasets`. Migrate workspace-owned data there; deliberate external data references can remain references, not an alternative default location.
-- Package defaults remain inside their owning packages. Editable copies and overrides belong under `src/usr`, normally `src/usr/config` or an authored package's `configs/` directory.
-- Slurm site support and tuning/sweeping become proper standalone installable components. Neither is mandatory core functionality or an implicitly installed default. Core owns general extension, execution and artifact APIs; components own scheduler/tuner behavior, dependencies, settings, UI contributions and integration hooks.
-- Without the relevant component installed, ordinary IDE flows expose no Slurm/site-specific or tuning-specific controls, settings or dependency requirements. The Hub can advertise available components. An installed but unconfigured component may contribute its setup flow; operational controls require the relevant configuration/capabilities. Missing components in an explicitly opened saved recipe produce actionable diagnostics, not silent fallback.
-- Lightning and the four base paradigms remain in core for this implementation. Extracting them for a lighter distribution is deferred.
-- Bundled and downloaded plugins use the same general public API. Alpha APIs may change to support required capabilities, but no plugin-specific host branches, private privileges or dedicated exceptions are permitted. Express extensions through reusable contracts and prove them with independent fixture implementations.
-- No legacy support (decided 2026-11-14; supersedes conflicting steps in phases 4–7 below). The user is the only user. Old patterns are not supported, partially migrated states are not wanted, and nothing is kept for behavior that no longer exists. In particular:
-  - Package format v3 only: config destinations are logical selectors. Storage v2 is removed, both in the IDE and on the Hub, where all entries are rebuilt as v3 in the single feed.
-  - Nothing detects or reports the old `in/` layout; after the cutover it is an arbitrary directory. The user's workspace is moved completely, by any method, with nothing left behind; migration code does not ship.
-  - Every compatibility adapter is retired, including the import aliases that let old checkpoints load. Historical results stay on disk untouched, with no replay support.
-  - Phase 6 needs no forwarding modules, and phase 5 needs no readers for old jobs.
-  - One exception (user, 2026-11-14): at consolidation the SDK namespace `src.app.api` keeps a forwarding package to `src.ide.api`, as the SDK reference says, so published packages work without another republish.
-  - See the [phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md).
+The user is the only user. These decisions win over anything else in this plan or in older documents.
+
+### Ownership (2026-11-13)
+
+- User datasets belong in `src/usr/datasets`. Deliberate external data references stay references, not an alternative default location.
+- Package defaults stay inside their owning packages. Editable copies and overrides belong under `src/usr`, normally `src/usr/config` or an authored package's `configs/` directory.
+- Slurm site support and tuning are standalone installable components, never mandatory core functionality or an implicit default. Core owns general extension, execution and artifact APIs; components own scheduler and tuner behavior, dependencies, settings, UI contributions and integration hooks.
+- Without the relevant component installed, ordinary IDE flows expose no Slurm, site-specific or tuning-specific controls, settings or dependency requirements. An installed but unconfigured component may contribute its setup flow. A saved recipe that names a missing component produces an actionable error, not a silent fallback.
+- Lightning and the four base paradigms stay in core. Extracting them is deferred.
+- Bundled and downloaded plugins use the same public API. No plugin-specific host branches, private privileges or dedicated exceptions. New extension points are general contracts proven with independent fixture implementations.
+
+### No legacy support (2026-11-14, refined 2026-11-15)
+
+- Old patterns are unsupported and rejected. Everything that existed before a change becomes unsupported when the change lands; nothing is kept for behavior that no longer exists, and partially migrated states are not wanted.
+- **Rejection is generic.** An old input fails through ordinary validation: an unknown key, an unsupported version, a missing file or module. No code recognizes, detects or names an old pattern, and there are no migration hints. Old inputs must still fail; they are never silently accepted or reinterpreted.
+- Package format v3 only, on the IDE and on the Hub. Config destinations are logical selectors.
+- The user's own files are moved completely when a layout changes (backup, hash check, dry run shown to the user first); migration code does not ship.
+- Every compatibility adapter is retired, including the import aliases that let old checkpoints load. Old checkpoints, receipts, snapshots, jobs and saved Hydra targets stop working. Historical results are not rewritten and have no replay support.
+- **One exception** (2026-11-14): at phase 6, `src.app.api` stays as a forwarding package to `src.ide.api`, so the published v3 packages keep working without another republish. No other forwarding module exists.
+
+### Scope and gates (2026-11-15)
+
+- **Results move into the user layer.** Results, including checkpoints, logs and tuning artifacts, live under `src/usr/results` in the selected workspace (phase 5). Checkpoints are saved there with the rest of the results.
+- **Experiment export is removed** (exporter, export dialog, `run_pipeline.py export` and their tests). Component package building (`scripts/package_plugins.py`, the scaffolder) stays.
+- **Workflow presets are rewritten in generic terms** and name no research package or experiment.
+- **`from_study` is a generic feature**: it turns a configuration recorded in the results into experiment parameters. It names no tuner and resolves inside the selected workspace.
+- **The tabular generator** (`prepare_tabular.py`) stays where it is; the user will revisit it.
+- **Third-party and held-back packages leave the v3 feed.** At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages (`mimic`, `mimic-early-prediction`, `reward-shaping`, `mimic-env`, `mimic-clinical-suite`) are not in the feed. The work is ThetaIDE, not other authors' plugins.
+- **No cluster testing.** The real cluster smoke run is not a gate and is not to be run. Local fixtures cover remote behavior.
+- **The desktop check is accepted as working** (the user opens the app and launches experiments). The remaining interactive items are listed in the status doc; the installed-wheel desktop launch belongs to the phase 6 gate.
 
 ## End state
 
@@ -39,116 +56,99 @@ Status: in implementation on `implement/layer-boundaries`. Phases 0–3 have met
       components/installed/<id>/ # downloaded/imported managed packages
       app/installed/<id>/
     usr/
-      config/<group>/           # editable YAML, same Hydra selectors as today
-      datasets/                 # canonical home for user dataset bytes
-      models/ algorithms/ ...   # authored/copied complete packages
+      config/<group>/            # editable YAML, same Hydra selectors as today
+      datasets/                  # user dataset bytes
+      results/                   # outputs: runs, checkpoints, logs, tuning artifacts
+      models/ algorithms/ ...    # authored/copied complete packages
       app_plugins/ sites/ rules/ packages/ ...
-  results/                       # output lifecycle
   .thetaide/                     # state, journals, retained snapshots, cache
 ```
 
-The application and workspace may physically share a root during development. Core must still distinguish them logically. No requirement to put results, caches, credentials, virtual environments, repository tooling or test fixtures under the three source roots.
+The application and workspace may share a root during development. Core must still distinguish them logically. Caches, credentials, virtual environments, repository tooling and test fixtures stay outside the source roots.
 
-An authored package's `configs/` holds its owned defaults. `src/usr/config` holds editable project recipes and overrides. These have different roles; never maintain two synchronized writable authorities for the same user edit. Keep full-profile overrides initially unless an explicitly versioned merge contract is added. Core root defaults must compose with user settings through a tested, explicit mechanism rather than silently changing Hydra search semantics.
+An authored package's `configs/` holds its owned defaults. `src/usr/config` holds editable recipes and overrides. Never maintain two writable authorities for the same user edit. Use `src/ide`, not `src/src`. Keep package IDs, capability selectors and Hydra group names stable; Python module paths change at phase 6.
 
-Use `src/ide`, not `src/src`: it names the responsibility and accommodates desktop and headless code. Keep package IDs, capability selectors and Hydra group names stable during storage changes. Directory naming is the last structural milestone, not the first.
+## Phase 0 — Contract and baseline (done)
 
-## Phase 0 — Freeze the architecture contract and baseline (G1–G11)
+Reference ownership contract, read-only workspace inventory (`python -m src.app.workspace_inventory`), baseline captures and the exception register.
 
-1. Add a reference contract defining layer ownership, public API modules, allowed import directions, configuration ownership/precedence, and compatibility policy. Record this plan as the active proposal in the documentation index; leave current guides accurate until implementation lands.
-2. Inventory tracked **and ignored** input/config/source files, package manifests, state ownership records and external dataset references. Record origin, hashes, effective selector and intended destination. Include local edits and the tracked `.npz`, not just `git ls-files` output.
-3. Capture representative CLI/GUI config resolution, package inventories, checkpoint loading, and remote snapshot/continuation behavior. Reuse existing tests and small fixture providers. Record clean checkout versus this research workspace separately.
-4. Create an explicit exception register for saved imports, required third-party namespace adapters, and any core-owned Lightning/base paradigm implementation. Every exception needs a reason and retirement or long-term support policy.
+## Phase 1 — Workspace and configuration ownership (done)
 
-Exit gate: agreed ownership and compatibility contract; reproducible inventory; no assumption that ignored local files can be discarded.
+`WorkspacePaths` carries explicit context through composition, validation, catalogs, plotting, datasets, scaffolding and workers. `ConfigResolver` reports selector, owner, origin, effective file and override status for the GUI, CLI and workers. Precedence: a `src/usr/config` file, then the selected provider profile, then the framework fallback; ambiguous owners fail. Editing a managed profile creates a user override; updates and uninstall never touch it. Institution defaults moved into packages.
 
-## Phase 1 — Make workspace and configuration ownership explicit (G1, G6, G7)
+Open from this phase, now in unit 4h: research workflow examples still live in core (`src/app/pipeline/workflow/presets.py`).
 
-1. Extend `WorkspacePaths` with named user-config, user-input, framework-default and provider-config concepts. Pass context through composition, validation, catalogs, plotting, dataset discovery, exports, scaffolding and workers. Remove module-import workspace selection from reusable services.
-2. Add a source-aware config resolver that returns selector, owning package/origin, effective file and override status. Use the same resolver for GUI lists, CLI composition, schema selection and export. Report conflicting package profile owners instead of depending on scan order.
-3. Define stable precedence: explicit user override, explicitly selected provider profile, framework fallback. Ambiguous providers fail before execution. Define how explicit capability overrides also affect profile/schema ownership; do not let those systems choose different owners.
-4. Make editing a provider default an explicit operation that creates a user-owned override. Ordinary package updates manage provider roots; they must not rewrite user overrides. Preserve existing edited release recovery and transaction guarantees.
-5. Move institution defaults and research workflow examples out of core policy into packages. Core provides general configuration/authoring APIs; the standalone site component contributes site-specific authoring/setup and scheduler behavior. Project connection settings stay in usr.
+## Phase 2 — Runner features and standalone site/tuner components (done)
 
-Exit gate: the same config resolves to the same owner/value in GUI, CLI and workers in two separate workspaces from an unrelated CWD. Missing/ambiguous providers produce clear diagnostics. No source migration required yet.
+Execution features and preflight hooks replace backend-name branches. Resource hints replace SB3 checks. The portable tuner contract moves Optuna storage and trial state into its provider. Contribution and readiness contracts drive tuning and site UI. Slurm and Optuna are optional components installed through the ordinary lifecycle. Declared cross-package exports (`provider_export`) replace private file-path helpers.
 
-## Phase 2 — Extract standalone site/tuner components and complete general contracts (G2, G3, G6, G9)
+Open from this phase, now in unit 4h: the historical readers it added (top-level `episode_outcomes`, unmarked tuning summaries, flat tuner fields, implicit Lightning features, the Slurm `legacy` publication state) and the dead Slurm entry points left in `src/app/pipeline`.
 
-1. Add runner capability fields for execution contract, supported input types, evaluation ownership, resume/reload modes, checkpoint format, tuning/winner promotion and episode outcomes. Provide a selected-provider preflight hook for constraints that cannot be expressed declaratively.
-2. Replace backend-name branches in execution with contract/feature checks. Move current SB3/d3rlpy restrictions into their adapters without weakening rejection of unsupported evaluator, resume, data-module or tuning combinations.
-3. Introduce resource/device hint hooks with conservative core defaults. Replace SB3 identity/substrings in scheduling decisions. Core remains responsible for enforcing the user's resource policy.
-4. Extend the tuner API for portable storage/artifact declarations, launch bindings, continuation validation/repair, snapshot publication and monitor data. Move Optuna SQLite/trial-state logic into its provider. Keep remote file transport, process supervision and publication mechanics generic.
-5. Express pruning/objective compatibility as capabilities. Remove implicit Optuna installation/selection from core services and default startup. Make tuning controls and provider-specific monitors contributed extensions; use the shared parameter controls for ordinary config boxes, preserving the specialized Methods layout.
-6. Add public cross-package exports and dependency-aware resolution. Validate caller dependency/version requirements; migrate private file-path helper calls incrementally. Define compatibility checks for app plugins as well as component runners. Do not broaden this into a dependency solver or code sandbox.
+## Phase 3 — App-plugin SDK (done)
 
-7. Extract Slurm submission, allocation validation, scheduler polling, cancellation, continuation, site templates/settings and scheduler-specific environment/setup logic into a standalone site component. Audit `src/app/sites`, pipeline Slurm runners, desktop controls and bootstrap dependencies. Move reusable transport/process/artifact primitives into general APIs only when their contract is independent of Slurm. Remote orchestration may live in the component where no general core responsibility remains.
-8. Define general capability-driven contribution and readiness contracts for settings, config sections, commands and monitors. Remove Slurm/tuning controls from unconditional host construction. Do not implement visibility by hardcoding checks for package IDs. Support absent, installed/unconfigured, configured, disabled and removed states, including missing providers referenced by saved recipes.
+The versioned `src.app.api` facade (now SDK 2.3) and `PluginContext` services. Bundled panels, both optional components and an independent fixture plugin use only the SDK. SDK requirements are checked before activation.
 
-Exit gate: a clean IDE has no Slurm/tuning UI or runtime dependency requirement; installed components expose setup and configured functionality appropriately. Removing/disabling them removes their contributions and cleans up lifecycle resources. An independent site/scheduler fixture and non-Optuna tuner integrate without core edits. Existing unsupported operations still fail with actionable errors, and Slurm/Optuna behavior is preserved through their components.
+## Phase 4 — Retire `in/` and every adapter (implemented; close-out in 4h)
 
-## Phase 3 — Stabilize the app-plugin SDK (G5, G9)
+Units 4a–4g are described in the [phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md): package format v3, the `src/usr` cutover, adapter retirement, documentation, hermetic tests, the move of the user's workspace and the prepared v3 Hub releases.
 
-1. Publish a versioned host facade for workspace/config access, changes, settings, themes, process tracking, commands, editor actions and UI slots. Mark supported widget helpers as public API.
-2. Migrate bundled text editor, model builder, TensorBoard, documentation and arXiv panels to the facade. Replace config-viewer imports and `context.window` implementation access with focused services/events.
-3. Validate host API requirements before activation. Cover activation/deactivation, settings, edits, workspace context and cleanup with a small independent app-plugin fixture.
+### 4h — Close-out
 
-Exit gate: bundled plugins and the fixture operate without imports of private host modules or reliance on concrete `Window` attributes. Headless catalogs do not require Qt or execute panel code.
+1. **Remove the remaining legacy code** (see the triage list in the status doc): flat tuner fields, the Slurm `legacy` publication state, Optuna's `version_N` and old sweep layouts, sibling-run grouping in `result_paths.py`, unmarked tuning summaries, forwarding imports, `.plugins.json` migration and deprecated plugin-manager aliases, widget attribute aliases, the old `tensorboard` key and old method-key fallbacks, old theme colour names, the legacy hotkey list, the `in.envs.` hot-reload path and the `run_pipeline.py` legacy-key message. Old inputs must still fail through ordinary validation.
+2. **Retire the `episode_outcomes` reader.** Drop the duplicate top-level key from `sb3-dev` and `sb3-suite` (the flag already lives in `execution_features`), rebuild the unpublished archive in `theta-hub-v3`, reinstall it, delete the reader.
+3. **Require declared execution features.** A Lightning provider without `execution_features` no longer gets Lightning's features implicitly.
+4. **Remove experiment export.**
+5. **Rewrite the workflow presets** generically.
+6. **Make `from_study` generic and workspace-relative.**
+7. **Delete dead core code:** `src/app/pipeline/slurm_runner.py`, `tuner_finalize.py`.
+8. **Guards and tests:** extend `test_layout_guard` to dotted module paths (`in.envs`); give `test_config_viewer_composite` fixtures instead of the user's recipes; stop tests from reading user-level settings (`~/.config/thetaide/settings.toml`, QSettings); `test_ncshare_hardening` loads Slurm through the installed component.
+9. **Exception register:** remove the "authored `src/usr` packages" row (they import only the SDK).
 
-## Phase 4 — Version and execute the `in/` migration (G1, G6–G8, G11)
+Exit gate: no tracked source outside tests recognizes an old pattern; the exception register lists only Lightning and the base paradigms, the Hydra namespace, the root launchers and (until publication) the pre-v3 Hub releases; the affected test files fail no test that passes on `main`.
 
-1. Separate native package **format/API versions** from workspace **layout version**. Define a new config destination representation (logical group/selector or an explicitly versioned destination contract), so newly exported archives do not encode `in/config` as permanent ownership policy.
-2. Continue reading released storage-v2 archives through a bounded adapter that translates their config destination metadata. Do not silently reinterpret their implementation paths, rewrite signed/downloaded archives, or extend generic legacy discovery. Coordinate future package releases with the existing Theta Hub production workflow when releases are actually requested.
-3. Build a migration command with dry-run, inventory, collision diagnostics, recovery journal, idempotent resume and rollback. Acquire workspace locks and require idle implementations. Never choose between conflicting changed files automatically.
-4. Move editable profiles to `src/usr/config` with selectors preserved. Deduplicate unchanged materialized defaults only when provenance and effective resolution prove it is safe. Preserve intentional full-profile overrides. Handle root `config.yaml`, absolute Hydra defaults, interpolations and nested group references explicitly.
-5. Move all workspace-owned user dataset bytes to `src/usr/datasets`; preserve deliberate external references. Migrate known dataset references and site/input mappings structurally; surface unresolved arbitrary strings for review. Historical result configs remain historical records, with a deliberate replay path policy.
-6. Relocate the tabular generator to a provider/example package with explicit output context. Remove unused `in/envs` only after checking ignored local content. Move apprenticeship and plotting defaults into their owners.
-7. Translate state/config ownership records, retained backups, exporter mappings, fork provenance, CLI help and editor links. Inventory old-root consumers and provide read-only compatibility diagnostics during transition; do not leave two active write roots or rely on symlinks that violate managed-root protections.
-8. Update ignores, tracked fixtures and documentation; remove `in/` after all active readers/writers have migrated. Keep external datasets outside distribution payloads.
+## Phase 5 — Results in the user layer and remote bundles
 
-Exit gate: dry-run followed by migration and rerun is stable; rollback restores bytes, modes and ownership. User edits survive update/uninstall. Existing released archives install through the adapter. Config composition and dataset selection match the baseline. Both clean and populated workspaces work.
+Start with a short phase 5 plan document (bundle manifest fields, application/workspace resolution, what a bundle includes and excludes), as phase 4 did. Units:
 
-## Phase 5 — Make remote bundles reflect layer ownership (G3, G7, G10)
+1. **Every results path from the workspace.** Pipeline, telemetry, callbacks, Lightning builder, contract logger, `from_study`, the tuning monitor and runners stop using working-directory `results/` paths (the list is in the status doc). All go through `WorkspacePaths`.
+2. **Move results to `src/usr/results`.** Change the single workspace definition; update monitors, the results browser, site publication, receipts, ignores and the test guard that fails runs writing into the checkout. Move the user's existing `results/` completely with the 4f method (backup, hash check, dry run shown first). Remote bundles never include `src/usr/results`.
+3. **Explicit bundles.** Replace broad checkout copying with the application build plus the selected providers and their dependencies, and snapshots of the authored sources and configs used. Record IDs, versions, digests, contract versions and input mappings. Unselected experiments and providers are not required. Resolve application files from the application context and research files from the workspace context; keep site transport, incremental hashes and publication semantics.
+4. **Declared requirements.** Generic cluster setup installs what the selected application, providers and tuner declare, instead of always selecting the Optuna extra. (Tuner continuation artifacts and site dependencies landed in phase 2.)
+5. **Versioned bundle manifest.** Exactly one supported version. Older jobs and snapshots fail like any unsupported version.
 
-Design the bundle format alongside phases 1–2; land its storage-path cutover with phase 4 before removing old paths.
+Exit gate (local): an external workspace prepares and runs a reproducible bundle through the local and fixture schedulers with the installed IDE, selected providers and declared data mappings; continuation verifies provenance; nothing writes results outside `src/usr/results`. No cluster run.
 
-1. Replace broad checkout copying with an explicit application build plus selected provider/dependency and authored source/config snapshots. Record IDs, versions, digests, contract versions and input mappings. Unselected user experiments/providers should not be implicitly required.
-2. Resolve application files from application context and research files from workspace context. Avoid assuming the workspace contains a complete editable IDE checkout. Preserve site transport, incremental hashes and data publication semantics.
-3. Have the selected tuner declare its continuation artifacts and any environment requirements. Generic cluster setup installs the declared application/provider requirements instead of always selecting the Optuna extra.
-4. Version manifests and retain an explicit compatibility reader for already-created jobs/snapshots. Running or resumable jobs must not be broken by source-path changes.
+## Phase 6 — Consolidate core into `src/ide`
 
-Exit gate: an external workspace can prepare and run a reproducible bundle with the installed IDE, selected providers and declared data mappings; continuation verifies provenance. Tests cover old snapshots and the new format. A real cluster smoke run is a rollout gate, separate from local implementation tests.
+1. Move `src/app` and the desktop host `frontend` into `src/ide`. Extension contracts live in `src.ide.api`; `src.app.api` is the one forwarding package. Generic plotting infrastructure moves with the host; research plotting stays in packages.
+2. Add installed CLI entry points. Keep the small root launchers and Hydra discovery adapters listed in the exception register. Runtime services resolve resources from the installed application, not a repository root.
+3. Update bundled providers, inventory, package data, docs, tests and tooling in the same change; there are never two core trees. Saved Hydra targets and checkpoints that name old module paths stop working.
+4. Build and inspect the wheel and sdist in a freshly built environment, install them in isolation, and launch the desktop and headless CLI against a clean external workspace with `scripts/verify_installed_distribution.py`.
 
-## Phase 6 — Consolidate core into `src/ide` (G4, G8, G11)
+Exit gate: substantial core code lives under `src/ide`; fresh-process checkpoint reload and workspace relocation pass for checkpoints written after the move; installed entry points do not need the repository as working directory; the installed desktop opens and launches an experiment.
 
-1. Move `src/app` and the desktop host from `frontend` into `src/ide`, keeping extension contracts in a clearly supported API namespace. Move generic plotting infrastructure with the host; keep research plotting implementations in plugins.
-2. Add installed CLI entry points. Retain small root launchers and required Hydra discovery adapters as documented compatibility entry points. Runtime services should resolve resources from the installed application, not a presumed repository root.
-3. Update bundled provider SDK imports, inventory, package data, documentation, tests and tooling together. Avoid a permanent pair of core package trees. Maintain fixed adapters for old saved Python targets and checkpoints until their declared retirement boundary.
-4. Build and inspect wheel/sdist, install them in an isolated environment, then launch the desktop and headless CLI against a clean external workspace. Verify bundled manifests/assets/defaults are present and installed/user payloads/data/state are absent.
+## Phase 7 — Enforcement
 
-Exit gate: all substantial core implementation lives under `src/ide`; compatibility modules forward to identical canonical objects. Fresh-process checkpoint reload and workspace relocation pass. Repository CWD is unnecessary for installed entry points.
+- Extend `tests/test_sdk_boundary.py` from the optional components and bundled packages to installed and authored packages and the whole desktop and core tree. Cover `import`, `from` and dynamic imports. Check package imports against the SDK and the package's declared dependencies; a broad `src.ide` prefix is not permission.
+- Keep a finite, reviewed exception list (the register in `LAYER_BOUNDARIES.md`). Every exception is in the register; a compatibility path that is not in the register is a bug.
+- Add behavior tests with differently named fixture providers, since static checks miss backend-name branches, configuration assumptions and undeclared file access.
+- Document the retirement boundary of the `src.app.api` forwarding package.
+- Archive obsolete architecture guidance and keep the docs index current.
 
-## Phase 7 — Enforce boundaries and retire transitional paths (all gaps)
+Exit gate: a compatible extension can be added without editing core policy, downloaded packages do not depend on particular `src/usr` files, user edits affect only the intended selection, and CI enforces this through imports and behavior.
 
-- Expand architecture checks to `import`, `from`, dynamic imports and the full desktop/core tree. Maintain a finite reviewed exception list. Check plugin imports against the supported SDK and declared package dependencies; don't treat a broad `src.ide` prefix as permission to import internals.
-- Add behavior tests using differently named fixture providers. Static checks cannot detect all backend-name branches, configuration assumptions or undeclared file access.
-- Run selected compatibility, transaction/recovery, config provenance, execution, app-plugin, packaging and snapshot suites. Reuse existing fixtures rather than running expensive training for path-only changes.
-- Retire old `in/`, `frontend.plugins.core`, `src.app.tuners`, `src.usr` compatibility targets only at a documented boundary with saved-target/checkpoint fixtures and downstream caller migration. Keep legitimate long-term third-party namespace adapters explicit.
-- Update current storage/API guides, built-in documentation and the documentation index as each phase changes supported behavior. Archive obsolete architectural guidance after the replacement is supported.
+## Delivery units
 
-Exit gate: a compatible extension can be added without editing core policy, downloaded packages do not depend on particular usr files, and user edits affect only the intended project/provider selection. CI enforces those claims through both imports and behavior.
-
-## Suggested delivery units and dependencies
-
-| Delivery | Scope | Depends on |
+| Delivery | Scope | State |
 | --- | --- | --- |
-| A | Reference ownership contract, inventory tooling, baseline tests | None |
-| B | Explicit workspace context and source-aware config resolution | A |
-| C | Runner features and resource hints | A, context portions of B |
-| D | Standalone Slurm site and tuning components, general lifecycle/UI contracts, absence/readiness gates | C and B |
-| E | App SDK and bundled-panel migration | A and B |
-| F | Versioned package config destinations and recoverable `in/` migration | B, relevant C/D/E consumers ready |
-| G | Remote bundle cutover and old-job readers | B, C, D; coordinate cutover with F |
-| H | `src/ide` consolidation and installed-distribution validation | C–G |
-| I | Adapter retirement and strict boundary CI | H plus compatibility retirement conditions |
+| A | Ownership contract, inventory, baseline | Done |
+| B | Explicit workspace context and source-aware config resolution | Done |
+| C | Runner features and resource hints | Done |
+| D | Standalone Slurm and tuning components, contribution and readiness contracts | Done |
+| E | App SDK and bundled-panel migration | Done |
+| F | Package format v3, `in/` retirement, adapter retirement (phase 4 including 4h) | Close-out |
+| G | Results in `src/usr/results` and explicit remote bundles (phase 5) | Next after F |
+| H | `src/ide` consolidation and installed-distribution validation (phase 6) | After G |
+| I | Boundary enforcement (phase 7) | After H |
 
-Each delivery should be reviewable independently. New guardrails should land with the relevant contract changes, rather than waiting until delivery I. No component publication, remote rollout or destructive workspace migration is authorized merely by writing this plan.
+Each unit is reviewable on its own and lands with its guardrails. No Hub publication, push to `main` or destructive workspace move is authorized by this plan; each needs the user's go-ahead.

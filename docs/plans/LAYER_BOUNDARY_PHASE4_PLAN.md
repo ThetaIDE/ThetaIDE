@@ -1,6 +1,6 @@
 # Phase 4 implementation plan: retire `in/` and every compatibility adapter
 
-Status: decisions settled 2026-11-14; implementation not started. This plan expands phase 4 of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md). Where they differ, that plan's [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
+Status: units 4a–4g implemented 2026-11-14 (Hub releases prepared, not published); the close-out is unit 4h of the [layer boundary plan](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#4h--close-out). This plan expands phase 4 of that plan; where they differ, its [confirmed decisions](LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md#confirmed-decisions) win. Track progress in the [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md).
 
 ## Goal
 
@@ -17,7 +17,7 @@ The user is the only user. Old patterns are not supported, partially migrated st
 5. **The migration method is free, but nothing may be left behind.** Every file under `in/`, including ignored files and the external `mimic` symlink, is accounted for: moved, proven redundant, or confirmed junk. Every state record that names an old path is rewritten. Migration code does not ship in the product.
 6. **Every compatibility adapter is retired, including the checkpoint aliases.** Checkpoints that pickled moved class paths will no longer load. Accepted.
 7. **Historical results are left untouched,** with no replay guard. Replaying an old result fails wherever its old paths break.
-8. **The same stance applies to later phases.** Phase 6 moves `src/app` to `src/ide` without forwarding modules, and phase 5 changes the bundle format without readers for old jobs.
+8. **The same stance applies to later phases.** Phase 6 moves `src/app` to `src/ide` without forwarding modules (except the `src.app.api` SDK package, decided later the same day), and phase 5 changes the bundle format without readers for old jobs.
 
 ## Starting point
 
