@@ -96,8 +96,6 @@ def test_eval_episodes_offline_rl(mock_yaml, mock_cfg_offline):
     mock_cfg_offline.merge_with({
         "paradigm": "offline_rl",
         "eval_episodes": 100,
-        "online_methods": "",
-        "offline_methods": "iql/mimic",
         "group": "",
         "experiment_id": "",
     })
@@ -138,8 +136,6 @@ def test_successful_validation_online_rl(mock_yaml, mock_cfg_online, _declare_te
 def test_explicit_eval_episodes_in_raw_yaml(mock_yaml, mock_cfg_offline):
     mock_cfg_offline.merge_with({
         "paradigm": "offline_rl",
-        "online_methods": "",
-        "offline_methods": "iql/mimic",
         "group": "",
         "experiment_id": "",
     })

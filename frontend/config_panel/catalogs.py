@@ -208,12 +208,10 @@ FIXED_BOX_KEYS = frozenset(
         "no_plot",
         "save_dataset",
         "recover",
-        # Dataset values are rendered in the inputs card.  Unsupported legacy
-        # resource/sweeper blocks stay hidden rather than being surfaced as
-        # generic editable settings.
+        # Dataset values are rendered in the inputs card; Hydra settings are not
+        # experiment parameters.
         "hydra",
         "dataset_path",
-        "offline_datasets",
         "description",
         "eval_freq_steps",
         "eval_freq",

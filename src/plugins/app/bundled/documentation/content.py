@@ -1197,10 +1197,10 @@ python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt; --wi
 <p>The failed-trial allowance controls how many trial failures a sweep can continue past in the current run. Pruned trials do not count as failures.</p>
 <p>Add the <code>tuning</code> figure in Figures and Tables to generate a trial table and objective-history plot from the saved tuning summary.</p>
 <p>Optuna studies created before trial identities were recorded can still be inspected in the dashboard. Their winning checkpoints cannot be promoted automatically without an explicit trial-to-checkpoint mapping.</p>
-<pre><code>python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; sweep=true
+<pre><code>python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt;
 
 # Watch the sweep in the Optuna dashboard
-python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; sweep=true dash=true
+python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash=true
 
 # Only open the dashboard for an earlier sweep
 python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</code></pre>

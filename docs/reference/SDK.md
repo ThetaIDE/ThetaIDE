@@ -1,6 +1,6 @@
 # Theta SDK (version 2.3)
 
-Packages import host functionality only from `src.app.api`. That covers components, app plugins and authored user packages. Everything else under `src.app` or `frontend` is private host implementation and may change without notice. The SDK became the supported surface in phase 3 of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md). At consolidation it moves to `src.ide.api`, with forwarding modules.
+Packages import host functionality only from `src.app.api`. That covers components, app plugins and authored user packages. Everything else under `src.app` or `frontend` is private host implementation and may change without notice. The SDK became the supported surface in phase 3 of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md).
 
 Every export is the canonical host object, so identity checks and pickles behave as before. Exports load on first attribute access: importing a headless SDK module never imports Qt, Optuna or SQLAlchemy. Lookups are not cached, so a host object patched on its defining module is what the next lookup returns.
 

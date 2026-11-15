@@ -91,10 +91,9 @@ class TestKeyPartition(unittest.TestCase):
             self.assertNotIn(key, FIXED_BOX_KEYS)
 
     def test_keys_the_panel_overhaul_owns_are_claimed(self):
-        """The sweep box edits hydra.sweeper, the dataset row edits dataset_path
-        and the Checkpoint Settings box edits checkpoint, so this pass must leave
-        them alone or the same setting appears twice."""
-        for key in ("hydra", "dataset_path", "offline_datasets", "experiment_id", "checkpoint"):
+        """The dataset row edits dataset_path and the Checkpoint Settings box edits
+        checkpoint, so this pass must leave them alone or the same setting appears twice."""
+        for key in ("hydra", "dataset_path", "experiment_id", "checkpoint"):
             self.assertIn(key, FIXED_BOX_KEYS)
 
 

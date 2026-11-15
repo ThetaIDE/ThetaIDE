@@ -22,7 +22,6 @@ from src.app.core.base_agent import OfflineAgentBase, OnlineAgentBase
 from src.app.pipeline.commands import build_method_overrides
 from src.app.pipeline.config import parse_methods_dict, normalize_agent_name
 from src.app.pipeline.engine import resolve_engine
-from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.validation import validate_experiment_config
 from src.app.core.lightning_builder import build_trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -476,52 +475,3 @@ class TestUniversalParamsInheritance:
         assert "++epochs=150" in m2_overrides  # Overridden!
         assert "++gamma=0.99" in m2_overrides   # Preserved!
         assert "++agent.clip_range=0.18" in m2_overrides
-
-
-# ==============================================================================
-# 7. Pipeline Orchestration & Deprecation Policies
-# ==============================================================================
-
-class TestPipelineOrchestrationPolicies:
-    """Verify paradigm routing, deprecation warnings for task:, and rejection of legacy keys."""
-
-    def test_legacy_methods_keys_raise_configuration_error(self):
-        """Using deprecated online_methods / offline_methods must raise ConfigurationError."""
-        cfg_legacy = OmegaConf.create({
-            "experiment_name": "test/legacy_exp",
-            "paradigm": "online_rl",
-            "online_methods": "ppo/cp_tuned,blendrl/cp_tuned",
-            "methods": {},
-        })
-        with pytest.raises(ConfigurationError) as exc_info:
-            # Emulate run_pipeline validation check
-            for legacy_key in ("online_methods", "offline_methods", "offline_datasets"):
-                if cfg_legacy.get(legacy_key, None):
-                    raise ConfigurationError(
-                        f"[ConfigurationError] Legacy key '{legacy_key}' found in config. "
-                        f"Use the 'methods:' dict instead."
-                    )
-        assert "Legacy key 'online_methods' found" in str(exc_info.value)
-
-    def test_stale_task_key_deprecation_warning(self, capsys):
-        """Stale task: key emits deprecation warning without crashing execution."""
-        cfg = OmegaConf.create({
-            "experiment_name": "test/stale_task_exp",
-            "paradigm": "online_rl",
-            "task": "online_training",  # Stale key
-            "methods": {
-                "ppo_run": {"agent": "ppo", "model": "mlp"}
-            },
-        })
-
-        stale_task = cfg.get("task", None)
-        if stale_task:
-            print(
-                f"[Deprecation Warning] 'task: {stale_task}' is no longer used. "
-                f"Routing is now handled by 'paradigm:' and 'workflow:'. "
-                f"Remove 'task:' from your experiment config."
-            )
-
-        captured = capsys.readouterr()
-        assert "[Deprecation Warning]" in captured.out
-        assert "'task: online_training' is no longer used" in captured.out

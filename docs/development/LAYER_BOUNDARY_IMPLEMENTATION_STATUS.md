@@ -10,9 +10,9 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 1 — Workspace and config ownership (B) | Done | — |
 | 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
-| 4 — Retire `in/` and every adapter (F) | 4a–4h done except the held config keys; Hub releases prepared, not published | One user decision (below) |
+| 4 — Retire `in/` and every adapter (F) | 4a–4h done except the TensorBoard flag; Hub releases prepared, not published | TensorBoard flag (below) |
 | 5 — Results in `src/usr/results`, remote bundles (G) | Not started; tuner continuation artifacts and site dependencies landed in phase 2 | Plan document first; see the plan's phase 5 |
-| 6 — `src/ide` consolidation (H) | Not started | See the plan's phase 6 |
+| 6 — Installed distribution (H) | Not started; core stays at `src/app` (no move) | See the plan's phase 6 |
 | 7 — Enforcement (I) | Not started | See the plan's phase 7 |
 
 Gates: the real cluster smoke run is not a gate and is not run (user decision, 2026-11-15). The desktop is accepted as working; the interactive items below are still unchecked.
@@ -45,15 +45,20 @@ The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials: 6
 
 Outside tuning, the checkpoint monitor still comes from paradigm or environment `monitor_metric` and `checkpoint.monitor` (`src/app/core/lightning_builder.py:376`–`:416`, `:690`). The bundled documentation (`src/plugins/app/bundled/documentation/content.py:666`, `:1073`) wrongly says `monitor_metric` is also the tuning target.
 
-### Held for the user: top-level config keys with no generic validator
+### Removed old top-level keys
 
-Recipes merge freely into the root config and nothing rejects unknown top-level keys, so removing these readers would make old keys silently do nothing:
+The `online_methods`/`offline_methods`/`offline_datasets` rejection and the `task:` warning in `run_pipeline.py` are deleted, with the tests that copied them. The root `sweep` key is gone from both base configs, the form's key lists and the docs; tuning is the `tuning` block alone.
 
-- `run_pipeline.py:207` rejects `online_methods`, `offline_methods`, `offline_datasets`; `:237` warns about `task:`.
-- `src/app/core/run_logger_plugins.py:46` turns the root or agent `tensorboard` flag into the TensorBoard backend; the form shows it as an experiment checkbox.
-- The root `sweep` flag (`src/app/pipeline/tuning_config.py:11`, `tuning_features.py:39`).
+### Left in 4h: the TensorBoard flag
 
-Choice: add a generic schema for top-level keys and then delete all of these, or keep them.
+TensorBoard is a bundled app plugin (`src/plugins/app/bundled/tensorboard`) plus the `tensorboard` run-logger backend, enabled by `logging.backends.tensorboard.enabled`. A root `tensorboard: true` flag still exists as a second switch:
+
+- core translation: `src/app/core/run_logger_plugins.py:31`–`:52` (`_configured_backends`, also reads `agent.tensorboard`);
+- the experiment form's "Log to TensorBoard" checkbox writes the root key: `frontend/config_panel/sections/experiment.py:363`, `:428`; `frontend/config_panel/domain.py:215`, `:501`, `:521`, `:595`, `:1649`; `frontend/config_panel/catalogs.py:207`; `frontend/config_viewer.py:178`, `:2528`;
+- `frontend/model.py` `Config.tensorboard` (`:37`, `:48`, `:63`, `:280`) and `frontend/app.py:1837`, `:2005`;
+- `tests/fixtures/workspace_config/experiment/thetaide/_base.yaml:12`.
+
+Delete the translation and the root key; the checkbox (shown only when the plugin is enabled) edits `logging.backends.tensorboard.enabled` through the shared form controls (`docs/reference/CONFIG_PARAMETER_FORMS.md`).
 
 ### Also left
 

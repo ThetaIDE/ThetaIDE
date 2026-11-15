@@ -204,13 +204,6 @@ def main():
             f"Declare methods as a dict with agent + model per entry."
         )
 
-    # Reject legacy keys
-    for legacy_key in ("online_methods", "offline_methods", "offline_datasets"):
-        if cfg.get(legacy_key, None):
-            raise ConfigurationError(
-                f"[ConfigurationError] Legacy key '{legacy_key}' found in config. Use the 'methods:' dict instead."
-            )
-
     print("Declared Methods:")
     for name, mcfg in methods_dict.items():
         agent_str = f"agent={mcfg.get('agent')}, " if mcfg.get("agent") else ""
@@ -233,15 +226,6 @@ def main():
     from src.app.pipeline.variability import make_plan, run_execution
 
     variability_plan = make_plan(cfg, context)
-
-    # Warn if stale task: key is present in config
-    stale_task = cfg.get("task", None)
-    if stale_task:
-        print(
-            f"[Deprecation Warning] 'task: {stale_task}' is no longer used. "
-            f"Routing is now handled by 'paradigm:' and 'workflow:'. "
-            f"Remove 'task:' from your experiment config."
-        )
 
     # Dispatch: workflow engine or direct paradigm runner
     workflow_id = cfg.get("workflow", None)

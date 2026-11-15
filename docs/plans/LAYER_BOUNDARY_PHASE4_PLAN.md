@@ -17,7 +17,7 @@ The user is the only user. Old patterns are not supported, partially migrated st
 5. **The migration method is free, but nothing may be left behind.** Every file under `in/`, including ignored files and the external `mimic` symlink, is accounted for: moved, proven redundant, or confirmed junk. Every state record that names an old path is rewritten. Migration code does not ship in the product.
 6. **Every compatibility adapter is retired, including the checkpoint aliases.** Checkpoints that pickled moved class paths will no longer load. Accepted.
 7. **Historical results are left untouched,** with no replay guard. Replaying an old result fails wherever its old paths break.
-8. **The same stance applies to later phases.** Phase 6 moves `src/app` to `src/ide` without forwarding modules (except the `src.app.api` SDK package, decided later the same day), and phase 5 changes the bundle format without readers for old jobs.
+8. **The same stance applies to later phases.** Phase 6 (no longer a move; see the main plan) was to move `src/app` to `src/ide` without forwarding modules (except the `src.app.api` SDK package, decided later the same day), and phase 5 changes the bundle format without readers for old jobs.
 
 ## Starting point
 

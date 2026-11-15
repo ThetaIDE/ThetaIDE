@@ -140,8 +140,6 @@ def runtime(host, data, resolved, tree, paradigm, show_resolved):
         "hydra",
         "plots",
         "tuning",
-        "sweeper",
-        "sweep",
     }
     booleans = []
     for key, value in data.items():

@@ -31,7 +31,6 @@ no_plot: true
 dry_run: false
 dash: false
 dash_only: false
-sweep: false
 remake: false
 use_cache: false
 

@@ -4,7 +4,7 @@ This is the active ownership contract for the [implementation plan](../plans/LAY
 
 | Layer | Responsibility | Dependencies |
 | --- | --- | --- |
-| Core (currently `src/app` and `frontend`, eventually `src/ide`) | Configuration, discovery, orchestration, desktop, transport, shared contracts | Core and declared third-party libraries; selected extensions through public contracts |
+| Core (`src/app` and `frontend`) | Configuration, discovery, orchestration, desktop, transport, shared contracts | Core and declared third-party libraries; selected extensions through public contracts |
 | Packages (`src/plugins`) | Implementations, immutable defaults, assets, declared dependencies | Public core APIs, package-relative code, declared public package exports |
 | User (`src/usr`) | Authored packages, editable config overrides, dataset bytes | Public core APIs and explicitly selected compatible providers |
 
@@ -20,7 +20,7 @@ Workspace context is passed explicitly through reusable services. Entry points (
 
 ## Public integration surface and exceptions
 
-Packages import host code only from the versioned [Theta SDK](SDK.md) (`src.app.api`, SDK 2.3); its exports are the canonical objects behind the contracts below. The existing public contracts are [API](API.md), [execution v1](EXECUTION_CONTRACT.md), [data loaders](DATA_LOADER_CONTRACT.md), [monitors](MONITOR_CONTRACT.md), provider capabilities, [extension contributions/readiness v1](EXTENSION_CONTRIBUTIONS.md), [schedulers v1](SCHEDULER_CONTRACT.md), the local tuner protocol, [portable tuner execution v1](TUNER_EXECUTION_CONTRACT.md) and declared package exports (`provider_export`, see [plugin storage](PLUGIN_STORAGE.md#cross-package-exports)). New APIs must be general and tested with independent providers; this list does not make arbitrary `src.app` or `frontend` modules public. `tests/test_sdk_boundary.py` enforces this for the optional components, bundled component packages and bundled app plugins. At consolidation `src.app.api` becomes `src.ide.api`; `src.app.api` stays as a forwarding package, the only forwarding module allowed.
+Packages import host code only from the versioned [Theta SDK](SDK.md) (`src.app.api`, SDK 2.3); its exports are the canonical objects behind the contracts below. The existing public contracts are [API](API.md), [execution v1](EXECUTION_CONTRACT.md), [data loaders](DATA_LOADER_CONTRACT.md), [monitors](MONITOR_CONTRACT.md), provider capabilities, [extension contributions/readiness v1](EXTENSION_CONTRIBUTIONS.md), [schedulers v1](SCHEDULER_CONTRACT.md), the local tuner protocol, [portable tuner execution v1](TUNER_EXECUTION_CONTRACT.md) and declared package exports (`provider_export`, see [plugin storage](PLUGIN_STORAGE.md#cross-package-exports)). New APIs must be general and tested with independent providers; this list does not make arbitrary `src.app` or `frontend` modules public. `tests/test_sdk_boundary.py` enforces this for the optional components, bundled component packages and bundled app plugins.
 
 | Exception | Reason | Support/retirement policy |
 | --- | --- | --- |

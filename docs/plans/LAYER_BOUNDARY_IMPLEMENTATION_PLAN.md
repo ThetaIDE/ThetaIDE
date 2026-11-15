@@ -1,6 +1,6 @@
 # IDE, plugin, and user layer implementation plan
 
-Status: in implementation on `implement/layer-boundaries`. Phases 0–4 are implemented; from the phase 4 close-out (unit 4h) one set of config keys waits for a user decision, and phase 5 is next. The [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) tracks progress and the [handoff prompt](../development/LAYER_BOUNDARY_HANDOFF.md) lists the work in order. Plan written 2026-11-13 from the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md); rewritten 2026-11-15 so every phase matches the confirmed decisions below. The [storage contract](../reference/PLUGIN_STORAGE.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) describe supported behavior as it lands.
+Status: in implementation on `implement/layer-boundaries`. Phases 0–4 are implemented except the TensorBoard flag cleanup; phase 5 is next. The [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) tracks progress and the [handoff prompt](../development/LAYER_BOUNDARY_HANDOFF.md) lists the work in order. Plan written 2026-11-13 from the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md); rewritten 2026-11-15 so every phase matches the confirmed decisions below. The [storage contract](../reference/PLUGIN_STORAGE.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) describe supported behavior as it lands.
 
 ## Confirmed decisions
 
@@ -22,7 +22,7 @@ The user is the only user. These decisions win over anything else in this plan o
 - Package format v3 only, on the IDE and on the Hub. Config destinations are logical selectors.
 - The user's own files are moved completely when a layout changes (backup, hash check, dry run shown to the user first); migration code does not ship.
 - Every compatibility adapter is retired, including the import aliases that let old checkpoints load. Old checkpoints, receipts, snapshots, jobs and saved Hydra targets stop working. Historical results are not rewritten and have no replay support.
-- **One exception** (2026-11-14): at phase 6, `src.app.api` stays as a forwarding package to `src.ide.api`, so the published v3 packages keep working without another republish. No other forwarding module exists.
+- **No forwarding modules.** The 2026-11-14 exception for an `src.app.api` → `src.ide.api` forwarder lapsed when the `src/ide` move was dropped (below).
 
 ### Scope and gates (2026-11-15)
 
@@ -33,6 +33,7 @@ The user is the only user. These decisions win over anything else in this plan o
 - **The tabular generator** (`prepare_tabular.py`) stays where it is; the user will revisit it.
 - **Third-party and held-back packages leave the v3 feed.** At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages (`mimic`, `mimic-early-prediction`, `reward-shaping`, `mimic-env`, `mimic-clinical-suite`) are not in the feed. The work is ThetaIDE, not other authors' plugins.
 - **No cluster testing.** The real cluster smoke run is not a gate and is not to be run. Local fixtures cover remote behavior.
+- **Core stays at `src/app` and `frontend`** (2026-11-15). There is no move into `src/ide`; phase 6 is only installed entry points and distribution verification.
 - **The desktop check is accepted as working** (the user opens the app and launches experiments). The remaining interactive items are listed in the status doc; the installed-wheel desktop launch belongs to the phase 6 gate.
 
 ## End state
@@ -66,7 +67,7 @@ The user is the only user. These decisions win over anything else in this plan o
 
 The application and workspace may share a root during development. Core must still distinguish them logically. Caches, credentials, virtual environments, repository tooling and test fixtures stay outside the source roots.
 
-An authored package's `configs/` holds its owned defaults. `src/usr/config` holds editable recipes and overrides. Never maintain two writable authorities for the same user edit. Use `src/ide`, not `src/src`. Keep package IDs, capability selectors and Hydra group names stable; Python module paths change at phase 6.
+An authored package's `configs/` holds its owned defaults. `src/usr/config` holds editable recipes and overrides. Never maintain two writable authorities for the same user edit. Keep package IDs, capability selectors, Hydra group names and Python module paths stable.
 
 ## Phase 0 — Contract and baseline (done)
 
@@ -88,7 +89,7 @@ Unit 4h removed the historical readers it added (top-level `episode_outcomes`, u
 
 The versioned `src.app.api` facade (now SDK 2.3) and `PluginContext` services. Bundled panels, both optional components and an independent fixture plugin use only the SDK. SDK requirements are checked before activation.
 
-## Phase 4 — Retire `in/` and every adapter (implemented; 4h done except the held config keys)
+## Phase 4 — Retire `in/` and every adapter (implemented; 4h done except the TensorBoard flag)
 
 Units 4a–4g are described in the [phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md): package format v3, the `src/usr` cutover, adapter retirement, documentation, hermetic tests, the move of the user's workspace and the prepared v3 Hub releases.
 
@@ -120,21 +121,20 @@ Start with a short phase 5 plan document (bundle manifest fields, application/wo
 
 Exit gate (local): an external workspace prepares and runs a reproducible bundle through the local and fixture schedulers with the installed IDE, selected providers and declared data mappings; continuation verifies provenance; nothing writes results outside `src/usr/results`. No cluster run.
 
-## Phase 6 — Consolidate core into `src/ide`
+## Phase 6 — Installed distribution
 
-1. Move `src/app` and the desktop host `frontend` into `src/ide`. Extension contracts live in `src.ide.api`; `src.app.api` is the one forwarding package. Generic plotting infrastructure moves with the host; research plotting stays in packages.
-2. Add installed CLI entry points. Keep the small root launchers and Hydra discovery adapters listed in the exception register. Runtime services resolve resources from the installed application, not a repository root.
-3. Update bundled providers, inventory, package data, docs, tests and tooling in the same change; there are never two core trees. Saved Hydra targets and checkpoints that name old module paths stop working.
-4. Build and inspect the wheel and sdist in a freshly built environment, install them in isolation, and launch the desktop and headless CLI against a clean external workspace with `scripts/verify_installed_distribution.py`.
+Core stays at `src/app` and `frontend` (user decision, 2026-11-15); nothing moves.
 
-Exit gate: substantial core code lives under `src/ide`; fresh-process checkpoint reload and workspace relocation pass for checkpoints written after the move; installed entry points do not need the repository as working directory; the installed desktop opens and launches an experiment.
+1. Add installed CLI entry points. Keep the small root launchers and Hydra discovery adapters listed in the exception register. Runtime services resolve resources from the installed application, not a repository root.
+2. Build and inspect the wheel and sdist in a freshly built environment, install them in isolation, and launch the desktop and headless CLI against a clean external workspace with `scripts/verify_installed_distribution.py`.
+
+Exit gate: installed entry points do not need the repository as working directory; the installed desktop opens and launches an experiment against an external workspace.
 
 ## Phase 7 — Enforcement
 
 - Extend `tests/test_sdk_boundary.py` from the optional components and bundled packages to installed and authored packages and the whole desktop and core tree. Cover `import`, `from` and dynamic imports. Check package imports against the SDK and the package's declared dependencies; a broad `src.ide` prefix is not permission.
 - Keep a finite, reviewed exception list (the register in `LAYER_BOUNDARIES.md`). Every exception is in the register; a compatibility path that is not in the register is a bug.
 - Add behavior tests with differently named fixture providers, since static checks miss backend-name branches, configuration assumptions and undeclared file access.
-- Document the retirement boundary of the `src.app.api` forwarding package.
 - Archive obsolete architecture guidance and keep the docs index current.
 
 Exit gate: a compatible extension can be added without editing core policy, downloaded packages do not depend on particular `src/usr` files, user edits affect only the intended selection, and CI enforces this through imports and behavior.
@@ -148,9 +148,9 @@ Exit gate: a compatible extension can be added without editing core policy, down
 | C | Runner features and resource hints | Done |
 | D | Standalone Slurm and tuning components, contribution and readiness contracts | Done |
 | E | App SDK and bundled-panel migration | Done |
-| F | Package format v3, `in/` retirement, adapter retirement (phase 4 including 4h) | Done except the held config keys |
+| F | Package format v3, `in/` retirement, adapter retirement (phase 4 including 4h) | Done except the TensorBoard flag |
 | G | Results in `src/usr/results` and explicit remote bundles (phase 5) | Next after F |
-| H | `src/ide` consolidation and installed-distribution validation (phase 6) | After G |
+| H | Installed entry points and distribution validation (phase 6) | After G |
 | I | Boundary enforcement (phase 7) | After H |
 
 Each unit is reviewable on its own and lands with its guardrails. No Hub publication, push to `main` or destructive workspace move is authorized by this plan; each needs the user's go-ahead.

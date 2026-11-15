@@ -520,8 +520,6 @@ def _has_experiment_lower_params(self, data: dict, resolved: dict) -> bool:
         "plots",
         "tensorboard",
         "tuning",
-        "sweeper",
-        "sweep",
     }
     return any(key not in standard_keys and isinstance(value, (int, float, str, bool)) for key, value in data.items())
 
@@ -1137,7 +1135,6 @@ def remove_block(self, block_name: str):
             self.raw_data.pop("env", None)
     elif block_name == "dataset":
         self.raw_data.pop("dataset_path", None)
-        self.raw_data.pop("offline_datasets", None)
         self.raw_data.pop("data_module", None)
     elif block_name == "params":
         self._show_empty_shared_params = False

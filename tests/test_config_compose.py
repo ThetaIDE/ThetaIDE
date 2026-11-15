@@ -55,10 +55,10 @@ def test_builder_command_is_a_valid_pipeline_invocation():
     validate_composed(gui_compose(config))
 
 
-def test_absent_tuning_does_not_compile_as_a_sweep_despite_legacy_flags():
+def test_absent_tuning_does_not_compile_as_a_sweep():
     composed = compose_experiment(
         BASE_EXPERIMENT,
-        ["++tuning=null", "sweep=true", "--multirun", "hydra/sweeper=theta_optuna"],
+        ["++tuning=null", "--multirun", "hydra/sweeper=theta_optuna"],
     )
     assert not composed.is_sweep
     assert "--multirun" not in composed.launch_args
@@ -70,13 +70,12 @@ def test_composed_tuning_inherits_group_defaults_and_null_masks_them(fixture_wor
     group.mkdir()
     (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: optuna}\n")
     (group / "inherited.yaml").write_text(
-        "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\nsweep: false\n")
+        "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\n")
     composed = compose_experiment("implicit_tuning/inherited")
     assert composed.is_sweep
     assert composed.cfg.tuning.component == "optuna"
-    assert not composed.cfg.sweep
     (group / "ordinary.yaml").write_text(
-        "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\ntuning: null\nsweep: true\n")
+        "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\ntuning: null\n")
     composed = compose_experiment("implicit_tuning/ordinary")
     assert not composed.is_sweep
     assert composed.cfg.tuning is None
