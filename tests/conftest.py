@@ -1,3 +1,4 @@
+import functools
 import os
 import shutil
 import sys
@@ -32,17 +33,55 @@ for p in [
 
 
 
-def copy_research_config(target):
-    """Copy every non-bundled profile this checkout's workspace resolves into ``target``.
+@functools.cache
+def checkout_workspace():
+    """A workspace holding exactly this checkout's tracked ``src/usr`` files.
 
-    Bundled profiles still come from the application. User files and installed
-    or authored package profiles become editable files of an isolated workspace,
-    so tests never touch the user's workspace.
+    Fresh and populated checkouts look the same here: packages the developer installed,
+    ignored recipes, rules and datasets, and ``.thetaide`` state are absent. Built once per
+    test session; tests that change workspace content use their own ``tmp_path`` workspace.
+    """
+    import atexit
+    import subprocess
+    import tempfile
+    root = Path(tempfile.mkdtemp(prefix="theta-checkout-workspace-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    listed = subprocess.run(["git", "ls-files", "-z", "--", "src/usr"], cwd=PROJECT_ROOT,
+                            capture_output=True, check=True).stdout.split(b"\0")
+    for name in filter(None, (item.decode() for item in listed)):
+        source = PROJECT_ROOT / name
+        if source.is_file() and not source.is_symlink():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, root / name)
+    return root
+
+
+@pytest.fixture(autouse=True)
+def tracked_workspace(monkeypatch):
+    """Select the checkout workspace as every test's process workspace.
+
+    ``WorkspacePaths.for_process()``, ``get_catalog()``, Hydra composition and worker
+    subprocesses then never resolve the developer's own ``src/usr``, installed packages or
+    ``.thetaide`` state. Tests that need other packages build their own workspace and select
+    it with ``THETA_WORKSPACE``.
+    """
+    root = checkout_workspace()
+    monkeypatch.setenv("THETA_WORKSPACE", str(root))
+    monkeypatch.delenv("THETA_DATA_DIR", raising=False)
+    return root
+
+
+def copy_research_config(target):
+    """Copy every non-bundled profile the checkout workspace resolves into ``target``.
+
+    Bundled profiles still come from the application. Tracked user files and authored
+    package profiles become editable files of an isolated workspace; the developer's
+    installed packages and ignored recipes are never read.
     """
     from src.app.core.provider_catalog import DuplicateProvider
     from src.app.workspace import WorkspacePaths
     target = Path(target)
-    resolver = WorkspacePaths(PROJECT_ROOT).config_resolver()
+    resolver = WorkspacePaths(checkout_workspace()).config_resolver()
     for selector in resolver.selectors():
         try:
             resolved = resolver.resolve(selector)
