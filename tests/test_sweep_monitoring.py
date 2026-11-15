@@ -17,7 +17,7 @@ def test_sweep_queue_groups_active_trials_and_tracks_resume(tmp_path):
 
     root = tmp_path / "results/checkpoints/g/e/m"
     root.mkdir(parents=True)
-    summary = {"component": "optuna", "study": "s", "stop_reason": "running", "requested_trials": 4,
+    summary = {"schema_version": 1, "component": "optuna", "study": "s", "stop_reason": "running", "requested_trials": 4,
                "initial_trials": 1, "trials": [
                    {"id": 0, "state": "complete", "log_version": "version_old"},
                    {"id": 1, "state": "complete", "log_version": "version_one"},

@@ -8,7 +8,6 @@ def local_study_summaries(project_root, group, experiment_id, *, started=None):
     """Read normalized provider exports; never open live tuner state.
 
     ``started`` excludes files left by an earlier launch of the same recipe.
-    Historical exports without a schema marker remain readable.
     """
     root = Path(project_root) / 'results/checkpoints' / str(group) / str(experiment_id)
     found = {}
@@ -27,11 +26,11 @@ def local_study_summaries(project_root, group, experiment_id, *, started=None):
 
 
 def valid_study_summary(data):
-    if not isinstance(data, dict) or type(data.get('schema_version', 1)) is not int or data.get('schema_version', 1) != 1:
+    if not isinstance(data, dict) or type(data.get('schema_version')) is not int or data['schema_version'] != 1:
         return False
     if not isinstance(data.get('study'), str) or not data['study'] or not isinstance(data.get('trials'), list):
         return False
-    if data.get('component') is not None and (not isinstance(data['component'], str) or not data['component']):
+    if not isinstance(data.get('component'), str) or not data['component']:
         return False
     if 'direction' in data and data['direction'] not in ('minimize', 'maximize'):
         return False

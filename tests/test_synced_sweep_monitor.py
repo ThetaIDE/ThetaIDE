@@ -125,7 +125,7 @@ def test_newer_synced_trial_keeps_sweep_navigation_and_compact_title(tmp_path, s
         backend = run['backend']
         summary = (tmp_path / 'results/checkpoints' / backend['group'] /
                    backend['experiment_id'] / 'm/tuning_summary.json')
-        write_json(summary, {'study': 's', 'stop_reason': 'running', 'trials': [
+        write_json(summary, {'schema_version': 1, 'component': 'optuna', 'study': 's', 'stop_reason': 'running', 'trials': [
             {'id': 0, 'state': 'complete', 'value': 12, 'parameters': {'rate': 0.1}}]})
     before = hashlib.sha256(database.read_bytes()).hexdigest()
     host = SimpleNamespace(selected=run, runs=[run],
@@ -172,7 +172,7 @@ def test_live_tuning_summary_is_published_as_metrics_without_weights(tmp_path):
     record = {'execution_id': 'a' * 32, 'project_id': 'p', 'group': 'g', 'result_experiment_id': 'e', 'tuner_execution': None}
     (runtime / 'results/sites' / record['execution_id']).mkdir(parents=True)
     summary = runtime / 'results/checkpoints/g/e/m/tuning_summary.json'
-    write_json(summary, {'study': 's', 'trials': []})
+    write_json(summary, {'schema_version': 1, 'component': 'optuna', 'study': 's', 'trials': []})
     (summary.parent / 'model.zip').write_bytes(b'uncommitted weights')
     publisher = Publisher(runtime, work, record, DEFAULTS)
     publisher.tick()

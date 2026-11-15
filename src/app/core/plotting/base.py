@@ -375,8 +375,7 @@ class BasePlotter:
     def get_active_aliases(exp_cfg: dict) -> tuple[set[str], bool]:
         """Extracts active method aliases from experiment config.
 
-        Checks structured `methods` dictionary, as well as legacy `online_methods`
-        and `offline_methods`. Returns (active_aliases, has_active_filter).
+        Reads the structured `methods` dictionary. Returns (active_aliases, has_active_filter).
         """
         active_aliases = set()
         has_active_filter = False
@@ -385,16 +384,6 @@ class BasePlotter:
             has_active_filter = True
             for m in methods_dict.keys():
                 active_aliases.update(get_method_aliases(m))
-        for key in ["online_methods", "offline_methods"]:
-            val = exp_cfg.get(key, [])
-            if val:
-                has_active_filter = True
-                if isinstance(val, (list, tuple)):
-                    methods = list(val)
-                else:
-                    methods = [item.strip() for item in str(val).split(",") if item.strip()]
-                for m in methods:
-                    active_aliases.update(get_method_aliases(m))
         return active_aliases, has_active_filter
 
     @staticmethod

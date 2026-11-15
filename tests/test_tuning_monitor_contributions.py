@@ -29,7 +29,7 @@ def fixture(tmp_path):
            'backend': {'group': 'g', 'experiment_id': 'e'}}
     summary = tmp_path / 'results/checkpoints/g/e/m/tuning_summary.json'
     summary.parent.mkdir(parents=True)
-    summary.write_text(json.dumps({'component': 'lattice', 'study': 'search', 'stop_reason': 'running',
+    summary.write_text(json.dumps({'schema_version': 1, 'component': 'lattice', 'study': 'search', 'stop_reason': 'running',
         'trials': [{'id': 0, 'state': 'running', 'execution_started': 1}]}))
     host = SimpleNamespace(workspace_paths=paths, selected=run, runs=[run],
         jobs=SimpleNamespace(project_root=tmp_path, queue_changed=Mock()), live_for_run=lambda *a, **k: {})

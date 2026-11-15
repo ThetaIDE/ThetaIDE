@@ -61,13 +61,7 @@ def test_get_active_aliases_and_is_method_active():
     assert BasePlotter.is_method_active("ppo_12", aliases, has_filter)
     assert not BasePlotter.is_method_active("iql", aliases, has_filter)
 
-    # 2. Legacy online_methods
-    aliases_legacy, has_filter_legacy = BasePlotter.get_active_aliases({"online_methods": "ppo, blendrl"})
-    assert has_filter_legacy is True
-    assert "ppo" in aliases_legacy
-    assert "blendrl" in aliases_legacy
-
-    # 3. No filter
+    # 2. No filter
     aliases_none, has_filter_none = BasePlotter.get_active_aliases({})
     assert has_filter_none is False
     assert BasePlotter.is_method_active("any_method", aliases_none, has_filter_none)

@@ -162,13 +162,6 @@ class ReportsPlotter(BasePlotter):
 
         print(f"=== Generating Markdown Reports for '{exp_id}' ===")
 
-        # Clean up legacy markdown comparison report if present
-        old_report = output_dir / "methods_comparison_report.md"
-        if old_report.exists():
-            try:
-                old_report.unlink()
-            except Exception:
-                pass
 
         if cfg.get("include_hyperparameters", True):
             hp_path = output_dir / "hyperparameters_report.md"
@@ -239,13 +232,6 @@ class ReportsPlotter(BasePlotter):
 
         if cfg.get("include_time_report", True):
             time_csv_path = output_dir / "time_report.csv"
-            # Remove legacy markdown time report if present
-            old_time_md = output_dir / "time_report.md"
-            if old_time_md.exists():
-                try:
-                    old_time_md.unlink()
-                except Exception:
-                    pass
 
             timing_rows = []
 

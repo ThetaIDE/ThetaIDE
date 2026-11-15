@@ -58,18 +58,14 @@ def iter_run_dirs(root: Path):
 
 
 SAVED_RUN_NAME = re.compile(r"(?:\d{8}-\d{6}(?:(?:-\d+)|(?:_[0-9a-f]{8}))?|[0-9a-f]{32})$")
-RUN_SUFFIX = re.compile(r"(?:_\d{8}-\d{6}(?:(?:-\d+)|(?:_[0-9a-f]{8}))?|__[0-9a-f]{32})$")
 
 
 def result_experiment_id(run_id: str) -> str:
-    """Group both legacy sibling runs and nested runs under their recipe identity."""
+    """The recipe identity of a run: a saved run's enclosing experiment folder."""
     path = PurePosixPath(run_id)
     if SAVED_RUN_NAME.fullmatch(path.name) and path.parent != PurePosixPath("."):
         return path.parent.as_posix()
-    name = RUN_SUFFIX.sub("", path.name)
-    if name != path.name and path.parent.name == name:
-        return path.parent.as_posix()
-    return path.with_name(name).as_posix()
+    return path.as_posix()
 
 
 def saved_run_id(experiment_id: str, suffix: str) -> str:
@@ -79,7 +75,7 @@ def saved_run_id(experiment_id: str, suffix: str) -> str:
 
 
 def nested_run_names(log_dir: Path) -> set[str]:
-    """Saved runs directly below a legacy run root, excluding its agents."""
+    """Saved runs directly below a run written to the experiment folder itself, excluding its agents."""
     if not log_dir.is_dir():
         return set()
     return {child.name for child in log_dir.iterdir() if child.is_dir() and not child.is_symlink()

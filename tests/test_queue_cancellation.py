@@ -171,7 +171,7 @@ def test_sweep_card_labels_preserve_queue_identity_and_cancel_scope(tmp_path):
         root = tmp_path / 'results/checkpoints/g/experiment' / method
         root.mkdir(parents=True)
         (root / 'tuning_summary.json').write_text(json.dumps({
-            'component': 'optuna', 'study': 'experiment-search', 'stop_reason': 'running',
+            'schema_version': 1, 'component': 'optuna', 'study': 'experiment-search', 'stop_reason': 'running',
             'trials': [{'id': 1, 'state': 'running', 'log_version': f'{method}-v1'}],
         }))
     manager = JobManager(store_path=tmp_path / 'jobs.db', project_root=tmp_path)

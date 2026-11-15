@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QMenu, QTreeWidget, QT
 from ..tree_tools import (DraggableToolButton, GroupItemDelegate, TreeHeaderActions, TreeHeaderWidget,
                           TreeToolbarPersistence, folder_icon, refresh_tool_icons, style_tool_button)
 from .data import Manifest, Source
-from src.app.pipeline.result_paths import RUN_SUFFIX, SAVED_RUN_NAME, result_experiment_id
+from src.app.pipeline.result_paths import SAVED_RUN_NAME, result_experiment_id
 
 _KIND, _DATA, _TIME = Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 1, Qt.ItemDataRole.UserRole + 2
 _CHECKABLE = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -140,10 +140,8 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 experiments[key] = exp_item
             run_item = self._item(experiments[key], PurePosixPath(exp).name, "run", f"{group}/{exp}", _PARENT)
             times = [a.get("started") for a in entry.get("agents") or [] if isinstance(a.get("started"), str)]
-            suffix = RUN_SUFFIX.search(exp)
             stamp = SAVED_RUN_NAME.fullmatch(PurePosixPath(exp).name)
-            fallback_time = (stamp.group()[:15].replace("-", "T") if stamp else
-                             suffix.group()[1:16].replace("-", "T") if suffix else "")
+            fallback_time = stamp.group()[:15].replace("-", "T") if stamp and stamp.group()[8:9] == "-" else ""
             run_item.setData(0, _TIME, max(times, default=fallback_time))
             note = f"results/logs/{group}/{exp}"
             if entry.get('incomplete_results'):

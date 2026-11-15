@@ -69,14 +69,15 @@ def test_partial_invalid_and_future_exports_are_skipped(tmp_path, data):
     assert local_study_summaries(tmp_path, 'g', 'e') == []
 
 
-def test_partial_json_and_markerless_legacy_exports(tmp_path):
+@pytest.mark.parametrize('missing', ['schema_version', 'component'])
+def test_partial_json_and_unmarked_exports_are_skipped(tmp_path, missing):
     path = save(tmp_path, summary())
     path.write_text('{')
     assert local_study_summaries(tmp_path, 'g', 'e') == []
     data = summary()
-    data.pop('schema_version')
+    data.pop(missing)
     path.write_text(json.dumps(data))
-    assert study_summaries(tmp_path, {'backend': {'group': 'g', 'experiment_id': 'e'}})[0][1] == data
+    assert local_study_summaries(tmp_path, 'g', 'e') == []
 
 
 def test_unknown_provider_states_remain_visible_without_interpretation(tmp_path):

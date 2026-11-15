@@ -48,4 +48,4 @@ class GridTuner:
 
     def read_artifact_snapshot(self, artifact, path):
         data = json.loads(path.read_text())
-        return [('grid-method', {'study': 'grid', 'trials': data['trials']})]
+        return [('grid-method', {'schema_version': 1, 'component': 'fixture-grid', 'study': 'grid', 'trials': data['trials']})]

@@ -1,4 +1,4 @@
-"""Saved executions stay below experiments and coexist with legacy run roots."""
+"""Saved executions stay below experiments and coexist with runs written to the experiment folder."""
 import json
 import zipfile
 from types import SimpleNamespace
@@ -11,13 +11,14 @@ from src.app.services import catalog
 
 
 @pytest.mark.parametrize('identity', ['run', 'nested/run'])
-def test_saved_ids_group_with_legacy_ids(identity):
+def test_saved_ids_nest_inside_the_experiment(identity):
     for suffix in ('_20261112-120000', '_20261112-120000-2', '_20261112-120000_abcdef12', '__' + 'a' * 32):
         nested = saved_run_id(identity, suffix)
         assert nested == identity + '/' + suffix.lstrip('_')
         assert result_experiment_id(nested) == identity
-        assert result_experiment_id(identity + suffix) == identity
         assert saved_run_id(nested, suffix) == nested
+        # A sibling folder is an experiment of its own, not a save of this one.
+        assert result_experiment_id(identity + suffix) == identity + suffix
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ def mixed_results(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_legacy_and_nested_runs_are_discovered_without_mixing_artifacts(mixed_results):
+def test_direct_and_nested_runs_are_discovered_without_mixing_artifacts(mixed_results):
     assert {p.relative_to(catalog.LOGS_DIR).as_posix() for p in iter_run_dirs(catalog.LOGS_DIR)} == {
         'g/run', 'g/run/20261112-120000'}
     manifest = catalog.run_manifest('g', 'run')
@@ -53,7 +54,7 @@ def test_legacy_and_nested_runs_are_discovered_without_mixing_artifacts(mixed_re
         assert not (mixed_results / 'results' / root / 'g/run/config.yaml').exists()
 
 
-def test_overwriting_legacy_run_preserves_saved_runs(mixed_results):
+def test_overwriting_direct_run_preserves_saved_runs(mixed_results):
     from src.app.pipeline.local_runner import _setup_output_dirs
     _setup_output_dirs(OmegaConf.create({'group': 'g', 'experiment_id': 'run', 'no_plot': False, 'plots': ['losses']}))
     for root in ('logs', 'checkpoints', 'plots'):
@@ -75,19 +76,19 @@ def test_timestamp_queue_ids_always_nest_and_handle_collisions(tmp_path, monkeyp
     assert Window.unique_experiment_id(window, first, is_recover=True) == first
 
 
-def test_results_tree_groups_new_and_old_saves():
+def test_results_tree_groups_nested_saves_and_keeps_siblings_apart():
     pytest.importorskip('PyQt6')
     from PyQt6.QtWidgets import QApplication
     from frontend.results.explorer import RunExplorer
     application = QApplication.instance() or QApplication([])
     explorer = RunExplorer()
-    names = ['nested/run_20261111-120000', 'nested/run/20261112-120000',
-             'nested/run/' + 'a' * 32, 'nested/run/20261112-120000_abcdef12']
-    explorer.set_runs([{'group': 'g', 'experiment_id': name, 'agents': [{'name': 'agent'}]} for name in names])
+    names = ['nested/run/20261112-120000', 'nested/run/' + 'a' * 32, 'nested/run/20261112-120000_abcdef12']
+    sibling = 'nested/run_20261111-120000'
+    explorer.set_runs([{'group': 'g', 'experiment_id': name, 'agents': [{'name': 'agent'}]} for name in names + [sibling]])
     group = explorer.tree.topLevelItem(0)
-    assert group.childCount() == 1
-    assert group.child(0).text(0) == 'run'
-    assert group.child(0).childCount() == len(names)
+    experiments = {group.child(i).text(0): group.child(i) for i in range(group.childCount())}
+    assert set(experiments) == {'run', 'run_20261111-120000'}
+    assert experiments['run'].childCount() == len(names)
     assert explorer.select_run('g', names[1])
     assert {source.experiment_id for source in explorer.checked_sources()} == {names[1]}
     explorer.deleteLater()

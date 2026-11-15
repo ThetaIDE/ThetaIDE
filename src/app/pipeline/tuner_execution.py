@@ -192,8 +192,7 @@ def read_remote_snapshots(root, record, *, paths=None):
             from .tuning_monitor import valid_study_summary
             for method, summary in reader(artifact, path):
                 if valid_study_summary(summary):
-                    # Provider identity comes from the selected execution plan,
-                    # including historical exports that omitted it.
+                    # Provider identity comes from the selected execution plan.
                     found.append((method, {**summary, 'component': plan.component}))
     return found
 
