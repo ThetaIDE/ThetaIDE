@@ -6,14 +6,10 @@ from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.validation import list_paradigms, validate_experiment_config
 
 
-class MockCfg:
-    def __init__(self, **kwargs):
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-        self.env = type("Env", (), {})()
-        
-    def get(self, k, default=None):
-        return getattr(self, k, default)
+def MockCfg(**kwargs):
+    from omegaconf import OmegaConf
+    return OmegaConf.create({"env": {}, **kwargs})
+
 
 @pytest.fixture
 def mock_cfg_online():
@@ -69,8 +65,11 @@ def _declare_test_providers(tmp_path, monkeypatch):
             root=paths.user(kind)/name;root.mkdir(parents=True)
             (root/'provider.py').write_text('class Provider: pass\n')
             paradigms=['online_rl'] if name=='ppo' else ['offline_rl'] if kind=='algorithm' else []
+            capability={'id':name,'kind':kind,'entry_point':'provider.py:Provider','paradigms':paradigms}
+            if kind=='algorithm':
+                capability.update(execution_contract=1, backend='lightning')
             meta={'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
-                  'capabilities':[{'id':name,'kind':kind,'entry_point':'provider.py:Provider','paradigms':paradigms}],
+                  'capabilities':[capability],
                   'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}
             (root/'.theta_component.json').write_text(json.dumps(meta))
     monkeypatch.setenv('THETA_WORKSPACE',str(paths.root))
@@ -79,21 +78,21 @@ def _declare_test_providers(tmp_path, monkeypatch):
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_missing_paradigm(mock_yaml, mock_cfg_online):
-    mock_cfg_online.__dict__.update({"paradigm": None})
+    mock_cfg_online.merge_with({"paradigm": None})
     with pytest.raises(ConfigurationError, match="has no 'paradigm' declared"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_unknown_paradigm(mock_yaml, mock_cfg_online):
-    mock_cfg_online.__dict__.update({"paradigm": "unknown_xyz"})
+    mock_cfg_online.merge_with({"paradigm": "unknown_xyz"})
     with pytest.raises(ConfigurationError, match="Unknown paradigm 'unknown_xyz'"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_eval_episodes_offline_rl(mock_yaml, mock_cfg_offline):
-    mock_cfg_offline.__dict__.update({
+    mock_cfg_offline.merge_with({
         "paradigm": "offline_rl",
         "eval_episodes": 100,
         "online_methods": "",
@@ -107,10 +106,10 @@ def test_eval_episodes_offline_rl(mock_yaml, mock_cfg_offline):
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_missing_methods_online_rl(mock_yaml, mock_cfg_online):
-    mock_cfg_online.__dict__.update({
+    mock_cfg_online["methods"] = {}
+    mock_cfg_online.merge_with({
         "paradigm": "online_rl",
         "eval_episodes": 100,
-        "methods": {},
         "group": "",
         "experiment_id": "",
     })
@@ -121,8 +120,8 @@ def test_missing_methods_online_rl(mock_yaml, mock_cfg_online):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_supervised_paradigm_passes_without_component_plugins(mock_yaml, mock_cfg_supervised, monkeypatch):
     """Paradigm validation can be tested without requiring optional model or dataset plugins."""
-    monkeypatch.setattr("src.app.pipeline.validation.find_missing_components", lambda _cfg: [])
-    monkeypatch.setattr("src.app.pipeline.validation._validate_offline_dataset_paths", lambda _cfg, _notices: None)
+    monkeypatch.setattr("src.app.pipeline.validation.find_missing_components", lambda _cfg, **kwargs: [])
+    monkeypatch.setattr("src.app.pipeline.validation._validate_offline_dataset_paths", lambda _cfg, _notices, **kwargs: None)
     notices = validate_experiment_config(mock_cfg_supervised, "test_exp")
     assert isinstance(notices, list)
 
@@ -136,7 +135,7 @@ def test_successful_validation_online_rl(mock_yaml, mock_cfg_online, _declare_te
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={"eval_episodes": 5})
 def test_explicit_eval_episodes_in_raw_yaml(mock_yaml, mock_cfg_offline):
-    mock_cfg_offline.__dict__.update({
+    mock_cfg_offline.merge_with({
         "paradigm": "offline_rl",
         "online_methods": "",
         "offline_methods": "iql/mimic",
@@ -158,7 +157,7 @@ def test_list_paradigms_includes_base_paradigms():
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_cql_forbidden_in_supervised(mock_yaml, mock_cfg_supervised):
     """Supervised paradigm must reject RL agents like cql."""
-    mock_cfg_supervised.__dict__["methods"] = {
+    mock_cfg_supervised["methods"] = {
         "cql_dnn": {"agent": "cql", "model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="does not use RL agent harnesses"):
@@ -168,7 +167,7 @@ def test_cql_forbidden_in_supervised(mock_yaml, mock_cfg_supervised):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_ppo_forbidden_in_offline_rl(mock_yaml, mock_cfg_offline):
     """Offline RL paradigm must reject online agents like ppo."""
-    mock_cfg_offline.__dict__["methods"] = {
+    mock_cfg_offline["methods"] = {
         "ppo_dnn": {"agent": "ppo", "model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'offline_rl'|forbidden in paradigm 'offline_rl')"):
@@ -178,7 +177,7 @@ def test_ppo_forbidden_in_offline_rl(mock_yaml, mock_cfg_offline):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_disallowed_agent_in_online_rl(mock_yaml, mock_cfg_online):
     """Online RL paradigm must reject agents not in allowed_agents."""
-    mock_cfg_online.__dict__["methods"] = {
+    mock_cfg_online["methods"] = {
         "bad_method": {"agent": "unsupported_algo", "model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'online_rl'|forbidden in paradigm 'online_rl')"):
@@ -188,7 +187,7 @@ def test_disallowed_agent_in_online_rl(mock_yaml, mock_cfg_online):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_cql_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
     """Online RL paradigm must reject offline agents like cql."""
-    mock_cfg_online.__dict__["methods"] = {
+    mock_cfg_online["methods"] = {
         "cql_dnn": {"agent": "cql", "model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'online_rl'|forbidden in paradigm 'online_rl')"):
@@ -198,7 +197,7 @@ def test_cql_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_iql_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
     """Online RL paradigm must reject offline agents like iql."""
-    mock_cfg_online.__dict__["methods"] = {
+    mock_cfg_online["methods"] = {
         "iql_dnn": {"agent": "iql", "model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'online_rl'|forbidden in paradigm 'online_rl')"):
@@ -208,7 +207,7 @@ def test_iql_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_cew_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
     """Online RL paradigm must reject offline agents like cew."""
-    mock_cfg_online.__dict__["methods"] = {
+    mock_cfg_online["methods"] = {
         "cew_dnn": {"agent": "cew", "model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="(forbidden in paradigm 'online_rl'|not allowed in paradigm 'online_rl')"):
@@ -218,7 +217,7 @@ def test_cew_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_method_missing_model_raises(mock_yaml, mock_cfg_offline):
     """Methods missing required 'model' key must raise ConfigurationError."""
-    mock_cfg_offline.__dict__["methods"] = {
+    mock_cfg_offline["methods"] = {
         "broken_method": {"agent": "cql"}
     }
     with pytest.raises(ConfigurationError, match="missing required key 'model'"):
@@ -228,7 +227,7 @@ def test_method_missing_model_raises(mock_yaml, mock_cfg_offline):
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_offline_rl_method_missing_agent_raises(mock_yaml, mock_cfg_offline):
     """Offline RL methods missing required 'agent' key must raise ConfigurationError."""
-    mock_cfg_offline.__dict__["methods"] = {
+    mock_cfg_offline["methods"] = {
         "dnn_only": {"model": "dnn"}
     }
     with pytest.raises(ConfigurationError, match="requires an agent harness"):
@@ -280,7 +279,7 @@ def test_find_missing_components_detects_uninstalled_components():
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_missing_components_raises_configuration_error(mock_yaml, mock_cfg_online):
     """validate_experiment_config must raise ConfigurationError when components are missing."""
-    mock_cfg_online.__dict__["methods"] = {
+    mock_cfg_online["methods"] = {
         "bad_model_method": {"agent": "ppo", "model": "nonexistent_model_123"}
     }
     with pytest.raises(ConfigurationError, match="references missing component"):
