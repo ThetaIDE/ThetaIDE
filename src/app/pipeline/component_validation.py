@@ -1,8 +1,8 @@
 """Optional component parameter validation against their declared JSON Schema.
 
-Legacy parameter schemas describe UI controls and may not model runtime values.
-A schema opts into validation with x-theta-validate: true, at either the package
-or profile schema level. Components without that declaration remain compatible.
+Parameter schemas describe UI controls and may not model runtime values. A
+schema opts into validation with x-theta-validate: true, at either the package
+or profile schema level; without that declaration values are not validated.
 """
 from __future__ import annotations
 

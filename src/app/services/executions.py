@@ -1,4 +1,4 @@
-"""Local execution browser data, kept separate from legacy run catalog APIs."""
+"""Local execution browser data, kept separate from the run catalog."""
 from pathlib import Path
 import json
 

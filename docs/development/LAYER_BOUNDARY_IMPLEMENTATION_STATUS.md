@@ -7,10 +7,10 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | Phase (delivery) | State | What is left |
 | --- | --- | --- |
 | 0 — Contract and baseline (A) | Done | — |
-| 1 — Workspace and config ownership (B) | Done | Workflow presets name research packages (4h) |
-| 2 — Runner features, site/tuner extraction (C, D) | Done | Historical readers it added and dead Slurm entry points (4h) |
+| 1 — Workspace and config ownership (B) | Done | — |
+| 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
-| 4 — Retire `in/` and every adapter (F) | 4a–4g done; Hub releases prepared, not published | Close-out unit 4h (below) |
+| 4 — Retire `in/` and every adapter (F) | 4a–4h done except the held config keys; Hub releases prepared, not published | One user decision (below) |
 | 5 — Results in `src/usr/results`, remote bundles (G) | Not started; tuner continuation artifacts and site dependencies landed in phase 2 | Plan document first; see the plan's phase 5 |
 | 6 — `src/ide` consolidation (H) | Not started | See the plan's phase 6 |
 | 7 — Enforcement (I) | Not started | See the plan's phase 7 |
@@ -25,27 +25,31 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 
 ## Unit 4h — phase 4 close-out
 
-Each item is one or more commits. Old inputs must keep failing through ordinary validation after a targeted check is removed; where nothing would reject them, add a generic check (for example, unknown top-level config keys) rather than keep the named one.
+Done in commits `2898c2d`..`e3c98cd` (see `git log b7c13ac..`). Old inputs fail through ordinary validation, and no code names the old patterns. Covered: dead Slurm entry points, `episode_outcomes` and implicit Lightning features, `in.envs` hot reload, experiment export, generic workflow presets, `from_study` as recorded parameters, results readers (sibling grouping, unmarked summaries, old reports), core accessors, desktop aliases and `.plugins.json`, config forms (string sweep dimensions, short-name aliases, saved order keys), the catalog `LOGS_DIR` adapter and the `services` path constants, sites (shared-workspace executions now complete through their finalized receipt instead of waiting for a seal), Optuna study versions, paradigms that must declare `method.algorithm`, and the composite config-viewer tests (17 now run on the fixture workspace).
 
-1. **Legacy code to remove.** Candidates found by searching tracked source for "legacy", "historical", "compatibility" and "deprecated"; comments that use the word without implementing old behavior are only reworded.
-   - Tuner and config forms: `legacy_flat` fields (`frontend/config_panel/sections/sweep.py`, `frontend/config_panel/domain.py:1312`, `optional_components/optuna/component.py:117`); flat method storage (`frontend/config_panel/bindings.py:57`); non-dict objective specs and inline options (`frontend/config_panel/sections/components.py`); the `sweep` activation flag (`frontend/config_panel/catalogs.py:209`, `src/app/pipeline/tuning_config.py:11`, `tuning_features.py:39`); scalar `env` (`frontend/config_panel/domain.py:127`); bare names and "Sweep (legacy)" rows (`frontend/config_viewer.py:1409`, `:2137`); unconstrained third-party components and short-name aliases (`frontend/config_model.py:195`, `:458`); legacy reorder keys (`frontend/parameter_reorder.py:195`).
-   - Desktop: `.plugins.json` reading and migration and deprecated aliases (`frontend/plugins/manager.py`); the `hotkeys.panes` list (`frontend/hotkeys.py:497`); old theme colour names (`frontend/theme.py:78`); runner-manager legacy queries (`frontend/runner_manager.py:134`, `:247`); attribute aliases and re-exports (`frontend/app.py:439`, `:612`, `frontend/config_tab_manager.py:54`, `frontend/config_tree.py:44`, `:407`, `frontend/terminal/terminal_widget.py:768`, `frontend/config_viewer.py:75`, `frontend/widgets.py:11`, `frontend/component_actions.py:23`, `frontend/monitor/sweep_view.py:16`).
-   - Pipeline and results: legacy method keys (`run_pipeline.py:249`, `src/app/core/plotting/base.py:378`); the `tensorboard` flag (`src/app/core/run_logger_plugins.py`); sibling-run grouping (`src/app/pipeline/result_paths.py:65`, `:82`); unmarked tuning summaries and exports without a component (`src/app/pipeline/tuning_monitor.py:11`, `tuner_execution.py:196`); the historical Hydra direction (`src/app/pipeline/commands.py:289`); the legacy-manifest method contract (`src/app/pipeline/validation.py:125`); old markdown reports (`src/plugins/components/bundled/standard_figures/reports.py:165`, `:242`).
-   - Core: `in.envs.` and decorator modules in hot reload (`src/app/core/hot_reload.py:36`); the callable action count (`src/app/core/env_vectorized.py:13`); the `blend_entropy` accessor (`src/app/core/types.py:51`); named rejection of old manifest fields and `legacy_loose` (`src/app/components/archive.py:37`, `development.py:25`); the `legacy` catalog field (`src/app/core/provider_catalog.py:80`); omitted-context desktop adapter (`src/app/services/catalog.py:41`); resource-budget legacy signals (`src/app/services/resource_budget.py:208`, `:393`).
-   - Sites and components: Slurm `publication_state: 'legacy'` (`optional_components/slurm/execution.py:155`); legacy executions and databases (`src/app/sites/result_state.py:8`, `maintenance.py:1`, `transfer.py:200`); Optuna `version_N` runs, old sweeps and legacy Hydra expressions (`optional_components/optuna/utils.py:193`, `:448`, `component.py:11`); legacy databases in `scripts/erase_experiment.py:241`.
-   - Out of scope: authored research packages (`blendrl-dev`, `themes-dev`), whose "historical" code reproduces published methods, and `src/app/services/result_rename.py:103`, where "historical" means a saved snapshot.
-2. **`episode_outcomes`.** `sb3-dev`, the installed `sb3-suite` and `theta-plugins-v3/methods/sb3` declare the flag both at the capability's top level and in `execution_features`. Drop the top-level copy, rebuild the archive (`scripts/package_plugins.py`; in `theta-hub-v3`, `scripts/add_releases.py`, `scripts/build_index.py`, `scripts/validate_manifest.py --check-archives`), reinstall `sb3-suite`, delete the reader (`src/app/core/execution_features.py:34`).
-3. **Declared Lightning features.** Remove the implicit default for Lightning providers without `execution_features` (`execution_features.py:78`); declare features where a tracked Lightning provider relies on it.
-4. **Remove experiment export:** `src/app/services/experiment_exporter.py`, `frontend/export_dialog.py`, the `run_pipeline.py export` command, `tests/test_experiment_exporter.py`, `tests/test_experiment_plugin_export_and_install.py`, and the export cases in other tests; update the guides.
-5. **Workflow presets** (`src/app/pipeline/workflow/presets.py`): rewrite generically. They currently name BlendRL and MIMIC CQL and reference five experiments that do not exist.
-6. **`from_study`** (`src/app/pipeline/config.py:79`): describe and implement it as reading a configuration recorded in the results, with no tuner name, resolved in the selected workspace.
-7. **Dead code:** `src/app/pipeline/slurm_runner.py` and `tuner_finalize.py` (referenced only by tests).
-8. **Tests:** extend `tests/test_layout_guard.py` to dotted module paths; give `test_config_viewer_composite` (17, skipped) fixtures; stop tests reading `~/.config/thetaide/settings.toml` and QSettings; load Slurm in `test_ncshare_hardening` through the installed component.
-9. **Docs:** `RESULT_STORAGE.md` still describes legacy compatibility; the guides lose experiment export.
+Kept as current behavior (wording only): scalar method selections and method-level keys, the reported-metric objective, inline plot options, capability `aliases`, `ActionResult` unpacking, opt-in schema validation, the internal stylesheet roles in `frontend/theme.py`, and `hotkeys.panes` (still written by the settings view).
 
-## Working-directory results paths (phase 5, unit 1)
+### Held for the user: config keys with no generic validator
 
-`src/app/core/callbacks.py`, `src/app/core/lightning_builder.py` (`get_original_cwd()`), the defaults in `src/app/telemetry/run.py` and `src/app/core/contract_logger.py`, the best-params lookup in `src/app/pipeline/config.py`, `src/app/pipeline/tuning_monitor.py` and `src/usr/algorithms/sb3-dev/sb3_runner.py`. They work only because pipeline processes run with the workspace as working directory.
+Recipes merge freely into the root config and nothing rejects unknown top-level or `tuning` keys, so removing these readers would make old keys silently do nothing:
+
+- `run_pipeline.py:207` rejects `online_methods`, `offline_methods`, `offline_datasets`; `:237` warns about `task:`.
+- `src/app/core/run_logger_plugins.py:46` turns the root or agent `tensorboard` flag into the TensorBoard backend; the form shows it as an experiment checkbox.
+- The root `sweep` flag (`frontend/config_panel/catalogs.py:209`, `src/app/pipeline/tuning_config.py:11`, `tuning_features.py:39`).
+- `src/app/pipeline/commands.py:289` reads `hydra.sweeper.direction` before the paradigm default.
+- Optuna's flat `tuning.<option>` fallback (`legacy_flat` in `optional_components/optuna/component.py:115` and the sweep form). The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials: 64` and `n_jobs` this way; without the fallback it would silently run 40 trials.
+
+Choice: add a generic schema for top-level and `tuning` keys and then delete all of these, or keep them.
+
+### Also left
+
+- The resource pool's SQLite `ALTER TABLE ADD COLUMN` upgrade (`src/app/services/resource_budget.py`) stays: the running desktop may hold that database.
+- Deferred tests (user decision): tests that read `~/.config/thetaide/settings.toml` (`frontend/runner_manager.py` `_load_resource_settings`) or QSettings, and `test_ncshare_hardening` loading Slurm from source instead of the installed component.
+- The published `blendrl` 1.3.0 source in `theta-plugins-v3` declares `neural`/`symbolic` as strings and `logic_lr`/`blender_lr` as numbers, contradicting its profile defaults (fixed in `blendrl-dev`, `e3c98cd`). Fix it before the Hub publication.
+
+## Results paths for phase 5, unit 1
+
+Every literal `results/...` path moves to `WorkspacePaths.results`. Paths relative to the working directory (they work only because pipeline processes start in the workspace): `src/app/core/callbacks.py:76`, `lightning_builder.py` (`get_original_cwd()` at `:57`, `:309`; literals at `:627`, `:661`), the defaults in `src/app/telemetry/run.py:229`, `:246` and `src/app/core/contract_logger.py:32`, `src/app/pipeline/variability.py:111`–`:129`, `src/plugins/components/bundled/standard_figures/reports.py:44`–`:109`, `optional_components/optuna/utils.py` (`DEFAULT_OPTUNA_DB_URL`, `:128`, `:214`, `:267`, `:420`), `optuna/sweeper.py:71`, `optuna/component.py:383`, and `src/usr/algorithms/sb3-dev/sb3_runner.py`. Paths joined to a root but spelled `results/...`: `src/app/pipeline/tuning_monitor.py`, `execution_data.py`, `src/app/sites/*` (`execution.py`, `transfer.py`, `publication.py`, `continuation.py`, `maintenance.py`), `optional_components/optuna/component.py:354`, `optuna/remote.py:14`, `slurm/execution.py:325`, and `scripts/erase_experiment.py`. Site paths name the remote layout as well, so they move together with the remote bundle format.
 
 ## Tests
 

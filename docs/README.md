@@ -33,8 +33,8 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Development
 
-- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — current state only: per-phase progress, the phase 4 close-out list, phase 5 inputs and test conventions.
-- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: phase 4 close-out, phases 5–7 and publication.
+- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — current state only: per-phase progress, the held phase 4 decision, phase 5 inputs and test conventions.
+- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: the held config-key decision, phases 5–7 and publication.
 - [Config panel implementation and extension guide](development/CONFIG_PANEL_IMPLEMENTATION_STATUS.md) — shared document, rows, regions, section adapters, verification and remaining integration gates.
 - [Measure startup and understand deferred services](development/STARTUP_PERFORMANCE.md)
 - [Author component plugins](development/COMPONENT_PLUGIN_GUIDE.md)

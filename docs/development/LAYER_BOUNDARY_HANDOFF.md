@@ -9,20 +9,20 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 **Read first, in this order:**
 1. `AGENTS.md` and `docs/README.md`.
 2. `docs/plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md`. Its "Confirmed decisions" win over anything else.
-3. `docs/development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md`: the current state, the 4h close-out list with file references, the results paths for phase 5 and the test conventions.
+3. `docs/development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md`: the current state, the one held 4h decision, the results paths for phase 5 and the test conventions.
 4. `docs/reference/LAYER_BOUNDARIES.md` (contract and exception register), `docs/reference/SDK.md` and `docs/reference/PLUGIN_STORAGE.md`.
 
 Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It is history: its "bounded" readers and adapters are being removed, not kept.
 
 ## Where things stand (2026-11-15)
 
-- Phases 0–3 are done. Phase 4 units 4a–4g are done; the close-out, unit 4h, is next.
+- Phases 0–3 are done. Phase 4 units 4a–4h are done, except one set of config keys held for a user decision (status doc, "Held for the user").
 - The v3 Hub releases are prepared in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpublished.
 - 122 stale tests fail on `main` as well; they are deferred by the user.
 
 ## Work to do next, in order
 
-1. **Unit 4h, the phase 4 close-out** (status doc, "Unit 4h"): remove the remaining legacy code, retire the `episode_outcomes` reader, require declared Lightning execution features, remove experiment export, rewrite the workflow presets generically, make `from_study` generic, delete the dead Slurm entry points, and fix the guard and test items. Commit each item separately.
+1. **The held config keys**, once the user decides: either add a generic schema for top-level and `tuning` keys and delete the named readers, or keep them. If the readers go, move the user's flat `tuning.n_trials`/`n_jobs` under `tuning.options.optuna` only with their go-ahead.
 2. **Phase 5.** Write the phase 5 plan document first (bundle manifest, application/workspace resolution, inclusions and exclusions), add it to `docs/README.md`, then implement: all results paths from the workspace, results moved to `src/usr/results` (moving the user's `results/` needs a dry run shown to the user and their go-ahead, as in 4f), explicit bundles, declared requirements, a versioned bundle manifest.
 3. **Phase 6**, then **phase 7**, as the plan describes.
 4. **Publication, only when the user asks:** follow `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, push `theta-hub-v3` and `theta-plugins-v3`, verify the client feed from a clean workspace, set `published_at`, merge to `main` together with the Hub change, and remove the "pre-v3 Hub releases" row from the exception register.

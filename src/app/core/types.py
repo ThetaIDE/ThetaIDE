@@ -10,8 +10,8 @@ class ActionResult:
 
     Supports:
       - Attribute access: res.action, res.logprob, res.entropy, res.value, res.aux
-      - Backward-compatible 4-element unpacking: action, logprob, entropy, value = res
-      - Backward-compatible indexing: res[0]
+      - 4-element unpacking: action, logprob, entropy, value = res
+      - Indexing: res[0]
       - Dynamic auxiliary metric access: res.get_aux("metric_name")
     """
 
@@ -30,7 +30,7 @@ class ActionResult:
         self.aux: dict[str, Any] = aux if aux is not None else {}
 
     def __iter__(self):
-        """Yield the 4 standard Actor-Critic elements for backward-compatible unpacking."""
+        """Yield the 4 standard Actor-Critic elements for unpacking."""
         yield self.action
         yield self.logprob
         yield self.entropy
