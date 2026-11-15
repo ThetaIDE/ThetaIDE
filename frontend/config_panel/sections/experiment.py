@@ -29,6 +29,7 @@ from ..controls import (
     _parameter_row,
     _reveal_remove_on_row_hover,
 )
+from ..document import MISSING, lookup
 from ..editors import value_editor
 from ..layout import two_column_form
 
@@ -133,7 +134,6 @@ def runtime(host, data, resolved, tree, paradigm, show_resolved):
         "resources",
         "dataset",
         "dataset_path",
-        "tensorboard",
         "no_plot",
         "save_dataset",
         "recover",
@@ -352,28 +352,51 @@ def build(self):
 
     # Runtime & execution options (logging, recovery, plotting, and parallel methods)
     OPTIONAL_RUNTIME_FLAGS = [
-        ("save_dataset", "Save Dataset"),
-        ("recover", "Recover Checkpoint"),
-        ("no_plot", "No Plots"),
-        ("run_in_parallel", "Run methods in parallel"),
-        ("timestamp_experiment", "Timestamp experiment"),
+        (("save_dataset",), "Save Dataset"),
+        (("recover",), "Recover Checkpoint"),
+        (("no_plot",), "No Plots"),
+        (("run_in_parallel",), "Run methods in parallel"),
+        (("timestamp_experiment",), "Timestamp experiment"),
     ]
-    if self._plugin_enabled("tensorboard"):
-        OPTIONAL_RUNTIME_FLAGS.insert(0, ("tensorboard", "Log to TensorBoard"))
+    run_loggers = self._run_logger_toggles()
+    OPTIONAL_RUNTIME_FLAGS[0:0] = run_loggers
+    ALWAYS_SHOWN = (("run_in_parallel",), ("timestamp_experiment",))
+    TOOLTIPS = {
+        ("timestamp_experiment",): "Add a timestamp when results already exist to keep previous runs.",
+        ("run_in_parallel",): "Train every configured method in a separate process at the same time.",
+    }
 
     runtime_form = FlowLayout(spacing=16)
     runtime_form.setObjectName("runtimeParameters")
     runtime_form.setProperty("parameterReorderFlow", True)
     chk_widgets = {}
 
+    def set_flag(path, value):
+        if not self._block_updates:
+            self.document.set(path, value)
+
+    def clear_flag(path):
+        """Remove an optional flag and any mapping it leaves empty."""
+        self.document.remove(path)
+        for depth in range(len(path) - 1, 0, -1):
+            parent = lookup(self.raw_data, path[:depth])
+            if parent == {}:
+                self.document.remove(path[:depth])
+        self._mark_dirty()
+        self._render_boxes()
+
     # Keep each label, toggle, and optional removal action together as the row wraps.
     active_flags = [
-        (k, lbl)
-        for k, lbl in OPTIONAL_RUNTIME_FLAGS
-        if k in data or show_resolved or k in ("run_in_parallel", "timestamp_experiment")
+        (path, lbl)
+        for path, lbl in OPTIONAL_RUNTIME_FLAGS
+        if lookup(data, path) is not MISSING or show_resolved or path in ALWAYS_SHOWN
     ]
 
-    for flag_key, flag_label in active_flags:
+    for flag_path, flag_label in active_flags:
+        flag_key = ".".join(flag_path)
+        explicit = lookup(data, flag_path)
+        inherited = lookup(resolved, flag_path)
+        value = explicit if explicit is not MISSING else inherited
         flag = QWidget()
         flag.setProperty("parameterBoolean", True)
         flag.setProperty("parameterPath", flag_key)
@@ -381,34 +404,24 @@ def build(self):
         row_flag.setContentsMargins(0, 0, 0, 0)
         row_flag.setSpacing(6)
         row_flag.addWidget(label(flag_label))
-        chk = ToggleSlider(checked=bool(data.get(flag_key, resolved.get(flag_key, False))))
-        if flag_key == "timestamp_experiment":
-            chk.setToolTip("Add a timestamp when results already exist to keep previous runs.")
-            chk.toggled.connect(lambda value: self._on_field_edited("timestamp_experiment", value))
-        elif flag_key == "no_plot":
-            chk.toggled.connect(lambda value: self._on_field_edited("no_plot", value))
-        elif flag_key == "run_in_parallel":
-            chk.setToolTip("Train every configured method in a separate process at the same time.")
-            chk.toggled.connect(lambda value: self._on_field_edited("run_in_parallel", value))
+        chk = ToggleSlider(checked=bool(value is not MISSING and value))
+        if flag_path in TOOLTIPS:
+            chk.setToolTip(TOOLTIPS[flag_path])
+        if flag_path in ALWAYS_SHOWN or flag_path == ("no_plot",):
+            chk.toggled.connect(lambda value, fp=flag_path: set_flag(fp, value))
         else:
             chk.toggled.connect(
-                lambda v, fk=flag_key: (
-                    self._on_field_edited(fk, True)
-                    if v
-                    else (self.document.remove((fk,)), self._mark_dirty(), self._render_boxes())
-                )
+                lambda v, fp=flag_path: set_flag(fp, True) if v else clear_flag(fp)
             )
         row_flag.addWidget(chk)
-        chk_widgets[flag_key] = chk
+        chk_widgets[flag_path] = chk
 
-        if flag_key in data:
+        if explicit is not MISSING:
             btn_del_flag = _make_subtle_tool_button("close", f"Remove '{flag_key}' override", size=18, icon_size=11)
-            btn_del_flag.clicked.connect(
-                lambda _, fk=flag_key: (self.document.remove((fk,)), self._mark_dirty(), self._render_boxes())
-            )
+            btn_del_flag.clicked.connect(lambda _, fp=flag_path: clear_flag(fp))
             row_flag.addWidget(btn_del_flag)
             _reveal_remove_on_row_hover(row_flag, btn_del_flag)
-        elif not is_base and flag_key not in ("run_in_parallel", "timestamp_experiment"):
+        elif not is_base and flag_path not in ALWAYS_SHOWN:
             row_flag.addWidget(label(str(chk.isChecked()).lower(), "muted"))
 
         runtime_form.addWidget(flag)
@@ -422,11 +435,11 @@ def build(self):
         flag.setLayout(row)
         runtime_form.addWidget(flag)
 
-    self.chk_timestamp_experiment = chk_widgets.get("timestamp_experiment")
-    self.chk_tb = chk_widgets.get("tensorboard")
-    self.chk_save_ds = chk_widgets.get("save_dataset")
-    self.chk_recover = chk_widgets.get("recover")
-    self.chk_no_plot = chk_widgets.get("no_plot")
+    self.chk_timestamp_experiment = chk_widgets.get(("timestamp_experiment",))
+    self.run_logger_toggles = {path[2]: chk_widgets[path] for path, _label in run_loggers if path in chk_widgets}
+    self.chk_save_ds = chk_widgets.get(("save_dataset",))
+    self.chk_recover = chk_widgets.get(("recover",))
+    self.chk_no_plot = chk_widgets.get(("no_plot",))
 
     box_budget.add_layout(form_budget)
     box_budget.add_layout(runtime_form)

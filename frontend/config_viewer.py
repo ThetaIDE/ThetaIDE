@@ -61,7 +61,7 @@ from .config_panel.controls import (
     _make_subtle_tool_button, _reveal_remove_on_row_hover, _parameter_row,
     _parameter_title, _collapsible_parameter_label, _parameter_header,
 )
-from .config_panel.document import ConfigDocument
+from .config_panel.document import MISSING, ConfigDocument, lookup
 from .config_panel.bindings import ParameterBinding, component_identity
 
 
@@ -163,7 +163,7 @@ class ConfigViewer(QWidget):
         self.spin_seed = SpinBox()
         self.spin_eval_ep = SpinBox()
         self.txt_description = QLineEdit()
-        self.chk_tb = None
+        self.run_logger_toggles = {}
         self.chk_save_ds = None
         self.chk_recover = None
         self.chk_no_plot = None
@@ -175,7 +175,8 @@ class ConfigViewer(QWidget):
         self._init_ui()
 
     def _on_plugin_state_changed(self, plugin_id: str, _enabled: bool) -> None:
-        if plugin_id == "tensorboard" and not self.is_component_mode:
+        # A plugin can activate a run logger, which adds or removes its toggle.
+        if not self.is_component_mode:
             self._render_boxes()
 
     def _plugin_enabled(self, plugin_id: str) -> bool:
@@ -1136,6 +1137,10 @@ class ConfigViewer(QWidget):
     def _add_plot_parameter(self, name: str, key: str, default: Any) -> None:
         from .config_panel.domain import _add_plot_parameter
         return _add_plot_parameter(self, name=name, key=key, default=default)
+
+    def _run_logger_toggles(self):
+        from .config_panel.domain import _run_logger_toggles
+        return _run_logger_toggles(self)
 
     def _loader_paths(self):
         from .config_panel.domain import _loader_paths
@@ -2525,8 +2530,10 @@ class ConfigViewer(QWidget):
             overrides.append(f"epochs={data['epochs']}")
         if "eval_every_n_epochs" in data:
             overrides.append(f"eval_every_n_epochs={data['eval_every_n_epochs']}")
-        if "tensorboard" in data and self._plugin_enabled("tensorboard"):
-            overrides.append(f"tensorboard={str(data['tensorboard']).lower()}")
+        for path, _label in self._run_logger_toggles():
+            enabled = lookup(data, path)
+            if enabled is not MISSING:
+                overrides.append(f"++{'.'.join(path)}={str(bool(enabled)).lower()}")
         if "save_dataset" in data and data["save_dataset"]:
             overrides.append(f"save_dataset={str(data['save_dataset']).lower()}")
         if "recover" in data and data["recover"]:

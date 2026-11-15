@@ -61,7 +61,10 @@ class TestUIAdjustments(unittest.TestCase):
             "experiment_id: test_exp\n"
             "paradigm: null\n"
             "env: null\n"
-            "tensorboard: true\n"
+            "logging:\n"
+            "  backends:\n"
+            "    tensorboard:\n"
+            "      enabled: true\n"
             "custom_bool: false\n"
             "methods:\n"
             "  ppo_dnn:\n"
@@ -82,10 +85,8 @@ class TestUIAdjustments(unittest.TestCase):
         """Boolean settings in Box 1 and runtime flags render as ToggleSlider."""
         sliders = self.viewer.findChildren(ToggleSlider)
         self.assertTrue(len(sliders) >= 1, "Expected at least one ToggleSlider for boolean flags/parameters")
-        # Check that tensorboard flag widget is ToggleSlider
-        if self.viewer.chk_tb is not None:
-            self.assertIsInstance(self.viewer.chk_tb, ToggleSlider)
-            self.assertTrue(self.viewer.chk_tb.isChecked())
+        self.assertIsInstance(self.viewer.run_logger_toggles["tensorboard"], ToggleSlider)
+        self.assertTrue(self.viewer.run_logger_toggles["tensorboard"].isChecked())
 
     def test_item2_paradigm_env_labels_remove_required(self):
         """Labels for Paradigm and Environment should not contain '(Required)'."""

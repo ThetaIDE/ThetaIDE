@@ -34,7 +34,6 @@ class Config:
     lr: float = 0.0003
     batch_size: int = 64
     gamma: float = 0.99
-    tensorboard: bool = False
 
     def overrides(self):
         """Hydra overrides applied to BASE_EXPERIMENT, exactly as typed after `run_pipeline.py`."""
@@ -45,7 +44,7 @@ class Config:
         if self.model:
             overrides.append(f"{method}.model={self.model}")
         overrides.extend([f"{method}.lr={_num(self.lr)}", f"{method}.batch_size={self.batch_size}",
-                          f"{method}.gamma={_num(self.gamma)}", f"tensorboard={str(self.tensorboard).lower()}"])
+                          f"{method}.gamma={_num(self.gamma)}"])
         return overrides
 
     def command(self):
@@ -59,8 +58,7 @@ class Config:
             "#   python run_pipeline.py thetaide/<file name without .yaml>\n"
             f"defaults:\n- {BASE_EXPERIMENT}\n\n"
             f"experiment_id: {json.dumps(self.name)}\n"
-            f"seed: {self.seed}\ntotal_timesteps: {self.total_timesteps}\n"
-            f"tensorboard: {str(self.tensorboard).lower()}\n\n"
+            f"seed: {self.seed}\ntotal_timesteps: {self.total_timesteps}\n\n"
             f"methods:\n  {self.method_name}:\n"
             + (f"    agent: {self.agent}\n" if self.agent else "")
             + (f"    model: {self.model}\n" if self.model else "")
@@ -277,7 +275,7 @@ def disk_run(entry):
                     total_timesteps=_value(cfg.get("total_timesteps"), int, default.total_timesteps),
                     lr=_value(method.get("lr"), float, default.lr),
                     batch_size=_value(method.get("batch_size"), int, default.batch_size),
-                    gamma=_value(method.get("gamma"), float, default.gamma), tensorboard=False)
+                    gamma=_value(method.get("gamma"), float, default.gamma))
     agents = entry.get("agents") or []
     return {
         "id": disk_run_id(entry["group"], entry["experiment_id"]),

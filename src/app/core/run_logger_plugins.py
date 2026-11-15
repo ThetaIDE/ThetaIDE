@@ -28,27 +28,15 @@ class RunLoggerContext:
 
 
 def _configured_backends(cfg) -> dict[str, dict[str, Any]]:
-    """Return enabled backend settings, translating the historical TensorBoard flag."""
+    """Return the settings of every backend in ``logging.backends`` with ``enabled: true``."""
     logging_config = cfg.get("logging", {}) if hasattr(cfg, "get") else {}
     backends = logging_config.get("backends", {}) if hasattr(logging_config, "get") else {}
     result: dict[str, dict[str, Any]] = {}
-    configured_ids: set[str] = set()
     if hasattr(backends, "items"):
         for backend_id, raw_settings in backends.items():
-            backend_id = str(backend_id)
-            configured_ids.add(backend_id)
             settings = dict(raw_settings) if hasattr(raw_settings, "items") else {}
             if settings.pop("enabled", False):
-                result[backend_id] = settings
-
-    # Compatibility for existing experiment YAML and CLI overrides. New configs
-    # should use logging.backends.tensorboard.enabled.
-    legacy_tensorboard = cfg.get("tensorboard", None) if hasattr(cfg, "get") else None
-    if legacy_tensorboard is None:
-        agent = cfg.get("agent", {}) if hasattr(cfg, "get") else {}
-        legacy_tensorboard = agent.get("tensorboard", False) if hasattr(agent, "get") else False
-    if bool(legacy_tensorboard) and "tensorboard" not in configured_ids:
-        result.setdefault("tensorboard", {})
+                result[str(backend_id)] = settings
     return result
 
 

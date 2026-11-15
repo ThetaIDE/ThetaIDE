@@ -26,7 +26,7 @@ def test_disk_run_record():
     assert run["status"] == "completed" and run["metrics"] == [] and not run["simulated"]
     assert run["config"] == {"name": "cli_run", "env": "cartpole", "method_name": "ppo", "agent": "ppo", "model": "dnn",
                              "seed": 7, "total_timesteps": 10000, "lr": 0.001, "batch_size": 128,
-                             "gamma": 0.95, "tensorboard": False}
+                             "gamma": 0.95}
     assert Config(**run["config"])  # loadable by the run store and the experiment builder
     assert run["backend"] == {"group": "sweeps", "experiment_id": "cli_run", "agents": ["ppo"], "total_timesteps": 10000}
     assert run["builder_compatible"]

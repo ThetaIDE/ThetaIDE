@@ -184,6 +184,11 @@ def _monitor_settings(data):
 CHECKPOINT_KEYS = ("checkpoint_every_steps", "num_checkpoints")
 
 
+def run_logger_switch(backend_id: str) -> tuple[str, ...]:
+    """The config path that turns a run-logger backend on."""
+    return ("logging", "backends", backend_id, "enabled")
+
+
 DEFAULT_CHECKPOINTS = 10
 
 
@@ -204,7 +209,6 @@ FIXED_BOX_KEYS = frozenset(
         "site",
         "trainer",
         "resources",
-        "tensorboard",
         "no_plot",
         "save_dataset",
         "recover",

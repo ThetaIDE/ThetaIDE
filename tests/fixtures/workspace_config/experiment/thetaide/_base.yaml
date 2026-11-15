@@ -9,7 +9,6 @@ env: gym_classic_control_dev/cartpole
 seed: 42
 total_timesteps: 10000
 eval_episodes: 10
-tensorboard: false
 methods:
   ppo:
     agent: sb3-dev/ppo

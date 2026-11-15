@@ -1,5 +1,6 @@
 """Configuration section composition using shared parameter controls."""
 
+import copy
 import json
 
 from PyQt6.QtWidgets import (
@@ -18,6 +19,22 @@ from ..controls import (
     _make_param_adder_button,
     _parameter_row,
 )
+
+
+def _without_path(mapping, path):
+    """A copy of ``mapping`` without ``path``, dropping mappings that become empty."""
+    result = copy.deepcopy(mapping)
+    parents = [result]
+    for key in path[:-1]:
+        child = parents[-1].get(key)
+        if not isinstance(child, dict):
+            return result
+        parents.append(child)
+    parents[-1].pop(path[-1], None)
+    for depth in range(len(path) - 1, 0, -1):
+        if parents[depth] == {}:
+            parents[depth - 1].pop(path[depth - 1], None)
+    return result
 
 
 def _render_remaining_sections(self):
@@ -39,6 +56,12 @@ def _render_remaining_sections(self):
         # The sweep has its own card; don't render it again as a generic section.
         leftovers.pop("tuning", None)
     leftovers.pop("variability", None)
+    if isinstance(leftovers.get("logging"), dict):
+        # The experiment card's run-logger toggles edit these switches.
+        for path, _label in self._run_logger_toggles():
+            leftovers["logging"] = _without_path(leftovers["logging"], path[1:])
+        if not leftovers["logging"]:
+            leftovers.pop("logging")
     leftovers.pop("objective", None)
     leftovers.pop("monitors", None)  # settings live under their stream controls
     if isinstance(leftovers.get("telemetry"), dict):  # telemetry.metrics has its own box (Recorded Metrics)

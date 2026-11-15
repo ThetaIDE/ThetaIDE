@@ -17,7 +17,7 @@ CASES = [
     Config(name="cartpole_ppo_baseline", **TEST_COMPONENT_CONFIG),
     Config(name="seed_study-7", seed=7, total_timesteps=25000, lr=1e-6, batch_size=256, gamma=0.9,
            **TEST_COMPONENT_CONFIG),
-    Config(name="123", seed=0, total_timesteps=1000, lr=0.5, batch_size=32, gamma=1.0, tensorboard=False,
+    Config(name="123", seed=0, total_timesteps=1000, lr=0.5, batch_size=32, gamma=1.0,
            **TEST_COMPONENT_CONFIG),
 ]
 
@@ -112,7 +112,6 @@ def test_builder_values_reach_the_method_config(config):
     assert (method.agent, method.model) == ("sb3-dev/ppo", "dnn")
     assert (method.lr, method.batch_size, method.gamma) == (config.lr, config.batch_size, config.gamma)
     assert isinstance(method.lr, float) and isinstance(method.gamma, float)
-    assert cfg.tensorboard is config.tensorboard
 
 
 def test_sweep_preflight_checks_actual_trial_hydra_paths(fixture_workspace, tmp_path_factory, monkeypatch):

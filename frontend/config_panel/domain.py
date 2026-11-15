@@ -19,6 +19,7 @@ from src.app.telemetry.selection import SECTIONS as METRIC_SECTIONS
 from ..config_model import COMPONENT_ID_KEYS, ConfigTree, component_selection, is_group_defaults_path
 from ..config_model import remove_method as remove_method_from
 from .bindings import component_identity
+from .document import MISSING, lookup
 from .catalogs import (
     CHECKPOINT_KEYS,
     DEFAULT_CHECKPOINTS,
@@ -212,8 +213,6 @@ def _clean_redundant_params(self):
             if "params" in self.raw_data["methods"] and not self.raw_data["methods"]["params"]:
                 self.raw_data["methods"].pop("params", None)
         # Strip redundant default flags matching root/base defaults
-        if self.raw_data.get("tensorboard") is False:
-            self.raw_data.pop("tensorboard", None)
         if self.raw_data.get("save_dataset") is False:
             self.raw_data.pop("save_dataset", None)
         if self.raw_data.get("recover") is False:
@@ -375,6 +374,23 @@ def _add_plot_parameter(self, name: str, key: str, default: Any) -> None:
     QTimer.singleShot(0, self._render_boxes)
 
 
+def _run_logger_toggles(self) -> list[tuple[tuple[str, ...], str]]:
+    """``(switch path, label)`` for each run-logger backend whose activating plugin, if declared, is enabled."""
+    from src.app.core.provider_catalog import get_catalog
+    from .catalogs import run_logger_switch
+
+    toggles = {}
+    for package in get_catalog(self._loader_paths()).packages:
+        for capability in package.capabilities:
+            if capability.kind != "run_logger":
+                continue
+            activation = capability.metadata.get("activation_plugin")
+            if activation and not self._plugin_enabled(activation):
+                continue
+            toggles[capability.id] = (run_logger_switch(capability.id), capability.metadata.get("label") or capability.id)
+    return [toggles[key] for key in sorted(toggles)]
+
+
 def _loader_paths(self):
     from src.app.workspace import WorkspacePaths
 
@@ -498,11 +514,11 @@ def _has_experiment_lower_params(self, data: dict, resolved: dict) -> bool:
         "recover",
         "no_plot",
     }
-    if self._plugin_enabled("tensorboard"):
-        lower_keys.add("tensorboard")
     if any(key in data for key in lower_keys):
         return True
     if self.view_mode == "resolved" and any(key in resolved for key in lower_keys):
+        return True
+    if any(lookup(data, path) is not MISSING for path, _label in self._run_logger_toggles()):
         return True
     standard_keys = lower_keys | {
         "defaults",
@@ -518,7 +534,6 @@ def _has_experiment_lower_params(self, data: dict, resolved: dict) -> bool:
         "dataset_path",
         "hydra",
         "plots",
-        "tensorboard",
         "tuning",
     }
     return any(key not in standard_keys and isinstance(value, (int, float, str, bool)) for key, value in data.items())
@@ -543,6 +558,8 @@ def _add_experiment_context_param(self, path: str) -> None:
         self.raw_data.setdefault("env", {})[parts[-1]] = default_value
     elif path.startswith("trainer."):
         self.raw_data.setdefault("trainer", {})[parts[-1]] = default_value
+    elif tuple(parts) in {path for path, _label in self._run_logger_toggles()}:
+        self.document.set(tuple(parts), True)
     self._mark_dirty()
     QTimer.singleShot(0, self._render_boxes)
 
@@ -589,11 +606,10 @@ def _experiment_budget_candidates(self, data: dict, resolved: dict, rules) -> li
             if key == "num_checkpoints" and any(k in data for k in CHECKPOINT_KEYS):
                 continue
             candidates.append((key, title, default))
-    optional_integrations = []
-    if self._plugin_enabled("tensorboard"):
-        optional_integrations.append(("tensorboard", "Log to TensorBoard"))
+    for path, title in self._run_logger_toggles():
+        if lookup(data, path) is MISSING:
+            candidates.append((".".join(path), title, True))
     for key, title in (
-        *optional_integrations,
         ("save_dataset", "Save Dataset"),
         ("recover", "Recover Checkpoint"),
         ("no_plot", "No Plots"),
@@ -1643,7 +1659,7 @@ def _add_experiment_param(self, key: str, default_val: Any = None, *, render: bo
         self.raw_data[key] = int(self._get_resolved_defaults().get("eval_episodes") or 100)
     elif key == "eval_freq_steps":
         self.raw_data[key] = int(self._get_resolved_defaults().get("eval_freq_steps") or 10000)
-    elif key in ("tensorboard", "save_dataset", "recover", "no_plot"):
+    elif key in ("save_dataset", "recover", "no_plot"):
         self.raw_data[key] = True
     else:
         self.raw_data[key] = ""

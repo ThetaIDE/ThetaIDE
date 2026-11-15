@@ -10,7 +10,7 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 1 — Workspace and config ownership (B) | Done | — |
 | 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
-| 4 — Retire `in/` and every adapter (F) | 4a–4h done except the TensorBoard flag; Hub releases prepared, not published | TensorBoard flag (below) |
+| 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | — |
 | 5 — Results in `src/usr/results`, remote bundles (G) | Not started; tuner continuation artifacts and site dependencies landed in phase 2 | Plan document first; see the plan's phase 5 |
 | 6 — Installed distribution (H) | Not started; core stays at `src/app` (no move) | See the plan's phase 6 |
 | 7 — Enforcement (I) | Not started | See the plan's phase 7 |
@@ -49,16 +49,9 @@ Outside tuning, the checkpoint monitor still comes from paradigm or environment 
 
 The `online_methods`/`offline_methods`/`offline_datasets` rejection and the `task:` warning in `run_pipeline.py` are deleted, with the tests that copied them. The root `sweep` key is gone from both base configs, the form's key lists and the docs; tuning is the `tuning` block alone.
 
-### Left in 4h: the TensorBoard flag
+### Run loggers have one switch
 
-TensorBoard is a bundled app plugin (`src/plugins/app/bundled/tensorboard`) plus the `tensorboard` run-logger backend, enabled by `logging.backends.tensorboard.enabled`. A root `tensorboard: true` flag still exists as a second switch:
-
-- core translation: `src/app/core/run_logger_plugins.py:31`–`:52` (`_configured_backends`, also reads `agent.tensorboard`);
-- the experiment form's "Log to TensorBoard" checkbox writes the root key: `frontend/config_panel/sections/experiment.py:363`, `:428`; `frontend/config_panel/domain.py:215`, `:501`, `:521`, `:595`, `:1649`; `frontend/config_panel/catalogs.py:207`; `frontend/config_viewer.py:178`, `:2528`;
-- `frontend/model.py` `Config.tensorboard` (`:37`, `:48`, `:63`, `:280`) and `frontend/app.py:1837`, `:2005`;
-- `tests/fixtures/workspace_config/experiment/thetaide/_base.yaml:12`.
-
-Delete the translation and the root key; the checkbox (shown only when the plugin is enabled) edits `logging.backends.tensorboard.enabled` through the shared form controls (`docs/reference/CONFIG_PARAMETER_FORMS.md`).
+`logging.backends.<id>.enabled` is the only switch for a run logger; the root and `agent.tensorboard` flags and their translation are gone. The experiment form shows one toggle per available `run_logger` capability, labelled by the capability's `label` and hidden while its `activation_plugin` is disabled. The form names no backend.
 
 ### Also left
 

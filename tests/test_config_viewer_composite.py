@@ -11,6 +11,7 @@ import yaml
 
 from PyQt6.QtWidgets import QApplication
 from frontend.config_viewer import ConfigViewer, config_tree, invalidate_config_tree
+from frontend.config_panel.controls import ConfigBox
 
 COMPOSITE = "blendrl-dev"
 OFFLINE = """# @package _global_
@@ -167,18 +168,43 @@ def test_add_and_remove_parameters_in_hierarchy(qapp, tmp_path):
     assert "n_steps" not in method and "hidden_sizes" not in method
 
 
+def section_titles(viewer):
+    return {box.title_label.text() for box in viewer.findChildren(ConfigBox) if box.title_label is not None}
+
+
 def test_top_box_defaults_hidden_until_added(qapp, tmp_path):
     viewer, _ = online(tmp_path)
-    assert (viewer.chk_tb, viewer.chk_save_ds, viewer.chk_recover, viewer.chk_no_plot) == (None,) * 4
-
-    viewer.raw_data["tensorboard"] = True
-    viewer._render_boxes()
-    assert viewer.chk_tb is not None and viewer.chk_tb.isChecked()
+    assert viewer.run_logger_toggles == {}
     assert (viewer.chk_save_ds, viewer.chk_recover, viewer.chk_no_plot) == (None,) * 3
 
-    viewer.raw_data.pop("tensorboard", None)
+    viewer.raw_data["logging"] = {"backends": {"tensorboard": {"enabled": True}}}
     viewer._render_boxes()
-    assert viewer.chk_tb is None
+    assert viewer.run_logger_toggles["tensorboard"].isChecked()
+    assert (viewer.chk_save_ds, viewer.chk_recover, viewer.chk_no_plot) == (None,) * 3
+    assert "++logging.backends.tensorboard.enabled=true" in viewer.get_overrides()
+
+    viewer.raw_data.pop("logging", None)
+    viewer._render_boxes()
+    assert viewer.run_logger_toggles == {}
+
+
+def test_run_logger_toggle_edits_its_backend_switch(qapp, tmp_path):
+    """Each run-logger toggle owns logging.backends.<id>.enabled; other logging settings keep their section."""
+    viewer, _ = online(tmp_path)
+    viewer.raw_data["logging"] = {"backends": {"tensorboard": {"enabled": True}, "wandb": {"enabled": True}}}
+    viewer._render_boxes()
+    assert list(viewer.run_logger_toggles) == ["tensorboard"]  # wandb has no provider in this workspace
+    assert "logging" in section_titles(viewer)  # so it is still rendered generically
+
+    viewer.run_logger_toggles["tensorboard"].setChecked(False)
+    assert viewer.raw_data["logging"] == {"backends": {"wandb": {"enabled": True}}}
+    assert "tensorboard" not in viewer.raw_data
+
+    viewer.raw_data["logging"] = {"backends": {"tensorboard": {"enabled": True}}}
+    viewer._render_boxes()
+    assert "logging" not in section_titles(viewer)
+    viewer.run_logger_toggles["tensorboard"].setChecked(False)
+    assert "logging" not in viewer.raw_data
 
 
 def test_method_card_duplicate_and_header_plus_icons(qapp, tmp_path):

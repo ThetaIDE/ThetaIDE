@@ -1834,7 +1834,6 @@ class Window(QMainWindow):
             exp_id = d.get("experiment_id") or (self.config_viewer.current_path.stem if getattr(self.config_viewer, "current_path", None) else "default_experiment")
             seed = int(d.get("seed") if d.get("seed") is not None else 42)
             steps = int(d.get("total_timesteps") or 10000)
-            tb = bool(d.get("tensorboard", False))
             methods = d.get("methods", {})
             method_name, method = next(iter(methods.items()), ("method", {})) if isinstance(methods, dict) else ("method", {})
             method = method if isinstance(method, dict) else {}
@@ -1843,7 +1842,7 @@ class Window(QMainWindow):
             gamma = float(method.get("gamma") or 0.99)
             return Config(name=str(exp_id), method_name=str(method_name), agent=str(method.get("agent") or ""),
                           model=str(method.get("model") or ""), seed=seed, total_timesteps=steps, lr=lr,
-                          batch_size=batch, gamma=gamma, tensorboard=tb)
+                          batch_size=batch, gamma=gamma)
         return Config()
 
     def update_config(self, *_):
@@ -2002,7 +2001,6 @@ class Window(QMainWindow):
                 d["experiment_id"] = getattr(config, "name", "experiment")
                 d["seed"] = getattr(config, "seed", 42)
                 d["total_timesteps"] = getattr(config, "total_timesteps", 10000)
-                d["tensorboard"] = getattr(config, "tensorboard", False)
                 methods = d.setdefault("methods", {})
                 if isinstance(methods, dict):
                     method_name = getattr(config, "method_name", "method")

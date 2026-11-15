@@ -1,6 +1,6 @@
 # IDE, plugin, and user layer implementation plan
 
-Status: in implementation on `implement/layer-boundaries`. Phases 0–4 are implemented except the TensorBoard flag cleanup; phase 5 is next. The [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) tracks progress and the [handoff prompt](../development/LAYER_BOUNDARY_HANDOFF.md) lists the work in order. Plan written 2026-11-13 from the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md); rewritten 2026-11-15 so every phase matches the confirmed decisions below. The [storage contract](../reference/PLUGIN_STORAGE.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) describe supported behavior as it lands.
+Status: in implementation on `implement/layer-boundaries`. Phases 0–4 are implemented; phase 5 is next. The [implementation status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) tracks progress and the [handoff prompt](../development/LAYER_BOUNDARY_HANDOFF.md) lists the work in order. Plan written 2026-11-13 from the [boundary audit](../reports/LAYER_BOUNDARY_AUDIT_20261113.md); rewritten 2026-11-15 so every phase matches the confirmed decisions below. The [storage contract](../reference/PLUGIN_STORAGE.md) and the [ownership contract](../reference/LAYER_BOUNDARIES.md) describe supported behavior as it lands.
 
 ## Confirmed decisions
 
@@ -89,13 +89,13 @@ Unit 4h removed the historical readers it added (top-level `episode_outcomes`, u
 
 The versioned `src.app.api` facade (now SDK 2.3) and `PluginContext` services. Bundled panels, both optional components and an independent fixture plugin use only the SDK. SDK requirements are checked before activation.
 
-## Phase 4 — Retire `in/` and every adapter (implemented; 4h done except the TensorBoard flag)
+## Phase 4 — Retire `in/` and every adapter (done)
 
 Units 4a–4g are described in the [phase 4 plan](LAYER_BOUNDARY_PHASE4_PLAN.md): package format v3, the `src/usr` cutover, adapter retirement, documentation, hermetic tests, the move of the user's workspace and the prepared v3 Hub releases.
 
 ### 4h — Close-out
 
-Done in `2898c2d`..`e3c98cd`, with three exceptions. Item 1's config keys that no generic validator would reject (old method keys and `task:`, the `tensorboard` flag, the `sweep` flag, the Hydra direction and the flat tuner fields) are held for the user; see the status doc. The theme colour roles and the hotkey pane list turned out to be current behavior. Item 8's user-settings and `test_ncshare_hardening` tests are deferred (user decision).
+Done in `2898c2d`..`e3c98cd`, with three exceptions. Item 1's config keys that no generic validator would reject (old method keys and `task:`, the `tensorboard` flag, the `sweep` flag, the Hydra direction and the flat tuner fields) were held for the user and removed afterwards (`0f373a7`, `4f990b0` and the TensorBoard commit). The theme colour roles and the hotkey pane list turned out to be current behavior. Item 8's user-settings and `test_ncshare_hardening` tests are deferred (user decision).
 
 1. **Remove the remaining legacy code** (see the triage list in the status doc): flat tuner fields, the Slurm `legacy` publication state, Optuna's `version_N` and old sweep layouts, sibling-run grouping in `result_paths.py`, unmarked tuning summaries, forwarding imports, `.plugins.json` migration and deprecated plugin-manager aliases, widget attribute aliases, the old `tensorboard` key and old method-key fallbacks, old theme colour names, the legacy hotkey list, the `in.envs.` hot-reload path and the `run_pipeline.py` legacy-key message. Old inputs must still fail through ordinary validation.
 2. **Retire the `episode_outcomes` reader.** Drop the duplicate top-level key from `sb3-dev` and `sb3-suite` (the flag already lives in `execution_features`), rebuild the unpublished archive in `theta-hub-v3`, reinstall it, delete the reader.
@@ -148,7 +148,7 @@ Exit gate: a compatible extension can be added without editing core policy, down
 | C | Runner features and resource hints | Done |
 | D | Standalone Slurm and tuning components, contribution and readiness contracts | Done |
 | E | App SDK and bundled-panel migration | Done |
-| F | Package format v3, `in/` retirement, adapter retirement (phase 4 including 4h) | Done except the TensorBoard flag |
+| F | Package format v3, `in/` retirement, adapter retirement (phase 4 including 4h) | Done |
 | G | Results in `src/usr/results` and explicit remote bundles (phase 5) | Next after F |
 | H | Installed entry points and distribution validation (phase 6) | After G |
 | I | Boundary enforcement (phase 7) | After H |

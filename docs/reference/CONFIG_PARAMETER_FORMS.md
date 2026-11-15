@@ -3,7 +3,7 @@
 These interaction rules apply to experiment, group-default, component, plugin, and optional configuration boxes. Preserve box-specific layouts and specialized editors: Methods keeps its method cards, Figures and Tables keeps its two-column figure cards, and Recorded Metrics keeps its section/metric toggle picker. Standardize their shared controls, not their entire presentation.
 
 - Use the shared `ToggleSlider` for boolean controls, including metric selectors; never introduce checkboxes.
-- Keep the experiment box's runtime boolean controls in a compact horizontal `FlowLayout` that wraps complete label/toggle/action groups with the available width. Their containers have transparent backgrounds, matching the card beneath them.
+- Keep the experiment box's runtime boolean controls in a compact horizontal `FlowLayout` that wraps complete label/toggle/action groups with the available width. Their containers have transparent backgrounds, matching the card beneath them. Each available run-logger backend contributes one of these toggles, labelled by its capability `label` and hidden while its `activation_plugin` is disabled; it edits `logging.backends.<id>.enabled`, and the generic `logging` section omits that switch. The form names no backend.
 - Numeric parameter inputs throughout Theta use the shared `SpinBox`, `DoubleSpinBox`, or `integer_field` controls without up/down arrow buttons. Keep typed editing and numeric validation. The seed parameter has no Random action.
 - Keep card styling on `ConfigBox`; identify sections with `configSection`, preserving the shared `configBox` theme property.
 - Put the top-level parameter **+ immediately beside the box title**, before any stretch or trailing actions. It adds only top-level parameters.

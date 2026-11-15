@@ -10,7 +10,8 @@
       "id": "tensorboard",
       "kind": "run_logger",
       "entry_point": "provider.py:create_logger",
-      "activation_plugin": "tensorboard"
+      "activation_plugin": "tensorboard",
+      "label": "Log to TensorBoard"
     }
   ],
   "payload": {
