@@ -139,6 +139,12 @@ def test_managed_publication_must_be_sealed_even_with_old_finalized_receipt():
     assert results_complete({'publication_state': 'sealed', 'status_error': 'accounting unavailable'})
 
 
+def test_shared_workspace_execution_completes_with_its_finalized_receipt():
+    record = {'execution_policy': None, 'publication_state': None, 'artifacts_finalized': False}
+    assert not results_complete(record)
+    assert results_complete({**record, 'artifacts_finalized': True})
+
+
 @pytest.mark.parametrize('state', ['failed', 'cancelled', 'timeout', 'out_of_memory', 'node_fail', 'submission_failed'])
 def test_terminated_unsealed_run_without_metrics_exposes_failure_logs(tmp_path, monkeypatch, state):
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))

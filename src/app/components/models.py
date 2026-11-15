@@ -133,7 +133,7 @@ class HubComponent:
 
     @property
     def aliases(self) -> List[str]:
-        """Legacy or alternate identifiers accepted by the package."""
+        """Alternate identifiers accepted by the package."""
         values = self.extra.get("aliases", [])
         return [value for value in values if isinstance(value, str)] if isinstance(values, list) else []
 

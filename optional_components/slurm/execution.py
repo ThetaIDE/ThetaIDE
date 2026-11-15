@@ -152,7 +152,7 @@ def _submit(root, experiment, overrides, cfg):
                   'overrides': command_overrides, 'resources': resources,
                   'config': OmegaConf.to_container(cfg, resolve=False), 'artifacts_finalized': False,
                   'execution_policy': policy, 'control_root': str(root), 'source_archive_sha256': source.get('archive_sha256'),
-                  'publication_state': 'pending' if policy else 'legacy',
+                  'publication_state': 'pending' if policy else None,
                   'tuner_execution': tuner_plan.record() if tuner_plan else None}
         request = cfg.get('study_continuation')
         if request:

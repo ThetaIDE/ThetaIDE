@@ -14,7 +14,7 @@ import tomllib
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
@@ -25,15 +25,6 @@ class RunLoggerContext:
     group_name: str
     experiment_id: str
     method_name: str
-
-
-def _tensorboard_logger(settings: Mapping[str, Any], context: RunLoggerContext):
-    """Compatibility wrapper for the historical default logger factory."""
-    from src.app.core.provider_loader import resolve_provider
-    return resolve_provider("run_logger", "tensorboard")(settings, context)
-
-
-_BUILTIN_PROVIDERS: dict[str, Callable] = {}
 
 
 def _configured_backends(cfg) -> dict[str, dict[str, Any]]:
@@ -64,7 +55,7 @@ def _configured_backends(cfg) -> dict[str, dict[str, Any]]:
 def _entry_points():
     try:
         return list(entry_points(group="thetaide.run_loggers"))
-    except TypeError:  # Python 3.10 compatibility for older importlib.metadata APIs
+    except TypeError:  # Python 3.10's importlib.metadata has no group selection
         return list(entry_points().get("thetaide.run_loggers", ()))
 
 
@@ -74,15 +65,10 @@ def _provider_for(backend_id: str, discovered) -> Callable | None:
     catalog = get_catalog()
     local = [(p, c) for p, c in catalog.candidates("run_logger", backend_id) if p.origin != "python_distribution"]
     if local:
-        if len(local) != 1 or any(point.name == backend_id for point in discovered) or backend_id in _BUILTIN_PROVIDERS:
+        if len(local) != 1 or any(point.name == backend_id for point in discovered):
             raise RuntimeError(f"Duplicate run logger provider id: {backend_id}")
         return load_capability(*local[0], paths=catalog.paths)
-    builtin = _BUILTIN_PROVIDERS.get(backend_id)
     matches = [point for point in discovered if point.name == backend_id]
-    if builtin is not None:
-        if matches:
-            raise RuntimeError(f"Run logger provider id '{backend_id}' conflicts with a built-in provider")
-        return builtin
     if len(matches) > 1:
         raise RuntimeError(f"Duplicate run logger provider id: {backend_id}")
     if not matches:

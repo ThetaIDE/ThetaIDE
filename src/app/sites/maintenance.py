@@ -1,4 +1,4 @@
-"""Ownership/reference based maintenance; legacy files are inventory-only."""
+"""Ownership/reference based maintenance; unclassified files are inventory-only."""
 import re
 import shutil
 import time

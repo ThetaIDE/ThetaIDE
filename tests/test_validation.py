@@ -67,7 +67,8 @@ def _declare_test_providers(tmp_path, monkeypatch):
             paradigms=['online_rl'] if name=='ppo' else ['offline_rl'] if kind=='algorithm' else []
             capability={'id':name,'kind':kind,'entry_point':'provider.py:Provider','paradigms':paradigms}
             if kind=='algorithm':
-                capability.update(execution_contract=1, backend='lightning')
+                capability.update(execution_contract=1, backend='lightning',
+                                  execution_features={'input_types': ['data_module', 'dataset_path', 'live_environment']})
             meta={'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
                   'capabilities':[capability],
                   'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}

@@ -197,7 +197,7 @@ def index(root, mode, execution_id=None, diagnostics=False):
 
 
 def _index(root, mode, execution_id=None, diagnostics=False):
-    """Login helper: read committed manifests; legacy DBs require explicit migration."""
+    """Login helper: read committed manifests."""
     root = Path(root).resolve()
     records, files = [], []
     generation = uuid.uuid4().hex

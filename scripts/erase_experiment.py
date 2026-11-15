@@ -238,12 +238,9 @@ def erase_experiments(
                             if dt.exists():
                                 items_to_remove.add(dt)
 
-            # 4. Optuna studies and legacy databases
+            # 4. Optuna studies in the shared database
             optuna_dir = results_path / "optuna"
             if optuna_dir.exists():
-                for db in optuna_dir.glob(f"*{clean_id}*.db"):
-                    if db.name != "optuna.db":
-                        items_to_remove.add(db)
                 shared_db = optuna_dir / "optuna.db"
                 if shared_db.exists() and not dry_run:
                     try:

@@ -190,7 +190,7 @@ def get_optuna_storage(storage_url: str):
 
 
 def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage_url: str | None = None) -> str:
-    """Choose a fresh version across legacy runs, sweep artifacts and storage.
+    """Choose a fresh version across sweep artifacts and storage.
 
     A cancelled study can exist without a completed training output folder.
     Storage is authoritative when provided; archived artifacts also reserve
@@ -203,7 +203,6 @@ def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage
 
     base_prefix = f"{experiment_id}_{agent_name}"
     study_pattern = re.compile(re.escape(base_prefix) + r"_v(\d+)$")
-    legacy_pattern = re.compile(r"version_(\d+)$")
     version = 0
 
     def include_study(name):
@@ -214,10 +213,6 @@ def get_next_study_name(group: str, experiment_id: str, agent_name: str, storage
 
     for directory in (Path("results/logs") / group / experiment_id / agent_name,
                       Path("results/checkpoints") / group / experiment_id / agent_name):
-        for path in directory.glob("version_*"):
-            match = legacy_pattern.fullmatch(path.name)
-            if path.is_dir() and match:
-                version = max(version, int(match[1]) + 1)
         for path in (directory / "sweeps").glob("*"):
             if path.is_dir():
                 include_study(unquote(path.name))
@@ -444,8 +439,7 @@ def promote_best_trial_checkpoint(
     matches = [path for path in candidates if path.is_file()]
     if len(matches) != 1:
         raise FileNotFoundError(
-            f"Expected one checkpoint for study {study_name!r}, trial {trial.number} in {trial_dir}; "
-            "legacy sweeps need an explicit trial-to-checkpoint mapping."
+            f"Expected one checkpoint for study {study_name!r}, trial {trial.number} in {trial_dir}."
         )
     source = matches[0]
     suffix = source.suffix

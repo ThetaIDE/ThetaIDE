@@ -83,10 +83,9 @@ def load_paradigm(paradigm_name: str, *, paths=None) -> dict:
 def paradigm_uses_agents(paradigm_name: str | None, *, paths=None) -> bool:
     """Whether methods in this paradigm name an RL agent harness.
 
-    An `allowed_agents: []` declaration means no agent is permitted at all, so
+    A paradigm whose `method.algorithm` is `forbidden` permits no agent, so
     methods name a model only - supervised and unsupervised both work that way,
-    having no policy that chooses actions. A paradigm that omits the key places
-    no restriction, which is treated as the RL default.
+    having no policy that chooses actions.
     """
     try:
         defn = load_paradigm(paradigm_name or "", paths=paths)
@@ -122,17 +121,13 @@ def paradigm_uses_live_environment(paradigm_name: str | None, *, paths=None) -> 
 
 
 def _algorithm_requirement(paradigm_def: dict[str, Any]) -> str:
-    """Return the declarative method contract with legacy-manifest fallback."""
+    """Return the paradigm's declared method.algorithm contract."""
     method = paradigm_def.get("method")
     declared = method.get("algorithm") if isinstance(method, dict) else None
     if isinstance(declared, str) and declared in ("required", "optional", "forbidden"):
         return declared
-    allowed = paradigm_def.get("allowed_agents", None)
-    if allowed is not None and not allowed:
-        return "forbidden"
-    if allowed or paradigm_def.get("constraints", {}).get("requires", {}).get("agent") == "required":
-        return "required"
-    return "optional"
+    raise ConfigurationError(
+        "Paradigm manifests must declare method.algorithm as 'required', 'optional' or 'forbidden'.")
 
 
 # ---------------------------------------------------------------------------

@@ -25,13 +25,11 @@ def test_new_sweep_skips_studies_without_training_output(tmp_path, monkeypatch):
     assert not optuna.load_study(study_name='e_m_v6', storage=storage).trials
 
 
-def test_sweep_archives_and_legacy_versions_both_reserve_names(tmp_path, monkeypatch):
+def test_sweep_archives_reserve_names(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    logs = tmp_path / 'results/logs/g/e/m'
-    (logs / 'version_2').mkdir(parents=True)
-    # Trial and seed suffixes are not legacy experiment version numbers.
-    (logs / 'version_sweep_hash_trial_0_seed_1234679').mkdir()
-    assert get_next_study_name('g', 'e', 'm') == 'e_m_v3'
+    # Training output folders do not name studies.
+    (tmp_path / 'results/logs/g/e/m/version_2').mkdir(parents=True)
+    assert get_next_study_name('g', 'e', 'm') == 'e_m_v0'
     checkpoints = tmp_path / 'results/checkpoints/g/e/m'
     (checkpoints / 'sweeps/e_m_v8').mkdir(parents=True)
     assert get_next_study_name('g', 'e', 'm') == 'e_m_v9'

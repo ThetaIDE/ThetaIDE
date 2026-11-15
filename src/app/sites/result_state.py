@@ -4,8 +4,8 @@
 def results_complete(record: dict) -> bool:
     """Only a committed final artifact manifest marks a remote result complete.
 
-    Managed publications seal after every producer has closed and stage-out drains.
-    Legacy executions use the finalized artifact manifest receipt instead.
+    Scratch executions seal their publication after every producer has closed and
+    stage-out drains. Shared-workspace executions finalize an artifact manifest receipt.
     Scheduler status describes the allocation, not the downloaded result snapshot.
     """
     publication = record.get('publication_manifest') or {}
