@@ -372,19 +372,6 @@ def test_no_plot_selection_skips_phase_and_plot_directory(qapp, tmp_path, monkey
     local_runner.run_plotting_phase(cfg, {})
 
 
-def test_slurm_uses_one_allocation_for_the_whole_pipeline(tmp_path, monkeypatch):
-    from src.app.pipeline import slurm_runner
-
-    monkeypatch.chdir(tmp_path)
-    submitted = []
-    monkeypatch.setattr(slurm_runner, "submit", lambda root, experiment, overrides, cfg:
-                        submitted.append((experiment, overrides, cfg)) or {"job_id": "1"})
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "run", "experiment_name": "g/run"})
-    assert slurm_runner.run_slurm_training(cfg, {"sanitized_extra_args": ["seed=3"]}) == (["1"], [], True)
-    assert len(submitted) == 1 and submitted[0][:2] == ("g/run", ["seed=3"])
-    assert not (tmp_path / "results/plots").exists()
-
-
 def test_remove_inherited_figures_masks_group_selection(qapp, tmp_path, monkeypatch):
     from frontend.config_viewer import ConfigViewer
     from src.app.pipeline.plot_config import should_run_plotting

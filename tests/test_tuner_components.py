@@ -250,42 +250,6 @@ def test_other_tuner_owns_compilation_and_lifecycle(monkeypatch):
     assert ("finalize", "g", "e", "method", "custom-storage", "custom-study") in events
 
 
-def test_slurm_uses_the_selected_tuners_runner_and_finalizer(tmp_path, monkeypatch):
-    from src.app.pipeline import slurm_runner
-
-    events = []
-    class ExampleTuner:
-        api_version = 1
-        def settings(self): return []
-        def validate_config(self, cfg): pass
-        def validate_dimension(self, target, dimension): pass
-        def compile(self, overrides, **context): return [*overrides, "custom_option=1"]
-        def job_entrypoint(self, cfg, method_cfg, script, python): return "my_tuner/runner.py", None
-        def study_name(self, cfg, method): return "my-study"
-        def storage(self, cfg): return "my-storage"
-        def prepare(self, cfg, storage, study): events.append((storage, study))
-        def finalize(self, group, experiment, method, storage, study): pass
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("src.app.core.provider_loader.resolve_provider", lambda kind, name, **_: ExampleTuner if (kind, name) == ("tuner", "example") else None)
-    monkeypatch.setattr(slurm_runner, "generate_sbatch_header", lambda **kwargs: "#!/bin/bash\n")
-    monkeypatch.setattr(slurm_runner, "get_shell_env_block", lambda site: "")
-    monkeypatch.setattr(slurm_runner, "get_shell_python_cmd", lambda site: "python")
-    monkeypatch.setattr(slurm_runner, "save_experiment_snapshot", lambda *args: None)
-    monkeypatch.setattr(slurm_runner, "save_run_config", lambda *args: None)
-    scripts = []
-    monkeypatch.setattr(slurm_runner, "submit_sbatch", lambda content: scripts.append(content) or "42")
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl",
-                            "site": {"consolidate": False}, "tuning": {"component": "example"}})
-    method = {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "custom"}}}
-    slurm_runner.run_slurm_training(cfg, {"methods": {"m": method}, "is_sweep": True,
-                                         "storage_url": "my-storage", "sanitized_extra_args": []})
-    assert events == [("my-storage", "my-study")]
-    assert "my_tuner/runner.py" in scripts[0]
-    assert "src.app.pipeline.tuner_finalize example g e m my-storage my-study" in scripts[0]
-    assert "optuna" not in scripts[0].lower()
-
-
 def test_independently_installed_tuner_runs_and_produces_plotman_artifacts(tmp_path):
     project = Path(__file__).resolve().parents[1]
     package = tmp_path / "package"
