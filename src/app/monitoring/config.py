@@ -141,10 +141,12 @@ def schema_for(path, cfg, catalog):
     """Use ordinary shared parameter controls for monitor component instances."""
     selectors = sorted({cap.id for package in catalog.packages for cap in package.capabilities if cap.kind == "monitor"})
     if len(path) == 1:
+        # One suggested instance per installed monitor, named after its capability.
+        names = [selector.rsplit("/", 1)[-1] for selector in selectors]
         return {"type": "object", "properties": {
-            "activations": {"type": "object", "default": {"component": "activation-evolution", "target": "network", "enabled": True}},
-            "network": {"type": "object", "default": {"component": "network-structure", "target": "network", "enabled": True}},
-            "circuit": {"type": "object", "default": {"component": "causal-circuit", "target": "network", "enabled": True}}}}
+            (name if names.count(name) == 1 else selector.replace("/", "_")):
+                {"type": "object", "default": {"component": selector, "enabled": True}}
+            for name, selector in zip(names, selectors)}}
     spec = (cfg.get("monitors") or {}).get(path[1]) or {}
     selected = catalog.resolve("monitor", spec.get("component", "")) if spec.get("component") else None
     parameters = selected[1].metadata.get("parameter_schema", selected[0].manifest.get("parameter_schema", {})) if selected else {}

@@ -331,3 +331,29 @@ def test_real_sb3_training_is_identical_with_and_without_diagnostics(tmp_path, f
     for key in results[0]:
         assert torch.equal(results[0][key], results[1][key]), key
     assert list((tmp_path / "True/monitors").rglob("snapshot_*.json"))
+
+
+def test_monitor_suggestions_follow_installed_capabilities(tmp_path):
+    """Suggested monitor instances come from the catalog, not from names core knows."""
+    import json
+    from src.app.core.provider_catalog import get_catalog
+    from src.app.monitoring.config import schema_for
+    from src.app.workspace import WorkspacePaths
+
+    paths = WorkspacePaths(tmp_path)
+    for package, ids in (("probe-a", ["probe-a/salience", "probe-a/drift"]), ("probe-b", ["probe-b/drift"])):
+        root = paths.user("monitor") / package
+        root.mkdir(parents=True)
+        (root / "monitor.py").write_text("raise AssertionError('schema executed monitor code')\n")
+        (root / ".theta_component.json").write_text(json.dumps({
+            "id": package, "name": package, "kind": "monitor", "version": "1.0.0",
+            "storage_version": 3, "api_version": 1,
+            "capabilities": [{"id": cid, "kind": "monitor", "entry_point": "monitor.py:Monitor",
+                              "requires": ["probe_forward.v1"]} for cid in ids],
+            "payload": {"implementations": ["monitor.py"], "resources": [], "configs": {}}}))
+    properties = schema_for(("monitors",), {}, get_catalog(paths))["properties"]
+    assert properties == {
+        "salience": {"type": "object", "default": {"component": "probe-a/salience", "enabled": True}},
+        "probe-a_drift": {"type": "object", "default": {"component": "probe-a/drift", "enabled": True}},
+        "probe-b_drift": {"type": "object", "default": {"component": "probe-b/drift", "enabled": True}},
+    }
