@@ -1,6 +1,6 @@
 # Slurm hardening and NCShare CPU rollout
 
-Status: implementation plan revised 2026-11-10 after storage, parallelism, publication, and recovery decisions; implementation and live validation remain outstanding. Addresses the [operational review](../reports/SLURM_NCSHARE_REVIEW_20261110.md). A ready-to-use [implementation handoff](../development/SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md) accompanies this plan.
+Status: implementation plan revised 2026-11-10 after storage, parallelism, publication, and recovery decisions; implementation and live validation remain outstanding. Addresses the [operational review](../reports/SLURM_NCSHARE_REVIEW_20261110.md). A ready-to-use [implementation handoff](../archive/SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md) accompanies this plan.
 
 First supported target: **`ncshare/common`**, including its existing `ncshare_common` compatibility alias. The user's reference to `ncsu_common` is interpreted as this existing NCShare CPU profile, not a new cluster or profile rename. GPU qualification follows CPU acceptance.
 

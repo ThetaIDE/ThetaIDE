@@ -1,6 +1,6 @@
 # Layer boundary implementation status
 
-Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) on branch `implement/layer-boundaries`, as of 2026-11-16. This page describes only what is true now and what is left; replace its contents as work lands rather than appending dated sections. The dated evidence for phases 0–4 (commits, test counts, reasoning) is in the [implementation history](../reports/LAYER_BOUNDARY_HISTORY_20261115.md). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the next work in order.
+Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) on branch `implement/layer-boundaries`, as of 2026-11-16. This page describes only what is true now and what is left; replace its contents as work lands. Dated evidence for phases 0–4 is in the [implementation history](../reports/LAYER_BOUNDARY_HISTORY_20261115.md). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the next work in order.
 
 ## Progress
 
@@ -10,100 +10,57 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 1 — Workspace and config ownership (B) | Done | — |
 | 2 — Runner features, site/tuner extraction (C, D) | Done | — |
 | 3 — App-plugin SDK (E) | Done | — |
-| 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | — |
-| 5 — Results in `src/usr/results`, remote bundles (G) | [Phase 5 plan](../plans/LAYER_BOUNDARY_PHASE5_PLAN.md); 5a/5b done, 5c code stabilized and verified | Moving the user's `results/` (dry run shown, waiting for a yes), 5d bundles, 5e requirements |
-| 6 — Installed distribution (H) | Not started; core stays at `src/app` (no move) | See the plan's phase 6 |
-| 7 — Enforcement (I) | Not started | See the plan's phase 7 |
+| 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | Publication |
+| 5 — Results in `src/usr/results`, remote bundles (G) | Done (`4d95ad5`); the user's results live in `src/usr/results` | — |
+| 6 — Installed distribution (H) | Done (`8da3c4c`) | — |
+| 7 — Enforcement (I) | Done (this commit series) | Paradigm compatibility and data-module `role` still have more than one home (below) |
 
-Gates: the real cluster smoke run is not a gate and is not run (user decision, 2026-11-15). The desktop is accepted as working; the interactive items below are still unchecked.
+Gates: the real cluster smoke run is not a gate and is not run (user decision, 2026-11-15). The desktop is accepted as working; the interactive items at the end are unchecked.
 
 ## Repositories
 
-- **IDE:** `implement/layer-boundaries` exists on `origin` (ThetaIDE/ThetaIDE); 5b, stabilized 5c and the UI refinement batch are local and unpushed. No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
-- **Hub releases:** Optuna 1.1.1 was independently published at the user's request; [release verification](../reports/OPTUNA_HUB_RELEASE_20261116.md). The remaining v3 batch in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) is local and unpushed; reconcile its stale Optuna 1.1.0 listing before publication. At that publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages are removed from the feed; until then the staged v3 validator fails on those seven storage-v2 entries. The user's own `../theta-plugins` and `../theta-hub` checkouts are never modified.
-- **Repository workspace:** runs the prepared v3 releases (20 packages). Optuna and Slurm are not installed there (Slurm collides with the authored `ncshare-site` package, which owns `site/ncshare/*`). The 4f backup is in `.thetaide/migrations/20261114T163513Z/`.
+- **IDE:** `implement/layer-boundaries` is pushed to `origin` (ThetaIDE/ThetaIDE). No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
+- **Hub releases:** Optuna 1.1.1 is published ([release verification](../reports/OPTUNA_HUB_RELEASE_20261116.md)). The rest of the v3 batch in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) is local and unpushed. Since the last preparation: Slurm is 2.0.0 (scheduler contract v2, declares `packaging`), the app plugins `antigravity`, `doom-sim` and `obsidian` are 1.2.0 (SDK `>=3.0,<4`), `cew` 1.1.1 declares `igraph`, `neumann` 1.1.1 drops an unused perception chain. The Hub-v3 archives and registry entries must be rebuilt for these before publication. At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages leave the feed; reconcile the stale Optuna 1.1.0 listing.
+- **Repository workspace:** runs the prepared v3 releases. Optuna 1.1.1 is installed there; Slurm is not (it collides with the authored `ncshare-site` package, which owns `site/ncshare/*`).
 
-## Unit 4h — phase 4 close-out
+## Phase 5 — results and bundles
 
-Done in commits `2898c2d`..`e3c98cd` (see `git log b7c13ac..`). Old inputs fail through ordinary validation, and no code names the old patterns. Covered: dead Slurm entry points, `episode_outcomes` and implicit Lightning features, `in.envs` hot reload, experiment export, generic workflow presets, `from_study` as recorded parameters, results readers (sibling grouping, unmarked summaries, old reports), core accessors, desktop aliases and `.plugins.json`, config forms (string sweep dimensions, short-name aliases, saved order keys), the catalog `LOGS_DIR` adapter and the `services` path constants, sites (shared-workspace executions now complete through their finalized receipt instead of waiting for a seal), Optuna study versions, paradigms that must declare `method.algorithm`, and the composite config-viewer tests (17 now run on the fixture workspace).
+- Every results path comes from `WorkspacePaths.results` (`src/usr/results`); `tests/test_layout_guard.py` rejects literal results paths. The user's old `results/` was merged into `src/usr/results`. Four 2026-11-14 files remain at `src/usr/results/results/logs/newMonitors/onlineRL/` because macOS treats `newMonitors` and the newer `NewMonitors` as one directory; nothing reads them.
+- A remote job runs from a bundle (`src/app/sites/bundle.py`, `theta.bundle/v1`) built from one composed experiment: the application without the desktop, the selected packages and their component dependencies, the workspace configuration outside `experiment/` plus the experiment files it reads, authored rules and the workspace identity. It composes its experiment on its own before upload. `.thetaide/requirements.txt` lists the application's and the selected providers' requirements; remote setup is `pip install -r`. Contract: [scheduler contract v2](../reference/SCHEDULER_CONTRACT.md#bundles). SDK 3.0 replaced `freeze`/`extract` with the bundle exports.
+- `site push SITE EXPERIMENT [OVERRIDES…]`; the remote workspace holds the last pushed bundle, and submission requires that bundle to be for the submitted experiment. Continuation requires the parent's bundle digest.
 
-Kept as current behavior (wording only): scalar method selections and method-level keys, the reported-metric objective, inline plot options, capability `aliases`, `ActionResult` unpacking, opt-in schema validation, the internal stylesheet roles in `frontend/theme.py`, and `hotkeys.panes` (still written by the settings view).
+## Phase 6 — installed distribution
 
-### Tuning has one shape
+`theta` (`run_pipeline:cli`) and `theta-ide` (`frontend.__main__:launch`) are installed entry points. An installed application is never a workspace: it uses the working directory or `THETA_WORKSPACE`. [Distribution evidence](../reports/LAYER_BOUNDARY_PHASE6_DISTRIBUTION_20261116.json): a fresh wheel installed in a clean environment installed SB3 with `theta component install`, trained CartPole with `theta` from an external workspace, opened `theta-ide` on it and launched the experiment through the desktop's job manager.
 
-Each tuning setting has exactly one home:
+## Phase 7 — enforcement
 
-- `tuning.component`, `tuning.metric` (or an `objective` component) and `tuning.direction`;
-- tuner settings under `tuning.options.<component>`;
-- the search space under a method's `tune`.
+- `tests/test_sdk_boundary.py` checks every tracked package (optional, bundled, authored `src/usr`, fixtures) with `package_errors` (SDK-only host imports, no other package's modules by path, no window access) and `undeclared_imports` (third-party imports come from the application's requirements or `dependencies.pip`), and checks that core and the desktop import no package by path and name no optional or authored package ID. See [SDK enforcement](../reference/SDK.md#enforcement).
+- The installer refuses, and the exporter will not export, package code that fails `package_errors`. The v3 package builder runs both checks.
+- Behavior tests use differently named providers: scheduler `lattice-batch`, tuners `lattice` and `fixture-grid` (dispatch, forms, bundle selection and requirements).
+- The scaffolder generates SDK-only code; a test scaffolds every kind and checks and imports the result.
+- Removed: the orphaned Model Builder modules and their test (its panel was withdrawn in the UI batch). Archived: the project organization proposal, the pre-v3 component development status, the execution refactor status and the first Slurm hardening handoff.
 
-Validation rejects any other `tuning` key and names where tuner settings go. Nothing reads tuning settings from paradigms, environments (`monitor_metric`), `hydra.sweeper.*`, flat `tuning.<option>` keys or a method's `search_space`. A new sweep block in the form seeds no metric or direction.
+## Still more than one home
 
-The Optuna component has one sweeper config, `hydra/sweeper/theta_optuna` (`optuna` is taken by the upstream Hydra plugin's schema). Every value in it is `???`. The tuner compiles all of them from the tuning block and rejects caller `hydra/sweeper` or `hydra.sweeper.*` arguments. Constructor defaults are gone from `ThetaOptunaSweeper`. The sweeper opens its study through `get_optuna_storage`, as study preparation does, so one storage URL serves both. Launch bindings may assign only `tuning.*` and `theta_tuning.*`. The tracked user-layer copies `src/usr/config/hydra/sweeper/optuna_{online,offline}.yaml` are deleted.
+- **Paradigm compatibility** has three: a profile's `compatible_paradigms` (preferred by the form, `frontend/config_viewer.py`), the capability's `paradigms`, and the package manifest's `paradigms` (`src/app/core/provider_metadata.py`, `src/app/pipeline/validation.py`). Collapsing them changes about 25 v3 packages and the forms, and the user's installed packages would lose filtering until republished; do it together with the Hub publication.
+- **Data-module `role`:** profile first, then capability metadata (`frontend/config_viewer.py`). Same timing.
 
-The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials: 64` and `n_jobs: 1` at the flat level, so it now fails validation until those keys move under `tuning.options.optuna` (user go-ahead needed).
+## Kept as current behavior
 
-Outside tuning, the checkpoint monitor still comes from paradigm or environment `monitor_metric` and `checkpoint.monitor` (`src/app/core/lightning_builder.py:376`–`:416`, `:690`). The bundled documentation (`src/plugins/app/bundled/documentation/content.py:666`, `:1073`) wrongly says `monitor_metric` is also the tuning target.
+Tuning has one shape: `tuning.{component, metric, direction, options.<component>}` plus each method's `tune`; validation rejects any other key. Checkpoint ranking by paradigm/environment `monitor_metric` and `checkpoint.monitor` stays (user). A run logger's only switch is `logging.backends.<id>.enabled`. The resource pool's SQLite column upgrade stays (the running desktop may hold that database). `requires-python` says 3.10, but core already imports `tomllib` (3.11).
 
-### Removed old top-level keys
-
-The `online_methods`/`offline_methods`/`offline_datasets` rejection and the `task:` warning in `run_pipeline.py` are deleted, with the tests that copied them. The root `sweep` key is gone from both base configs, the form's key lists and the docs; tuning is the `tuning` block alone.
-
-### Run loggers have one switch
-
-`logging.backends.<id>.enabled` is the only switch for a run logger; the root and `agent.tensorboard` flags and their translation are gone. The experiment form shows one toggle per available `run_logger` capability, labelled by the capability's `label` and hidden while its `activation_plugin` is disabled. The form names no backend.
-
-### Legacy sweep
-
-Old paths, shims and fallbacks found by a repository-wide search are gone (`547fd3f`): the ignored `is_sweep` argument, the Optuna `trial_worker` and `objectives.runner` shims, the `BaseMetaPipeline` stub, the site-profile forwarding filter, the second paradigm key per source, swallowed registry errors, the `blendrl-dev` null confidence floor, agent-level rates and comma-joined rules, and the `themes-dev` version-1 policy reader and missing `component_ids` fallback. What a search for legacy wording still finds is current: THEMES' "historical demo" (a research term), CodeMirror's `legacy-modes` package, bare ruleset names, and the `compatibility` manifest field.
-
-Two settings still have two homes, and fixing them needs v3 package changes and a republish: paradigm compatibility (the profile's `compatible_paradigms` wins over the manifest's `paradigms`, `frontend/config_viewer.py`) and the data-module `role` (profile first, then capability metadata). The plugin scaffolder (`src/app/services/plugin_scaffolder.py`) generates agent code that imports the private `src.app.core.protocols` and `agent_registry`; phase 7 enforcement will catch it.
-
-### Also left
-
-- The resource pool's SQLite `ALTER TABLE ADD COLUMN` upgrade (`src/app/services/resource_budget.py`) stays: the running desktop may hold that database.
-- Deferred tests (user decision): tests that read `~/.config/thetaide/settings.toml` (`frontend/runner_manager.py` `_load_resource_settings`) or QSettings, and `test_ncshare_hardening` loading Slurm from source instead of the installed component.
-- BlendRL 1.3.2 is prepared in `theta-plugins-v3` and installed locally: `blender` is the neural/symbolic selector, with required `blender_model` holding its model settings. It uses the existing required model picker and child adder, with no renderer changes. Its profile explicitly selects the prior implicit 64×64 DNN. The earlier 1.3.1 runtime batch passed sixteen native integration checks; the 1.3.2 metadata follow-up passes schema/isolated-install checks and twenty form/composite checks. BlendRL Hub publication remains separate and unperformed.
-
-## Phase 5
-
-Every results path comes from `WorkspacePaths.results`, which is `src/usr/results` (5c). The checkout's own `results/` has not moved yet: until it does, the desktop and pipeline started from this checkout see no earlier runs.
-
-- Pipeline processes (Lightning, telemetry, callbacks, sb3, Optuna) call `WorkspacePaths.for_process()`; nothing joins `results/` to the working directory or Hydra's original cwd. Hydra's `run.dir` and `sweep.dir` use the `${theta_results:}` resolver, which the Hydra plugin module registers. The unused `results_dir` key is gone.
-- Portable paths (site listings, run manifests, receipts) are workspace-relative strings built from `WorkspacePaths.results_relative`; site code uses `sites.storage.results_root` / `results_relative`.
-- Tuner artifacts are relative to the results directory (`optuna/<execution>/study.sqlite`); the host joins them to `WorkspacePaths(runtime).results`. `RunLoggerContext.base_root` became `results_root` (the results directory itself).
-- The desktop job database has one home, `.thetaide/runs/jobs/jobs.db`; the `results/jobs` default is gone.
-- Removed: `scripts/erase_experiment.py` and `scripts/clean_deleted.py` (the deletion-tracking and rsync-pull model they served is gone; the catalog deletes runs), the reports plotter's `results/logs/slurm` timing fallback, and the export dialog's working-directory fallback.
-- `tests/test_layout_guard.py` fails on any literal results path outside `src/app/workspace.py` (verbatim THEMES reference source excepted).
-- 5c: `.gitignore`, `MANIFEST.in`, the test leak check and the tests use `src/usr/results`. Walks of `src/usr` that look for source skip the results tree: remote source snapshots, the compose fingerprint, the workspace inventory and the implementation-edit lock.
-- `src.app.api.results` (SDK 2.4) gives packages and app plugins read-only access to runs: `list_runs`, `run_metrics`, `run_manifest`, `read_run_file`.
-- Stabilization: source snapshots prune results before traversal. Regression checks cover source inventory/cache stability, edit-lock exclusion, explicit SDK workspace selection and confined artifact reads. Desktop runner snapshots cannot roll back a newer RPC response, and jobs that finish before the next poll still have final output drained. Fake-pipeline tests explicitly substitute their application launcher and await asynchronous reconnect readiness.
-- The move of the user's `results/` (15,590 files, 1.23 GB, no symlinks or conflicts) runs from a scratch script: dry run, timestamped backup under `.thetaide/migrations/`, one rename, every hash checked. It moves `results/jobs`, `slurm`, `development` and `exports` as they are, though nothing reads them now.
-
-## UI refinements before phase 7
-
-The requested config and downstream UI batch is implemented: measured label widths and padded overflow reveals, hover-only sweep header adders, transparent edit wrappers with dynamic pencil slots, square section arrows, and the scalar BlendRL selector. Monitor places optional diagnostics and system charts on its overview; Results combines saved curves and diagnostics under Monitors, exposes generated files during active runs, and withholds their live curves. Summary, Plots, Figures and Model Builder navigation is removed; Config is YAML-only and Files omits the extra enclosing run folder. The terminal has a trailing New Shell entry and per-shell close buttons. Repeated group prefixes are shortened for display; result identities and existing files are not renamed.
-
-The unclear sync-button/tree-navigation notes are deferred, as is Vega pending the user's specific design. [Scope](../plans/UI_REFINEMENTS_20261115.md) and [focused verification](../reports/UI_REFINEMENTS_VERIFICATION_20261115.json). The results move still needs approval.
-
-Saved sweep ranges and lists retain their structured layout even without a ready tuner; their editing controls and floating actions stay disabled until readiness is restored. This also covers targets without ordinary parameter rows. Optuna 1.1.1 is now available through Hub → Refresh → All Components; the repository workspace still has no Optuna component installed.
-
+The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials`/`n_jobs` at the flat level and fails validation until they move under `tuning.options.optuna` (user knows).
 
 ## Tests
 
-5c verification (2026-11-15), all 225 test files in separate processes: **2,636 passed, 52 skipped, 126 failed**. There are **zero new failure IDs** against the 140 recorded 5b failures, and no unresolved aborts or timeouts after rerunning sandbox-affected files outside the sandbox. The job-manager file passes **19 tests, with 2 real-provider prerequisite skips**; the three new results-workspace checks and all 64 SDK-boundary checks pass. [Evidence and exact remaining failure IDs](../reports/LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json).
+Full per-file run (2026-11-16, all 225 files): **2,637 passed, 52 skipped, 133 failed**, no aborted files. No failure is new from this session: eight IDs absent from the 5c list fail identically at `9a3870e` (left by the UI/BlendRL batch: removed Plots panel in `test_frontend_layout`, required `blender_model` in `test_config_model`, Monitor consolidation in `test_tuning_monitor_contributions`, a capitalized label in `test_remote_partial_results`). Fifteen earlier IDs now pass or were removed. [Evidence and IDs](../reports/LAYER_BOUNDARY_PHASE7_VERIFICATION_20261116.json). Package integration in `../theta-plugins-v3`: 70 passed. Real SB3 CPU bundle runs (`test_ncshare_hardening` with `THETA_HUB_ROOT=../theta-hub-v3`) pass.
 
-Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. For 5c, compare against the saved 5b baseline (`9129f8b`) by test ID before calling a failure a regression.
-
-- **Fixtures.** `tests/conftest.py`'s autouse `tracked_workspace` selects a temporary copy of the checkout's tracked `src/usr`; a session hook fails the run if tests create result groups in the checkout's `src/usr/results`. `fixture_workspace` adds `tests/fixtures/workspace_usr` and `tests/fixtures/workspace_config`. `optuna_workspace`, `component_fixtures.sweep_workspace(root)` and `install_optional` install the optional components. `tests/themes_fixtures.py` generates THEMES inputs. `LocalHub` and the authored-NSFR test read sibling checkouts only through `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT`.
-- **Package integration** lives in `../theta-plugins-v3`: `../Theta-IDE/venv/bin/python -m pytest -q tests/test_native_integration.py` (71 passed).
-- **Stale tests, deferred (user decision):** the last full run (5c) recorded 126 failures in 27 files, all in the saved 5b baseline; the later UI batch has separate focused verification, with retired-view tests updated or removed where those features were withdrawn; exact IDs and file counts are in the evidence above. This includes 20 `test_paradigm_unsupervised` failures: its import-time check reads the real workspace catalog, while the hermetic fixture workspace has no autoencoder. The earlier 119-failure status predates the 5b comparison and is not the current total.
-- **Coverage gap:** no end-to-end test of managed parallel trials with a Theta-owned bootstrap.
+Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. Compare failures by ID against the evidence before calling one a regression. Fixtures: `tests/conftest.py`'s autouse `tracked_workspace`, `fixture_workspace`, `optuna_workspace`, `component_fixtures` (`install_optional`, `sweep_workspace`, `LocalHub` via `THETA_HUB_ROOT`), `tests/bundle_fixtures.py` for fake-project bundles. Deferred stale tests (user decision) include those reading `~/.config/thetaide/settings.toml` or QSettings.
 
 ## Desktop items not yet checked interactively
-
-The user opens the app and launches experiments. Not yet looked at since the changes:
 
 1. Editing a profile owned by an installed package asks for an override, and the copy appears under `src/usr/config`; authored-package profiles edit in place.
 2. The text editor, TensorBoard, documentation, arXiv and antigravity panels load, and survive disable and re-enable.
 3. Results previews generated figures for a finished run in a populated workspace.
+4. Settings → Terminal → Cluster sites: the experiment picker and the generated setup (`pip install -r .thetaide/requirements.txt`).

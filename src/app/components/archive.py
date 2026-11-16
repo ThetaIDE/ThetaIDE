@@ -147,6 +147,9 @@ def adapt(source, component, staged, *, version=None):
     if meta.get("id") != component.id or meta.get("kind") != component.kind or meta.get("version") != (version or component.version):
         raise ValueError("Archive identity/kind/version differs from requested component metadata")
     configs = validate_native_package(meta, source)
+    from src.app.components.sdk_boundary import package_errors
+    if errors := package_errors(meta, source):
+        raise ValueError("Package code must use the Theta SDK and declared exports: " + "; ".join(errors[:5]))
     if component.kind != "plugin":
         for path in source.rglob("plugin.json"):
             if json.loads(path.read_text()).get("kind", "plugin") == "plugin":

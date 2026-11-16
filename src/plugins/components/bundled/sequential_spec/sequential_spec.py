@@ -1,9 +1,9 @@
-"""Spec-driven sequential networks, for architectures authored in the GUI.
+"""Spec-driven sequential networks, for architectures written as configuration.
 
 Every other architecture in this package is a Python class with named
 hyperparameters, so adding one is a code change. This one takes the
 architecture *itself* as configuration: a ``layers`` list of
-``{type: ..., **params}`` dicts that the visual model builder writes into
+``{type: ..., **params}`` dicts in a model profile such as
 ``src/usr/config/model/<name>.yaml``.
 
 Nothing in the pipeline needed to change to support it. ``build_model``

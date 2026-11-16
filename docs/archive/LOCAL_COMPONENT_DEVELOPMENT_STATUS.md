@@ -1,9 +1,11 @@
 # Local component development — current scope and status
 
+> Archived 2026-11-16. Describes the checkout layout before package format v3 and the `src/usr` workspace. Current workflow: [Component development](../guides/COMPONENT_DEVELOPMENT.md).
+
 The shared component-development workflow is implemented on the existing checkout layout.
 This document replaces the earlier plan that allowed editing Hub originals and proposed a global
 component collection. Use [Component development](../guides/COMPONENT_DEVELOPMENT.md) for current commands.
-The larger [project organization proposal](../plans/PROJECT_ORGANIZATION_PLAN.md) remains deferred.
+The larger [project organization proposal](PROJECT_ORGANIZATION_PLAN.md) remains deferred.
 
 ## Supported workflow
 
@@ -66,4 +68,4 @@ changing permissions or replacing files.
 
 Independent workspace creation/switching/migration, direct external-repository registration, a new managed
 package layout, broad application-source renaming, and general copying of every component kind are deferred.
-Future production releases still follow [the Hub release workflow](THETA_HUB_RELEASE_WORKFLOW.md).
+Future production releases still follow [the Hub release workflow](../development/THETA_HUB_RELEASE_WORKFLOW.md).

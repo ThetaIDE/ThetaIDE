@@ -13,7 +13,9 @@
   "api_version": 1,
   "dependencies": {
     "components": [],
-    "pip": []
+    "pip": [
+      "packaging>=23"
+    ]
   },
   "capabilities": [
     {

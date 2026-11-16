@@ -31,7 +31,7 @@ def test_managed_app_plugin_uses_catalog_identity_and_releases_contributions(tmp
         z.writestr('.theta_component.json',json.dumps(meta))
         z.writestr('plugin.json',json.dumps({'id':'my_panel','entry_point':'Panel','core':True,'default_enabled':True,'sdk':'>=3.0,<4'}))
         z.writestr('helper.py','VALUE=7\n')
-        z.writestr('__init__.py', '''from frontend.plugins.base import Plugin
+        z.writestr('__init__.py', '''from src.app.api.desktop import Plugin
 from .helper import VALUE
 class Panel(Plugin):
     def activate(self,context):

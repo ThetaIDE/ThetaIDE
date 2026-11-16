@@ -79,6 +79,29 @@ def test_scaffold_plotter(tmp_path):
     assert (tmp_path / "src" / "usr" / "config" / "plot" / "pareto_frontier.yaml").is_file()
 
 
+@pytest.mark.parametrize("kind", ["model", "agent", "env", "datamodule", "evaluator", "plotter", "monitor"])
+def test_scaffolded_code_uses_only_the_sdk_and_imports(tmp_path, kind):
+    """Generated packages pass the checks the installer and exporter apply, and their code imports."""
+    import importlib.util, json, sys
+    from src.app.components.sdk_boundary import package_errors, undeclared_imports
+    from src.app.distribution import application_project
+    res = PluginScaffolder(workspace_root=tmp_path).scaffold(ScaffoldOptions(name=f"probe_{kind}", kind=kind))
+    assert res.success, res.error
+    manifest = json.loads((res.target_dir / ".theta_component.json").read_text())
+    assert package_errors(manifest, res.target_dir) == []
+    assert undeclared_imports(manifest, res.target_dir, application_project()[1]) == []
+    for path in res.target_dir.glob("*.py"):
+        if path.name == "__init__.py":
+            continue
+        spec = importlib.util.spec_from_file_location(f"scaffold_probe_{kind}_{path.stem}", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.modules.pop(spec.name, None)
+
+
 def test_scaffold_invalid_kind(tmp_path):
     scaffolder = PluginScaffolder(workspace_root=tmp_path)
     opts = ScaffoldOptions(name="invalid_comp", kind="unsupported_kind")

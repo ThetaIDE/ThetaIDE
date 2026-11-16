@@ -22,7 +22,6 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Extension contributions and readiness v1](reference/EXTENSION_CONTRIBUTIONS.md) — metadata-only discovery, enablement, lifecycle cleanup and tuner controls/monitor availability.
 - [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership and installing the optional Slurm component.
 - [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and receipts.
-- [Execution refactor implementation status](development/EXECUTION_ABSTRACTIONS_STATUS.md)
 - [Saved result layout](reference/RESULT_STORAGE.md) — experiment folders, unique runs, and legacy compatibility.
 - [Pipeline and component service API](reference/API.md)
 - [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md) — package format v3, profile resolution and declared cross-package exports.
@@ -33,16 +32,14 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Development
 
-- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — current state only: per-phase progress, the held phase 4 decision, phase 5 inputs and test conventions.
-- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: the TensorBoard flag, a legacy sweep, phases 5–7 and publication.
+- [Layer boundary implementation status](development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md) — current state only: per-phase progress (0–7 implemented), what still has more than one home, repositories and test conventions.
+- [Layer boundary handoff prompt](development/LAYER_BOUNDARY_HANDOFF.md) — prompt for a new agent session: publication, the remaining one-home settings, constraints and testing.
 - [Config panel implementation and extension guide](development/CONFIG_PANEL_IMPLEMENTATION_STATUS.md) — shared document, rows, regions, section adapters, verification and remaining integration gates.
 - [Measure startup and understand deferred services](development/STARTUP_PERFORMANCE.md)
 - [Author component plugins](development/COMPONENT_PLUGIN_GUIDE.md)
 - [Run native provider integration checks](development/PLUGIN_NATIVE_INTEGRATION.md)
 - [Release components to Theta Hub](development/THETA_HUB_RELEASE_WORKFLOW.md)
-- [Local component development status](development/LOCAL_COMPONENT_DEVELOPMENT_STATUS.md)
 - [Local variability implementation status](development/VARIABILITY_IMPLEMENTATION_STATUS.md)
-- [NCShare CPU Slurm implementation handoff](development/SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md)
 - [NCShare CPU implementation status and live validation commands](development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md)
 
 ## Plans
@@ -59,7 +56,6 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 - [Execution abstractions, THEMES components, and the AL group](plans/EXECUTION_ABSTRACTIONS_AND_THEMES_PLAN.md) — strict execution-contract migration using editable first-party dev components, then THEMES/AL; production Hub release and general workflows deferred. [Implementation prompt](plans/EXECUTION_ABSTRACTIONS_IMPLEMENTATION_PROMPT.md).
 - [Slurm hardening and NCShare CPU rollout](plans/SLURM_NCSHARE_HARDENING_PLAN.md) — storage/publication policy, parallelism and continuation boundaries, implementation sequence, and CPU acceptance gate.
-- [Project organization and workspace separation proposal](plans/PROJECT_ORGANIZATION_PLAN.md) — deferred architecture proposal.
 - [Hyperparameter sweep design](plans/HYPERPARAMETER_SWEEPS_DESIGN.md) — design draft.
 - [Training and evaluation variability design](plans/TRAINING_EVALUATION_VARIABILITY_DESIGN.md) — proposed design; see the [implementation status](development/VARIABILITY_IMPLEMENTATION_STATUS.md) for current behavior.
 - [Mechanistic monitoring roadmap](plans/MECHANISTIC_MONITORS_ROADMAP.md) — remaining work after the initial foundation.
@@ -75,6 +71,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 - [Layer boundary implementation history](reports/LAYER_BOUNDARY_HISTORY_20261115.md) — dated evidence for phases 0–4 (2026-11-13 to 11-15): commits, test counts and reasoning; superseded where later decisions differ.
 - [Installed layer-boundary distribution evidence](reports/LAYER_BOUNDARY_DISTRIBUTION_20261113.json) — artifact hashes, bundled inventory, dependency versions, external-workspace/worker agreement and relocated checkpoint reload.
 - [Phase 6 installed distribution evidence](reports/LAYER_BOUNDARY_PHASE6_DISTRIBUTION_20261116.json) — installed `theta`/`theta-ide` entry points, SB3 installed and trained from an external workspace by the CLI and by the desktop's job manager.
+- [Phase 7 verification](reports/LAYER_BOUNDARY_PHASE7_VERIFICATION_20261116.json) — full per-file run after phases 5d–7: totals, failure IDs, the eight UI-batch failures confirmed at `9a3870e`, and earlier IDs now passing.
 
 - [IDE, plugin, and user layer boundary audit](reports/LAYER_BOUNDARY_AUDIT_20261113.md) — ownership gaps in `in/`, execution, desktop extensions, package APIs, distribution, and remote snapshots.
 
@@ -93,6 +90,10 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 Historical context for earlier ThetaIDE, NeSyRL, and BlendRL work; commands and paths in these documents may refer to former projects.
 
+- [Project organization and workspace separation proposal](archive/PROJECT_ORGANIZATION_PLAN.md) — superseded by the layer boundary plan.
+- [Local component development status](archive/LOCAL_COMPONENT_DEVELOPMENT_STATUS.md) — the pre-v3 checkout layout.
+- [Execution refactor implementation status](archive/EXECUTION_ABSTRACTIONS_STATUS.md) — the 2026-11-11 execution refactor, `in/config` layout.
+- [NCShare CPU Slurm implementation handoff](archive/SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md) — the first Slurm hardening pass, before bundles.
 - [Configuration integration and training monitor change log](archive/CHANGES_M0_config_integration.md)
 - [Former BlendRL workflow guide](archive/WORKFLOW_GUIDE.md)
 - [Multi-model training pipeline handoff](archive/handoff_multimodel_training_pipeline.md)

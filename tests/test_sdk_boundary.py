@@ -1,18 +1,46 @@
-"""Optional components, bundled component packages and bundled app plugins use only the supported Theta SDK."""
+"""Packages reach the host only through the Theta SDK, other packages only through declared exports,
+and libraries only through declared requirements; core and the desktop name no package.
+
+Covered: optional components, bundled component packages and app plugins, the tracked authored
+packages under src/usr and the fixture packages. Installed packages are checked when installed
+(the installer refuses private imports) and when built (the package builder runs these checks).
+"""
+import ast
 import importlib
+import json
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.app.components.sdk_boundary import private_references, violations, window_access
+from src.app.components.sdk_boundary import (package_errors, package_references, private_references,
+                                             undeclared_imports, violations, window_access)
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARDED = [ROOT / "optional_components", ROOT / "src/plugins/components/bundled", ROOT / "src/plugins/app/bundled"]
+HOST_TREES = [ROOT / "src/app", ROOT / "frontend", ROOT / "hydra_plugins", ROOT / "run_pipeline.py"]
 
 
 def guarded_files():
     return sorted(p for root in GUARDED for p in root.rglob("*.py") if "__pycache__" not in p.parts)
+
+
+def package_roots():
+    """Every package this repository tracks: optional, bundled, authored (src/usr) and fixtures."""
+    listed = subprocess.run(["git", "ls-files", "*.theta_component.json"], cwd=ROOT, capture_output=True,
+                            text=True, check=True).stdout.split()
+    return sorted((ROOT / name).parent for name in listed)
+
+
+def application_requirements():
+    from src.app.distribution import application_project
+    return application_project(extras=("gui",))[1]
+
+
+def host_files():
+    return sorted(p for root in HOST_TREES for p in ([root] if root.is_file() else root.rglob("*.py"))
+                  if "__pycache__" not in p.parts and ".venv" not in p.parts)
 
 
 def test_guarded_trees_exist():
@@ -22,6 +50,75 @@ def test_guarded_trees_exist():
 @pytest.mark.parametrize("path", guarded_files(), ids=lambda p: str(p.relative_to(ROOT)))
 def test_imports_only_the_supported_sdk(path):
     assert private_references(path) == [], f"{path.relative_to(ROOT)} imports private host modules"
+
+
+def test_tracked_packages_cover_every_origin():
+    roots = {root.relative_to(ROOT).parts[0] if root.parts[-3:-1] != ("src", "usr") else "" for root in package_roots()}
+    assert {"optional_components", "src", "tests"} <= roots
+    assert any(root.is_relative_to(ROOT / "src/usr") for root in package_roots())
+
+
+@pytest.mark.parametrize("root", package_roots(), ids=lambda p: str(p.relative_to(ROOT)))
+def test_package_code_keeps_the_boundary_and_declares_its_imports(root):
+    manifest = json.loads((root / ".theta_component.json").read_text())
+    assert package_errors(manifest, root) == []
+    assert undeclared_imports(manifest, root, application_requirements()) == []
+
+
+def test_core_and_desktop_import_no_package_by_path():
+    # The provider loader alone maps loaded packages to their private module names.
+    loader = ROOT / "src/app/core/provider_loader.py"
+    found = [f"{p.relative_to(ROOT)}:{line}: {name}" for p in host_files() if p != loader
+             for line, name in package_references(p)]
+    assert found == []
+
+
+def test_core_and_desktop_name_no_optional_or_authored_package():
+    """Static half of 'core never branches on a package': no non-bundled package ID appears as a string."""
+    bundled = {json.loads(p.read_text())["id"] for p in [*(ROOT / "src/plugins/components/bundled").glob("*/.theta_component.json"),
+                                                          *(ROOT / "src/plugins/app/bundled").glob("*/plugin.json")]}
+    # Package IDs; capability IDs are ordinary words ("tuning", "losses") that name config keys too.
+    names = {json.loads((root / ".theta_component.json").read_text())["id"] for root in package_roots()}
+    # Registered exceptions: the Hydra discovery adapter for the Optuna sweeper, and the local site.
+    allowed = {("hydra_plugins/theta_optuna_sweeper.py", "optuna")}
+    names -= bundled | {"local", "default"}
+    found = []
+    for path in host_files():
+        relative = path.relative_to(ROOT).as_posix()
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
+                    and (relative, node.value) not in allowed):
+                found.append(f"{relative}:{node.lineno}: {node.value!r}")
+    assert found == []
+
+
+def test_the_installer_refuses_package_code_with_private_imports(tmp_path):
+    from types import SimpleNamespace
+    from src.app.components.archive import adapt
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "model.py").write_text("from src.app.core.model_registry import register_model\n")
+    (source / "test_model.py").write_text("from src.app.workspace import WorkspacePaths\n")
+    manifest = {"id": "leaky", "name": "Leaky", "kind": "model", "version": "1.0.0", "storage_version": 3, "api_version": 1,
+                "capabilities": [{"id": "leaky", "kind": "model", "entry_point": "model.py:Model"}],
+                "payload": {"implementations": ["model.py", "test_model.py"], "resources": [], "configs": {}}}
+    (source / ".theta_component.json").write_text(json.dumps(manifest))
+    component = SimpleNamespace(id="leaky", kind="model", version="1.0.0")
+    with pytest.raises(ValueError, match="model.py:1: imports private host module src.app.core.model_registry"):
+        adapt(source, component, tmp_path / "staged")
+    (source / "model.py").write_text("from src.app.api.models import register_model\n")
+    adapt(source, component, tmp_path / "staged")  # its own tests may use the host
+
+
+def test_undeclared_imports_follow_requirements_and_skip_optional_and_local_modules(tmp_path):
+    (tmp_path / "helpers.py").write_text("")
+    (tmp_path / "pkg.py").write_text(
+        "import os, numpy, helpers\nimport undeclared_lib\nimport declared_lib.sub\n"
+        "try:\n    import optional_lib\nexcept ImportError:\n    optional_lib = None\n"
+        "def f(atari):\n    if atari:\n        import ale_py\n")
+    manifest = {"dependencies": {"pip": ["declared-lib>=1"]}, "payload": {"implementations": ["pkg.py", "helpers.py"]}}
+    assert undeclared_imports(manifest, tmp_path, ["numpy>=1.24"]) == [
+        "pkg.py:2: imports undeclared_lib, which neither the application nor dependencies.pip provides"]
 
 
 def test_bundled_plugins_do_not_reach_into_the_host_window():
@@ -34,8 +131,10 @@ def test_violations_report_private_imports_and_window_access(tmp_path):
     (tmp_path / "pkg" / "a.py").write_text("from src.app.api.models import register_model\n"
                                             "from src.app.core.types import ActionResult\n")
     (tmp_path / "pkg" / "b.py").write_text("def f(context):\n    return context.window\n")
+    (tmp_path / "pkg" / "c.py").write_text("from src.usr.models.other.model import Net\n")
     assert violations(tmp_path) == ["pkg/a.py:2: imports private host module src.app.core.types",
-                                    "pkg/b.py:2: reaches into the host window"]
+                                    "pkg/b.py:2: reaches into the host window",
+                                    "pkg/c.py:1: imports package module src.usr.models.other.model by path; use a declared export"]
 
 
 def test_the_checker_rejects_private_imports(tmp_path):

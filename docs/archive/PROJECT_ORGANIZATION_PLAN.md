@@ -1,5 +1,7 @@
 # Project organization and workspace separation plan
 
+> Archived 2026-11-16. Superseded by the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md), which separated workspaces, installed packages and the application. Paths such as `in/config/` below no longer exist.
+
 Status: deferred architecture proposal. The scoped implementation is documented separately below; the target file trees, `theta` commands, package format, and migration phases in this proposal are not the current product layout or a committed delivery sequence.
 
 Current agreed delivery scope: keep the existing checkout layout, centralize its paths, and share component

@@ -251,12 +251,11 @@ import lightning as L
 import torch
 import torch.optim as optim
 
+from src.app.api.agents import register_agent
 from src.app.api.models import build_model
-from src.app.core.protocols import AuxiliaryLossProtocol, OptimizerGroupsProtocol
-from src.app.core.agent_registry import register_agent, register_algorithm
 
 
-@register_algorithm("{name}")
+@register_agent("{name}")
 class {class_name}(L.LightningModule):
     """Pluggable algorithm component extending PyTorch Lightning."""
 
@@ -284,7 +283,7 @@ class {class_name}(L.LightningModule):
         loss = torch.nn.functional.mse_loss(q_pred, reward)
 
         # Collect optional auxiliary losses from the model
-        if isinstance(self.model, AuxiliaryLossProtocol):
+        if hasattr(self.model, "compute_auxiliary_losses"):
             aux_losses = self.model.compute_auxiliary_losses(batch, q_pred)
             for k, v in aux_losses.items():
                 loss = loss + v
@@ -295,7 +294,7 @@ class {class_name}(L.LightningModule):
 
     def configure_optimizers(self):
         # Query custom optimizer parameter groups if model provides them
-        if isinstance(self.model, OptimizerGroupsProtocol):
+        if hasattr(self.model, "configure_optimizer_groups"):
             groups = self.model.configure_optimizer_groups(base_lr=self.lr)
             return optim.Adam(groups)
         return optim.Adam(self.parameters(), lr=self.lr)
@@ -363,15 +362,13 @@ epochs: 10
         paradigms = opts.paradigms or ["online_rl"]
         paradigms_yaml = "\n".join(f"  - {p}" for p in paradigms)
 
-        # 1. Environment implementation adhering to EnvironmentPluginProtocol
+        # 1. Environment implementation
         env_file = target_dir / "env.py"
         env_content = f'''"""Custom environment definition for {name}."""
 from typing import Any, Callable, List, Optional
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-
-from src.app.core.protocols import EnvironmentPluginProtocol
 
 
 class {name.capitalize()}GymEnv(gym.Env):
@@ -393,7 +390,7 @@ class {name.capitalize()}GymEnv(gym.Env):
         return obs, reward, done, False, {{}}
 
 
-class {class_name}(EnvironmentPluginProtocol):
+class {class_name}:
     """Environment plugin contract implementation."""
 
     @classmethod
@@ -418,7 +415,7 @@ class {class_name}(EnvironmentPluginProtocol):
 '''
         env_content += f'''
 
-from src.app.core.env_vectorized import VectorizedBaseEnv, ActionCount
+from src.app.api.environments import VectorizedBaseEnv, ActionCount
 import torch
 
 class VectorizedEnv(VectorizedBaseEnv):
@@ -506,14 +503,13 @@ env:
         paradigms = opts.paradigms or ["offline_rl", "supervised"]
 
         code_file = target_dir / f"{name}_data_module.py"
-        code_content = f'''"""Custom DataModule adhering to DataModulePluginProtocol."""
+        code_content = f'''"""Custom DataModule with trajectory window sampling."""
 from typing import Any, List
 import lightning as L
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from src.app.core.paradigm_loader import register_component
-from src.app.core.protocols import DataModulePluginProtocol, TrajectorySamplerProtocol
+from src.app.api.agents import register_component
 
 
 class {name.capitalize()}Dataset(Dataset):
@@ -528,7 +524,7 @@ class {name.capitalize()}Dataset(Dataset):
 
 
 @register_component("{class_name}")
-class {class_name}(L.LightningDataModule, DataModulePluginProtocol, TrajectorySamplerProtocol):
+class {class_name}(L.LightningDataModule):
     """Custom data module providing training batches and trajectory window sampling."""
 
     @classmethod
@@ -603,14 +599,13 @@ num_workers: 0
         paradigms = opts.paradigms or ["online_rl", "offline_rl", "supervised"]
 
         code_file = target_dir / f"{name}_evaluator.py"
-        code_content = f'''"""Custom evaluator adhering to EvaluationHookProtocol."""
+        code_content = f'''"""Custom evaluation hook."""
 from typing import Any, Dict, List
-from src.app.core.protocols import EvaluationHookProtocol
-from src.app.core.eval_registry import register_evaluator
+from src.app.api.evaluation import register_evaluator
 
 
 @register_evaluator("{name}")
-class {class_name}(EvaluationHookProtocol):
+class {class_name}:
     """Evaluates agent safety, verification bounds, or saliency attributions."""
 
     @classmethod
@@ -681,7 +676,7 @@ frequency: 1
         paradigms = opts.paradigms or ["online_rl", "offline_rl", "supervised"]
 
         code_file = target_dir / f"{name}_plotter.py"
-        code_content = f'''"""Custom plotter component adhering to BasePlotter and registered via @register_plotter."""
+        code_content = f'''"""Custom plotter component; its capability's entry point names the class."""
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -689,11 +684,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from src.app.core.plotting.base import BasePlotter, clean_label, get_style_info, moving_average
-from src.app.core.plotter_registry import register_plotter
+from src.app.api.plotting import BasePlotter, clean_label, get_style_info, moving_average
 
 
-@register_plotter("{name}")
 class {class_name}(BasePlotter):
     """Custom visualization and performance diagnostic plotter."""
 
@@ -759,7 +752,7 @@ output_dir: null
         target = opts.output_dir or self.paths.user("monitor") / name
         target.mkdir(parents=True, exist_ok=True)
         source = target / "monitor.py"
-        source.write_text('from src.app.monitoring.api import Result\n\nclass Monitor:\n    def collect(self, context):\n        return Result({"samples": float(len(context.probes.observations))})\n')
+        source.write_text('from src.app.api.monitoring import Result\n\nclass Monitor:\n    def collect(self, context):\n        return Result({"samples": float(len(context.probes.observations))})\n')
         (target / "__init__.py").write_text("")
         profile = self.paths.config / "monitor" / (name + ".yaml")
         profile.parent.mkdir(parents=True, exist_ok=True)

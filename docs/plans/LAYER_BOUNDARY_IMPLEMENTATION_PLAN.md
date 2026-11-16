@@ -141,6 +141,8 @@ Done 2026-11-16: `theta = run_pipeline:cli` and `theta-ide = frontend.__main__:l
 
 Exit gate: a compatible extension can be added without editing core policy, downloaded packages do not depend on particular `src/usr` files, user edits affect only the intended selection, and CI enforces this through imports and behavior.
 
+Done 2026-11-16: see [SDK enforcement](../reference/SDK.md#enforcement) and the [phase 7 verification](../reports/LAYER_BOUNDARY_PHASE7_VERIFICATION_20261116.json). Paradigm compatibility and data-module `role` keep more than one home until the v3 packages are republished ([status](../development/LAYER_BOUNDARY_IMPLEMENTATION_STATUS.md#still-more-than-one-home)).
+
 ## Delivery units
 
 | Delivery | Scope | State |

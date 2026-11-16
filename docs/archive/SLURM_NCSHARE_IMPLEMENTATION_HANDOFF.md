@@ -1,5 +1,7 @@
 # Implementation handoff: Slurm hardening for NCShare CPU
 
+> Archived 2026-11-16. Handoff for the first Slurm hardening pass, before remote jobs ran from experiment bundles. Current state: [NCShare implementation status](../development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md) and the [scheduler contract](../reference/SCHEDULER_CONTRACT.md).
+
 Copy the prompt below into a new coding session in this repository. The linked plan defines the current decisions and acceptance criteria; the operational review supplies findings, not proof of actual cluster disruption.
 
 ```text

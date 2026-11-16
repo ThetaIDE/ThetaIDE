@@ -41,6 +41,27 @@ def workspace(tmp_path_factory):
     shutil.rmtree(unrelated / 'configs')
     write_json(unrelated / '.theta_component.json', manifest)
     (WorkspacePaths(root).config / 'experiment/thetaide/tuned.yaml').write_text(TUNED)
+    # A tuner with another name and its own requirement: selection follows the recipe, not a name.
+    grid = root / 'src/usr/tuners/fixture-grid'
+    shutil.copytree(Path(__file__).parent / 'fixtures/portable_tuner', grid, ignore=shutil.ignore_patterns('__pycache__'))
+    manifest = read_json(grid / '.theta_component.json')
+    manifest['dependencies'] = {'pip': ['fixture-grid-search>=1']}
+    write_json(grid / '.theta_component.json', manifest)
+    (WorkspacePaths(root).config / 'experiment/thetaide/grid.yaml').write_text(TUNED.replace('component: optuna', 'component: fixture-grid')
+                                                                               .replace('experiment_id: tuned', 'experiment_id: grid'))
+    scheduler = root / 'src/usr/packages/independent-scheduler'
+    scheduler.mkdir(parents=True)
+    (scheduler / 'scheduler.py').write_text('class Scheduler:\n    api_version = 2\n')
+    write_json(scheduler / '.theta_component.json', {
+        'id': 'independent-scheduler', 'name': 'Independent', 'version': '1.0.0', 'kind': 'package',
+        'storage_version': 3, 'api_version': 1, 'dependencies': {'pip': ['lattice-batch-client>=2']},
+        'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 2}],
+        'payload': {'implementations': ['scheduler.py'], 'resources': [], 'configs': {}}})
+    from src.app.sites.catalog import create
+    create(root, 'lattice', {'scheduler': 'lattice-batch'}, {'common': {'scheduler': 'lattice-batch'}})
+    (WorkspacePaths(root).config / 'experiment/thetaide/lattice.yaml').write_text(
+        '# @package _global_\ndefaults:\n  - /experiment/thetaide/cartpole_ppo_reference\n  - override /site: lattice/common\n'
+        '  - _self_\n\nexperiment_id: lattice\n')
     results = WorkspacePaths(root).results / 'logs/thetaide/cartpole_ppo_baseline/run.csv'
     results.parent.mkdir(parents=True)
     results.write_text('step\n')
@@ -92,6 +113,23 @@ def test_selected_tuner_and_its_requirements_travel_with_the_bundle(selected, tm
     tuner = next(item for item in manifest['providers'] if item['id'] == 'optuna')
     assert tuner['path'] == 'src/plugins/components/installed/optuna' and tuner['digest']
     assert any(line.startswith('optuna') for line in manifest['requirements']['providers'])
+
+
+def test_a_differently_named_tuner_is_selected_the_same_way(selected, tmp_path):
+    manifest = bundle.prepare(selected, 'thetaide/grid', [], tmp_path / 'bundle')
+    assert 'fixture-grid' in providers(manifest) and 'optuna' not in providers(manifest)
+    assert 'fixture-grid-search>=1' in manifest['requirements']['providers']
+    assert not any(line.startswith('optuna') for line in manifest['requirements']['providers'])
+
+
+def test_a_differently_named_scheduler_travels_with_its_site(selected, tmp_path):
+    manifest = bundle.prepare(selected, 'thetaide/lattice', [], tmp_path / 'bundle')
+    assert manifest['experiment']['site'] == 'lattice/common'
+    scheduler = next(item for item in manifest['providers'] if item['id'] == 'independent-scheduler')
+    assert scheduler['capabilities'] == [{'kind': 'scheduler', 'id': 'lattice-batch', 'scheduler_api': 2}]
+    assert 'lattice-batch-client>=2' in manifest['requirements']['providers']
+    # Other experiments' sites and schedulers stay home.
+    assert 'independent-scheduler' not in providers(bundle.prepare(selected, 'thetaide/cartpole_ppo_reference', [], tmp_path / 'plain'))
 
 
 def test_unchanged_sources_reproduce_the_bundle_digest(selected, tmp_path):

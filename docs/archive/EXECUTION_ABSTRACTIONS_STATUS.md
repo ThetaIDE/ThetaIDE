@@ -1,5 +1,7 @@
 > **THEMES update:** The complete paper/source loop is now integrated under explicit `_port`/`paper_synthetic` recipes, with model-owned stage/policy/reward components, temporal data loader, round replay and full-loop monitors/PlotMan panels. Earlier demo results remain distinct. See [the source audit](../guides/THEMES_SOURCE_AUDIT.md).
 
+> Archived 2026-11-16. Status of the 2026-11-11 execution refactor, written for the `in/config` layout. Current contract: [execution v1](../reference/EXECUTION_CONTRACT.md).
+
 # Execution refactor implementation status
 
 Local development, 2026-11-11. The foundation, phase E extraction, and initial phase F synthetic AL integration

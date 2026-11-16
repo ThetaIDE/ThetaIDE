@@ -1,6 +1,6 @@
 # NCShare CPU implementation and validation status
 
-Updated 2026-11-10. Implements the revised [plan](../plans/SLURM_NCSHARE_HARDENING_PLAN.md) and [handoff](SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md). The original handoff/plan/review and existing index edits were uncommitted user work and have been preserved. No SSH, real Slurm submission/cancellation, remote cleanup, component release, commit, or push was performed.
+Updated 2026-11-10. Implements the revised [plan](../plans/SLURM_NCSHARE_HARDENING_PLAN.md) and [handoff](../archive/SLURM_NCSHARE_IMPLEMENTATION_HANDOFF.md). The original handoff/plan/review and existing index edits were uncommitted user work and have been preserved. No SSH, real Slurm submission/cancellation, remote cleanup, component release, commit, or push was performed.
 
 ## Implementation stages
 

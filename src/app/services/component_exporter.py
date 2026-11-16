@@ -159,6 +159,9 @@ class ComponentExporter:
                 for relative, source in files.items():
                     dest = stage / relative; dest.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(source,dest)
                 validate_native_package(manifest, stage)
+                from src.app.components.sdk_boundary import package_errors
+                if errors := package_errors(manifest, stage):
+                    raise ValueError('Package code must use the Theta SDK and declared exports: ' + '; '.join(errors[:5]))
             readme = f"# {manifest['name']}\n\nInstall this native archive through Theta's component installer.\n"
             writer = self._export_to_folder if opts.export_format == 'folder' else self._export_to_zip
             return writer(files, manifest, readme, owner.id, opts)
