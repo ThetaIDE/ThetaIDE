@@ -1,0 +1,24 @@
+{
+  "api_version": 1,
+  "source": "fast_stable.py",
+  "function": "evaluate",
+  "requires": {"episode_outcomes": true, "metrics": ["eval/reward"]},
+  "defaults": {
+    "metric": "eval/reward", "budget": 0, "reward_scale": 500, "target_reward": 495,
+    "stability_fraction": 0.25, "min_evaluations": 3, "tail_fraction": 0.5, "tail_weight": 0.25
+  },
+  "schema": {
+    "type": "object", "additionalProperties": false,
+    "required": ["metric", "budget", "reward_scale", "target_reward", "stability_fraction", "min_evaluations", "tail_fraction", "tail_weight"],
+    "properties": {
+      "metric": {"type": "string", "enum": ["eval/reward"]},
+      "budget": {"type": "number", "minimum": 0, "description": "Transition budget; zero uses total_timesteps."},
+      "reward_scale": {"type": "number", "exclusiveMinimum": 0},
+      "target_reward": {"type": "number", "exclusiveMinimum": 0, "description": "Minimum evaluation mean throughout the final stability window."},
+      "stability_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+      "min_evaluations": {"type": "integer", "minimum": 2},
+      "tail_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+      "tail_weight": {"type": "number", "minimum": 0, "maximum": 1}
+    }
+  }
+}

@@ -1,0 +1,44 @@
+architecture: themes-dev/full_bundle
+stage:
+  architecture: themes-dev/rmt_ticc
+  params:
+    stages: 11
+    sparsity: 0.00011
+    switch_penalty: 4.0
+    ticc_iterations: 50
+    window_rows: 2
+    covariance_ridge: 0.05
+    time_unit_minutes: 1.0
+    regulator_mean:
+    - 0.0
+    - 1.0
+    regulator_std:
+    - 0.2
+    - 1.0
+    cdf_floor: 0.001
+policy:
+  architecture: themes-dev/dense_policy
+  hidden_sizes:
+  - 32
+  - 32
+  activation: relu
+  output_scale: 1.0
+reward:
+  architecture: themes-dev/tabular_reward
+feedback_stage:
+  architecture: themes-dev/rmt_ticc
+  params:
+    stages: 11
+    sparsity: 0.011
+    switch_penalty: 10.0
+    ticc_iterations: 50
+    window_rows: 3
+    covariance_ridge: 0.05
+    time_unit_minutes: 1.0
+    regulator_mean:
+    - 0.0
+    - 1.0
+    regulator_std:
+    - 0.2
+    - 1.0
+    cdf_floor: 0.001

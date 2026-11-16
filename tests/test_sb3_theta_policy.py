@@ -62,7 +62,7 @@ def workspace(tmp_path, monkeypatch):
     from src.app.workspace import WorkspacePaths
     paths = WorkspacePaths(tmp_path)
     project = Path(__file__).resolve().parents[1]
-    shutil.copytree(project / "src/usr/algorithms/sb3-dev", paths.user("algorithm") / "sb3-dev",
+    shutil.copytree(project / "tests/fixtures/base_usr/algorithms/sb3-dev", paths.user("algorithm") / "sb3-dev",
                     ignore=shutil.ignore_patterns("__pycache__"))
     models = paths.user("model") / "test-models"
     models.mkdir(parents=True)

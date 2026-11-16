@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import time
+
+from conftest import base_workspace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -75,7 +77,7 @@ def main(cfg):
            "agent": {"name": "m", "algorithm": "sb3/ppo"}, "total_timesteps": 4, "eval_episodes": 1,
            "objective": {"component": "learning_curve"}, "theta_execution": {"script": str(script)},
            "variability": {"training_seeds": [11, 22], "parallel_runs": 2},
-           "hydra": {"searchpath": [f"file://{project / 'src/usr/config'}", f"file://{OPTUNA_CONFIGS}"]}}
+           "hydra": {"searchpath": [f"file://{base_workspace() / 'src/usr/config'}", f"file://{OPTUNA_CONFIGS}"]}}
     if not custom:
         cfg.pop("objective")
         cfg["tuning"] = {"metric": "eval/reward", "direction": "maximize"}

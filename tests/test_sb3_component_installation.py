@@ -19,7 +19,7 @@ def test_fresh_editable_sb3_runs_selected_model_and_reloads(tmp_path):
         pytest.skip('DNN source fixture is not installed')
     workspace = tmp_path / 'workspace'
     package = workspace / 'src/usr/algorithms/sb3-dev'
-    shutil.copytree(project / 'src/usr/algorithms/sb3-dev', package, ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(project / 'tests/fixtures/base_usr/algorithms/sb3-dev', package, ignore=shutil.ignore_patterns('__pycache__'))
     config = workspace / 'src/usr/config'
     shutil.copytree(project / 'src/app/config_defaults', config)
     model = workspace / 'src/usr/models/dnn-test-dev'

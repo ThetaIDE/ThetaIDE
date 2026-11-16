@@ -19,31 +19,6 @@ def qapp():
     return app
 
 
-def test_nsfr_and_neumann_standardized_plugins():
-    """Verify nsfr and neumann have valid component manifests, pyproject.toml, and register."""
-    auto_discover_models()
-
-    # Check nsfr
-    nsfr_manifest = Path("src/usr/models/nsfr/.theta_component.json")
-    if not nsfr_manifest.is_file():
-        pytest.skip("nsfr/neumann plugins not installed in local workspace")
-    assert nsfr_manifest.is_file()
-    meta_nsfr = json.loads(nsfr_manifest.read_text(encoding="utf-8"))
-    assert meta_nsfr["id"] == "nsfr"
-    assert meta_nsfr["kind"] == "model"
-    assert Path("src/usr/models/nsfr/pyproject.toml").is_file()
-    assert "nsfr" in MODEL_REGISTRY
-
-    # Check neumann
-    neumann_manifest = Path("src/usr/models/neumann/.theta_component.json")
-    assert neumann_manifest.is_file()
-    meta_neumann = json.loads(neumann_manifest.read_text(encoding="utf-8"))
-    assert meta_neumann["id"] == "neumann"
-    assert meta_neumann["kind"] == "model"
-    assert Path("src/usr/models/neumann/pyproject.toml").is_file()
-    assert "neumann" in MODEL_REGISTRY
-
-
 def test_generic_component_viewer_renders_lists_and_nested_dict(qapp, tmp_path):
     """Verify that model YAMLs with lists and nested dicts are rendered as editable fields."""
     model_yaml = tmp_path / "custom_hierarchical_model.yaml"

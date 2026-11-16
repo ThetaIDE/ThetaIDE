@@ -1,0 +1,34 @@
+{
+  "source": "/Users/cameronegbert/Research/THEMES/THEMES",
+  "files": {
+    "THEMES_src/CustomizeEnv.py": "e0e2cc62cc7246f5f97392a393b96d22efbca765d3b119439c989a0935263834",
+    "THEMES_src/EDM.py": "c4038428dc9d82187e95b9a395438d58acfb3b6bb19881f6122286b3b1ccba18",
+    "THEMES_src/EDM_case_study.py": "ae34ba6f1e5636f7d5bbe3d9d902367acb33081380e81763bda860582926a774",
+    "THEMES_src/EM_EDM.py": "2b3e5a0a1887ceadf37360f4ed1f539da5aaeca705d8ca5add6e0ecb55e7e47f",
+    "THEMES_src/EM_EDM_utils.py": "797f5730e06906a5a8e945d7affba9eb3d0640e886aa408bcf1f81c04b8aa6dd",
+    "THEMES_src/IdentifyGoodBadTrajs.py": "ce63e52fbc689d289dce03090aefd774358baa4856286161389d8974626e6dc5",
+    "THEMES_src/MTTICC_EDM.py": "094aa7a427bc83f6abd5b54303410f446e3697ccfc15f2f7e28ad601e0e61334",
+    "THEMES_src/MTTICC_EMEDM.py": "63d9c6221f4d3f935f8d7f5ed57ebfb9abf660419d46ee608cd3a122955b692f",
+    "THEMES_src/NV_MLIRL.py": "8d33c0cdf8b00261d5e712f6b5a2e37a430712f9d9f443a11f7f27a0a772770f",
+    "THEMES_src/THEMES_case_study.py": "608b9066b4ae8fd59546083162769721537d65cd67cdf5afcb1b203852b6a1d1",
+    "THEMES_src/THEMES_helper.py": "cc4f41b9c99a819d9682097ae9a7c2e12b7a2ed4ea68f9ffa4bdf37a492b0d20",
+    "THEMES_src/THEMES_learn.py": "a25c787e55c23216be02e3300869f51788e02e49d41c9228f2975d68241786a1",
+    "THEMES_src/THEMES_learn_agg.py": "5117cfa5ccb79bc19f603782e6c8c9ccd13c3a5062798308c6b14e52359d2dfe",
+    "THEMES_src/THEMES_learn_agg_1000.py": "013f69cea80b5ab91e743459305ac471f8c1785f2d35086579d70b0bf7caedad",
+    "THEMES_src/THEMES_test.py": "5320a018a5b5129b42c67fa986e8785e83aa978cb3d7792b345fad175a9c9dfe",
+    "THEMES_src/aggregate_results.py": "8f82956aa37bff0585c35b85bbb25f8050feae0f375540340dd2c233a5b46f63",
+    "THEMES_src/cca_learn.py": "1cb3088dd59f88e0c22b012faeb8c18928c70c6ea1652d12c6cc8b4b67c95ee8",
+    "THEMES_src/contrastive_criticality.py": "b9b75c1c30fc7a289253b9b2745b689c673b72903682018b2dfd7c99f15f0378",
+    "THEMES_src/prepare_its_for_ccal.py": "da51872836a118c9eda000547e59d8cd3f91d417b3f894cd5434bc581e62f44f",
+    "THEMES_src/themes_learn_arc.py": "8c8f8fe82217e73139e1179a21cfcb25b80f7472ea3cb048fd885441d03e7553",
+    "THEMES_src/tune_mtticc.py": "ecccfcd47434b3debe2ec632b5d93fa1a97a17a02ae54d3e7fde4da168758e54",
+    "THEMES_src/tune_mtticc_all.py": "b2cba6aeffaf06755e66e687c9c9e5f4cc7ec3ecdc761a73ab9e3bf5ade19f0e",
+    "THEMES_src/tune_mtticc_good.py": "53dd26b1622045942902bcd45d1739acf44f8f90ab685dd3c0d90d40ed3d0c1c",
+    "config.yml": "e4210dc1b6d26b45253979cb9e7756f968e7d9437a256ef04dcdc30ef4c81fc8",
+    "submit_cca_array.sh": "987a58859485b2cc4c800f3e54d85231b12d00a58d2f33b931dcd65435229422"
+  },
+  "excluded": [
+    "THEMES_src/volume: cohort indices and quality data"
+  ],
+  "runnable": false
+}

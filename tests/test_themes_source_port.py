@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'src/usr/packages/themes-dev'))
+PACKAGE = Path(__file__).resolve().parent / 'fixtures/base_usr/packages/themes-dev'
+sys.path.insert(0,str(PACKAGE))
 from themes_al.paper_methods import edm_objective, train_edm, discrete_dynamics, optimal_q, maximum_likelihood_irl
 from themes_al.models import instantiate_policy
 from themes_al.core import EMEDM
@@ -37,7 +37,7 @@ def test_original_recipes_fail_before_training_without_rewriting_config(workspac
 def test_learner_has_no_policy_architecture_fallback():
     with pytest.raises(TypeError,match='policy_factory'):
         EMEDM()
-    source = (ROOT/'src/usr/packages/themes-dev/themes_al/core.py').read_text()
+    source = (PACKAGE/'themes_al/core.py').read_text()
     tree = ast.parse(source)
     learner = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name=='EMEDM')
     assert not any(isinstance(n, ast.Name) and n.id in {'Policy','DensePolicy','Linear','Sequential'} for n in ast.walk(learner))
@@ -101,7 +101,7 @@ def test_edm_trains_supplied_model_and_keeps_input_config():
 
 def test_discrete_port_matches_original_function_exactly():
     # Execute only the available pure helper functions; never import upstream scripts.
-    source=ROOT/'src/usr/packages/themes-dev/reference/original/THEMES_src/THEMES_helper.py'
+    source=PACKAGE/'reference/original/THEMES_src/THEMES_helper.py'
     tree=ast.parse(source.read_text())
     keep=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {'ConvertNumListToOneHot','GenerateDiscreteSAP'}]
     import itertools

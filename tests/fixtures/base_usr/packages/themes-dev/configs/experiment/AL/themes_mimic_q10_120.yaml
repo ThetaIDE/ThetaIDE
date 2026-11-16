@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /experiment/AL/_base
+  - _self_
+experiment_id: themes_mimic_q10_120
+description: Complete THEMES paper/source port with explicit reward feedback; documented differences from unavailable upstream dependencies.
+dataset_path: ../../THEMES/datasets/MIMIC_md_expert_Q10_120.csv
+data_module: themes-dev/time_csv_trajectories
+methods:
+  themes:
+    agent: themes-dev/themes
+    model: themes-dev/full_bundle

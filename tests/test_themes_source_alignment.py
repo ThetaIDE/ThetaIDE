@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from scipy.special import softmax
 
-ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'src/usr/packages/themes-dev'))
+PACKAGE=Path(__file__).resolve().parent/'fixtures/base_usr/packages/themes-dev'
+sys.path.insert(0,str(PACKAGE))
 from themes_al.core import Segment,stack_windows,toeplitz_projection,sparse_toeplitz_precision
 from themes_al.source_run import segment_rewards
 from themes_al.paper_methods import (source_partition_labels,source_training_seed,
@@ -19,7 +19,7 @@ from themes_al.paper_methods import (source_partition_labels,source_training_see
 
 
 def source_function(filename,names,namespace):
-    p=ROOT/'src/usr/packages/themes-dev/reference/original/THEMES_src'/filename
+    p=PACKAGE/'reference/original/THEMES_src'/filename
     tree=ast.parse(p.read_text())
     keep=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names]
     exec(compile(ast.Module(body=keep,type_ignores=[]),str(p),'exec'),namespace)

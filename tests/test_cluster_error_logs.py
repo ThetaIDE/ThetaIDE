@@ -162,7 +162,7 @@ finally:
 
 
 def test_sb3_import_failure_preserves_the_dependency_cause(monkeypatch, capsys):
-    spec = importlib.util.spec_from_file_location('sb3_error_runner', REPO / 'src/usr/algorithms/sb3-dev/sb3_runner.py')
+    spec = importlib.util.spec_from_file_location('sb3_error_runner', REPO / 'tests/fixtures/base_usr/algorithms/sb3-dev/sb3_runner.py')
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     original = builtins.__import__

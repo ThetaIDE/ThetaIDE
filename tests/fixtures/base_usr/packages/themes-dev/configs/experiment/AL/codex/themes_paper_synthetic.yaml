@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - /experiment/AL/codex/_base
+  - _self_
+experiment_id: themes_paper_synthetic
+description: Artificial irregular-time trajectories; complete THEMES reward-feedback smoke.
+dataset_path: package://themes-dev/resources/synthetic_time.csv
+data_module: themes-dev/time_csv_trajectories
+methods:
+  themes:
+    agent:
+      name: themes-dev/themes
+      outer_iterations: 2
+      em:
+        groups: 2
+        iterations: 2
+      edm:
+        updates: 8
+        sgld_steps: 2
+      irl:
+        optimizer_iterations: 30
+    model:
+      name: themes-dev/full_bundle
+      stage:
+        params:
+          stages: 2
+          ticc_iterations: 3
+
+      feedback_stage:
+        params:
+          stages: 2
+          ticc_iterations: 3

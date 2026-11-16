@@ -1,0 +1,17 @@
+# @package site
+defaults:
+- /site/ncshare/_defaults
+- _self_
+scheduler: slurm
+consolidate: true
+gres_format: gpu:{gpu_type}:{gpus}
+resources:
+  partition: gpu
+  gpus: 1
+  cores: 16
+  memory: 32G
+  no_gres: false
+module_loads:
+- cuda
+extra_env_vars:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True

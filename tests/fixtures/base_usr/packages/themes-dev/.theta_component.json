@@ -1,0 +1,1038 @@
+{
+  "id": "themes-dev",
+  "name": "THEMES source audit and experimental integrations",
+  "description": "Original source mirrored verbatim; original training gated; historical demo requires explicit selection.",
+  "kind": "suite",
+  "version": "0.1.0",
+  "storage_version": 3,
+  "api_version": 1,
+  "origin": "user",
+  "capabilities": [
+    {
+      "id": "themes-dev/runner",
+      "kind": "component",
+      "entry_point": "theta_adapter.py:ApprenticeshipRunner",
+      "execution_contract": 1
+    },
+    {
+      "id": "themes-dev/em_edm",
+      "kind": "algorithm",
+      "entry_point": "theta_adapter.py:execute",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "monitoring": {
+        "supports": [
+          "scalars.v1",
+          "system.v1",
+          "numerical_round.v1"
+        ],
+        "catalog": "monitor_catalog.py:outputs"
+      },
+      "execution_features": {
+        "evaluation": "both",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "themes.inference/v1"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        },
+        {
+          "level": "block",
+          "kind": "datamodule",
+          "contract": "themes.trajectories/v1"
+        },
+        {
+          "level": "block",
+          "kind": "model",
+          "contract": "themes.models/v1",
+          "message": "Select a composite model with explicit stage and policy providers; stage-only models cannot supply policies"
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/ticc",
+      "kind": "model",
+      "entry_point": "themes_al/core.py:MultiSeriesTICC",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/trajectories",
+      "kind": "datamodule",
+      "entry_point": "theta_adapter.py:TrajectorySource",
+      "provides": [
+        "themes.trajectories/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/recorded_actions",
+      "kind": "evaluator",
+      "entry_point": "themes_al/demo.py:export_results"
+    },
+    {
+      "id": "themes-dev/csv_trajectories",
+      "kind": "datamodule",
+      "entry_point": "csv_loader.py:ThemesCsvLoader",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "visit_column": {
+            "type": "string"
+          },
+          "time_column": {
+            "type": "string"
+          },
+          "action_column": {
+            "type": "string"
+          },
+          "feature_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "person_column": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_fraction": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "provides": [
+        "themes.trajectories/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/themes",
+      "kind": "plotter",
+      "entry_point": "themes_plotter.py:ThemesPlotter"
+    },
+    {
+      "id": "themes-dev/bundle",
+      "kind": "model",
+      "entry_point": "numerical_models.py:ThemesModels",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "provides": [
+        "themes.models/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/dense_policy",
+      "kind": "model",
+      "entry_point": "themes_al/models.py:DensePolicy",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/themes",
+      "kind": "algorithm",
+      "entry_point": "theta_adapter.py:execute",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "monitoring": {
+        "supports": [
+          "scalars.v1",
+          "system.v1",
+          "numerical_round.v1"
+        ],
+        "catalog": "monitor_catalog.py:outputs"
+      },
+      "execution_features": {
+        "evaluation": "both",
+        "resume_modes": [
+          "inference"
+        ],
+        "checkpoint_formats": [
+          "themes.inference/v1"
+        ],
+        "tuning": false,
+        "winner_promotion": false,
+        "episode_outcomes": false
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        },
+        {
+          "level": "block",
+          "kind": "datamodule",
+          "contract": "themes.trajectories/v1"
+        },
+        {
+          "level": "block",
+          "kind": "model",
+          "contract": "themes.models/v1",
+          "message": "Select a composite model with explicit stage and policy providers; stage-only models cannot supply policies"
+        },
+        {
+          "level": "block",
+          "kind": "datamodule",
+          "contract": "themes.temporal/v1",
+          "when": {
+            "agent.implementation": [
+              "paper_source_port"
+            ]
+          },
+          "message": "Full THEMES requires a temporal data loader"
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/rmt_ticc",
+      "kind": "model",
+      "entry_point": "themes_al/rmt_ticc.py:RewardTICC",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/tabular_reward",
+      "kind": "model",
+      "entry_point": "themes_al/rmt_ticc.py:TabularReward",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/time_csv_trajectories",
+      "kind": "datamodule",
+      "entry_point": "time_loader.py:ThemesTimeCsvLoader",
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "visit_column": {
+            "type": "string"
+          },
+          "time_column": {
+            "type": "string"
+          },
+          "action_column": {
+            "type": "string"
+          },
+          "feature_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "person_column": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_fraction": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 1
+          },
+          "window_minutes": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "lag_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policy_scaling": {
+            "enum": [
+              "train_minmax_zero_one",
+              "train_minmax_minus_one_one"
+            ]
+          },
+          "clip_policy_inputs": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "provides": [
+        "themes.trajectories/v1",
+        "themes.temporal/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/full_bundle",
+      "kind": "model",
+      "entry_point": "numerical_models.py:ThemesModels",
+      "backend": "numerical",
+      "execution_contract": 1,
+      "provides": [
+        "themes.models/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "themes-dev/themes_full",
+      "kind": "plotter",
+      "entry_point": "themes_plotter.py:ThemesFullPlotter"
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "theta_adapter.py",
+      "themes_al",
+      "csv_loader.py",
+      "themes_plotter.py",
+      "monitor_catalog.py",
+      "training_monitor.py",
+      "numerical_models.py",
+      "source_readiness.py",
+      "time_loader.py"
+    ],
+    "resources": [
+      "resources/synthetic.npz",
+      "PROVENANCE.json",
+      "README.md",
+      "reference",
+      "resources/synthetic_time.csv"
+    ],
+    "configs": {
+      "paradigms/apprenticeship.yaml": "configs/paradigms/apprenticeship.yaml",
+      "agent/themes-dev/em_edm.yaml": "configs/agent/themes-dev/em_edm.yaml",
+      "model/themes-dev/ticc.yaml": "configs/model/themes-dev/ticc.yaml",
+      "data/themes-dev/trajectories.yaml": "configs/data/themes-dev/trajectories.yaml",
+      "experiment/AL/_base.yaml": "configs/experiment/AL/_base.yaml",
+      "experiment/AL/codex/themes_synthetic_smoke.yaml": "configs/experiment/AL/codex/themes_synthetic_smoke.yaml",
+      "experiment/AL/codex/themes_synthetic.yaml": "configs/experiment/AL/codex/themes_synthetic.yaml",
+      "data/themes-dev/csv_trajectories.yaml": "configs/data/themes-dev/csv_trajectories.yaml",
+      "experiment/AL/codex/themes_mimic_q10_120.yaml": "configs/experiment/AL/codex/themes_mimic_q10_120.yaml",
+      "experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml": "configs/experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml",
+      "plot/themes-dev/themes.yaml": "configs/plot/themes-dev/themes.yaml",
+      "model/themes-dev/bundle.yaml": "configs/model/themes-dev/bundle.yaml",
+      "agent/themes-dev/themes.yaml": "configs/agent/themes-dev/themes.yaml",
+      "model/themes-dev/full_bundle.yaml": "configs/model/themes-dev/full_bundle.yaml",
+      "data/themes-dev/time_csv_trajectories.yaml": "configs/data/themes-dev/time_csv_trajectories.yaml",
+      "experiment/AL/codex/themes_paper_synthetic.yaml": "configs/experiment/AL/codex/themes_paper_synthetic.yaml",
+      "experiment/AL/codex/themes_mimic_q10_120_port.yaml": "configs/experiment/AL/codex/themes_mimic_q10_120_port.yaml",
+      "plot/themes-dev/themes_full.yaml": "configs/plot/themes-dev/themes_full.yaml",
+      "experiment/AL/themes_mimic_q10_120.yaml": "configs/experiment/AL/themes_mimic_q10_120.yaml",
+      "experiment/AL/codex/_base.yaml": "configs/experiment/AL/codex/_base.yaml"
+    }
+  },
+  "config_paths": [
+    "paradigms/apprenticeship.yaml",
+    "agent/themes-dev/em_edm.yaml",
+    "model/themes-dev/ticc.yaml",
+    "data/themes-dev/trajectories.yaml",
+    "experiment/AL/_base.yaml",
+    "experiment/AL/codex/themes_synthetic_smoke.yaml",
+    "experiment/AL/codex/themes_synthetic.yaml",
+    "data/themes-dev/csv_trajectories.yaml",
+    "experiment/AL/codex/themes_mimic_q10_120.yaml",
+    "experiment/AL/codex/themes_mimic_cleantrain_q10_116.yaml",
+    "plot/themes-dev/themes.yaml",
+    "model/themes-dev/bundle.yaml",
+    "agent/themes-dev/themes.yaml",
+    "model/themes-dev/full_bundle.yaml",
+    "data/themes-dev/time_csv_trajectories.yaml",
+    "experiment/AL/codex/themes_paper_synthetic.yaml",
+    "experiment/AL/codex/themes_mimic_q10_120_port.yaml",
+    "plot/themes-dev/themes_full.yaml",
+    "experiment/AL/themes_mimic_q10_120.yaml",
+    "experiment/AL/codex/_base.yaml"
+  ],
+  "parameter_schema": {
+    "type": "object",
+    "properties": {},
+    "x-theta-config-schemas": {
+      "agent/themes-dev/em_edm.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "backend": {
+            "enum": [
+              "numerical"
+            ]
+          },
+          "patients": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "groups": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "min_group_segments": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "em_iterations": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updates": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sgld_steps": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "density_weight": {
+            "type": "number",
+            "minimum": 0
+          },
+          "monitor_probe_count": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 512
+          },
+          "monitor_max_snapshots": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "name": {
+            "type": "string"
+          },
+          "implementation": {
+            "enum": [
+              "original",
+              "demo_reconstruction"
+            ]
+          },
+          "seed": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "model/themes-dev/ticc.yaml": {
+        "type": "object",
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "stages": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sparsity": {
+            "type": "number",
+            "minimum": 0
+          },
+          "switch_penalty": {
+            "type": "number",
+            "minimum": 0
+          },
+          "ticc_iterations": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "data/themes-dev/csv_trajectories.yaml": {
+        "type": "object",
+        "properties": {
+          "data_module": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "training"
+            ]
+          },
+          "visit_column": {
+            "type": "string"
+          },
+          "time_column": {
+            "type": "string"
+          },
+          "action_column": {
+            "type": "string"
+          },
+          "feature_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "person_column": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_fraction": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 1
+          }
+        }
+      },
+      "plot/themes-dev/themes.yaml": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "split": {
+            "enum": [
+              "all",
+              "train",
+              "test"
+            ]
+          },
+          "max_visits": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40
+          },
+          "dpi": {
+            "type": "integer",
+            "minimum": 50,
+            "maximum": 600
+          },
+          "figsize": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "panels": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "likelihood",
+                "support",
+                "action_rates",
+                "stage_policy",
+                "segment_lengths",
+                "membership",
+                "stage_timeline",
+                "policy_timeline",
+                "stage_convergence",
+                "em_convergence",
+                "policy_training",
+                "outer_convergence",
+                "reward_matrix",
+                "reward_feedback"
+              ]
+            }
+          }
+        }
+      },
+      "agent/themes-dev/themes.yaml": {
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "implementation": {
+            "type": "string"
+          },
+          "patients": {
+            "type": "integer"
+          },
+          "outer_iterations": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "em": {
+            "type": "object",
+            "properties": {
+              "groups": {
+                "type": "integer"
+              },
+              "iterations": {
+                "type": "integer"
+              },
+              "cluster_threshold": {
+                "type": "integer"
+              },
+              "beta": {
+                "type": "number"
+              },
+              "likelihood_tolerance": {
+                "type": "number"
+              },
+              "decrease_tolerance": {
+                "type": "number"
+              },
+              "initialization_seed": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "edm": {
+            "type": "object",
+            "properties": {
+              "updates": {
+                "type": "integer"
+              },
+              "batch_size": {
+                "type": "integer"
+              },
+              "learning_rate": {
+                "type": "number"
+              },
+              "adam_betas": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "buffer_size": {
+                "type": "integer"
+              },
+              "sgld_steps": {
+                "type": "integer"
+              },
+              "sgld_step_size": {
+                "type": "number"
+              },
+              "sgld_noise": {
+                "type": "number"
+              },
+              "reinit_probability": {
+                "type": "number"
+              },
+              "density_weight": {
+                "type": "number"
+              },
+              "energy_regularizer": {
+                "type": "number"
+              },
+              "density_regularizer": {
+                "type": "number",
+                "minimum": 0
+              },
+              "demonstration_sampling": {
+                "enum": [
+                  "uniform_rows"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "irl": {
+            "type": "object",
+            "properties": {
+              "discount": {
+                "type": "number"
+              },
+              "beta": {
+                "type": "number"
+              },
+              "reward_bound": {
+                "type": "number"
+              },
+              "tolerance": {
+                "type": "number"
+              },
+              "value_iterations": {
+                "type": "integer"
+              },
+              "optimizer_iterations": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "monitor_probe_count": {
+            "type": "integer"
+          },
+          "monitor_max_snapshots": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "reward_feedback": {
+            "enum": [
+              "segment_posterior",
+              "row_action_probability"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "model/themes-dev/full_bundle.yaml": {
+        "type": "object",
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "object",
+            "properties": {
+              "architecture": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "stages": {
+                    "type": "integer"
+                  },
+                  "sparsity": {
+                    "type": "number"
+                  },
+                  "switch_penalty": {
+                    "type": "number"
+                  },
+                  "ticc_iterations": {
+                    "type": "integer"
+                  },
+                  "window_rows": {
+                    "type": "integer"
+                  },
+                  "covariance_ridge": {
+                    "type": "number"
+                  },
+                  "time_unit_minutes": {
+                    "type": "number"
+                  },
+                  "regulator_mean": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "regulator_std": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "cdf_floor": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "architecture": {
+                "type": "string"
+              },
+              "hidden_sizes": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "activation": {
+                "type": "string"
+              },
+              "output_scale": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          },
+          "reward": {
+            "type": "object",
+            "properties": {
+              "architecture": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "feedback_stage": {
+            "type": "object",
+            "properties": {
+              "architecture": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "stages": {
+                    "type": "integer"
+                  },
+                  "sparsity": {
+                    "type": "number"
+                  },
+                  "switch_penalty": {
+                    "type": "number"
+                  },
+                  "ticc_iterations": {
+                    "type": "integer"
+                  },
+                  "window_rows": {
+                    "type": "integer"
+                  },
+                  "covariance_ridge": {
+                    "type": "number"
+                  },
+                  "time_unit_minutes": {
+                    "type": "number"
+                  },
+                  "regulator_mean": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "regulator_std": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "cdf_floor": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "data/themes-dev/time_csv_trajectories.yaml": {
+        "type": "object",
+        "properties": {
+          "data_module": {
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "training"
+            ]
+          },
+          "visit_column": {
+            "type": "string"
+          },
+          "time_column": {
+            "type": "string"
+          },
+          "action_column": {
+            "type": "string"
+          },
+          "feature_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "person_column": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_fraction": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 1
+          },
+          "window_minutes": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "lag_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "policy_scaling": {
+            "enum": [
+              "train_minmax_zero_one",
+              "train_minmax_minus_one_one"
+            ]
+          },
+          "clip_policy_inputs": {
+            "type": "boolean"
+          }
+        }
+      },
+      "plot/themes-dev/themes_full.yaml": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "split": {
+            "enum": [
+              "all",
+              "train",
+              "test"
+            ]
+          },
+          "max_visits": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40
+          },
+          "dpi": {
+            "type": "integer",
+            "minimum": 50,
+            "maximum": 600
+          },
+          "figsize": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "panels": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "likelihood",
+                "support",
+                "action_rates",
+                "stage_policy",
+                "segment_lengths",
+                "membership",
+                "stage_timeline",
+                "policy_timeline",
+                "stage_convergence",
+                "em_convergence",
+                "policy_training",
+                "outer_convergence",
+                "reward_matrix",
+                "reward_feedback"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "pip": [
+      "numpy>=1.24,<3",
+      "scipy>=1.10",
+      "scikit-learn>=1.2",
+      "torch>=2,<3",
+      "pandas>=2,<3",
+      "matplotlib>=3.7,<4"
+    ],
+    "components": []
+  }
+}

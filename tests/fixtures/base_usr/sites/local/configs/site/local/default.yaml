@@ -1,0 +1,4 @@
+# @package site
+defaults:
+- /site/local/_defaults
+- _self_

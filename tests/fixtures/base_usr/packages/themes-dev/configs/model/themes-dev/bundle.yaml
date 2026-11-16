@@ -1,0 +1,12 @@
+architecture: themes-dev/bundle
+stage:
+  architecture: themes-dev/ticc
+  stages: 2
+  sparsity: 0.01
+  switch_penalty: 4.0
+  ticc_iterations: 2
+policy:
+  architecture: themes-dev/dense_policy
+  hidden_sizes: [32, 32]
+  activation: relu
+  output_scale: 0.5

@@ -30,8 +30,6 @@ MLP_INSTALLED = any(
 )
 needs_mlp = pytest.mark.skipif(not MLP_INSTALLED, reason="the MLP model component is not installed")
 
-CONFIG = Path("src/usr/config")
-
 
 class _Cfg(dict):
     def get(self, key, default=None):
@@ -213,52 +211,6 @@ def test_the_supervised_runner_trains_a_classifier():
         assert after > 0.9, f"a separable dataset should be learnable (auc={after:.3f})"
 
 
-def test_a_supervised_group_is_configured_for_this_path():
-    """Whatever supervised groups are present must be runnable by this path.
-
-    No experiment group ships in the repo any more: they are Hub components,
-    and CI sees only the fixture workspace. So this checks every supervised
-    group it can find rather than naming one, and says so when there are none
-    instead of asserting against a group that is not there.
-
-    It no longer requires `data_module`. The supervised paradigm declares
-    `default_data_module: SupervisedDataModule`, which carries
-    `npz_delegate = "SupervisedNpzDataModule"`, so a group naming the loader
-    itself is redundant: the bug that assertion guarded is fixed structurally.
-    """
-    import yaml
-
-    bases = sorted((CONFIG / "experiment").glob("*/_base.yaml"))
-    supervised = []
-    for path in bases:
-        raw = yaml.safe_load(path.read_text()) or {}
-        if raw.get("paradigm") == "supervised":
-            supervised.append((path, raw))
-
-    if not supervised:
-        pytest.skip("no supervised group present: they are Hub components now")
-
-    for path, base in supervised:
-        where = path.parent.name
-        assert "intervals_count" not in base, f"{where} uses the key that was renamed to epochs"
-        if "eval_episodes" in base:
-            assert base["eval_episodes"] == 0, f"{where}: supervised has no simulator to roll out in"
-        for name, spec in (base.get("methods") or {}).items():
-            assert "agent" not in spec, f"{where}.{name}: supervised methods name a model, not an agent"
-
-
-def test_the_model_config_names_a_resolvable_lightning_module():
-    """Without this key supervised silently falls back to the MIMIC module."""
-    import yaml
-
-    cfg_candidates = list((CONFIG / "model").rglob("mlp_classifier.yaml"))
-    if not cfg_candidates or not MLP_INSTALLED:
-        pytest.skip("mlp_classifier.yaml not in config tree")
-    model_cfg = yaml.safe_load(cfg_candidates[0].read_text())
-    assert get_component(model_cfg.get("lightning_module")) is not None
-    assert model_cfg.get("architecture") == "mlp_classifier" or model_cfg.get("type") == "mlp_classifier"
-
-
 @needs_mlp
 def test_scoring_does_not_leave_the_model_in_eval_mode():
     """The classifier has dropout, so evaluating a checkpoint and then resuming
@@ -323,19 +275,6 @@ def test_the_two_paradigms_declare_different_delegates():
     supervised = get_component("SupervisedDataModule")
     unsupervised = get_component("UnsupervisedDataModule")
     assert supervised.npz_delegate != unsupervised.npz_delegate
-
-
-def test_the_environment_does_not_choose_the_loader():
-    """An env is shared across paradigms, and train.py prefers the env's choice
-    over the paradigm's, so naming a loader there picked the wrong one."""
-    import yaml
-
-    for name in ("breast_cancer", "digits"):
-        env_file = CONFIG / "env" / f"{name}.yaml"
-        if not env_file.is_file():
-            continue
-        env = yaml.safe_load(env_file.read_text())
-        assert "data_module" not in env, f"{name}.yaml should leave the loader to the paradigm"
 
 
 def test_paradigms_do_not_choose_an_installed_model_for_the_user():

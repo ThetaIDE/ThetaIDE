@@ -128,9 +128,9 @@ def sweep_workspace(root):
     Run the script with `THETA_WORKSPACE` set to `paths.root`.
     """
     import shutil
-    from conftest import checkout_workspace
+    from conftest import base_workspace
     root = Path(root)
-    shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
+    shutil.copytree(base_workspace(), root, dirs_exist_ok=True)
     paths = WorkspacePaths(root)
     install_optional(paths, 'optuna', root.parent / (root.name + '-archives'))
     roots = [path for path in paths.config_roots() if path != paths.config]

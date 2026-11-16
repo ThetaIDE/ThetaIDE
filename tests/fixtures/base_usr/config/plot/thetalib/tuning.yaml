@@ -1,0 +1,3 @@
+output_subdir: tuning
+figsize: [8, 5]
+dpi: 150

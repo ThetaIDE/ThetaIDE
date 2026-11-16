@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src/usr/packages/themes-dev"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures/base_usr/packages/themes-dev"))
 
 import numpy as np
 
@@ -174,7 +174,7 @@ def test_reload_restores_frozen_preprocessing_and_likelihood(fitted_bundle):
 
 def test_fresh_process_reload_has_no_theta_dependency(fitted_bundle):
     output, _ = fitted_bundle
-    package = Path(__file__).resolve().parents[1] / 'src/usr/packages/themes-dev'
+    package = Path(__file__).resolve().parent / 'fixtures/base_usr/packages/themes-dev'
     result = subprocess.run([sys.executable, '-c',
         'import sys; from themes_al.artifacts import verify; '
         f'assert verify({str(output)!r})["status"] == "passed"; '

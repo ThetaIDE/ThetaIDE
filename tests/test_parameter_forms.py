@@ -1573,7 +1573,8 @@ def test_real_component_monitors_show_individual_toggles_before_a_run(tmp_path):
     from pathlib import Path
     from src.app.telemetry.monitors import available_monitors
 
-    tree = ConfigTree(Path(__file__).resolve().parents[1] / "src/usr/config")
+    from conftest import base_workspace
+    tree = ConfigTree(base_workspace() / "src/usr/config")
     set_config_tree(tree)
     data = {"telemetry": {"monitors": {"enabled": True, "disabled": []}},
             "methods": {"demo": {"agent": "sb3-dev/ppo", "model": {
@@ -1880,7 +1881,8 @@ def test_removing_invalid_monitor_instance_clears_warning_and_preserves_componen
     from pathlib import Path
     from src.app.telemetry.monitors import available_monitors
 
-    set_config_tree(ConfigTree(Path(__file__).resolve().parents[1] / "src/usr/config"))
+    from conftest import base_workspace
+    set_config_tree(ConfigTree(base_workspace() / "src/usr/config"))
     data = {"telemetry": {"monitors": {"enabled": True, "disabled": []}},
             "methods": {"demo": {"agent": "sb3-dev/ppo", "model": {
                 "name": "blendrl-dev", "neural": {"name": "dnn"}, "symbolic": {"type": "nsfr"}}}}}

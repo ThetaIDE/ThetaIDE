@@ -1,0 +1,7 @@
+# NCShare login from the ncshare command in ~/.zshrc.
+Host ncshare
+    HostName login.ncshare.org
+    User cegbert1
+
+# Preserve existing authentication, agent and machine-specific SSH preferences.
+Include ~/.ssh/config

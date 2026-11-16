@@ -19,15 +19,12 @@ PROJECT_ROOT = Path(__file__).parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
 TEST_WORKSPACE_CONFIG = Path(__file__).parent / "fixtures" / "workspace_config"
 TEST_WORKSPACE_USR = Path(__file__).parent / "fixtures" / "workspace_usr"
+BASE_WORKSPACE_USR = Path(__file__).parent / "fixtures" / "base_usr"
 
 for p in [
     str(PROJECT_ROOT),
     str(SRC_DIR),
     str(SRC_DIR / "app"),
-    str(SRC_DIR / "usr"),
-    str(SRC_DIR / "usr" / "models"),
-    str(SRC_DIR / "usr" / "environments"),
-    str(SRC_DIR / "usr" / "eval"),
 ]:
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -60,63 +57,63 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 @functools.cache
-def checkout_workspace():
-    """A workspace holding exactly this checkout's tracked ``src/usr`` files.
+def base_workspace():
+    """The workspace every test runs in unless it builds its own: ``tests/fixtures/base_usr``.
 
-    Fresh and populated checkouts look the same here: packages the developer installed,
-    ignored recipes, rules and datasets, and ``.thetaide`` state are absent. Built once per
-    test session; tests that change workspace content use their own ``tmp_path`` workspace.
+    It never reads the developer's ``src/usr``, installed packages, ignored recipes or
+    ``.thetaide`` state. The fixture packages (``sb3-dev``, ``d3rlpy-dev``,
+    ``gym_classic_control_dev``, ``blendrl-dev``) provide the algorithms, environment and
+    composite model. Built once per test session; tests that change workspace content use
+    their own ``tmp_path`` workspace.
     """
     import atexit
-    import subprocess
     import tempfile
-    root = Path(tempfile.mkdtemp(prefix="theta-checkout-workspace-"))
+    root = Path(tempfile.mkdtemp(prefix="theta-test-workspace-"))
     atexit.register(shutil.rmtree, root, ignore_errors=True)
-    listed = subprocess.run(["git", "ls-files", "-z", "--", "src/usr"], cwd=PROJECT_ROOT,
-                            capture_output=True, check=True).stdout.split(b"\0")
-    for name in filter(None, (item.decode() for item in listed)):
-        source = PROJECT_ROOT / name
-        if source.is_file() and not source.is_symlink():
-            (root / name).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, root / name)
+    shutil.copytree(BASE_WORKSPACE_USR, root / "src/usr",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     return root
+
+
+# Selected at import, so module-level catalog lookups during collection see it too.
+os.environ["THETA_WORKSPACE"] = str(base_workspace())
+os.environ.pop("THETA_DATA_DIR", None)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _session_workspace():
-    """Select the checkout workspace before module- and class-scoped fixtures run."""
+    """Select the base workspace before module- and class-scoped fixtures run."""
     with pytest.MonkeyPatch.context() as patch:
-        patch.setenv("THETA_WORKSPACE", str(checkout_workspace()))
+        patch.setenv("THETA_WORKSPACE", str(base_workspace()))
         patch.delenv("THETA_DATA_DIR", raising=False)
         yield
 
 
 @pytest.fixture(autouse=True)
 def tracked_workspace(_session_workspace, monkeypatch):
-    """Select the checkout workspace as every test's process workspace.
+    """Select the base workspace as every test's process workspace.
 
     ``WorkspacePaths.for_process()``, ``get_catalog()``, Hydra composition and worker
     subprocesses then never resolve the developer's own ``src/usr``, installed packages or
     ``.thetaide`` state. Tests that need other packages build their own workspace and select
     it with ``THETA_WORKSPACE``.
     """
-    root = checkout_workspace()
+    root = base_workspace()
     monkeypatch.setenv("THETA_WORKSPACE", str(root))
     monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     return root
 
 
 def copy_research_config(target):
-    """Copy every non-bundled profile the checkout workspace resolves into ``target``.
+    """Copy every non-bundled profile the base workspace resolves into ``target``.
 
-    Bundled profiles still come from the application. Tracked user files and authored
-    package profiles become editable files of an isolated workspace; the developer's
-    installed packages and ignored recipes are never read.
+    Bundled profiles still come from the application; fixture package profiles become
+    editable files of an isolated workspace.
     """
     from src.app.core.provider_catalog import DuplicateProvider
     from src.app.workspace import WorkspacePaths
     target = Path(target)
-    resolver = WorkspacePaths(checkout_workspace()).config_resolver()
+    resolver = WorkspacePaths(base_workspace()).config_resolver()
     for selector in resolver.selectors():
         try:
             resolved = resolver.resolve(selector)
@@ -131,15 +128,13 @@ def copy_research_config(target):
 
 
 def build_fixture_workspace(root):
-    """Copy the checkout workspace plus test profiles and fixture packages into ``root``.
+    """Copy the base workspace plus test profiles and fixture packages into ``root``.
 
-    The tracked packages (``sb3-dev``, ``d3rlpy-dev``, ``gym_classic_control_dev``,
-    ``blendrl-dev``) provide the algorithms, environment and composite model the fixture
-    recipes select; ``test-models`` provides ``dnn``.
+    ``test-models`` provides ``dnn``; see ``base_workspace`` for the rest.
     """
     from src.app.workspace import WorkspacePaths
     root = Path(root)
-    shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
+    shutil.copytree(base_workspace(), root, dirs_exist_ok=True)
     shutil.copytree(TEST_WORKSPACE_USR, root / "src/usr", dirs_exist_ok=True)
     shutil.copytree(TEST_WORKSPACE_CONFIG, WorkspacePaths(root).config, dirs_exist_ok=True)
     return root
@@ -258,8 +253,8 @@ def _no_hub_network(monkeypatch):
 
 @pytest.fixture
 def own_workspace(tmp_path, monkeypatch):
-    """Select a copy of the checkout workspace in ``tmp_path``, so a run's results land in ``tmp_path``."""
-    shutil.copytree(checkout_workspace(), tmp_path, dirs_exist_ok=True)
+    """Select a copy of the base workspace in ``tmp_path``, so a run's results land in ``tmp_path``."""
+    shutil.copytree(base_workspace(), tmp_path, dirs_exist_ok=True)
     monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
     monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     return tmp_path

@@ -1,0 +1,39 @@
+algorithm: themes-dev/themes
+backend: numerical
+implementation: paper_source_port
+patients: 0
+outer_iterations: 10
+em:
+  groups: 3
+  iterations: 10
+  cluster_threshold: 0
+  beta: 0.5
+  likelihood_tolerance: 1.0e-05
+  decrease_tolerance: 100.0
+  initialization_seed: 0
+edm:
+  updates: 500
+  batch_size: 64
+  learning_rate: 0.001
+  adam_betas:
+  - 0.9
+  - 0.999
+  buffer_size: 10000
+  sgld_steps: 10
+  sgld_step_size: 0.001
+  sgld_noise: 0.01
+  reinit_probability: 0.05
+  density_weight: 1.0
+  energy_regularizer: 0.0
+  density_regularizer: 1.0
+  demonstration_sampling: uniform_rows
+irl:
+  discount: 0.8
+  beta: 0.5
+  reward_bound: 5.0
+  tolerance: 1.0e-06
+  value_iterations: 1000
+  optimizer_iterations: 100
+monitor_probe_count: 64
+monitor_max_snapshots: 8
+reward_feedback: segment_posterior

@@ -189,7 +189,7 @@ def test_removed_import_aliases_and_base_paradigms():
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module(removed)
     for name in ("online_rl", "offline_rl", "supervised", "unsupervised"):
-        assert (PROJECT_ROOT / "src/usr/config/paradigms" / (name + ".yaml")).is_file()
+        assert (PROJECT_ROOT / "src/app/config_defaults/paradigms" / (name + ".yaml")).is_file()
         assert (PROJECT_ROOT / "src/app/core/paradigm_impls/base" / (name + ".py")).is_file()
 
 

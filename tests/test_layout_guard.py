@@ -51,3 +51,21 @@ def test_results_paths_come_only_from_the_workspace():
                  for number, line in enumerate(text.splitlines(), start=1)
                  if RESULTS_LITERAL.search(line)]
     assert not offenders, "derive results paths from WorkspacePaths.results:\n" + "\n".join(offenders)
+
+
+# The repository root joined with src/usr (ROOT / "src/usr/...", parents[1] / "src/usr", or a
+# working-directory-relative Path("src/usr...")): the developer's own workspace.
+CHECKOUT_USR = re.compile(r"""((\b(ROOT|REPO|PROJECT_ROOT|project)|parents\[1\]|parent\.parent)\s*/\s*["']|Path\(\s*["'])src/usr(?!/results)""")
+# Lint over tracked repository files, not a workspace read.
+REPOSITORY_LINT = ("tests/test_sdk_boundary.py", "tests/test_workspace_defaults.py", "tests/test_layout_guard.py")
+
+
+def test_tests_never_read_the_checkout_workspace():
+    """Tests run in workspaces built from tests/fixtures; the developer's src/usr is theirs."""
+    tests = ROOT / "tests"
+    offenders = [f"{path.relative_to(ROOT)}:{number}: {line.strip()[:120]}"
+                 for path in sorted(tests.rglob("*.py")) if "fixtures" not in path.relative_to(tests).parts
+                 and str(path.relative_to(ROOT)) not in REPOSITORY_LINT
+                 for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+                 if CHECKOUT_USR.search(line)]
+    assert not offenders, "build the workspace from tests/fixtures instead:\n" + "\n".join(offenders)

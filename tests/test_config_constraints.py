@@ -122,10 +122,6 @@ def an_experiment_in(group):
         for path in sorted(directory.glob("*.yaml")):
             if not path.name.startswith("_"):
                 return path, f"experiment/{group}/{path.name}"
-    directory = Path("src/usr/config/experiment") / group
-    for path in sorted(directory.glob("*.yaml")):
-        if not path.name.startswith("_"):
-            return path, f"experiment/{group}/{path.name}"
     raise AssertionError(f"no experiment configs left in {directory}")
 
 

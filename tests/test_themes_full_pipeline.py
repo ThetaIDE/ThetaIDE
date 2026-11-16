@@ -7,8 +7,7 @@ import torch
 from sklearn.metrics import adjusted_rand_score
 from test_themes_integration import workspace,launch
 
-ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'src/usr/packages/themes-dev'))
+sys.path.insert(0,str(Path(__file__).resolve().parent/'fixtures/base_usr/packages/themes-dev'))
 from themes_al.temporal import aggregate
 from themes_al.rmt_ticc import variable_viterbi,RewardTICC
 from themes_al.source_artifacts import SourceBundle,verify_source

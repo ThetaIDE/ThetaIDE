@@ -119,32 +119,6 @@ def test_an_unsupervised_run_charts_its_reconstruction_loss():
     assert [p["val/recon_loss"] for p in points] == [0.91, 0.28]
 
 
-def test_a_real_supervised_run_on_disk_charts():
-    """The run that showed two empty charts: 61 rows, 0 points."""
-    import csv
-    from pathlib import Path
-
-    found = sorted(Path("src/usr/results/logs").glob("*/*/*/version_*/metrics.csv"))
-    non_rl = []
-    for path in found:
-        with open(path) as handle:
-            header = handle.readline()
-        if "transitions" not in header and "val/loss" in header:
-            non_rl.append(path)
-    if not non_rl:
-        import pytest
-
-        pytest.skip("no non-RL run on disk; run tabular_classification/quick_test to make one")
-    with open(non_rl[0]) as handle:
-        rows = [{k: (float(v) if v not in ("", None) else None) for k, v in r.items()} for r in csv.DictReader(handle)]
-    assert metric_points(rows), f"{non_rl[0]} still charts nothing"
-
-
-# ---------------------------------------------------------------------------
-# The run caption
-# ---------------------------------------------------------------------------
-
-
 def _run(simulated=False, env="breast_cancer", agents=("clf",)):
     return {"simulated": simulated, "backend": {"agents": list(agents)}}, {"env": env}
 

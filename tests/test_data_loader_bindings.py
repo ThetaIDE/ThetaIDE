@@ -14,7 +14,7 @@ from src.app.pipeline.config import deep_merge, parse_methods_dict
 from src.app.workspace import WorkspacePaths
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'src/usr/models/blendrl-dev'
+SOURCE = Path(__file__).resolve().parent / 'fixtures/base_usr/models/blendrl-dev'
 
 
 @pytest.fixture
@@ -142,10 +142,10 @@ methods:
 def blendrl_workspace(tmp_path_factory):
     """The tracked blendrl-dev and sb3-dev with dnn, nsfr, neumann and gym_classic_control from THETA_HUB_ROOT."""
     from component_fixtures import LocalHub
-    from conftest import checkout_workspace
+    from conftest import base_workspace
     from src.app.components.installer import HubInstaller
     root = tmp_path_factory.mktemp('blendrl-workspace')
-    shutil.copytree(checkout_workspace(), root, dirs_exist_ok=True)
+    shutil.copytree(base_workspace(), root, dirs_exist_ok=True)
     paths = WorkspacePaths(root)
     installer, hub = HubInstaller(paths.root, paths.data_dir), LocalHub()
     for package in ('dnn', 'nsfr', 'neumann', 'gym_classic_control'):

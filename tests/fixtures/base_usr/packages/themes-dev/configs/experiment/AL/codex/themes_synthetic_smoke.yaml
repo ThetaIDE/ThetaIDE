@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - /experiment/AL/codex/_base
+  - _self_
+experiment_id: themes_synthetic_smoke
+methods:
+  ticc_em_edm:
+    agent: themes-dev/em_edm
+    model: themes-dev/ticc

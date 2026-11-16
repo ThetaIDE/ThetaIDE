@@ -1,0 +1,32 @@
+# @package site
+scheduler: slurm
+python_executable: auto
+venv_dir: venv
+mail_user: null
+mail_type: END,FAIL
+gres_format: gpu:{gpus}
+resources:
+  partition: batch
+  gpus: 1
+  cores: 8
+  time: 02:00:00
+  memory: null
+  nodes: 1
+  gpu_type: null
+  gres: null
+  no_gres: false
+module_loads: []
+extra_pythonpath: []
+extra_env_vars:
+  PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
+extra_sbatch_flags: []
+dataset_search_dirs: []
+connection:
+  host: null
+  remote_root: null
+  python: venv/bin/python3
+  ssh_config: src/usr/sites/arc/ssh_config
+  rsync_executable: rsync
+  remote_rsync: rsync
+shortcuts:
+  directory: src/usr/sites/arc/bin
