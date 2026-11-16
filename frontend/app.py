@@ -73,7 +73,6 @@ from .model import (
     sample,
 )
 from .monitor import MonitorPanel
-from .plots import PlotViewer
 from .plugins import CommandRegistry, ExtensionSlotRegistry, PluginManager
 from .results.panel import ResultsPanel
 from .run_notifier import RunNotifier
@@ -97,38 +96,6 @@ PERSIST_SECONDS = 5.0  # how often a training run's growing record is saved to t
 # Panes the default and restored sidebar leave hidden. Workflows can draw a pipeline but not run it yet.
 HIDDEN_BY_DEFAULT = {"workflows", "monitor"}
 
-
-class _LazyFigureWorkspace(QWidget):
-    """Load Matplotlib after the main window is visible, not during startup."""
-
-    def __init__(self, parent=None, *, paths=None):
-        super().__init__(parent)
-        self.paths = paths
-        self._loaded = False
-        layout = QVBoxLayout(self)
-        layout.addStretch()
-        message = QLabel("Loading figure workspace…")
-        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(message)
-        layout.addStretch()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        if not self._loaded:
-            self._loaded = True
-            # Give Qt a chance to paint the window before Matplotlib scans system fonts.
-            QTimer.singleShot(250, self._load)
-
-    def _load(self):
-        from .figures.view import FigureWorkspace
-
-        layout = self.layout()
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        layout.addWidget(FigureWorkspace(paths=self.paths))
 
 def normalize_menu_shortcut(shortcut_str: str) -> str:
     """Normalize user-entered shortcut string for Qt QKeySequence.
@@ -546,19 +513,6 @@ class Window(QMainWindow):
         self.results_view = ResultsPanel(self.backend, self.settings_manager, load_config=self.load_results_config)
         self.results_panel = self.results_view
         self.tabs.addTab(self.results_panel, "Results browser", "results", "Results", tab_id="results")
-
-        # 5. Plot Viewer
-        self.plot_viewer = PlotViewer()
-        # The runs list: the runs ticked in it are plotted together here. Past runs are viewed in this tab;
-        # the Training monitor shows only the current or most recent run.
-        self.plot_viewer.add_runs_list(self.monitor.sidebar)
-        self.monitor.sidebar.compare_changed.connect(self.plot_ticked_runs)
-        self.tabs.addTab(self.plot_viewer, "Plot Viewer", "plots", "Plots", tab_id="plots")
-
-        # 5b. Figure workspace: defer Matplotlib's potentially slow macOS font
-        # scan until after the main window is visible.
-        self.figure_workspace = _LazyFigureWorkspace(paths=self.workspace_paths)
-        self.tabs.addTab(self.figure_workspace, "Figure workspace", "export", "Figures", tab_id="figures")
 
         # 8. Terminal Panel
         command, cwd, env = self.terminal_config()
@@ -1243,7 +1197,6 @@ class Window(QMainWindow):
             "workflows",
             "monitor",
             "results",
-            "plots",
             "tensorboard",
             "terminal",
             "console",
@@ -1485,7 +1438,6 @@ class Window(QMainWindow):
         view_menu.addAction("Workflows", lambda: self.tabs.setCurrentWidget(self.workflows_panel))
         view_menu.addAction("Training monitor", lambda: self.tabs.setCurrentWidget(self.monitor_panel))
         view_menu.addAction("Results browser", lambda: self.tabs.setCurrentWidget(self.results_panel))
-        view_menu.addAction("Plot Viewer", lambda: self.tabs.setCurrentWidget(self.plot_viewer))
         if hasattr(self, "tabs") and "tensorboard" in self.tabs.tabs:
             view_menu.addAction("TensorBoard", self.show_tensorboard)
         view_menu.addAction("Terminal", lambda: self.tabs.setCurrentWidget(self.terminal_panel))
@@ -1788,7 +1740,7 @@ class Window(QMainWindow):
         self.reconnect_live_run()
         if self.selected is None and self.runs:
             self.selected = self.runs[0]
-            if self.monitor.isVisible() or self.plot_viewer.isVisible():
+            if self.monitor.isVisible():
                 self.select_run(self.selected)
 
     def _on_runner_readiness(self, ready, error):
@@ -2311,9 +2263,6 @@ class Window(QMainWindow):
 
     def on_job_output(self, job_id, lines):
         run = self.run_for_job(job_id)
-        selected_job = (self.selected or {}).get("backend", {}).get("job_id")
-        if run is not None and (run is self.selected or selected_job == job_id) and hasattr(self, "monitor"):
-            self.monitor.append_log(self.selected if selected_job == job_id else run, lines)
         if run is None or not any(r is run for r in self.active_runs):
             return
         prefix = f"{run['backend'].get('experiment_id', '')} " if len(self.active_runs) > 1 else ""
@@ -2675,14 +2624,6 @@ class Window(QMainWindow):
         except KeyError:
             self.log("Remove failed: that job no longer exists.")
 
-    def plot_ticked_runs(self, run_ids):
-        """The runs list's ticks changed: draw those runs in the Plot Viewer (loading their curves if needed)."""
-        for run_id in run_ids:
-            run = self.by_id(run_id)
-            if run is not None:
-                self.load_disk_metrics(run)  # command-line runs load their curves on first use
-        self.plot_viewer.set_compared(run_ids, self.monitor.sidebar.colors())
-
     def open_job(self, job_id, method_name=None):
         """Open the selected process in the Training Monitor."""
         run = self.run_for_job(job_id)
@@ -2699,10 +2640,11 @@ class Window(QMainWindow):
         self.tabs.setCurrentWidget(self.monitor_panel)
 
     def view_run(self, run):
-        """Open a run from its completion toast in the Plot Viewer."""
-        if run["id"] not in self.monitor.sidebar.compared:
-            self.monitor.sidebar.tick(run["id"])
-        self.tabs.setCurrentWidget(self.plot_viewer)
+        """Open the run's generated output in Results."""
+        backend = run.get("backend") or {}
+        if backend.get("group") and backend.get("experiment_id"):
+            self.results_view.open_run(backend["group"], backend["experiment_id"])
+        self.tabs.setCurrentWidget(self.results_view)
 
     def latest_run(self):
         """The run the Training monitor shows: the one training now, else the most recent one."""
@@ -2730,7 +2672,6 @@ class Window(QMainWindow):
             return
         metric = sample(Config(**run["config"]), len(run["metrics"]) + 1)
         run["metrics"].append(metric)
-        self.plot_viewer.update_runs(self.runs)
         if self.selected is run:
             self.render_run()
         if len(run["metrics"]) % 10 == 0:
@@ -2826,7 +2767,6 @@ class Window(QMainWindow):
                 self.render_run()
 
     def refresh_runs(self, *_):
-        self.plot_viewer.update_runs(self.runs)
         if hasattr(self, "settings_runs_count_label"):
             self.settings_runs_count_label.setText(f"Total run records:  {len(self.runs)} runs")
         # Sync the Monitor's run selector
@@ -2909,11 +2849,6 @@ class Window(QMainWindow):
 
     def by_id(self, run_id):
         return next((run for run in self.runs if run["id"] == run_id), None)
-
-    def view_selected_plot(self):
-        if self.selected:
-            self.monitor.sidebar.tick(self.selected["id"])  # the plot draws the ticked runs
-        self.tabs.setCurrentWidget(self.plot_viewer)
 
     def tree_selected(self, item, _):
         pass

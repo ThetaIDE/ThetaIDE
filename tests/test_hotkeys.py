@@ -119,7 +119,7 @@ class TestHotkeyManagerNavigation(unittest.TestCase):
         # 4 -> results
         self.assertEqual(self.hm.get_pane_id_by_index(4), "results")
         # 5 -> plots
-        self.assertEqual(self.hm.get_pane_id_by_index(5), "plots")
+        self.assertIsNone(self.hm.get_pane_id_by_index(5))
         # 6 -> tensorboard
         self.assertEqual(self.hm.get_pane_id_by_index(6), "tensorboard")
         # The Job queue pane moved into the Monitor; 7 -> terminal
@@ -226,14 +226,14 @@ class TestHotkeyManagerNavigation(unittest.TestCase):
 
     def test_unhide_hidden_pane_on_hotkey(self):
         """If a pane is hidden, switching to it via hotkey unhides and focuses it."""
-        self.window.tabs.set_tab_visible("plots", False)
-        self.assertFalse(self.window.tabs.is_tab_visible("plots"))
+        self.window.tabs.set_tab_visible("results", False)
+        self.assertFalse(self.window.tabs.is_tab_visible("results"))
 
-        # Action + 5 -> plots
-        res = self.hm.switch_to_pane_by_index(5)
+        # Action + 4 -> results
+        res = self.hm.switch_to_pane_by_index(4)
         self.assertTrue(res)
-        self.assertTrue(self.window.tabs.is_tab_visible("plots"))
-        self.assertIs(self.window.tabs.currentWidget(), self.window.plot_viewer)
+        self.assertTrue(self.window.tabs.is_tab_visible("results"))
+        self.assertIs(self.window.tabs.currentWidget(), self.window.results_view)
 
     def test_window_switch_to_pane_method(self):
         self.window.switch_to_pane(1)

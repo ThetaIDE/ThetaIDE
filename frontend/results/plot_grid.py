@@ -25,9 +25,10 @@ def chart_title(metric: str) -> str:
 class ChartCard(QFrame):
     hide_requested = pyqtSignal(str)
 
-    def __init__(self, metric: str, parent=None, compact_hide: bool = False):
+    def __init__(self, metric: str, parent=None, compact_hide: bool = False, show_actions=True):
         super().__init__(parent)
         self.metric = metric
+        self.show_actions = show_actions
         self.setObjectName("resultsChartCard")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -55,6 +56,7 @@ class ChartCard(QFrame):
         self.hide_button.clicked.connect(lambda: self.hide_requested.emit(self.metric))
         corner_layout.addWidget(self.hide_button)
         self.chart.set_corner_widget(corner)  # top-right of the chart, like the Monitor's selector
+        corner.setVisible(show_actions)
 
     def eventFilter(self, watched, event):
         # Chart titles are painted rather than QLabel widgets. Limit their help
@@ -65,6 +67,8 @@ class ChartCard(QFrame):
 
     def set_value(self, text: str, color: str | None = None):
         """Show `text` (e.g. the latest value) beside the Hide button, or nothing when empty."""
+        if not self.show_actions:
+            return
         self.value.setText(text)
         self.value.setStyleSheet(f"color: {color};" if color else "")
         self.value.setVisible(bool(text))
@@ -84,9 +88,10 @@ class PlotGrid(QScrollArea):
     hide_requested = pyqtSignal(str)
     point_hovered = pyqtSignal(float)  # x of the point under the mouse, on any chart
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, show_actions=True):
         super().__init__(parent)
         self.setWidgetResizable(True)
+        self.show_actions = show_actions
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.body = QWidget()
         self.grid = QGridLayout(self.body)
@@ -139,7 +144,7 @@ class PlotGrid(QScrollArea):
     def card(self, metric: str) -> ChartCard:
         card = self.cards.get(metric)
         if card is None:
-            card = self.cards[metric] = ChartCard(metric, compact_hide=self.compact_hide)
+            card = self.cards[metric] = ChartCard(metric, compact_hide=self.compact_hide, show_actions=self.show_actions)
             card.setProperty("flat", self.flat)
             card.hide_requested.connect(self.hide_requested)
             card.chart.point_hovered.connect(self.point_hovered)

@@ -82,7 +82,6 @@ order = [
     "workflows",
     "monitor",
     "results",
-    "plots",
     "tensorboard",
     "terminal",
     "console",
@@ -135,7 +134,6 @@ components = "Action + 1"
 config = "Action + 2"
 monitor = "Action + 3"
 results = "Action + 4"
-plots = "Action + 5"
 tensorboard = "Action + 6"
 terminal = "Action + 7"
 console = "Action + 8"
@@ -268,13 +266,11 @@ def _toml_key(key: Any) -> str:
 # ---------------------------------------------------------------------------
 
 # Action + <digit> pane shortcuts before the user edits them.
-DEFAULT_HOTKEY_PANES = (
-    "settings", "components", "config", "monitor", "results", "plots", "tensorboard", "terminal", "console",
-)
+DEFAULT_HOTKEY_PANES = tuple(tomllib.loads(_DEFAULT_TOML)["hotkeys"]["bindings"])
 
 
 def default_hotkey_bindings() -> dict[str, str]:
-    return {pane: f"Action + {digit}" for digit, pane in enumerate(DEFAULT_HOTKEY_PANES)}
+    return dict(tomllib.loads(_DEFAULT_TOML)["hotkeys"]["bindings"])
 
 
 class SettingsManager(QObject):

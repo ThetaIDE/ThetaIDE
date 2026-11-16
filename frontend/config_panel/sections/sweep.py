@@ -24,6 +24,7 @@ from ..controls import (
     _make_subtle_tool_button,
     _parameter_header,
     _parameter_row,
+    _reveal_remove_on_row_hover,
 )
 from ..layout import _two_column_parameter_layout
 
@@ -44,6 +45,7 @@ def _render_sweep_box(self, data):
     add.setObjectName("sweepAddOption")
     optional_menu = add.menu()
     header = _parameter_header(title, add=add)
+    _reveal_remove_on_row_hover(header, add)
     remove = _make_subtle_tool_button("trash", "Remove hyperparameter sweep", size=24, icon_size=14)
     remove.clicked.connect(lambda: self.remove_block("tuning" if has_tuning else "objective"))
     if has_tuning or "objective" in data:

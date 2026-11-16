@@ -118,11 +118,10 @@ def test_stopping_a_run_notifies_too(window):
     assert window.test_played == ["stopped"]
 
 
-def test_view_results_plots_the_run_in_the_plot_viewer(window):
+def test_view_results_opens_the_results_panel(window):
     run = finish_demo(window)
     visible_toasts(window)[0].action_button.click()
-    assert window.tabs.currentWidget() is window.plot_viewer
-    assert run["id"] in window.monitor.sidebar.compared
+    assert window.tabs.currentWidget() is window.results_view
     assert visible_toasts(window) == []  # the toast goes once used
 
 

@@ -53,7 +53,7 @@ class Panel(Plugin):
     assert not manager.manifests['my_panel_copy'].default_enabled
     assert manager.manifests['my_panel_copy'].extra['origin']=='user'
     assert not manager.manifests['my_panel'].is_core
-    assert manager.manifests['model_builder'].is_core
+    assert 'model_builder' not in manager.manifests
     assert manager.enable_plugin('my_panel'),logs
     assert window.command_registry.get_command('my_panel.run').callback()==7
     with pytest.raises(RuntimeError,match='in use'):installer.install(component,install_dependencies=False)

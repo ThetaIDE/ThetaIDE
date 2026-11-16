@@ -9,7 +9,7 @@ from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (QComboBox, QGraphicsItem, QGraphicsScene,
                             QGraphicsView, QHBoxLayout, QPushButton, QVBoxLayout, QWidget)
 
-from ..widgets import DoubleSpinBox as QDoubleSpinBox, ToggleSlider, label
+from ..widgets import DoubleSpinBox as QDoubleSpinBox, ToggleSlider, FlowLayout, label
 from ..theme import theme_color
 from .visual_data import VisualSnapshot, comparable, snapshots
 
@@ -234,14 +234,21 @@ class VisualsView(QWidget):
         super().__init__(parent)
         self._snapshot_loader = snapshot_loader or VisualSnapshot
         layout = QVBoxLayout(self)
-        bar = QHBoxLayout()
+        bar = FlowLayout(spacing=12, vertical_alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(bar)
         self.run = QComboBox(); self.instance = QComboBox(); self.output = QComboBox()
         self.step = QComboBox(); self.compare = QComboBox()
         for title, widget in (("Run / method", self.run), ("Monitor", self.instance),
                               ("Output", self.output), ("Optimizer step", self.step), ("Compare", self.compare)):
-            bar.addWidget(label(title, "muted")); bar.addWidget(widget)
-        controls = QHBoxLayout(); layout.addLayout(controls)
+            group = QWidget()
+            row = QHBoxLayout(group)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(label(title, "muted"))
+            widget.setMinimumWidth(90)
+            widget.setMaximumWidth(200)
+            row.addWidget(widget)
+            bar.addWidget(group)
+        controls = FlowLayout(spacing=12, vertical_alignment=Qt.AlignmentFlag.AlignVCenter); layout.addLayout(controls)
         self.follow = ToggleSlider(); self.follow.setChecked(True)
         controls.addWidget(label("Follow latest")); controls.addWidget(self.follow)
         self.play = QPushButton("Play"); controls.addWidget(self.play)
@@ -251,7 +258,14 @@ class VisualsView(QWidget):
         self.grouped = ToggleSlider()
         for title, widget in (("Mode", self.mode), ("Layer", self.layer), ("Probe", self.state),
                               ("Min |edge|", self.threshold), ("Collapse other layers", self.grouped)):
-            controls.addWidget(label(title, "muted")); controls.addWidget(widget)
+            group = QWidget()
+            row = QHBoxLayout(group)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(label(title, "muted"))
+            row.addWidget(widget)
+            if isinstance(widget, QComboBox):
+                widget.setMaximumWidth(200)
+            controls.addWidget(group)
         self.fit_button = QPushButton("Fit"); controls.addWidget(self.fit_button)
         self.caption = label("Rich outputs appear when a declared monitor publishes a completed snapshot.", "muted")
         self.caption.setWordWrap(True); layout.addWidget(self.caption)

@@ -1,0 +1,144 @@
+{
+  "date": "2026-11-15",
+  "scope": "Focused UI verification; files run in separate pytest processes. This is not a new full-suite run.",
+  "baseline": "LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json",
+  "files": {
+    "test_parameter_forms.py": {
+      "passed": 125
+    },
+    "test_config_viewer_composite.py": {
+      "passed": 18
+    },
+    "test_data_loader_bindings.py": {
+      "passed": 7,
+      "skipped": 7
+    },
+    "test_results_live.py": {
+      "passed": 8
+    },
+    "test_results_diagnostics.py": {
+      "passed": 7
+    },
+    "test_monitor_panel.py": {
+      "passed": 26,
+      "failed": 3,
+      "failure_ids": [
+        "tests/test_monitor_panel.py::test_last_finished_run_opens_results_only_after_all_jobs_finish",
+        "tests/test_monitor_panel.py::test_queued_experiments_wait_for_slots_and_start_in_order[1]",
+        "tests/test_monitor_panel.py::test_queued_experiments_wait_for_slots_and_start_in_order[2]"
+      ]
+    },
+    "test_terminal_panel.py": {
+      "passed": 15
+    },
+    "test_terminal.py": {
+      "passed": 11
+    },
+    "test_terminal_settings.py": {
+      "passed": 14
+    },
+    "test_hotkeys.py": {
+      "passed": 23
+    },
+    "test_settings_view.py": {
+      "passed": 31
+    },
+    "test_run_notifier.py": {
+      "passed": 12
+    },
+    "test_startup_services.py": {
+      "passed": 22
+    },
+    "test_sdk_boundary.py": {
+      "passed": 64
+    },
+    "test_documentation_plugin.py": {
+      "passed": 25
+    },
+    "test_provider_app_plugins.py": {
+      "passed": 2
+    },
+    "test_results_panel.py": {
+      "passed": 20,
+      "failed": 32,
+      "failure_ids": [
+        "tests/test_results_panel.py::test_artifact_tabs_are_built_when_first_opened",
+        "tests/test_results_panel.py::test_combined_curves_export_their_spread",
+        "tests/test_results_panel.py::test_combining_versions_draws_one_mean_curve_with_a_band",
+        "tests/test_results_panel.py::test_config_tab_prefers_saved_experiment_yaml",
+        "tests/test_results_panel.py::test_config_tab_shows_saved_yaml_for_selected_runs",
+        "tests/test_results_panel.py::test_exports_write_curves_summary_and_charts",
+        "tests/test_results_panel.py::test_figures_reports_and_text_are_previewed",
+        "tests/test_results_panel.py::test_files_tab_reaches_every_artifact_and_saves_copies",
+        "tests/test_results_panel.py::test_files_tab_shows_directories_and_preserves_expansion",
+        "tests/test_results_panel.py::test_files_tab_shows_every_table_row_and_plots_numeric_columns",
+        "tests/test_results_panel.py::test_files_too_large_to_preview_are_not_downloaded",
+        "tests/test_results_panel.py::test_grouped_layout_has_one_chart_per_metric_and_ignores_old_layout_settings",
+        "tests/test_results_panel.py::test_hiding_plots_is_remembered_in_settings",
+        "tests/test_results_panel.py::test_multi_version_agents_offer_each_version_with_the_newest_ticked",
+        "tests/test_results_panel.py::test_plots_menu_lists_every_metric_with_its_visibility",
+        "tests/test_results_panel.py::test_point_inspector_shows_every_metric_of_every_run",
+        "tests/test_results_panel.py::test_primary_series_decides_which_steps_hovering_reads",
+        "tests/test_results_panel.py::test_refresh_keeps_ticked_runs_plotted",
+        "tests/test_results_panel.py::test_run_action_buttons_target_the_selected_run",
+        "tests/test_results_panel.py::test_run_selector_groups_timestamped_reruns_and_filters_them",
+        "tests/test_results_panel.py::test_run_selector_switches_are_right_aligned_and_clickable",
+        "tests/test_results_panel.py::test_run_switch_selects_all_methods_but_only_latest_versions",
+        "tests/test_results_panel.py::test_saved_importance_chart_stays_static_until_results_are_refreshed",
+        "tests/test_results_panel.py::test_saved_sweep_results_refresh_reloads_snapshot",
+        "tests/test_results_panel.py::test_saved_sweeps_distinguish_runs_with_same_method_and_study_and_handle_bad_snapshots",
+        "tests/test_results_panel.py::test_saved_sweeps_link_parallel_filters_to_history_without_live_polling",
+        "tests/test_results_panel.py::test_summary_tab_lists_every_series_and_metric",
+        "tests/test_results_panel.py::test_summary_threshold_reports_when_each_series_got_there",
+        "tests/test_results_panel.py::test_ticking_runs_plots_every_metric_they_logged",
+        "tests/test_results_panel.py::test_trial_toggle_loads_each_saved_seed_curve_and_preserves_selection",
+        "tests/test_results_panel.py::test_window_loads_results_runs_into_the_builder_only_when_it_has_their_config",
+        "tests/test_results_panel.py::test_x_axis_choice_and_smoothing"
+      ],
+      "new_failure_ids": []
+    },
+    "test_monitor_live.py": {
+      "passed": 24,
+      "failed": 3,
+      "failure_ids": [
+        "tests/test_monitor_live.py::test_a_finished_run_is_read_from_disk_when_a_live_view_opens",
+        "tests/test_monitor_live.py::test_clicking_a_method_shows_only_its_curves_until_another_run_is_shown",
+        "tests/test_monitor_live.py::test_ticking_a_run_plots_it_without_touching_the_monitor"
+      ],
+      "new_failure_ids": []
+    }
+  },
+  "native_blendrl_integration": {
+    "passed": 16,
+    "deselected": 55,
+    "source": "../theta-plugins-v3/tests/test_native_integration.py -k blendrl"
+  },
+  "package": {
+    "id": "blendrl",
+    "version": "1.3.1",
+    "isolated_install": "passed",
+    "workspace_install": "passed",
+    "published": false,
+    "sha256": "3c468a825fe143d37a28b90791401ccb58aa4005aef51de7ffafacadfbee03ee",
+    "source_commit": "dd0bbab"
+  },
+  "visual_review": {
+    "directory": "/private/tmp/theta-ui-snapshots",
+    "reviewed": [
+      "config.png",
+      "config-narrow.png",
+      "results-monitors.png",
+      "results-config.png",
+      "results-files.png",
+      "monitor.png",
+      "terminal.png"
+    ],
+    "terminal_close_button": "Clicked in isolated preview; selected shell removed and trailing New Shell entry retained."
+  },
+  "deferred": [
+    "Unclear sync-button and directory-navigation notes",
+    "Vega design",
+    "Approval-dependent results move",
+    "Existing stale test failures"
+  ]
+}

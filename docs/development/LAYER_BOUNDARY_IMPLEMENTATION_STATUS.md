@@ -19,7 +19,7 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 
 ## Repositories
 
-- **IDE:** `implement/layer-boundaries` exists on `origin` (ThetaIDE/ThetaIDE); 5b and stabilized 5c are local and unpushed. No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
+- **IDE:** `implement/layer-boundaries` exists on `origin` (ThetaIDE/ThetaIDE); 5b, stabilized 5c and the UI refinement batch are local and unpushed. No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
 - **Hub releases:** worktrees `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpushed. At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages are removed from the feed; until then the Hub validator fails on those seven storage-v2 entries. The user's own `../theta-plugins` and `../theta-hub` checkouts are never modified.
 - **Repository workspace:** runs the prepared v3 releases (20 packages). Optuna and Slurm are not installed there (Slurm collides with the authored `ncshare-site` package, which owns `site/ncshare/*`). The 4f backup is in `.thetaide/migrations/20261114T163513Z/`.
 
@@ -63,7 +63,7 @@ Two settings still have two homes, and fixing them needs v3 package changes and 
 
 - The resource pool's SQLite `ALTER TABLE ADD COLUMN` upgrade (`src/app/services/resource_budget.py`) stays: the running desktop may hold that database.
 - Deferred tests (user decision): tests that read `~/.config/thetaide/settings.toml` (`frontend/runner_manager.py` `_load_resource_settings`) or QSettings, and `test_ncshare_hardening` loading Slurm from source instead of the installed component.
-- The published `blendrl` 1.3.0 source in `theta-plugins-v3` declares `neural`/`symbolic` as strings and `logic_lr`/`blender_lr` as numbers, contradicting its profile defaults (fixed in `blendrl-dev`, `e3c98cd`). Fix it before the Hub publication.
+- BlendRL 1.3.1 is prepared in `theta-plugins-v3` and installed locally: `blender` is the neural/symbolic selector, with `blender_model` holding its model settings. Its structured neural/symbolic and nullable learning-rate schemas are corrected. Sixteen native integration checks pass. The Hub feed/archive publication remains separate and unperformed.
 
 ## Phase 5
 
@@ -80,7 +80,12 @@ Every results path comes from `WorkspacePaths.results`, which is `src/usr/result
 - Stabilization: source snapshots prune results before traversal. Regression checks cover source inventory/cache stability, edit-lock exclusion, explicit SDK workspace selection and confined artifact reads. Desktop runner snapshots cannot roll back a newer RPC response, and jobs that finish before the next poll still have final output drained. Fake-pipeline tests explicitly substitute their application launcher and await asynchronous reconnect readiness.
 - The move of the user's `results/` (15,590 files, 1.23 GB, no symlinks or conflicts) runs from a scratch script: dry run, timestamped backup under `.thetaide/migrations/`, one rename, every hash checked. It moves `results/jobs`, `slurm`, `development` and `exports` as they are, though nothing reads them now.
 
-Session sequencing: stabilize 5c first, then ask for the user's specific UI changes. Vega design is deferred until the user provides their own design. The results move still requires approval.
+## UI refinements before phase 7
+
+The requested config and downstream UI batch is implemented: measured label widths and padded overflow reveals, hover-only sweep header adders, transparent edit wrappers with dynamic pencil slots, square section arrows, and the scalar BlendRL selector. Monitor places optional diagnostics and system charts on its overview; Results combines saved curves and diagnostics under Monitors, exposes generated files during active runs, and withholds their live curves. Summary, Plots, Figures and Model Builder navigation is removed; Config is YAML-only and Files omits the extra enclosing run folder. The terminal has a trailing New Shell entry and per-shell close buttons. Repeated group prefixes are shortened for display; result identities and existing files are not renamed.
+
+The unclear sync-button/tree-navigation notes are deferred, as is Vega pending the user's specific design. [Scope](../plans/UI_REFINEMENTS_20261115.md) and [focused verification](../reports/UI_REFINEMENTS_VERIFICATION_20261115.json). The results move still needs approval.
+
 
 ## Tests
 
@@ -90,7 +95,7 @@ Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cach
 
 - **Fixtures.** `tests/conftest.py`'s autouse `tracked_workspace` selects a temporary copy of the checkout's tracked `src/usr`; a session hook fails the run if tests create result groups in the checkout's `src/usr/results`. `fixture_workspace` adds `tests/fixtures/workspace_usr` and `tests/fixtures/workspace_config`. `optuna_workspace`, `component_fixtures.sweep_workspace(root)` and `install_optional` install the optional components. `tests/themes_fixtures.py` generates THEMES inputs. `LocalHub` and the authored-NSFR test read sibling checkouts only through `THETA_HUB_ROOT` / `THETA_PLUGINS_ROOT`.
 - **Package integration** lives in `../theta-plugins-v3`: `../Theta-IDE/venv/bin/python -m pytest -q tests/test_native_integration.py` (71 passed).
-- **Stale tests, deferred (user decision):** 126 failures in 27 files remain, all in the saved 5b baseline; exact IDs and file counts are in the evidence above. This includes 20 `test_paradigm_unsupervised` failures: its import-time check reads the real workspace catalog, while the hermetic fixture workspace has no autoencoder. The earlier 119-failure status predates the 5b comparison and is not the current total.
+- **Stale tests, deferred (user decision):** the last full run (5c) recorded 126 failures in 27 files, all in the saved 5b baseline; the later UI batch has separate focused verification, with retired-view tests updated or removed where those features were withdrawn; exact IDs and file counts are in the evidence above. This includes 20 `test_paradigm_unsupervised` failures: its import-time check reads the real workspace catalog, while the hermetic fixture workspace has no autoencoder. The earlier 119-failure status predates the 5b comparison and is not the current total.
 - **Coverage gap:** no end-to-end test of managed parallel trials with a Theta-owned bootstrap.
 
 ## Desktop items not yet checked interactively
@@ -98,5 +103,5 @@ Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cach
 The user opens the app and launches experiments. Not yet looked at since the changes:
 
 1. Editing a profile owned by an installed package asks for an override, and the copy appears under `src/usr/config`; authored-package profiles edit in place.
-2. The text editor, model builder, TensorBoard, documentation, arXiv and antigravity panels load, and survive disable and re-enable.
-3. Figures plot for a finished run.
+2. The text editor, TensorBoard, documentation, arXiv and antigravity panels load, and survive disable and re-enable.
+3. Results previews generated figures for a finished run in a populated workspace.

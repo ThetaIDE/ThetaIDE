@@ -157,12 +157,15 @@ class FakeSettings:
 
 
 def tree_items(panel):
+    from frontend.results.explorer import _DATA, _KIND
     tree = panel.explorer.tree
     stack = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
     items = {}
     while stack:
         item = stack.pop()
         items[item.text(0)] = item
+        if item.data(0, _KIND) == "run":
+            items[item.data(0, _DATA).rsplit("/", 1)[-1]] = item
         stack.extend(item.child(i) for i in range(item.childCount()))
     return items
 
@@ -263,7 +266,7 @@ def test_main_results_context_menu_renames_on_disk(tmp_path, monkeypatch, kind, 
         version.mkdir(parents=True)
         (logs / "config.yaml").write_text("seed: 1")
         (version / "metrics.csv").write_text("transitions,eval/reward\n1,10\n")
-        (version / "runtime.json").write_text(json.dumps({"completed_at": "2026-11-10"}))
+        (version / "runtime.json").write_text(json.dumps({"end_time_iso": "2026-11-10T12:00:00Z"}))
 
     def answer(fn, callback, *args, **kwargs):
         try:
@@ -395,6 +398,9 @@ def test_results_preview_content_does_not_pin_tree_width(tab):
         # width of both nested splitters, preventing either tree from resizing.
         browser.info.show_info({"path": "checkpoints/" + "weights_" * 40 + ".ckpt"})
         app.processEvents()
+        if tab == "Config":
+            assert browser.tree.isHidden() and browser.title.isHidden()
+            return
         for target in (400, 200, 320):
             splitter.moveSplitter(target, 1)
             app.processEvents()

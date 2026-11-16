@@ -1413,6 +1413,9 @@ class ConfigViewer(QWidget):
         if not actions:
             return field
         wrapper = QWidget()
+        wrapper.setObjectName("parameterActionEditor")
+        wrapper.setProperty("parameterActionEditor", True)
+        wrapper.setStyleSheet('QWidget[parameterActionEditor="true"] { background: transparent; border: none; }')
         wrapper._parameter_editor = field
         row = _parameter_row(field)
         wrapper.setLayout(row)
@@ -1423,7 +1426,7 @@ class ConfigViewer(QWidget):
             button.setProperty("parameterOpen", True)
             button.setProperty("parameterPath", ".".join(action_path))
             row.insertWidget(row.count() - 1, button)
-            _reveal_remove_on_row_hover(row, button)
+            _reveal_remove_on_row_hover(row, button, reserve_space=False, floating=False)
             effective_action = {**action, "domain": schema.get("x-theta-domain")}
             button.clicked.connect(lambda _checked=False, a=effective_action, b=button: self._open_parameter_action(
                 a, current[0], action_path or tuple(str(wrapper.property("parameterPath") or "").split(".")), b))

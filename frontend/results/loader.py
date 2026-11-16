@@ -46,13 +46,13 @@ class ResultsLoader(QObject):
         return received
 
     def list_runs(self):
-        self.backend.list_runs(self._current(self._runs_received), completed_only=True)
+        self.backend.list_runs(self._current(self._runs_received), completed_only=False)
 
     def _runs_received(self, data, error):
         if error:
             self.failed.emit(error)
             return
-        self.runs_listed.emit([entry for entry in (data or {}).get("runs") or [] if entry.get("finished")])
+        self.runs_listed.emit((data or {}).get("runs") or [])
 
     def load_manifest(self, group: str, experiment_id: str):
         key = f"{group}/{experiment_id}"
@@ -60,7 +60,7 @@ class ResultsLoader(QObject):
             return
         self._pending.add(("manifest", key))
         self.backend.run_manifest(group, experiment_id, self._current(lambda data, error: self._manifest_received(key, data, error)),
-                                  completed_only=True)
+                                  completed_only=False)
 
     def _manifest_received(self, key, data, error):
         self._pending.discard(("manifest", key))

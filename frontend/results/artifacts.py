@@ -64,10 +64,12 @@ def human_size(size: int | None) -> str:
 
 def run_relative(artifact: dict, run_key: str) -> str:
     """'plots/group/experiment/category/file.png' -> the path inside this run's folders."""
-    parts = PurePosixPath(artifact["path"]).parts
-    group, experiment_id = run_key.split("/", 1)
-    if len(parts) > 3 and parts[1:3] == (group, experiment_id):
-        return "/".join((parts[0], *parts[3:]))
+    path = PurePosixPath(artifact["path"])
+    parts = path.parts
+    if parts:
+        prefix = PurePosixPath(parts[0]) / run_key
+        if path.is_relative_to(prefix):
+            return (PurePosixPath(parts[0]) / path.relative_to(prefix)).as_posix()
     return artifact["path"]
 
 
@@ -310,7 +312,8 @@ class ArtifactBrowser(QWidget):
             artifacts = [a for a in manifest.artifacts if self.kinds is None or a.get("kind") in self.kinds]
             if not artifacts:
                 continue
-            run_item = QTreeWidgetItem(self.tree, [manifest.run_key])
+            run_item = (self.tree.invisibleRootItem() if len(manifests) == 1
+                        else QTreeWidgetItem(self.tree, [manifest.run_key]))
             run_item.setData(0, _FOLDER, (manifest.run_key, ""))
             run_item.setIcon(0, folder_icon())
             run_item.setFirstColumnSpanned(False)

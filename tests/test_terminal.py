@@ -89,16 +89,12 @@ class TestTerminalPanelAndWidget(unittest.TestCase):
         self.panel.close()
 
     def test_panel_structure(self):
-        self.assertIsNotNone(self.panel.toolbar)
-        self.assertIsNotNone(self.panel.new_btn)
-        self.assertIsNotNone(self.panel.clear_btn)
-        self.assertIsNotNone(self.panel.status_dot)
-        self.assertIsNotNone(self.panel.title_label)
+        self.assertFalse(hasattr(self.panel, "toolbar"))
+        self.assertFalse(hasattr(self.panel, "clear_btn"))
         self.assertIsNotNone(self.panel.terminal)
-        self.assertEqual(self.panel.new_btn.text(), "New shell")
-        self.assertEqual(self.panel.close_btn.text(), "Close shell")
-        self.assertEqual(self.panel.clear_btn.text(), "Clear")
-        self.assertEqual(self.panel.shell_list.count(), 1)
+        self.assertEqual(self.panel.new_btn.text(), "+ New shell")
+        self.assertEqual(self.panel.shell_list.count(), 2)
+        self.assertIs(self.panel.shell_list.itemWidget(self.panel.new_item), self.panel.new_btn)
 
     def test_theme_application(self):
         # Dark theme

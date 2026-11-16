@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 from pathlib import PurePosixPath
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -89,10 +89,10 @@ def duration(seconds: float) -> str:
 class ResultsPanel(QWidget):
     """Everything the ticked runs produced.
 
-    Curves: one chart per metric;
+    Monitors: one chart per metric and optional saved diagnostics;
     an agent's versions (repeated runs) can be combined into a mean ± std or ± SEM band.
-    Summary: final, best, range, mean and area under the curve per series and metric, plus when a
-    threshold was first reached. Export writes the visible curves or the summary as CSV, or the charts as PNG.
+    running experiments expose generated files while live monitoring stays in Monitor.
+    Export writes visible curves or summary data as CSV, or charts as PNG.
     Reports, Config and Files: artifacts in the runs'
     manifests, previewed by kind.
 
@@ -184,26 +184,26 @@ class ResultsPanel(QWidget):
         self.legend = label("", "muted")
         self.legend.setWordWrap(True)
         self.legend.setTextFormat(Qt.TextFormat.RichText)
-        self.grid = PlotGrid()
+        self.grid = PlotGrid(show_actions=False)
         self.grid.hide_requested.connect(lambda metric: self.set_hidden(metric, True))
         self.grid.point_hovered.connect(self._point_hovered)
         self.inspector = PointInspector()
         self._parking = QWidget(self)  # holds the widgets the current layout leaves out; never shown
         self._parking.hide()
-        self.tabs.addTab(self.curves_page, "Curves")
+        self.tabs.addTab(self.curves_page, "Monitors")
         self.diagnostics_page = QWidget()
         QVBoxLayout(self.diagnostics_page).setContentsMargins(0, 0, 0, 0)
         self.diagnostics_view = None
-        self.tabs.addTab(self.diagnostics_page, "Diagnostics")
         self.executions_view = ExecutionsView(backend, self.open_run)
         self.tabs.addTab(self.executions_view, "Executions")
         self.summary = SummaryView()
         self.summary.changed.connect(self.update_summary)
-        self.tabs.addTab(self.summary, "Summary")
+        self.summary.setParent(self._parking)
         self.sweeps_page = QWidget()
         QVBoxLayout(self.sweeps_page).setContentsMargins(0, 0, 0, 0)
         self.sweeps_view = None
         self.tabs.addTab(self.sweeps_page, "Sweeps")
+        self.tabs.setTabVisible(self.tabs.indexOf(self.sweeps_page), False)
         # Artifact tabs start empty and build their browser when first opened: each one is hundreds of
         # widgets, and the app restyles every widget when its theme is applied.
         self.browsers: dict[str, ArtifactBrowser] = {}
@@ -240,6 +240,10 @@ class ResultsPanel(QWidget):
         self._pending_log = None
         self.browser("Files")
         self.redraw()
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setInterval(4000)
+        self.refresh_timer.timeout.connect(self._poll_generated_results)
+        self.refresh_timer.start()
 
     # ── Settings ─────────────────────────────────────────────────────────────
 
@@ -301,7 +305,13 @@ class ResultsPanel(QWidget):
         )
         body.addWidget(controls_scroll)
         body.addWidget(self.legend)
-        body.addWidget(self.grid, 1)
+        from ..monitor.workspace import MonitorWorkspace
+        self.monitors_workspace = MonitorWorkspace(self.grid.takeWidget())
+        self.grid.hide()
+        self.grid.setParent(self.curves_body)
+        self.diagnostics_section = self.monitors_workspace.add_section("Diagnostics", self.diagnostics_page)
+        self.diagnostics_page.setMinimumHeight(460)
+        body.addWidget(self.monitors_workspace, 1)
 
     def set_primary(self, name: str):
         """Make series `name` primary, or go back to Nearest when it already is."""
@@ -320,9 +330,18 @@ class ResultsPanel(QWidget):
         # The tree keeps its ticks when the run list is unchanged, so nothing else re-reads what is
         # ticked: without this the next redraw (e.g. changing Versions) would find no data at all.
         for source in self.sources:
-            if source.agent:
+            if source.agent and source.run_key not in self.unfinished:
                 self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
+
+    def _poll_generated_results(self):
+        if not self.isVisible():
+            return
+        self.loader.list_runs()
+        for key in self.run_keys():
+            if key in self.unfinished:
+                self.loader.manifests.pop(key, None)
+                self.loader.load_manifest(*key.split("/", 1))
 
     def _rename_results(self, kind, group, experiment):
         old_name = group if kind == "group" else PurePosixPath(experiment).name
@@ -453,21 +472,28 @@ class ResultsPanel(QWidget):
                 (e["group"], e["experiment_id"], tuple(a.get("name") for a in e.get("agents") or []),
                  bool(e.get("has_run_logs")), bool(e.get("incomplete_results")),
                  tuple((name, tuple(versions)) for name, versions in sorted(e.get("completed_versions", {}).items())))
-                for e in entries if e.get("finished")
+                + (bool(e.get("finished")),)
+                for e in entries
             )
         )
-        if listing != self._listing:  # rebuild the tree only when runs or agents changed, not on every re-list
+        old_unfinished = self.unfinished
+        self.unfinished = {f"{e['group']}/{e['experiment_id']}" for e in entries if not e.get("finished")}
+        for source in self.sources:
+            if source.run_key in old_unfinished - self.unfinished:
+                self.loader.load_table(source)
+                self.loader.manifests.pop(source.run_key, None)
+                self.loader.load_manifest(source.group, source.experiment_id)
+        if listing != self._listing:  # rebuild only when run identity or completion changes
             self._listing = listing
-            self.explorer.set_runs([e for e in entries if e.get("finished")])
+            self.explorer.set_runs(entries)
         if self._pending_open_run and self.explorer.select_run(*self._pending_open_run):
             self._pending_open_run = None
-        self.unfinished = {f"{e['group']}/{e['experiment_id']}" for e in entries if e.get("in_progress")}
         self.run_count = sum(1 for e in entries if e.get("agents"))
 
     def _selection_changed(self, sources):
         self.sources = sources
         for source in sources:
-            if source.agent:
+            if source.agent and source.run_key not in self.unfinished:
                 self.loader.load_table(source)
             self.loader.load_manifest(source.group, source.experiment_id)
         self.redraw()
@@ -484,6 +510,11 @@ class ResultsPanel(QWidget):
         if name not in self.browsers:
             kinds, empty = ARTIFACT_TABS[name]
             browser = self.browsers[name] = ArtifactBrowser(self.loader, kinds, empty)
+            if name == "Config":
+                browser.tree.hide()
+                browser.title.hide()
+                browser.detail.hide()
+                browser.save_button.hide()
             layout = self._pages[name].layout()
             layout.addWidget(browser)
             self.update_artifacts()
@@ -491,13 +522,14 @@ class ResultsPanel(QWidget):
 
     def _tab_opened(self, index):
         name = self.tabs.tabText(index)
-        if name == "Diagnostics":
+        if name == "Monitors":
             if self.diagnostics_view is None:
                 from .diagnostics import SavedDiagnostics
                 self.diagnostics_view = SavedDiagnostics(self.loader)
                 self.diagnostics_page.layout().addWidget(self.diagnostics_view)
         if self.diagnostics_view is not None:
-            self.diagnostics_view.set_sources(self.sources, self.manifests(), active=name == "Diagnostics")
+            self.diagnostics_view.set_sources(self.sources,
+                [m for m in self.manifests() if m.run_key not in self.unfinished], active=name == "Monitors")
         if name == "Sweeps":
             if self.sweeps_view is None:
                 from .sweeps import SweepResultsView
@@ -515,9 +547,15 @@ class ResultsPanel(QWidget):
 
     def update_artifacts(self):
         manifests = self.manifests()
+        diagnostic_runs = [m for m in manifests if m.run_key not in self.unfinished
+                           and any(a.get("kind") == "monitor_snapshot" or "/monitors/" in a.get("path", "")
+                                   for a in m.artifacts)]
+        self.diagnostics_section.setVisible(bool(diagnostic_runs))
+        has_sweeps = any(a.get("path", "").endswith("/tuning_summary.json") for m in manifests for a in m.artifacts)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.sweeps_page), has_sweeps)
         if self.diagnostics_view is not None:
-            self.diagnostics_view.set_sources(self.sources, manifests,
-                active=self.tabs.currentWidget() is self.diagnostics_page)
+            self.diagnostics_view.set_sources(self.sources, diagnostic_runs,
+                active=self.tabs.currentWidget() is self.curves_page)
         if self.sweeps_view is not None:
             self.sweeps_view.set_manifests(manifests)
         for name, browser in self.browsers.items():
@@ -609,7 +647,7 @@ class ResultsPanel(QWidget):
     # ── Drawing ──────────────────────────────────────────────────────────────
 
     def loaded_tables(self):
-        return [(s, self.loader.tables[s]) for s in self.sources if s in self.loader.tables]
+        return [(s, self.loader.tables[s]) for s in self.sources if s in self.loader.tables and s.run_key not in self.unfinished]
 
     def all_metrics(self) -> list[str]:
         """Every metric any ticked run logged, including hidden ones."""
@@ -667,6 +705,8 @@ class ResultsPanel(QWidget):
         visible = [m for m in metrics if m not in self.hidden]
         if not self.sources:
             empty = "Tick one or more runs on the left to plot every metric they logged."
+        elif all(s.run_key in self.unfinished for s in self.sources):
+            empty = "In progress — see Monitor for live monitoring. Generated files are available in Files."
         elif not tables:
             empty = "Loading metrics…"
         elif not metrics:

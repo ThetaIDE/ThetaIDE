@@ -36,7 +36,7 @@ ARTICLES: List[DocArticle] = [
   <li><b>In-process pipeline services (<code>src/app/services/</code>) &amp; job manager (<code>frontend/job_manager.py</code>):</b> The app composes and validates configs in-process. A detached runner owns training child processes and queue scheduling; the desktop reconnects to durable status, logs and metrics. There is no HTTP server to start.</li>
   <li><b>Training runtimes:</b> The built-in PyTorch Lightning driver (<code>src/app/train.py</code>) provides automated checkpointing, device acceleration (CUDA/MPS/CPU), and structured logging. Method plugins can declare their own runner entrypoint in each agent profile.</li>
   <li><b>Components from the Theta Hub:</b> A fresh clone provides the framework and generic IDE features without research algorithms, experiment recipes, trained results, or domain environments. Install the components required by an experiment from the <b>Theta Hub</b> (<a href="ide://components">Components</a> tab, globe button), or create your own with the <a href="authoring_plugins">Authoring Guide</a>. Each component supplies its own dependencies and integration points.</li>
-  <li><b>Plugin System:</b> Core plugins (Documentation, TensorBoard, arXiv Papers, Visual Model Builder) ship with the IDE and have no effect when switched off; community plugins install from the Theta Hub.</li>
+  <li><b>Plugin System:</b> Core plugins (Documentation, TensorBoard, arXiv Papers) ship with the IDE and have no effect when switched off; community plugins install from the Theta Hub.</li>
 </ul>
 
 <p>Diagrams of how these pieces talk to each other are in <a href="architecture">System Architecture</a>.</p>
@@ -150,7 +150,7 @@ python -m frontend</code></pre>
 
 <h3>Stopping</h3>
 <p>Closing or quitting the desktop disconnects it from the independent training runner. Active training and a started queue continue; reopen ThetaIDE to reconnect to durable status, logs and metrics. Use the run/queue cancellation controls to stop work explicitly. Queued jobs and runner state are stored under the app data directory (by default <code>.thetaide/runs/jobs/</code>, including <code>jobs.db</code>). TensorBoard and other desktop-owned plugins stop with the app.</p>
-<p><b>Run notifications:</b> when a run completes, fails or is stopped, a toast appears in the window's bottom-right corner (&#10003; completed, &#10007; failed, &#9632; stopped, with how long it took) and a short chime plays, brighter for completed and lower for failed. <i>View results</i> on the toast plots the run in the Plot Viewer. If ThetaIDE isn't in front (minimised, in the tray, or another app has focus) the toast becomes a system notification instead. Switch the toast and the sound on or off in <i>Settings &rarr; Training pipeline &rarr; Run notifications</i>; <i>Try it</i> there shows a sample.</p>
+<p><b>Run notifications:</b> when a run completes, fails or is stopped, a toast appears in the window's bottom-right corner (&#10003; completed, &#10007; failed, &#9632; stopped, with how long it took) and a short chime plays, brighter for completed and lower for failed. <i>View results</i> on the toast opens the run in Results. If ThetaIDE isn't in front (minimised, in the tray, or another app has focus) the toast becomes a system notification instead. Switch the toast and the sound on or off in <i>Settings &rarr; Training pipeline &rarr; Run notifications</i>; <i>Try it</i> there shows a sample.</p>
 """,
     ),
     DocArticle(
@@ -226,7 +226,7 @@ python -m frontend</code></pre>
   <li><b>Experiment editor:</b> a form over the YAML, in tabs.
     <ul>
       <li><b>Experiment</b>: description, paradigm, environment and the run budget (timesteps or epochs, seed, evaluation, checkpoints). The <b>+</b> beside the heading adds any other setting.</li>
-      <li><b>Methods</b>: one card per method, each with its algorithm, model and their parameters, plus optional <b>Shared Parameters</b> for every method. <b>Design...</b> beside the model opens the <b>Visual Model Builder</b>: drag layer blocks onto a canvas and wire them together, and it saves the network as a model config (a <code>sequential_spec</code> architecture) that you can pick like any other model.</li>
+      <li><b>Methods</b>: one card per method, each with its algorithm, model and their parameters, plus optional <b>Shared Parameters</b> for every method.</li>
       <li><b>Add Overrides</b> adds a <b>Data Loaders</b>, <b>Evaluators</b> or <b>Figures and Tables</b> box to choose those components and their parameters, or <b>Checkpoint Settings</b> (the metric the best checkpoint is chosen by, <code>save_top_k</code> and how often to check).</li>
       <li>Opening a group's <code>_base.yaml</code> edits the <b>Group Defaults</b> its experiments inherit; inherited values are marked <i>(inherited)</i>. <i>Settings &rarr; Appearance &rarr; Experiment Panel Configuration</i> can show every resolved default too.</li>
     </ul>
@@ -235,20 +235,17 @@ python -m frontend</code></pre>
 </ul>
 
 <h3>2. Training Monitor (<code>monitor</code>)</h3>
-<p>Real-time telemetry and telemetry replay for live and finished training runs:</p>
+<p>Live training metrics, diagnostics and system monitoring:</p>
 <ul>
-  <li>The monitor is for the run training now: it shows that run, or the most recent one when nothing is training. Past runs are viewed in the <b>Plot Viewer</b> (see below).</li>
+  <li>The monitor shows active training. Completed runs and generated artifacts are available in <b>Results</b>.</li>
   <li><b>Several runs training at once:</b> a <b>TRAINING NOW</b> row of chips appears above the status row, one per running experiment with how far along it is. Click a chip to show that run; Stop stops the run shown.</li>
   <li><b>Status row:</b> the run's status, name, paradigm and seed, with timing and training speed shown on each method's Queue card. A running job that goes quiet for two minutes shows <b>STALLED</b> and when it last reported; a finished run shows when it last wrote. Hover the name for the environment, methods and where the run's files are.</li>
-  <li><b>System &middot; Logs &middot; Feed &middot; Files:</b> buttons at the end of the status row. Each opens that view in place of the charts; click it again to go back. The System button shows the training process's CPU use while it runs.</li>
+  <li><b>Main overview:</b> metric charts, saved-snapshot diagnostics and system monitors share one scrolling page. Optional sections appear when that run produces their data. Sweeps remain available through the method/trial selector.</li>
   <li><b>Pipeline strip:</b> the run's methods in training order, one segment each (done, training with its progress, or waiting), with checkpoints &#9670;, the latest new best &#9733; and warnings &#9888; marked under it. Click a segment to show only that method's curves; click it again to show them all.</li>
   <li><b>Cards:</b> the metric the run is judged by, a second metric of your choice (pick it on the card), and the timestep budget.</li>
   <li><b>Charts:</b> a chart for every metric the run logs, in folding sections, one curve per agent: the evaluation section first, led by the headline chart (with its &plusmn;1 std band and the environment's maximum), losses four to a row. The evaluation section starts folded, since the headline card already shows its latest value: click its heading to show it, and it stays shown. While a run trains, its charts span its whole step budget (the part not reached yet is shaded), their y-axis only grows (a dashed line marks the highest value so far), and each curve still training has its newest point marked. <b>Hide</b> a chart or <b>Show all plots</b>. Hover over any chart: the inspector below lists every metric of every curve at that step. Values marked &asymp; come from the nearest other logged step (hover the cell to see which).</li>
   <li><b>Bottom bar:</b> the newest warning or error any method reported, with <b>Open log</b>; or, before there are metrics, what the run is waiting for (its place in the queue, the pipeline starting).</li>
   <li><b>System:</b> CPU, memory and GPU memory of the training process (and its child processes) over time, measured inside the training process itself.</li>
-  <li><b>Logs:</b> the pipeline's output with search, an <i>Errors and warnings only</i> filter, and <i>Follow</i> to keep the newest lines in view.</li>
-  <li><b>Feed:</b> what happened, newest first: run start and finish, checkpoints, new bests for <code>eval/</code> and <code>val/</code> metrics, NaN warnings and errors.</li>
-  <li><b>Files:</b> checkpoints and other files the run reported; double-click to open one, or <b>Open run folder</b>.</li>
 </ul>
 
 <h3>3. Job Queue (<code>queue</code>)</h3>
@@ -259,25 +256,16 @@ python -m frontend</code></pre>
   <li>Queued jobs are saved under the app data directory, by default <code>.thetaide/runs/jobs/jobs.db</code>. The detached runner owns training and resource-based queue admission; closing the desktop does not cancel jobs. Reopen to reconnect, or cancel work explicitly.</li>
 </ul>
 
-<h3>4. Plots & Visualizations (<code>plots</code>)</h3>
-<p>Inspect output plots auto-generated at the end of training pipelines:</p>
-<ul>
-  <li><b>Runs</b> (left): every run, for viewing past runs. Live and queued runs first, then recent ones; each row has a status mark, the run's name, how far along it is (<i>training &middot; 62%</i>, <i>done</i>, <i>queued</i>), a small reward curve and its latest reward. Click a run (or tick its box) to plot it; click again to take it off. The plot draws exactly the ticked runs, each in the color of its row, and <b>X</b> / <b>Y</b> offer every metric they log. <b>Clear plot</b> unticks them all.</li>
-  <li><b>Open CSV / image&hellip;</b> shows a file from disk instead, such as a figure a run generated; ticking or unticking a run goes back to the runs.</li>
-  <li><b>Zoom in</b>, <b>Zoom out</b> and <b>Fit</b> resize the view; <b>Export PNG&hellip;</b> saves what is shown.</li>
-</ul>
-<p>The figures and reports selected in the experiment configuration are generated at the end of a run under <code>src/usr/results/plots/</code>; browse them in <a href="ide://results">Results &rarr; Figures</a>.</p>
-
-<h3>5. Embedded Terminal (<code>terminal</code>)</h3>
+<h3>4. Embedded Terminal (<code>terminal</code>)</h3>
 <p>Built-in interactive terminal powered by xterm.js:</p>
 <ul>
-  <li>Full shell access with support for zsh, bash, and tmux.</li>
+  <li>Full shell access with support for zsh, bash, and tmux. Open another shell from <b>+ New shell</b> at the end of the shell list; its arrow chooses a shell. Each shell has its own <b>×</b> close action beside its name.</li>
   <li>Terminal precedence mode: allows tmux prefix keys and terminal hotkeys to pass through uninterrupted.</li>
   <li><b>Every platform:</b> a pseudo-terminal on macOS and Linux, ConPTY on Windows (via <code>pywinpty</code>, which the <code>gui</code> extra installs there).</li>
   <li><b>Choosing the shell:</b> <i>Settings &rarr; Terminal</i>, or <code>shell</code> under <code>[terminal]</code> in <code>settings.toml</code> (e.g. <code>"pwsh -NoLogo"</code> or <code>"/bin/zsh -l"</code>). Empty picks one: PowerShell 7, then Windows PowerShell, then cmd on Windows; your login shell elsewhere. <code>cwd</code> sets the folder new shells start in. With <code>activate_venv = true</code> the project's <code>venv/</code> comes first on PATH.</li>
 </ul>
 
-<h3>6. Components &amp; the Theta Hub (<code>components</code>)</h3>
+<h3>5. Components &amp; the Theta Hub (<code>components</code>)</h3>
 <p>Manage the building blocks experiments are made of:</p>
 <ul>
   <li><b>Components Tree &amp; Viewer:</b> Browse component configurations, including agent profiles, environment definitions, model architectures, data loaders, plotters, paradigms and site profiles. Hub-installed components are read-only in the IDE; make a component copy to edit its code and configurations. Components are grouped by package.</li>
@@ -286,17 +274,17 @@ python -m frontend</code></pre>
   <li>A component's profiles stay inside its package. Uninstalling it removes them from the tree; your own copies and overrides under <code>src/usr/config/</code> are kept.</li>
 </ul>
 
-<h3>7. Results Browser (<code>results</code>)</h3>
+<h3>6. Results Browser (<code>results</code>)</h3>
 <p>Every metric, value and file your runs produced: tick runs to chart every metric they logged, compare them, and open their tables, figures, reports and configs. See <a href="results_browser">Results Browser</a>.</p>
 
-<h3>8. TensorBoard (<code>tensorboard</code>)</h3>
+<h3>7. TensorBoard (<code>tensorboard</code>)</h3>
 <p>An embedded TensorBoard dashboard for runs logged with <i>Log to TensorBoard</i>. See <a href="tensorboard_tab">TensorBoard Tab</a>.</p>
 
-<h3>9. Console (<code>console</code>)</h3>
+<h3>8. Console (<code>console</code>)</h3>
 <p>Streams the pipeline's output and accepts a few quick commands. See <a href="console_pane">Console</a>.</p>
 
 <h3>Plugin Tabs</h3>
-<p>Core plugins add their own tabs: <b>arXiv Papers</b> (on by default; see <a href="arxiv_papers">arXiv Papers</a>), <b>TensorBoard</b> (above) and <b>Documentation</b> (this tab, opened with <code>F1</code>). The <b>Visual Model Builder</b> core plugin adds no tab: it adds the <b>Design...</b> button to each method's model in the Experiment tab. Switch any of them on or off in <i>Settings &rarr; Core Plugins</i>.</p>
+<p>Core plugins add their own tabs: <b>arXiv Papers</b> (on by default; see <a href="arxiv_papers">arXiv Papers</a>), <b>TensorBoard</b> (above) and <b>Documentation</b> (this tab, opened with <code>F1</code>). Switch any of them on or off in <i>Settings &rarr; Core Plugins</i>.</p>
 """,
     ),
     DocArticle(
@@ -1220,37 +1208,12 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
 <h3>Choosing Runs</h3>
 <p>The tree on the left lists every run in <code>src/usr/results/logs</code>: group &rarr; experiment &rarr; agent. Tick a group, an experiment or an agent; ticking a parent ticks everything under it. When an agent has several <b>versions</b> (repeated runs, e.g. seeds, stored as <code>version_N</code> folders) they appear as children, with the newest ticked. Use the filter box to find runs by name.</p>
 
-<h3>Curves</h3>
-<ul>
-  <li><b>One chart per metric</b> the ticked runs logged, grouped by prefix (<code>eval/</code>, <code>losses/</code>, <code>val/</code>, <code>time/</code>, …). Nothing is whitelisted: every numeric column of every <code>metrics.csv</code> gets a chart, including metrics from Stable-Baselines3 or custom engines.</li>
-  <li><b>Hide</b> a chart with its button, or use <b>Plots ▾</b> to show or hide any metric. Hidden plots are remembered under <code>[results] hidden_plots</code> in <code>settings.toml</code>.</li>
-  <li><b>X-axis:</b> environment steps, logged step, epoch, wall time or training time, whichever the runs logged. <b>Smoothing</b> applies an exponential moving average to the plotted curves.</li>
-  <li><b>Versions:</b> <i>Separate</i> draws each version; <i>Mean ± std</i> or <i>Mean ± SEM</i> combine an agent's ticked versions into one curve with a shaded band.</li>
-  <li><b>Primary:</b> the series whose logged steps hovering snaps to. It is drawn on top and thicker, and listed first in the inspector. <i>Nearest</i> snaps to whichever series is closest to the mouse.</li>
-  <li><b>Point inspector:</b> hover over any chart to see every metric of every ticked run at that step. Runs that did not log exactly that step show their nearest logged point.</li>
-  <li><b>Live:</b> while the pane is open, ticked runs that are still training update every few seconds with their new values.</li>
-</ul>
+<h3>Monitors</h3>
+<p>The Monitors page combines saved metric curves and diagnostics. Charts use the same renderer as the live Monitor. Saved curves have no corner value readout or Hide button; use <b>Plots ▾</b> to choose visible metrics. Axis, smoothing, version aggregation and export controls remain available. Diagnostics appear only when the selected completed run has diagnostic snapshots.</p>
+<p>Running experiments appear in the tree and their generated artifacts are refreshed while Results is visible. Their Monitors page says <b>In progress — see Monitor</b>; it does not stream live curves. The Sweeps tab appears only for runs with sweep artifacts.</p>
+<h3>Files, Reports and Config</h3>
+<p>Files shows the selected experiment's contents directly and previews tables, images and text. Reports contains rendered reports. Config shows the saved experiment YAML without an extra file tree or title. Finished-run curves remain snapshots until refreshed. Export offers CSV data and chart images.</p>
 
-<h3>Summary</h3>
-<p>One sortable row per series and metric: final, best (the highest for rewards, the lowest for losses; blank when a metric has no better direction), where the best was, minimum, maximum, mean, area under the curve, and the number of points. Pick one metric and enter a <b>threshold</b> to see when each run first reached it.</p>
-
-<h3>Tables, Figures, Reports, Config and Files</h3>
-<table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: rgba(255,255,255,0.15);">
-  <tr style="background-color: rgba(255,255,255,0.05); font-weight: bold;">
-    <td>Tab</td>
-    <td>Shows</td>
-  </tr>
-  <tr><td><b>Tables</b></td><td>Every CSV a run wrote, including each raw <code>metrics.csv</code>: every row and column, sortable, with a plot of any column against another</td></tr>
-  <tr><td><b>Figures</b></td><td>Every plot image; scroll to zoom, drag to pan</td></tr>
-  <tr><td><b>Reports</b></td><td>Markdown and text reports, rendered</td></tr>
-  <tr><td><b>Config</b></td><td>Every config and metadata file, plus a table of the settings that differ between the ticked runs. <b>Load in experiment builder</b> puts a run's builder settings into the Experiment tab (for runs Theta-IDE launched, or single-method CartPole/PPO runs).</td></tr>
-  <tr><td><b>Files</b></td><td>Every file of the ticked runs, checkpoints and TensorBoard logs included. Files too large or of a kind that cannot be previewed can still be saved with <b>Save a copy…</b></td></tr>
-</table>
-
-<h3>Export</h3>
-<p><b>Export ▾</b> writes the visible curves as CSV (one row per point, as drawn), the Summary as CSV, or the charts as a PNG image.</p>
-
-<p>The tabs along the top are <b>Curves</b>, <b>Summary</b>, <b>Tables</b>, <b>Figures</b>, <b>Reports</b>, <b>Config</b> and <b>Files</b>. To follow the run training now, use the <a href="ide://monitor">Training Monitor</a>; to plot a few runs together quickly, the Plot Viewer's run list.</p>
 """,
     ),
     DocArticle(
@@ -1349,7 +1312,7 @@ python run_pipeline.py &lt;group&gt;/&lt;tuning_experiment&gt; dash_only=true</c
     <td>What you can change</td>
   </tr>
   <tr><td><b>Appearance</b></td><td>Color theme, display zoom, which sidebar panels are shown, auto-hide sidebar, <b>Experiment Panel Configuration</b> (show resolved defaults, algorithm and model defaults in methods, the visual layer editor), and the Results panel layout</td></tr>
-  <tr><td><b>Core Plugins</b></td><td>Turn built-in plugins (Text Editor, Documentation, TensorBoard, arXiv Papers, Visual Model Builder) on or off</td></tr>
+  <tr><td><b>Core Plugins</b></td><td>Turn built-in plugins (Text Editor, Documentation, TensorBoard, arXiv Papers) on or off</td></tr>
   <tr><td><b>Community Plugins</b></td><td>Install, configure, or remove plugins from the Theta Hub</td></tr>
   <tr><td><b>Hotkeys</b></td><td>Action key, terminal precedence, the <code>Action + digit</code> pane mapping, and menu shortcuts</td></tr>
   <tr><td><b>Training Pipeline</b></td><td>The Python environment that composes configs and runs training, with a <b>Check pipeline</b> button</td></tr>

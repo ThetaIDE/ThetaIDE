@@ -112,6 +112,7 @@ def two_column_form(form, *, identity, align_rows=False):
     from ..parameter_reorder import form_groups
 
     groups = form_groups(form)
+    label_width = form.preferred_label_width(compact=True)
     while form.rowCount():
         form.takeRow(0)
     for group in groups:
@@ -123,7 +124,7 @@ def two_column_form(form, *, identity, align_rows=False):
                     nested.set_compact(True)
                 parts.append(field)
             else:
-                row = ParameterForm(compact=True)
+                row = ParameterForm(compact=True, label_width=label_width)
                 row._parameter_column_row = True
                 row.addRow(caption, field)
                 parts.append(row)

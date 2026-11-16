@@ -42,12 +42,12 @@ class TestShellList(unittest.TestCase):
 
     def test_starts_with_one_listed_shell(self):
         self.assertEqual(self.panel.shell_count(), 1)
-        self.assertEqual(self.panel.shell_list.count(), 1)
+        self.assertEqual(self.panel.shell_list.count(), 2)
         self.assertIs(self.panel.terminal, self.panel.terminals[0])
 
     def test_new_shell_is_listed_and_becomes_active(self):
         new = self.panel.new_shell()
-        self.assertEqual(self.panel.shell_list.count(), 2)
+        self.assertEqual(self.panel.shell_list.count(), 3)
         self.assertIs(self.panel.terminal, new)
         self.assertEqual(self.panel.shell_list.currentRow(), 1)
 
@@ -63,7 +63,7 @@ class TestShellList(unittest.TestCase):
         third = self.panel.new_shell()
         self.panel.close_shell(1)
         self.assertEqual(self.panel.shell_count(), 2)
-        self.assertEqual(self.panel.shell_list.count(), 2)
+        self.assertEqual(self.panel.shell_list.count(), 3)
         self.assertIs(self.panel.terminal, third)
 
     def test_closing_the_last_shell_opens_a_fresh_one(self):
@@ -74,7 +74,7 @@ class TestShellList(unittest.TestCase):
 
     def test_shells_are_numbered_and_named_after_the_program(self):
         self.panel.new_shell()
-        labels = [self.panel.shell_list.item(i).text() for i in range(self.panel.shell_list.count())]
+        labels = [self.panel.shell_list.item(i).data(Qt.ItemDataRole.AccessibleTextRole) for i in range(self.panel.shell_count())]
         program = os.path.splitext(os.path.basename(sys.executable))[0]
         self.assertEqual(labels, [f"1  {program}", f"2  {program}"])
 
@@ -151,15 +151,17 @@ class TestToolbarStyling(unittest.TestCase):
         panel = TerminalPanel(command=[sys.executable, "-i"])
         self.addCleanup(panel.deleteLater)
         panel.apply_theme(BUILTINS["Gruvbox Light"])
-        self.assertIn("background: transparent", panel.toolbar.styleSheet())
+        self.assertFalse(hasattr(panel, "toolbar"))
+        self.assertIn("background: transparent", panel.shell_list.styleSheet())
 
     def test_status_dot_uses_the_theme(self):
         panel = TerminalPanel(command=[sys.executable, "-i"])
         self.addCleanup(panel.deleteLater)
         theme = BUILTINS["Nord"]
         panel.apply_theme(theme)
-        dot = panel.status_dot.styleSheet()
-        self.assertTrue(any(theme["colors"][role] in dot for role in ("primary", "secondary", "disabled")), dot)
+        self.assertFalse(hasattr(panel, "status_dot"))
+        self.assertIn(theme["colors"]["text"], panel.shell_list.styleSheet())
+        self.assertIs(panel.shell_list.itemWidget(panel.new_item), panel.new_btn)
 
 
 if __name__ == "__main__":

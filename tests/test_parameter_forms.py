@@ -54,6 +54,8 @@ def test_long_parameter_label_reveals_only_over_its_original_hover_area(viewer):
     overlay = caption._hover_overlay
     assert overlay.isVisible() and overlay.text() == key
     assert overlay.width() > caption.width()
+    assert overlay.height() > caption.contentsRect().height()
+    assert "padding: 3px 5px" in overlay.styleSheet()
     assert overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     assert field.geometry() == geometry
     QTest.mouseMove(field, field.rect().center())
@@ -662,13 +664,53 @@ def test_component_open_action_uses_latest_value_and_preserves_form(viewer):
     widget.editor_service = SimpleNamespace(open_file=lambda path: opened.append(path) or True)
     button = next(b for b in widget.findChildren(QToolButton) if b.property("parameterOpen"))
     assert button.findChild(_RowHoverReveal)
-    assert button.sizePolicy().retainSizeWhenHidden()
+    assert not button.sizePolicy().retainSizeWhenHidden()
     field = button.parentWidget().findChild(QLineEdit)
     assert field is not None
     field.setText("new")
     button.click()
     assert opened == [target]
     assert widget.raw_data["rules"] == "new"
+
+
+def test_variability_label_columns_fit_their_text_and_collapse_when_narrow(viewer):
+    from frontend.config_panel.controls import ParameterLabel
+    widget = load(viewer, {"variability": {"training_runs": 3, "starting_seed": 1,
+                                         "parallel_runs": 2, "evaluation_seed": 5}, "eval_episodes": 8})
+    box = next(box for box in boxes(widget) if "Variability" in title(box))
+    captions = box.findChildren(ParameterLabel)
+    assert captions
+    for caption in captions:
+        assert caption.width() >= min(240, caption.fontMetrics().horizontalAdvance(caption.text()) + 4)
+    widget.resize(450, 900)
+    app.processEvents()
+    regions = [layout for layout in box.findChildren(QGridLayout) if layout.property("parameterRegion")]
+    assert regions and all(region._narrow for region in regions)
+
+
+def test_sweep_header_adder_reveals_but_child_adders_remain_visible(viewer):
+    widget = load(viewer, {"tuning": {"component": "optuna"}})
+    button = widget.findChild(QToolButton, "sweepAddOption")
+    hover = button.findChild(_RowHoverReveal)
+    assert hover is not None
+    hover._set_visible(False)
+    assert button.isHidden()
+    hover._set_visible(True)
+    assert button.isVisible()
+
+
+def test_section_move_buttons_are_square_and_keep_directions():
+    from frontend.config_panel.controls import _SectionMoveControls
+    box = QWidget()
+    caption = QLabel("Section", box)
+    directions = []
+    controls = _SectionMoveControls(caption, box, directions.append)
+    buttons = controls.findChildren(QToolButton)
+    assert len(buttons) == 2
+    assert all(button.width() == button.height() for button in buttons)
+    for button in buttons:
+        button.click()
+    assert directions == [-1, 1]
 
 
 def test_objective_uses_shared_nested_forms_and_opens_source(viewer):
@@ -1045,7 +1087,8 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
             for row in range(form.rowCount()):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
                 if item and isinstance(item.widget(), QLabel):
-                    assert item.widget().width() == (120 if getattr(form, "compact", compact) else label_width)
+                    expected = form.preferred_label_width() if hasattr(form, "preferred_label_width") else label_width
+                    assert item.widget().width() == expected
     roots = [widget.findChild(QAbstractSpinBox, "sweep_n_trials")]
     roots += [field for field in widget.findChildren(QLineEdit) + widget.findChildren(QAbstractSpinBox)
               if field.property("parameterPath") in ("checkpoint.monitor", "custom.value")]

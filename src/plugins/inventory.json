@@ -38,12 +38,6 @@
       "version": "1.0.0"
     },
     {
-      "id": "model_builder",
-      "root": "src/plugins/app/bundled/model_builder",
-      "kind": "plugin",
-      "version": "1.0.0"
-    },
-    {
       "id": "tensorboard",
       "root": "src/plugins/app/bundled/tensorboard",
       "kind": "plugin",

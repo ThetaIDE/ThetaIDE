@@ -51,25 +51,12 @@
         ]
       },
       "blender": {
-        "type": "object",
-        "required": [
-          "mode"
+        "type": "string",
+        "enum": [
+          "neural",
+          "symbolic"
         ],
-        "properties": {
-          "mode": {
-            "type": "string",
-            "enum": [
-              "neural",
-              "symbolic"
-            ],
-            "x-theta-hide-label": true
-          },
-          "model": {
-            "type": "object",
-            "x-theta-domain": "model",
-            "description": "Model used to produce blender weights."
-          }
-        }
+        "description": "Policy used to produce blending weights."
       },
       "blend_function": {
         "type": "string",
@@ -131,6 +118,11 @@
         "minimum": 0,
         "exclusiveMaximum": 1,
         "description": "Truth scores at or below this floor abstain; stronger evidence blends with the default action distribution."
+      },
+      "blender_model": {
+        "type": "object",
+        "x-theta-domain": "model",
+        "description": "Model used to produce blender weights."
       }
     },
     "x-theta-config-schemas": {
@@ -263,7 +255,7 @@
           "slot": "symbolic_state_loader",
           "contract": "symbolic_state/v1",
           "when": {
-            "blender.mode": [
+            "blender": [
               "symbolic",
               "logic"
             ]

@@ -30,7 +30,7 @@ from ..results.metrics_catalog import describe, group_sort_key, metric_group
 from ..queue_panel import QueuePanel
 from ..theme import theme_color
 from ..widgets import ElidedLabel, label
-from .live_view import PALETTE, ChartsView, FeedView, FilesView, LogView, StatusStrip, SystemView, latest_problem
+from .live_view import PALETTE, ChartsView, StatusStrip, SystemView, latest_problem
 from .pipeline_strip import PipelineStrip, pipeline_segments
 from .runs_sidebar import RunsSidebar
 
@@ -145,8 +145,14 @@ def second_metric_text(key: str) -> tuple[str, str, str, str]:
 
 
 def run_display_name(run) -> str:
-    return (run.get("display_name") or (run.get("backend") or {}).get("experiment_id")
+    backend = run.get("backend") or {}
+    name = (run.get("display_name") or backend.get("experiment_id")
             or (run.get("config") or {}).get("name") or run.get("id", "Experiment"))
+    group = backend.get("group")
+    if group:
+        name = name.removeprefix(group + "/")
+        name = name.removeprefix(group + "_")
+    return name
 
 
 class MonitorPanel(QWidget):
@@ -157,7 +163,7 @@ class MonitorPanel(QWidget):
         "run_title", "run_caption",
     )
     # The views besides the workspace, opened from the status row in its place.
-    VIEW_NAMES = ("Diagnostics", "System", "Logs", "Feed", "Files")
+    VIEW_NAMES = ()
 
     def __init__(self, host: Window):
         super().__init__()
@@ -166,6 +172,8 @@ class MonitorPanel(QWidget):
         # The runs list lives in the Plots tab (the window places it there): its ticks choose what the Plot
         # Viewer draws. This panel shows only the current or most recent run (host.selected).
         self.sidebar = RunsSidebar()
+        self.sidebar.setParent(self)
+        self.sidebar.hide()
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 0, 0, 0)
@@ -295,19 +303,20 @@ class MonitorPanel(QWidget):
         # One grouped chart for each logged metric.
         self.charts_view = ChartsView(
                                       group_columns=SECTION_COLUMNS, show_caption=False)
-        self.overview_scroll = self.charts_view.grid
-        self.overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.overview_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.system_view = SystemView()
-        self.log_view = LogView()
-        self.feed_view = FeedView()
-        self.files_view = FilesView()
         from .visual_view import VisualsView
         self.visuals_view = VisualsView()
+        from .workspace import MonitorWorkspace, embed_grid
+        embed_grid(self.charts_view)
+        embed_grid(self.system_view)
+        self.overview_page = MonitorWorkspace(self.charts_view)
+        self.visuals_view.setMinimumHeight(460)
+        self.diagnostics_section = self.overview_page.add_section("Diagnostics", self.visuals_view)
+        self.system_section = self.overview_page.add_section("System", self.system_view)
+        self.overview_scroll = self.overview_page
         self.sweep_view = None
         self.views = QStackedWidget()
-        self._views = {"Overview": self.charts_view, "Diagnostics": self.visuals_view, "System": self.system_view, "Logs": self.log_view,
-                       "Feed": self.feed_view, "Files": self.files_view}
+        self._views = {"Overview": self.overview_page}
         for view in self._views.values():
             self.views.addWidget(view)
         self.views.currentChanged.connect(lambda _: self.refresh_live())
@@ -331,7 +340,7 @@ class MonitorPanel(QWidget):
         problem_row.addWidget(self.problem_text, 1)
         self.open_log = QPushButton("Open log")
         self.open_log.setToolTip("Show the pipeline's output")
-        self.open_log.clicked.connect(lambda: self.show_view("Logs"))
+        self.open_log.clicked.connect(self._open_run_logs)
         problem_row.addWidget(self.open_log)
         self.problem_bar.hide()
         bottom.addWidget(self.problem_bar, 1)
@@ -586,6 +595,7 @@ class MonitorPanel(QWidget):
         group = group_for(selected)
         self.group_button.setText(group)
         self.experiment_button.setText(f" / {run_display_name(selected)}")
+        self.experiment_button.setToolTip((selected.get("backend") or {}).get("experiment_id") or run_display_name(selected))
         runs = self._monitor_runs()
         menu = self.group_button.menu()
         if not menu.isVisible():
@@ -627,9 +637,16 @@ class MonitorPanel(QWidget):
 
     def show_hardware(self, hw):
         """Keep the System navigation label stable as hardware samples arrive."""
-        button = self.view_buttons["System"]
-        button.setText("System")
-        button.setToolTip("View CPU, memory and GPU memory over time")
+        if self.isVisible():
+            self.refresh_live()
+
+    def _open_run_logs(self):
+        run = self._current_run()
+        backend = (run or {}).get("backend") or {}
+        if backend.get("group") and backend.get("experiment_id"):
+            self.host.results_view.open_run(backend["group"], backend["experiment_id"], failure=True,
+                                            job_id=backend.get("job_id"))
+            self.host.tabs.setCurrentWidget(self.host.results_view)
 
     def _switch_to(self, run_id):
         run = self.host.by_id(run_id)
@@ -736,9 +753,8 @@ class MonitorPanel(QWidget):
             self.charts_view.show_lives({})
             self.visuals_view.show_lives({})
             self.system_view.show_lives({})
-            self.feed_view.show_lives({})
-            self.files_view.show_lives({}, None)
-            self.log_view.set_lines([], "Completed training is available in Results.")
+            self.diagnostics_section.hide()
+            self.system_section.hide()
             self._tuning_monitors.close()
             self.tuning_notice.clear()
             self.tuning_notice.hide()
@@ -896,20 +912,12 @@ class MonitorPanel(QWidget):
             self.problem_text.setText(f"●  {self.status_note}")
         self.open_log.setVisible(problem is not None)
         self.problem_bar.setVisible(problem is not None or bool(self.status_note))
-        if view is self.charts_view:
-            view.show_lives(shown, colors, live, comparing=False)
-        elif view is self.visuals_view:
-            view.show_lives(shown)
-        elif view is self.system_view:
-            view.show_lives(shown, colors)
-        elif view is self.feed_view:
-            self.feed_view.show_lives(lives)
-        elif view is self.files_view:
-            self.files_view.show_lives(lives, self.host.run_folder(run))
-        elif view is self.log_view and self._log_run_id != run["id"]:
-            self._log_run_id = run["id"]
-            lines, empty = self.host.log_lines_for_run(run)
-            self.log_view.set_lines(lines, empty)
+        if view is self.overview_page:
+            self.charts_view.show_lives(shown, colors, live, comparing=False)
+            self.visuals_view.show_lives(shown)
+            self.diagnostics_section.setVisible(bool(self.visuals_view.references))
+            self.system_view.show_lives(shown, colors)
+            self.system_section.setVisible(any(each.system for each in shown.values()))
 
     def shown_lives(self, lives):
         """The shown run's agents, with the focused one drawn last.
@@ -945,11 +953,6 @@ class MonitorPanel(QWidget):
                 name = next((source for source in lives if parent_trial_label(source) == name), name)
         self.focus_agent(name)
         self.show_view("Overview")
-
-    def append_log(self, run, lines):
-        """New output of `run`: shown at once if its log is the one loaded (otherwise read when opened)."""
-        if self._log_run_id == run.get("id"):
-            self.log_view.append(lines)
 
     def _tick_status(self):
         run = self._current_run()

@@ -285,7 +285,7 @@ class TestHotkeysSettingsPage(unittest.TestCase):
         self.assertFalse(self.settings.conflict_banner.isVisible())
 
         # All canonical panes tracked in Hotkey Menu
-        expected_panes = ["components", "config", "monitor", "results", "plots", "tensorboard", "terminal", "console", "settings"]
+        expected_panes = ["components", "config", "monitor", "results", "tensorboard", "terminal", "console", "settings"]
         for pid in expected_panes:
             self.assertIn(pid, self.settings.pane_hotkey_edits)
             self.assertIn(pid, self.settings.pane_conflict_labels)

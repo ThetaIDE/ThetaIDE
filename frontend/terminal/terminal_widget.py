@@ -479,7 +479,7 @@ class TerminalWidget(QWidget):
 
     def _on_pty_exit(self, exit_code: int):
         """Child shell exited; notify xterm and signal."""
-        msg = f"\r\n\x1b[90m[Process completed with exit code {exit_code} — Press '+ New shell' or Enter to restart]\x1b[0m\r\n"
+        msg = f"\r\n\x1b[90m[Process completed with exit code {exit_code} — Press 'New shell' or Enter to restart]\x1b[0m\r\n"
         self.bridge.data_received.emit(msg)
         self.session_exited.emit(exit_code)
 
@@ -735,51 +735,6 @@ class TerminalPanel(QWidget):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        # Compact top control header
-        self.toolbar = QFrame(self)
-        self.toolbar.setObjectName("terminalToolbar")
-        self.toolbar.setFixedHeight(28)
-        tb_layout = QHBoxLayout(self.toolbar)
-        tb_layout.setContentsMargins(10, 0, 10, 0)
-        tb_layout.setSpacing(8)
-
-        self.status_dot = QLabel("●", self.toolbar)
-        self.status_dot.setObjectName("terminalStatusDot")
-        tb_layout.addWidget(self.status_dot)
-
-        self.title_label = QLabel("Terminal", self.toolbar)
-        self.title_label.setObjectName("terminalTitle")
-        tb_layout.addWidget(self.title_label)
-
-        tb_layout.addStretch()
-
-        # Split button: click opens the default shell, the arrow lists every installed shell
-        self.new_btn = QToolButton(self.toolbar)
-        self.new_btn.setObjectName("terminalNewShell")
-        self.new_btn.setText("New shell")
-        self.new_btn.setToolTip("Open another shell (arrow: choose which shell)")
-        self.new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.new_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self.new_btn.clicked.connect(lambda: self.new_shell())
-        self.shell_menu = QMenu(self.new_btn)
-        self.shell_menu.aboutToShow.connect(lambda: self._fill_shell_menu(self.shell_menu))
-        self.new_btn.setMenu(self.shell_menu)
-        tb_layout.addWidget(self.new_btn)
-
-        self.close_btn = QPushButton("Close shell", self.toolbar)
-        self.close_btn.setToolTip("End the selected shell")
-        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.close_btn.clicked.connect(lambda: self.close_shell())
-        tb_layout.addWidget(self.close_btn)
-
-        self.clear_btn = QPushButton("Clear", self.toolbar)
-        self.clear_btn.setToolTip("Clear and reset terminal output")
-        self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.clear_btn.clicked.connect(self._clear_terminal)
-        tb_layout.addWidget(self.clear_btn)
-
-        root_layout.addWidget(self.toolbar)
-
         # Body: the active shell, with the list of open shells beside it
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -797,6 +752,20 @@ class TerminalPanel(QWidget):
         self.shell_list.customContextMenuRequested.connect(self._show_list_menu)
         self.shell_list.currentRowChanged.connect(self._on_row_changed)
         body.addWidget(self.shell_list)
+        self.new_btn = QToolButton(self.shell_list)
+        self.new_btn.setObjectName("terminalNewShell")
+        self.new_btn.setText("+ New shell")
+        self.new_btn.setToolTip("Open another shell; use the arrow to choose a shell")
+        self.new_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.new_btn.clicked.connect(lambda: self.new_shell())
+        self.shell_menu = QMenu(self.new_btn)
+        self.shell_menu.aboutToShow.connect(lambda: self._fill_shell_menu(self.shell_menu))
+        self.new_btn.setMenu(self.shell_menu)
+        self.new_item = QListWidgetItem()
+        self.new_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.new_item.setSizeHint(self.new_btn.sizeHint())
+        self.shell_list.addItem(self.new_item)
+        self.shell_list.setItemWidget(self.new_item, self.new_btn)
 
         root_layout.addLayout(body, 1)
 
@@ -852,8 +821,27 @@ class TerminalPanel(QWidget):
             self.terminals.append(term)
             self.stack.addWidget(term)
 
-            item = QListWidgetItem(self._shell_label(term))
-            self.shell_list.addItem(item)
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, self._shell_label(term))
+            self.shell_list.insertItem(len(self.terminals) - 1, item)
+            row = QWidget()
+            row.setObjectName("terminalShellRow")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(4, 2, 2, 2)
+            caption = QLabel(self._shell_label(term))
+            caption.setObjectName("terminalShellCaption")
+            caption.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            row_layout.addWidget(caption, 1)
+            close = QToolButton()
+            close.setText("×")
+            close.setObjectName("terminalShellClose")
+            close.setFixedSize(22, 22)
+            close.setAccessibleName("Close " + self._shell_label(term))
+            close.setToolTip("Close this shell")
+            close.clicked.connect(lambda _=False, t=term: self.close_shell(self.terminals.index(t)))
+            row_layout.addWidget(close)
+            item.setSizeHint(row.sizeHint())
+            self.shell_list.setItemWidget(item, row)
             self.set_current_shell(len(self.terminals) - 1)
             self.shells_changed.emit()
             return term
@@ -915,7 +903,7 @@ class TerminalPanel(QWidget):
         menu.addAction("New shell", self.new_shell)
         choose = menu.addMenu("New shell with")
         self._fill_shell_menu(choose)
-        if row >= 0:
+        if 0 <= row < len(self.terminals):
             menu.addAction("Restart shell", lambda: self.terminals[row].restart_session())
             menu.addAction("Close shell", lambda: self.close_shell(row))
         menu.exec(self.shell_list.viewport().mapToGlobal(pos))
@@ -939,29 +927,26 @@ class TerminalPanel(QWidget):
             row = self.terminals.index(term)
             item = self.shell_list.item(row)
             if item is not None:
-                item.setText(self._shell_label(term, exit_code))
-                item.setForeground(QColor(self._colors.get("muted" if exit_code is not None else "text", "#ebdbb2")))
+                text = self._shell_label(term, exit_code)
+                item.setData(Qt.ItemDataRole.AccessibleTextRole, text)
+                caption = self.shell_list.itemWidget(item).findChild(QLabel, "terminalShellCaption")
+                caption.setText(text)
+                caption.setStyleSheet(f"color: {self._colors.get('muted' if exit_code is not None else 'text', '#ebdbb2')}; background: transparent;")
         if term is self.terminal:
             self._update_status(exit_code)
 
     def _update_status(self, exit_code: Optional[int] = None):
         if not self.terminals:
             return
-        term = self.terminal
-        if term is None:
+        term = self.stack.currentWidget()
+        if term not in self.terminals:
             return
-        name = self._shell_name(term)
-        if exit_code is not None or not term.session_active():
-            self.title_label.setText(f"Terminal · {name} · exited" if exit_code is None
-                                     else f"Terminal · {name} · exited ({exit_code})")
-            dot_role = "disabled"
-        elif term.pty.is_tmux_active():
-            self.title_label.setText("Terminal · tmux (Action: C-b)")
-            dot_role = "secondary"
-        else:
-            self.title_label.setText(f"Terminal · {name}")
-            dot_role = "primary"
-        self.status_dot.setStyleSheet(f"color: {self._colors.get(dot_role, '#b8bb26')}; font-size: 11px;")
+        state = (f"exited ({exit_code})" if exit_code is not None else
+                 "exited" if not term.session_active() else
+                 "tmux (Action: C-b)" if term.pty.is_tmux_active() else "running")
+        item = self.shell_list.item(self.terminals.index(term))
+        if item is not None:
+            item.setToolTip(f"{self._shell_name(term)} · {state}")
 
     # ── Commands and appearance ──────────────────────────────────────────────
 
@@ -1008,47 +993,12 @@ class TerminalPanel(QWidget):
         btn_bg = colors.get("raised", "#3c3836")
         accent = colors.get("accent", "#fabd2f")
 
-        self.toolbar.setStyleSheet(f"""
-            QFrame#terminalToolbar {{
-                background-color: {panel_bg};
-                border-bottom: 1px solid {border_color};
-            }}
-            QLabel {{
-                background: transparent;
-                color: {text_color};
-            }}
-            QLabel#terminalTitle {{
-                font-weight: 600;
-                font-size: 11px;
-            }}
-            QPushButton {{
-                background-color: {btn_bg};
-                color: {text_color};
-                border: 1px solid {border_color};
-                border-radius: 3px;
-                padding: 2px 8px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{
-                border-color: {accent};
-            }}
-            QToolButton#terminalNewShell {{
-                background-color: {btn_bg};
-                color: {text_color};
-                border: 1px solid {border_color};
-                border-radius: 3px;
-                padding: 2px 18px 2px 8px;
-                font-size: 11px;
-            }}
-            QToolButton#terminalNewShell:hover {{
-                border-color: {accent};
-            }}
-            QToolButton#terminalNewShell::menu-button {{
-                border-left: 1px solid {border_color};
-                width: 14px;
-            }}
-        """)
         self.shell_list.setStyleSheet(f"""
+            QWidget#terminalShellRow, QLabel#terminalShellCaption {{ background: transparent; color: {text_color}; }}
+            QToolButton#terminalShellClose, QToolButton#terminalNewShell {{
+                background: transparent; color: {text_color}; border: none; padding: 2px;
+            }}
+            QToolButton#terminalShellClose:hover, QToolButton#terminalNewShell:hover {{ color: {accent}; }}
             QListWidget#terminalShellList {{
                 background-color: {list_bg};
                 border: 0;
@@ -1073,7 +1023,8 @@ class TerminalPanel(QWidget):
         for row, term in enumerate(self.terminals):
             item = self.shell_list.item(row)
             if item is not None:
-                item.setForeground(QColor(text_color if term.session_active() else colors.get("muted", text_color)))
+                caption = self.shell_list.itemWidget(item).findChild(QLabel, "terminalShellCaption")
+                caption.setStyleSheet(f"background: transparent; color: {text_color if term.session_active() else colors.get('muted', text_color)};")
         self._update_status()
 
     def closeEvent(self, event):

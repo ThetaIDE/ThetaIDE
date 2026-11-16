@@ -18,15 +18,14 @@ methods:
     model:
       actor_mode: hybrid
       blend_function: softmax
-      blender:
-        mode: neural
-        model:
-          activation: tanh
-          dueling: false
-          hidden_sizes:
-          - 32
-          - 32
-          name: basics/dnn
+      blender: neural
+      blender_model:
+        activation: tanh
+        dueling: false
+        hidden_sizes:
+        - 32
+        - 32
+        name: basics/dnn
       name: blendrl-dev
       neural:
         activation: tanh

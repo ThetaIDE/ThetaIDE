@@ -51,8 +51,6 @@ PANE_KEYWORDS: dict[str, str] = {
     "training_monitor": "monitor",
     "results_browser": "results",
     "history": "results",
-    "plot": "plots",
-    "plot_viewer": "plots",
     "tb": "tensorboard",
     "job_queue": "queue",
     "term": "terminal",

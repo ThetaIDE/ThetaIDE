@@ -4,7 +4,7 @@ Paste the prompt below into a new agent session in this repository to continue t
 
 ---
 
-You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch exists on `origin` (ThetaIDE/ThetaIDE), but 5b and the stabilized 5c code are local and unpushed. There is no PR. It is merged to `main` together with the v3 Hub publication, only when the user asks.
+You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch exists on `origin` (ThetaIDE/ThetaIDE), but 5b, stabilized 5c and the UI refinement batch are local and unpushed. There is no PR. It is merged to `main` together with the v3 Hub publication, only when the user asks.
 
 **Read first, in this order:**
 1. `AGENTS.md` and `docs/README.md`.
@@ -16,7 +16,7 @@ Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It
 
 ## Current session priority
 
-The latest request is to stabilize 5c, then ask how the user wants the UI to change. The code is now stabilized and verified; ask for the UI requirements next. Vega is for later: the user has a specific design and has not provided it. Do not infer a Vega design or start implementing it. The data move remains unapproved.
+5c was stabilized (`e0a09a2`), then the user supplied specific config and downstream UI requirements. That batch is implemented locally; read `docs/plans/UI_REFINEMENTS_20261115.md` and its linked verification evidence. Only the unclear sync-button/tree-navigation notes are deferred. Vega is for later: the user has a specific design and has not provided it. Do not infer or implement a Vega design. The results move remains unapproved.
 
 ## How the user wants you to work
 
@@ -38,12 +38,12 @@ The latest request is to stabilize 5c, then ask how the user wants the UI to cha
 
 ## Next work
 
-1. **Ask for the user's UI changes.** This is the next requested session step. Vega is deferred pending their specific design. UI work is intended to integrate on `implement/layer-boundaries` before phase 7.
+1. **Review the implemented UI batch with the user.** Further changes follow their feedback; clarify the deferred sync/navigation notes when they want to address them. Vega remains deferred pending their design.
 2. **Results move, only after approval.** The last dry run recorded 15,590 files (1.23 GB), no symlinks or conflicts. Revalidate before acting, create the timestamped backup, rename to `src/usr/results`, and verify every hash. The old location is not read by the app. Do not claim all of 5c is complete before the move.
 3. **Resume 5d/5e when requested:** explicit `theta.bundle/v1` bundles and declared requirements, following the phase 5 plan. No cluster run.
 4. **Phase 6:** installed CLI entry points and wheel/sdist verification. Core stays at `src/app` and `frontend`.
 5. **Phase 7:** boundary enforcement against the combined implementation.
-6. **Publication, only when requested:** follow `THETA_HUB_RELEASE_WORKFLOW.md`. Known prerequisites: fix the published BlendRL schema types, reward-shaping's cwd-relative checkpoint default/config-environment fallback, the native SB3 Optuna test bypassing pipeline tuner setup, and reinstall the corrected SB3 package in this workspace. The earlier package fix is `7b7a3ef` in `../theta-plugins-v3`, unpushed. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, verify the clean client feed, set `published_at`, and merge with the Hub changes only when asked.
+6. **Publication, only when requested:** follow `THETA_HUB_RELEASE_WORKFLOW.md`. Known prerequisites: publish the locally prepared BlendRL 1.3.1 archive/feed after its source and local installation checks, fix reward-shaping's cwd-relative checkpoint default/config-environment fallback, the native SB3 Optuna test bypassing pipeline tuner setup, and reinstall the corrected SB3 package in this workspace. The earlier package fix is `7b7a3ef` in `../theta-plugins-v3`, unpushed. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, verify the clean client feed, set `published_at`, and merge with the Hub changes only when asked.
 
 Left alone for now (user): checkpoint ranking by `monitor_metric`/`checkpoint.monitor` (`src/app/core/lightning_builder.py:376`–`:416`), the deferred stale tests, `prepare_tabular.py`.
 

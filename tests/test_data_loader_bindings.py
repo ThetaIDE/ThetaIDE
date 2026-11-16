@@ -67,7 +67,7 @@ def test_requirements_follow_selected_model_mode_and_reject_wrong_role(loader_wo
     assert any('requires symbolic_state_loader' in e for e in data_loader_errors(settings, paths=loader_workspace))
     settings['model']['actor_mode'] = 'neural'
     assert input_requirements(settings, paths=loader_workspace) == []
-    settings['model']['blender'] = {'mode': 'symbolic'}
+    settings['model']['blender'] = 'symbolic'
     assert input_requirements(settings, paths=loader_workspace)
     settings['symbolic_state_loader'] = 'SimulatorDataModule'
     assert data_loader_errors(settings, paths=loader_workspace)
@@ -187,7 +187,7 @@ def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(blen
         'model': {'architecture': 'blendrl-dev', 'actor_mode': actor_mode, 'blend_function': 'softmax',
                   'neural': {'type': 'dnn', 'hidden_sizes': [16, 16]},
                   'symbolic': {'type': 'nsfr', 'rules': 'cartpole/variant2'},
-                  'blender': {'mode': 'neural', 'model': {'name': 'basics/dnn', 'hidden_sizes': [8]}}},
+                  'blender': 'neural', 'blender_model': {'name': 'basics/dnn', 'hidden_sizes': [8]}},
         'symbolic_state_loader': 'blendrl-dev/cartpole_state', 'env': {},
     }
     if actor_mode == 'neural':

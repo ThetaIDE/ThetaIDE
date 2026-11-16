@@ -140,17 +140,22 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                     else result_experiment_id(exp))
             key = (group, name)
             if key not in experiments:
-                exp_item = self._item(groups[group], PurePosixPath(name).name, "experiment", key,
+                exp_label = PurePosixPath(name).name.removeprefix(group + "_")
+                exp_item = self._item(groups[group], exp_label, "experiment", key,
                                       Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 exp_item.setToolTip(0, f"{_results_label()}/logs/{group}/{name}")
                 exp_item.setIcon(0, folder_icon())
                 experiments[key] = exp_item
-            run_item = self._item(experiments[key], PurePosixPath(exp).name, "run", f"{group}/{exp}", _PARENT)
+            run_label = "Run" if exp == name else PurePosixPath(exp).name
+            run_item = self._item(experiments[key], run_label, "run", f"{group}/{exp}", _PARENT)
             times = [a.get("started") for a in entry.get("agents") or [] if isinstance(a.get("started"), str)]
             stamp = SAVED_RUN_NAME.fullmatch(PurePosixPath(exp).name)
             fallback_time = stamp.group()[:15].replace("-", "T") if stamp and stamp.group()[8:9] == "-" else ""
             run_item.setData(0, _TIME, max(times, default=fallback_time))
             note = f"{_results_label()}/logs/{group}/{exp}"
+            if not entry.get("finished"):
+                run_item.setText(0, run_item.text(0) + " · in progress")
+                note += "\nIn progress — see Monitor for live monitoring. Generated files are available here."
             if entry.get('incomplete_results'):
                 run_item.setText(0, run_item.text(0) + ' · incomplete results')
                 note += '\nJob ended before result publication completed. Showing the downloaded partial results.'

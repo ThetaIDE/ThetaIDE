@@ -92,14 +92,14 @@ def metrics_requests(backend):
 # ── Loader ───────────────────────────────────────────────────────────────────
 
 
-def test_results_loader_requests_completed_snapshots():
+def test_results_loader_lists_active_artifacts_but_reads_completed_metrics():
     class Backend(LiveBackend):
         def list_runs(self, callback, *, completed_only=False):
-            assert completed_only
+            assert not completed_only
             super().list_runs(callback)
 
         def run_manifest(self, group, experiment_id, callback, *, completed_only=False):
-            assert completed_only
+            assert not completed_only
             super().run_manifest(group, experiment_id, callback)
 
         def run_metrics(self, group, experiment_id, agent, callback, **kwargs):
@@ -111,7 +111,8 @@ def test_results_loader_requests_completed_snapshots():
     entries = []
     loader.runs_listed.connect(entries.extend)
     loader.list_runs()
-    assert entries == []
+    assert len(entries) == 1 and not entries[0]["finished"]
+    entries.clear()
     backend.finished = True
     loader.list_runs()
     assert len(entries) == 1
@@ -124,13 +125,16 @@ def test_results_loader_requests_completed_snapshots():
     assert loader.tables[SOURCE].row_count == 1
 
 
-def test_results_exclude_active_runs_and_only_refresh_on_request():
+def test_results_lists_active_runs_without_streaming_their_metrics():
     from PyQt6.QtCore import QTimer
     backend = LiveBackend()
     panel = ResultsPanel(backend)
     panel.refresh()
-    assert panel.explorer.tree.topLevelItemCount() == 0
-    assert not panel.findChildren(QTimer)
+    assert panel.explorer.tree.topLevelItemCount() == 1
+    assert panel.findChildren(QTimer)
+    panel.explorer.select_run("g", "live_run")
+    assert not metrics_requests(backend)
+    assert "In progress" in panel.grid.empty.text()
     backend.finished = True
     panel.refresh()
     assert panel.explorer.tree.topLevelItemCount() == 1
@@ -143,10 +147,21 @@ def test_results_exclude_active_runs_and_only_refresh_on_request():
     assert backend.requests == before
     assert panel.explorer.tree.topLevelItem(0) is tree_before
     assert panel.loader.tables[SOURCE].row_count == 1
+    names = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
+    assert "Monitors" in names and not {"Curves", "Summary", "Diagnostics"} & set(names)
+    card = panel.grid.cards["eval/reward"]
+    assert card.chart.corner.isHidden() and card.value.text() == ""
+    assert not panel.tabs.isTabVisible(panel.tabs.indexOf(panel.sweeps_page))
     panel.refresh()
     assert panel.loader.tables[SOURCE].row_count == 2
     panel.close()
     panel.deleteLater()
+
+
+def test_nested_run_files_are_relative_to_the_experiment_contents():
+    from frontend.results.artifacts import run_relative
+    assert run_relative({"path": "logs/g/experiment/20261115-120000/m/version_0/metrics.csv"},
+                        "g/experiment/20261115-120000") == "logs/m/version_0/metrics.csv"
 
 
 def test_refresh_discards_old_requests_instead_of_repopulating_the_tree():

@@ -44,7 +44,7 @@ class Backend:
 
     def run_manifest(self, group, experiment, callback, *, completed_only=False):
         callback({"group": group, "experiment_id": experiment, "agents": {"ppo": ["version_0", "version_1"]},
-                  "artifacts": [{"path": path, "kind": "metadata", "size": len(data)}
+                  "artifacts": [{"path": path, "kind": "config" if path.endswith('.yaml') else "metadata", "size": len(data)}
                                 for path, data in self.files.items()]}, None)
 
     def run_metrics(self, group, experiment, agent, callback, **kwargs):
@@ -81,7 +81,7 @@ def drain(app):
 
 
 def open_diagnostics(panel, app):
-    panel.tabs.setCurrentWidget(panel.diagnostics_page)
+    panel.tabs.setCurrentWidget(panel.curves_page)
     drain(app)
     return panel.diagnostics_view
 
@@ -92,6 +92,12 @@ def test_results_tab_opens_saved_visuals_and_loads_only_selected_arrays(panel):
     assert not any(path.endswith('.npz') for path in backend.requests)
     diagnostics = open_diagnostics(widget, app)
     view = diagnostics.view
+    assert not widget.diagnostics_section.isHidden()
+    assert widget.tabs.indexOf(widget.diagnostics_page) == -1
+    files = widget.browser("Files")
+    assert files.tree.topLevelItem(0).text(0) != "g/run"
+    config = widget.browser("Config")
+    assert config.tree.isHidden() and config.title.isHidden()
     assert 'version_1' in view.run.currentText()
     assert view.step.count() == 2
     assert 'optimizer step 20' in view.caption.text()
@@ -111,12 +117,12 @@ def test_results_tab_opens_saved_visuals_and_loads_only_selected_arrays(panel):
 def test_selected_version_and_hidden_tab_do_not_mix_snapshots(panel):
     widget, backend, app = panel
     diagnostics = open_diagnostics(widget, app)
-    widget.tabs.setCurrentWidget(widget.curves_page)
+    widget.tabs.setCurrentWidget(widget._pages["Files"])
     backend.requests.clear()
     widget._selection_changed([Source('g', 'run', 'ppo', 'version_0')])
     drain(app)
     assert not backend.requests
-    widget.tabs.setCurrentWidget(widget.diagnostics_page)
+    widget.tabs.setCurrentWidget(widget.curves_page)
     drain(app)
     assert 'version_0' in diagnostics.view.run.currentText()
     assert all('/version_0/' in path for path in backend.requests)
@@ -160,7 +166,19 @@ def test_old_runs_have_a_clear_empty_state_and_keep_files_available(panel):
     diagnostics = open_diagnostics(widget, app)
     assert 'No saved rich diagnostics' in diagnostics.note.text()
     assert 'Files' in diagnostics.note.text()
+    assert widget.diagnostics_section.isHidden()
     assert widget.tabs.indexOf(widget._pages['Files']) >= 0
+
+
+def test_saved_config_is_just_the_yaml_editor(panel):
+    widget, backend, app = panel
+    backend.files['logs/g/run/experiment.yaml'] = b'seed: 42\n'
+    widget.refresh()
+    widget.tabs.setCurrentWidget(widget._pages['Config'])
+    drain(app)
+    browser = widget.browser('Config')
+    assert browser.tree.isHidden() and browser.title.isHidden()
+    assert browser.viewers['text'].browser.toPlainText() == 'seed: 42\n'
 
 
 def test_opening_diagnostics_keeps_files_and_explorer_resizable(panel):

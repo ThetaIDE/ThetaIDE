@@ -50,6 +50,12 @@ def test_second_metric_choices_offer_every_logged_metric():
     assert second_metric_choices({"metrics": [{"step": 1, "reward": 1.0}]}) == ["loss"]  # fallback
 
 
+def test_monitor_breadcrumb_does_not_repeat_the_group_in_stamped_names():
+    from frontend.monitor.panel import run_display_name
+    assert run_display_name({"backend": {"group": "cartpole", "experiment_id": "cartpole/cartpole_stamp"}}) == "stamp"
+    assert run_display_name({"backend": {"group": "g", "experiment_id": "experiment/20261115-120000"}}) == "experiment/20261115-120000"
+
+
 def test_second_metric_text_uses_the_catalog_for_unknown_keys():
     assert second_metric_text("loss")[1] == "Total loss"
     card, chart, _, fmt = second_metric_text("losses/train/value_loss")
@@ -388,7 +394,7 @@ def test_method_and_trial_dropdowns_route_multiple_sweeps(tmp_path, monkeypatch,
     trials = {a.text(): a for a in monitor.trial_button.menu().actions()}
     assert "Trial 2" not in trials
     trials["Trial 1"].trigger()
-    assert monitor.views.currentWidget() is monitor.charts_view
+    assert monitor.views.currentWidget() is monitor.overview_page
     assert monitor.focused_agent == active
     study["trials"][0]["state"] = "pruned"
     monitor.refresh_live()

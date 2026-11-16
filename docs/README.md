@@ -47,6 +47,8 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Plans
 
+- [UI refinements during the layer refactor](plans/UI_REFINEMENTS_20261115.md) — config forms, Monitor/Results consolidation, retired panels and terminal shell controls; Vega deferred.
+
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
 
 - [Phase 5 plan: results in `src/usr/results` and explicit bundles](plans/LAYER_BOUNDARY_PHASE5_PLAN.md) — bundle manifest `theta.bundle/v1`, application/workspace resolution, bundle inclusions and exclusions, units 5a–5e.
@@ -63,6 +65,8 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 - [Mechanistic monitoring roadmap](plans/MECHANISTIC_MONITORS_ROADMAP.md) — remaining work after the initial foundation.
 
 ## Reports
+
+- [UI refinement verification](reports/UI_REFINEMENTS_VERIFICATION_20261115.json) — focused form, Monitor/Results, terminal/navigation and native BlendRL checks; visual review and known failures.
 
 - [Phase 5c verification evidence](reports/LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json) — full per-file comparison against 5b, sandbox reruns, counts and remaining failure IDs.
 

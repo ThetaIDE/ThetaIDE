@@ -177,8 +177,9 @@ def test_a_followed_job_fills_the_live_views_as_records_arrive(window):
     assert [(s.agent, s.state) for s in window.monitor.pipeline_strip.segments] == [("ppo", "running")]
     assert not window.monitor.problem_bar.isHidden()
     assert "losses/x is nan" in window.monitor.problem_text.text()
-    open_view(window, "Feed")
-    assert window.monitor.feed_view.tree.topLevelItemCount() >= 3
+    assert window.monitor.system_section.isVisibleTo(window.monitor.overview_page.widget())
+    assert not window.monitor.view_buttons
+
 
 
 def test_a_finished_run_is_read_from_disk_when_a_live_view_opens(window):
@@ -191,17 +192,13 @@ def test_a_finished_run_is_read_from_disk_when_a_live_view_opens(window):
     run = disk_run({"group": "g", "experiment_id": "old", "agents": [{"name": "ppo"}], "config": {}, "metadata": {}})
     window.runs.insert(0, run)
     window.select_run(run)
-    open_view(window, "System")
+    open_view(window, "Overview")
     assert list(window.monitor.system_view.grid.cards) == ["system/cpu_percent", "system/rss_mb"]
     open_view(window, "Overview")
     assert list(window.monitor.charts_view.points["ppo"]) == ["eval/reward"]
     assert [(s.agent, s.state) for s in window.monitor.pipeline_strip.segments] == [("ppo", "done")]
     assert window.monitor.open_log.isHidden()  # no warnings: the bar only says it has no recorded end
     assert window.monitor.status_strip.badge.text() == run["status"].upper()
-    open_view(window, "Logs")
-    assert "started outside ThetaIDE" in window.monitor.log_view.empty.text()
-    open_view(window, "Files")
-    assert window.monitor.files_view.open_folder.isEnabled()
 
 
 def test_the_disk_cache_rereads_only_changed_runs(tmp_path):
@@ -217,21 +214,6 @@ def test_the_disk_cache_rereads_only_changed_runs(tmp_path):
     assert again is first and again.latest("eval/reward") == 2.0 and again.is_finished()
     assert cache.cached(tmp_path, "g", "e", ["ppo", "missing"]) == {"ppo": again}
 
-
-def test_output_missed_while_another_run_was_shown_is_read_again(window):
-    first = disk_run({"group": "g", "experiment_id": "a", "agents": [{"name": "ppo"}], "config": {}, "metadata": {}})
-    second = disk_run({"group": "g", "experiment_id": "b", "agents": [{"name": "ppo"}], "config": {}, "metadata": {}})
-    first["backend"]["job_id"] = "job_a"
-    window.runs[:0] = [first, second]
-    window.jobs._logs["job_a"] = ["line 1"]
-    window.select_run(first)
-    open_view(window, "Logs")
-    assert window.monitor.log_view.text.toPlainText() == "line 1"
-    window.select_run(second)
-    window.jobs._logs["job_a"].append("line 2")  # arrives while the other run is shown
-    window.select_run(first)
-    window.monitor.refresh_live()
-    assert window.monitor.log_view.text.toPlainText().splitlines() == ["line 1", "line 2"]
 
 
 # ── Runs sidebar ─────────────────────────────────────────────────────────────
@@ -305,17 +287,10 @@ def test_ticking_a_run_plots_it_without_touching_the_monitor(window):
     assert "eval/reward" not in window.monitor.charts_view.grid.cards  # the monitor still shows one run
     loss = window.monitor.charts_view.grid.cards["losses/total_loss"].chart
     assert [name for name, _, _ in loss.series] == ["ppo"]
-    open_view(window, "System")
+    open_view(window, "Overview")
     assert [name for name, _, _ in window.monitor.system_view.grid.cards["system/cpu_percent"].chart.series] == ["ppo"]
-    plotted = window.plot_viewer.canvas.series  # the ticked run is drawn in the Plot viewer, in its row's color
-    assert any(other["id"] in name and color == sidebar.colors()[other["id"]] for name, _, color in plotted)
-    sidebar.clear_comparison()
-    assert window.plot_viewer.canvas.series == []  # the plot draws exactly the ticked runs
-    item = sidebar.items[other["id"]]
-    sidebar.tree.itemPressed.emit(item, 0)  # a click on the row's text ticks it, as its checkbox would
-    sidebar.tree.itemClicked.emit(item, 0)
-    assert sidebar.compared == [other["id"]]
-    assert window.selected is shown  # the monitor keeps showing the current run
+    assert not hasattr(window, "plot_viewer")
+    assert window.selected is shown
 
 
 # ── Point inspector ──────────────────────────────────────────────────────────
@@ -340,8 +315,8 @@ def test_chart_view_has_no_point_inspector_table():
 
 def test_the_overview_scrolls_rather_than_squashing_its_charts(window):
     monitor = window.monitor
-    assert monitor.views.widget(0) is monitor.charts_view
-    assert monitor.overview_scroll is monitor.charts_view.grid  # the cards and every chart scroll together
+    assert monitor.views.widget(0) is monitor.overview_page
+    assert monitor.overview_scroll is monitor.overview_page  # metrics, diagnostics and system charts scroll together
     assert monitor.overview_scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
     run = make_run("busy", "running", [1.0], job_id="job_b")
     window.runs.insert(0, run)
@@ -515,19 +490,15 @@ def test_simulated_run_has_grouped_metrics(window):
     assert "eval/reward" in window.monitor.charts_view.grid.cards
 
 
-def test_the_status_row_opens_the_other_views_in_place_of_the_charts(window):
+def test_monitor_overview_contains_system_and_diagnostics_without_extra_views(window):
     monitor = window.monitor
-    assert monitor.views.currentWidget() is monitor.charts_view
-    monitor.view_buttons["Logs"].click()
-    assert monitor.views.currentWidget() is monitor.log_view and monitor.view_buttons["Logs"].isChecked()
-    monitor.view_buttons["Feed"].click()
-    assert monitor.views.currentWidget() is monitor.feed_view and not monitor.view_buttons["Logs"].isChecked()
-    monitor.view_buttons["Feed"].click()  # again: back to the charts
-    assert monitor.views.currentWidget() is monitor.charts_view
-    assert not any(button.isChecked() for button in monitor.view_buttons.values())
-    monitor.show_view("System")
-    monitor.open_log.click()
-    assert monitor.views.currentWidget() is monitor.log_view
+    assert monitor.views.currentWidget() is monitor.overview_page
+    assert not monitor.view_buttons
+    assert monitor.overview_page.isAncestorOf(monitor.system_view)
+    assert monitor.overview_page.isAncestorOf(monitor.visuals_view)
+    assert not hasattr(monitor, "log_view")
+    assert not hasattr(monitor, "feed_view")
+    assert not hasattr(monitor, "files_view")
 
 
 def test_the_bottom_bar_says_what_a_run_waits_for_and_then_shows_warnings(window):

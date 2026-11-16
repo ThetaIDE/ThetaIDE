@@ -87,7 +87,7 @@ def _make_subtle_tool_button(icon_name: str, tooltip: str, size: int = 24, icon_
 class _RowHoverReveal(QObject):
     """Reveal a control when the pointer is over its parameter row."""
 
-    def __init__(self, button: QToolButton, row_layout: QHBoxLayout, *, reserve_space=True):
+    def __init__(self, button: QToolButton, row_layout: QHBoxLayout, *, reserve_space=True, floating=None):
         super().__init__(button)
         self._button = weakref.ref(button)
         self._row = weakref.ref(row_layout)
@@ -97,7 +97,7 @@ class _RowHoverReveal(QObject):
             if item is not None and item.widget() is not None and not isinstance(item.widget(), QToolButton)
         ]
         self._parent = None
-        self._floating = not reserve_space
+        self._floating = not reserve_space if floating is None else floating
         self._refresh_queued = False
         policy = button.sizePolicy()
         policy.setRetainSizeWhenHidden(reserve_space)
@@ -284,12 +284,12 @@ class _RowHoverReveal(QObject):
         return False
 
 
-def _reveal_remove_on_row_hover(row_layout: QHBoxLayout, button: QToolButton, *, reserve_space=True) -> None:
+def _reveal_remove_on_row_hover(row_layout: QHBoxLayout, button: QToolButton, *, reserve_space=True, floating=None) -> None:
     """Keep parameter rows tidy until a row control is hovered."""
     if button.property("parameterHoverBound"):
         return
     button.setProperty("parameterHoverBound", True)
-    _RowHoverReveal(button, row_layout, reserve_space=reserve_space)
+    _RowHoverReveal(button, row_layout, reserve_space=reserve_space, floating=floating)
 
 
 def configure_editor(widget, *, compact=False, field_width=None):
@@ -450,11 +450,12 @@ class ParameterLabel(QLabel):
         overlay.setFont(self.font())
         overlay.setAlignment(self.alignment())
         overlay.setStyleSheet(
-            f"QLabel {{ background: {theme_color('surface')}; color: {self.palette().color(self.foregroundRole()).name()}; border: none; padding: 0px; }}"
+            f"QLabel {{ background: {theme_color('surface')}; color: {self.palette().color(self.foregroundRole()).name()}; border: none; padding: 3px 5px; }}"
         )
         origin = self.mapTo(host, self.contentsRect().topLeft())
         overlay.setGeometry(
-            origin.x(), origin.y(), min(text_width + 2, host.width() - origin.x()), self.contentsRect().height()
+            max(0, origin.x() - 5), max(0, origin.y() - 3),
+            min(text_width + 12, host.width() - max(0, origin.x() - 5)), self.contentsRect().height() + 6
         )
         overlay.show()
         overlay.raise_()
@@ -479,10 +480,11 @@ class ParameterLabel(QLabel):
 class ParameterForm(QFormLayout):
     """Common geometry for parameter lists; groups span both form columns."""
 
-    def __init__(self, parent=None, *, compact=False, field_width=None):
+    def __init__(self, parent=None, *, compact=False, field_width=None, label_width=None):
         super().__init__(parent)
         self.compact = compact
         self.field_width = field_width
+        self.label_width = label_width
         self._declared_groups = None
         self.setContentsMargins(0, 0, 0, 0)
         self.setVerticalSpacing(8)
@@ -503,8 +505,8 @@ class ParameterForm(QFormLayout):
         if len(items) == 2:
             item = self.itemAt(self.rowCount() - 1, QFormLayout.ItemRole.LabelRole)
             if item and isinstance(item.widget(), QLabel):
-                item.widget().setFixedWidth(120 if self.compact else PARAM_LABEL_WIDTH)
                 item.widget().setWordWrap(True)
+                self._sync_label_widths()
             self._configure(items[1])
             if isinstance(items[1], QHBoxLayout) and item and item.widget():
                 items[1]._parameter_caption = weakref.ref(item.widget())
@@ -532,12 +534,32 @@ class ParameterForm(QFormLayout):
         for index in range(self.rowCount()):
             caption = self.itemAt(index, QFormLayout.ItemRole.LabelRole)
             if caption and caption.widget():
-                caption.widget().setFixedWidth(120 if compact else PARAM_LABEL_WIDTH)
+                caption.widget().setFixedWidth(self.preferred_label_width())
             field = self.itemAt(index, QFormLayout.ItemRole.FieldRole)
             if field is None:
                 field = self.itemAt(index, QFormLayout.ItemRole.SpanningRole)
             if field:
                 self._configure(field.widget() or field.layout())
+
+    def preferred_label_width(self, *, compact=None):
+        if self.label_width is not None:
+            return self.label_width
+        compact = self.compact if compact is None else compact
+        base = 120 if compact else PARAM_LABEL_WIDTH
+        widths = [base]
+        for index in range(self.rowCount()):
+            item = self.itemAt(index, QFormLayout.ItemRole.LabelRole)
+            caption = item.widget() if item else None
+            if isinstance(caption, QLabel):
+                widths.append(caption.fontMetrics().horizontalAdvance(caption.text()) + 4)
+        return min(240, max(widths))
+
+    def _sync_label_widths(self):
+        width = self.preferred_label_width()
+        for index in range(self.rowCount()):
+            item = self.itemAt(index, QFormLayout.ItemRole.LabelRole)
+            if item and item.widget():
+                item.widget().setFixedWidth(width)
 
     def add_parameter(self, identity, caption, field, *, children=None):
         """Declare one logical subtree, including child membership, at construction."""
@@ -812,21 +834,27 @@ class _SectionMoveControls(QWidget):
         super().__init__(box)
         self.title = title
         self.setObjectName("sectionMoveControls")
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        for glyph, direction, tooltip in (("⌃", -1, "Move section up"), ("⌄", 1, "Move section down")):
+        for arrow, direction, tooltip in ((Qt.ArrowType.UpArrow, -1, "Move section up"),
+                                          (Qt.ArrowType.DownArrow, 1, "Move section down")):
             button = QToolButton(self)
-            button.setText(glyph)
+            button.setArrowType(arrow)
             button.setToolTip(tooltip)
-            button.setFixedSize(18, 12)
+            button.setFixedSize(22, 22)
+            button.setAccessibleName(tooltip)
             button.setStyleSheet(
-                "QToolButton { border: none; padding: 0; color: #a89984; } QToolButton:hover { color: #fbf1c7; }"
+                f"QToolButton {{ border: none; padding: 0; background: transparent; color: {theme_color('muted')}; }} "
+                f"QToolButton:hover {{ background: {theme_color('surface')}; color: {theme_color('text')}; }}"
             )
             button.clicked.connect(lambda _, d=direction: move(d))
             layout.addWidget(button)
             button.installEventFilter(self)
-        self.setFixedSize(18, 24)
+        self.setFixedSize(44, 22)
+        policy = self.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self.setSizePolicy(policy)
         title.installEventFilter(self)
         self.installEventFilter(self)
         self.hide()
