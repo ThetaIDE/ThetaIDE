@@ -650,12 +650,12 @@ symbolic:
 <h3>Environment Keys</h3>
 <p>Environment profiles (<code>env/&lt;package&gt;/&lt;name&gt;.yaml</code>, e.g. <code>env/gym_classic_control/cartpole.yaml</code>) define operational metadata declaratively. A group's <code>_base.yaml</code> picks one with <code>- override /env: gym_classic_control/cartpole</code>.</p>
 <ul>
-  <li><code>compatible_paradigms: [online_rl, offline_rl]</code> &mdash; the paradigms that may use it</li>
   <li><code>monitor_metric: "eval/reward" | "val/loss"</code> &mdash; metric that ranks checkpoints (tuning uses <code>tuning.metric</code>)</li>
   <li><code>preprocess_on_load: true | false</code> &mdash; whether dataset requires offline conversion</li>
   <li>Figures and tables are selected in the experiment configuration.</li>
   <li>Simulator settings such as <code>env_id</code>, <code>num_envs</code> and <code>num_steps</code></li>
 </ul>
+<p>Profiles do not say which paradigms may use them. Each component declares its compatibility once, as <code>requires</code> rules in its package manifest (for example <code>{"level": "block", "config": "paradigm", "in": ["online_rl"]}</code>); forms hide blocked choices and validation reports them.</p>
 """,
     ),
     DocArticle(

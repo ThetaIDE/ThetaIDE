@@ -101,7 +101,7 @@ def test_recipe_preserves_dnn_and_scopes_blend_monitors_to_its_worker(fixture_wo
     worker = compose_experiment('newMonitors/onlineRL', [a for a in args if not a.startswith('+experiment=')]).cfg
     active = instances(worker)
     assert set(active) == {'blend_reliance', 'gate_activations', 'gate_network', 'neural_activations', 'neural_network'}
-    assert worker.symbolic_state_loader.params.feature_count == 2
+    assert worker.model.symbolic_state.feature_count == 2
     dnn = instances(deep_merge(plain(cfg), methods['PPO']))
     assert 'blend_reliance' not in dnn and 'network' in dnn
     declared = {s.name: s.kind for s in available_monitors(plain(cfg))}
@@ -140,18 +140,16 @@ def test_rich_blend_snapshots_render_and_export_with_probability_units(tmp_path)
 
 
 def test_mountaincar_rules_own_their_valuation_and_use_two_observation_objects(fixture_workspace):
-    from src.app.services.rulesets import resolve_ruleset
     from src.app.workspace import WorkspacePaths
     import runpy
-    resource = resolve_ruleset(WorkspacePaths.for_process().root, 'mountaincar', 'mountaincar/monitoring_default')
-    functions = runpy.run_path(str(resource.valuation_path))
+    resource = WorkspacePaths.for_process().resource('rules') / 'mountaincar/monitoring_default'
+    functions = runpy.run_path(str(resource / 'valuation.py'))
     states = torch.tensor([[-.5, -.02], [-.5, 0.], [-.5, .02]])
     torch.testing.assert_close(functions['moving_left'](states), torch.tensor([.99, .01, .01]))
     torch.testing.assert_close(functions['moving_right'](states), torch.tensor([.01, .01, .99]))
     torch.testing.assert_close(functions['not_moving'](states), torch.tensor([.01, .99, .01]))
-    from src.app.core.data_loaders import create_state_loader
-    loader = create_state_loader({'symbolic_state_loader': {'name': 'blendrl-dev/symbolic_state',
-                                 'params': {'object_count': 2, 'feature_count': 2}}})
+    from src.app.core.requirements import load_selected
+    loader = load_selected('datamodule', {'name': 'blendrl-dev/symbolic_state', 'object_count': 2, 'feature_count': 2})
     symbolic = loader(states)
     assert symbolic.shape == (3, 2, 2)
     torch.testing.assert_close(symbolic[:, 0], states)
@@ -175,7 +173,7 @@ def test_actual_blendrl_training_is_identical_with_and_without_rich_monitors(tmp
     from src.app.pipeline.config import parse_methods_dict
     from src.app.telemetry.run import Run
     method = parse_methods_dict(compose_experiment('newMonitors/onlineRL').cfg)['BlendRL']
-    configuration = {'model': method['model'], 'symbolic_state_loader': method['symbolic_state_loader']}
+    configuration = {'model': method['model']}
     module = load_module(get_catalog().package('sb3-dev'), 'theta_sb3_policy.py')
     monitored_learn = load_module(get_catalog().package('sb3-dev'), 'sb3_monitoring.py').monitored_learn
     results = []

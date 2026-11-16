@@ -18,17 +18,8 @@
       "id": "themes-dev/em_edm",
       "kind": "algorithm",
       "entry_point": "theta_adapter.py:execute",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
       "execution_contract": 1,
-      "input_requirements": [
-        {
-          "slot": "data_module",
-          "contract": "themes.trajectories/v1"
-        }
-      ],
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -38,10 +29,6 @@
         "catalog": "monitor_catalog.py:outputs"
       },
       "execution_features": {
-        "input_types": [
-          "data_module",
-          "dataset_path"
-        ],
         "evaluation": "both",
         "resume_modes": [
           "inference"
@@ -52,49 +39,70 @@
         "tuning": false,
         "winner_promotion": false,
         "episode_outcomes": false
-      }
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        },
+        {
+          "level": "block",
+          "kind": "datamodule",
+          "contract": "themes.trajectories/v1"
+        },
+        {
+          "level": "block",
+          "kind": "model",
+          "contract": "themes.models/v1",
+          "message": "Select a composite model with explicit stage and policy providers; stage-only models cannot supply policies"
+        }
+      ]
     },
     {
       "id": "themes-dev/ticc",
       "kind": "model",
       "entry_point": "themes_al/core.py:MultiSeriesTICC",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
-      "execution_contract": 1
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
     },
     {
       "id": "themes-dev/trajectories",
       "kind": "datamodule",
       "entry_point": "theta_adapter.py:TrajectorySource",
-      "role": "training",
-      "output_contracts": [
+      "provides": [
         "themes.trajectories/v1"
       ],
-      "paradigms": [
-        "apprenticeship"
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
       ]
     },
     {
       "id": "themes-dev/recorded_actions",
       "kind": "evaluator",
-      "entry_point": "themes_al/demo.py:export_results",
-      "paradigms": [
-        "apprenticeship"
-      ]
+      "entry_point": "themes_al/demo.py:export_results"
     },
     {
       "id": "themes-dev/csv_trajectories",
       "kind": "datamodule",
       "entry_point": "csv_loader.py:ThemesCsvLoader",
-      "role": "training",
-      "output_contracts": [
-        "themes.trajectories/v1"
-      ],
-      "paradigms": [
-        "apprenticeship"
-      ],
       "parameter_schema": {
         "type": "object",
         "properties": {
@@ -128,54 +136,66 @@
           }
         },
         "additionalProperties": false
-      }
+      },
+      "provides": [
+        "themes.trajectories/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
     },
     {
       "id": "themes-dev/themes",
       "kind": "plotter",
-      "entry_point": "themes_plotter.py:ThemesPlotter",
-      "paradigms": [
-        "apprenticeship"
-      ]
+      "entry_point": "themes_plotter.py:ThemesPlotter"
     },
     {
       "id": "themes-dev/bundle",
       "kind": "model",
       "entry_point": "numerical_models.py:ThemesModels",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
       "execution_contract": 1,
-      "output_contracts": [
+      "provides": [
         "themes.models/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
       ]
     },
     {
       "id": "themes-dev/dense_policy",
       "kind": "model",
       "entry_point": "themes_al/models.py:DensePolicy",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
-      "execution_contract": 1
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
     },
     {
       "id": "themes-dev/themes",
       "kind": "algorithm",
       "entry_point": "theta_adapter.py:execute",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
       "execution_contract": 1,
-      "input_requirements": [
-        {
-          "slot": "data_module",
-          "contract": "themes.trajectories/v1"
-        }
-      ],
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -185,10 +205,6 @@
         "catalog": "monitor_catalog.py:outputs"
       },
       "execution_features": {
-        "input_types": [
-          "data_module",
-          "dataset_path"
-        ],
         "evaluation": "both",
         "resume_modes": [
           "inference"
@@ -199,40 +215,75 @@
         "tuning": false,
         "winner_promotion": false,
         "episode_outcomes": false
-      }
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        },
+        {
+          "level": "block",
+          "kind": "datamodule",
+          "contract": "themes.trajectories/v1"
+        },
+        {
+          "level": "block",
+          "kind": "model",
+          "contract": "themes.models/v1",
+          "message": "Select a composite model with explicit stage and policy providers; stage-only models cannot supply policies"
+        },
+        {
+          "level": "block",
+          "kind": "datamodule",
+          "contract": "themes.temporal/v1",
+          "when": {
+            "agent.implementation": [
+              "paper_source_port"
+            ]
+          },
+          "message": "Full THEMES requires a temporal data loader"
+        }
+      ]
     },
     {
       "id": "themes-dev/rmt_ticc",
       "kind": "model",
       "entry_point": "themes_al/rmt_ticc.py:RewardTICC",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
-      "execution_contract": 1
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
     },
     {
       "id": "themes-dev/tabular_reward",
       "kind": "model",
       "entry_point": "themes_al/rmt_ticc.py:TabularReward",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
-      "execution_contract": 1
+      "execution_contract": 1,
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
     },
     {
       "id": "themes-dev/time_csv_trajectories",
       "kind": "datamodule",
       "entry_point": "time_loader.py:ThemesTimeCsvLoader",
-      "role": "training",
-      "output_contracts": [
-        "themes.trajectories/v1",
-        "themes.temporal/v1"
-      ],
-      "paradigms": [
-        "apprenticeship"
-      ],
       "parameter_schema": {
         "type": "object",
         "properties": {
@@ -283,28 +334,44 @@
           }
         },
         "additionalProperties": false
-      }
+      },
+      "provides": [
+        "themes.trajectories/v1",
+        "themes.temporal/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
+      ]
     },
     {
       "id": "themes-dev/full_bundle",
       "kind": "model",
       "entry_point": "numerical_models.py:ThemesModels",
-      "paradigms": [
-        "apprenticeship"
-      ],
       "backend": "numerical",
       "execution_contract": 1,
-      "output_contracts": [
+      "provides": [
         "themes.models/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "apprenticeship"
+          ]
+        }
       ]
     },
     {
       "id": "themes-dev/themes_full",
       "kind": "plotter",
-      "entry_point": "themes_plotter.py:ThemesFullPlotter",
-      "paradigms": [
-        "apprenticeship"
-      ]
+      "entry_point": "themes_plotter.py:ThemesFullPlotter"
     }
   ],
   "payload": {

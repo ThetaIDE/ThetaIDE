@@ -18,13 +18,7 @@
       "entry_point": "d3rlpy_backend.py:execute",
       "execution_contract": 1,
       "backend": "d3rlpy",
-      "paradigms": [
-        "offline_rl"
-      ],
       "execution_features": {
-        "input_types": [
-          "dataset_path"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -38,7 +32,21 @@
       },
       "resource_hints": {
         "accelerator": false
-      }
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "offline_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        }
+      ]
     },
     {
       "id": "d3rlpy-dev/cql",
@@ -46,13 +54,7 @@
       "entry_point": "d3rlpy_backend.py:execute",
       "execution_contract": 1,
       "backend": "d3rlpy",
-      "paradigms": [
-        "offline_rl"
-      ],
       "execution_features": {
-        "input_types": [
-          "dataset_path"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -66,7 +68,21 @@
       },
       "resource_hints": {
         "accelerator": false
-      }
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "offline_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        }
+      ]
     },
     {
       "id": "d3rlpy-dev/iql",
@@ -74,13 +90,7 @@
       "entry_point": "d3rlpy_backend.py:execute",
       "execution_contract": 1,
       "backend": "d3rlpy",
-      "paradigms": [
-        "offline_rl"
-      ],
       "execution_features": {
-        "input_types": [
-          "dataset_path"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -94,7 +104,21 @@
       },
       "resource_hints": {
         "accelerator": false
-      }
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "offline_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        }
+      ]
     },
     {
       "id": "d3rlpy-dev/td3_bc",
@@ -102,13 +126,7 @@
       "entry_point": "d3rlpy_backend.py:execute",
       "execution_contract": 1,
       "backend": "d3rlpy",
-      "paradigms": [
-        "offline_rl"
-      ],
       "execution_features": {
-        "input_types": [
-          "dataset_path"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -122,15 +140,35 @@
       },
       "resource_hints": {
         "accelerator": false
-      }
+      },
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "offline_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        }
+      ]
     },
     {
       "id": "d3rlpy-dev/vector",
       "kind": "model",
       "entry_point": "d3rlpy_backend.py:create_encoder",
       "backend": "d3rlpy",
-      "paradigms": [
-        "offline_rl"
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "offline_rl"
+          ]
+        }
       ]
     }
   ],

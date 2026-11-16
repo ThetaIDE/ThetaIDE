@@ -1,5 +1,4 @@
 data_module: themes-dev/time_csv_trajectories
-role: training
 visit_column: VisitIdentifier
 time_column: MinutesFromArrival
 action_column: a_2

@@ -171,14 +171,14 @@
       "id": "causal-circuit",
       "kind": "monitor",
       "entry_point": "monitor.py:CausalCircuit",
-      "requires": [
+      "monitoring": {
+        "catalog": "catalog.py:describe"
+      },
+      "hooks": [
         "probe_forward.v1",
         "post_update.v1",
         "module_interventions.v1"
-      ],
-      "monitoring": {
-        "catalog": "catalog.py:describe"
-      }
+      ]
     }
   ],
   "config_path": "monitor/causal-circuit.yaml",

@@ -12,8 +12,6 @@ def _resolve(kind, name, paths):
     selected = selected_capability(kind, str(name), paths=paths)
     if selected is None:
         raise ValueError(f'Unresolved apprenticeship {kind}: {name}')
-    if 'apprenticeship' not in selected.metadata.get('paradigms', []):
-        raise ValueError(f'{name} does not support apprenticeship')
     return selected
 
 
@@ -24,7 +22,7 @@ def _selections(cfg, paths):
     model = cfg.get('model') or {}
     name = model if isinstance(model, str) else model.get('architecture') or model.get('name')
     selected_model = _resolve('model', name, paths)
-    if 'themes.models/v1' not in selected_model.metadata.get('output_contracts', []):
+    if 'themes.models/v1' not in selected_model.metadata.get('provides', []):
         raise ValueError('Select a composite model with explicit stage and policy providers; stage-only models cannot supply policies')
     if selected_model.metadata.get('backend') != 'numerical':
         raise ValueError('Apprenticeship requires a numerical stage model')
@@ -32,7 +30,7 @@ def _selections(cfg, paths):
     if selection is None:
         raise ValueError('Apprenticeship requires a trajectory data provider')
     data = _resolve('datamodule', selection['name'], paths)
-    if 'themes.trajectories/v1' not in data.metadata.get('output_contracts', []):
+    if 'themes.trajectories/v1' not in data.metadata.get('provides', []):
         raise ValueError('Data provider must supply themes.trajectories/v1')
     evaluator = _resolve('evaluator', cfg.get('evaluator'), paths)
     return profile, algorithm, selected_model, selection, data, evaluator
@@ -86,7 +84,7 @@ class ApprenticeshipRunner:
         selected_models = _model_bundle(cfg, model, paths)
         if implementation == 'paper_source_port':
             _validate_source_settings(profile, selected_models)
-            if 'themes.temporal/v1' not in data.metadata.get('output_contracts', []):
+            if 'themes.temporal/v1' not in data.metadata.get('provides', []):
                 raise ValueError('Full THEMES requires a temporal data loader')
         if implementation == 'demo_reconstruction' and selected_models.reward_spec is not None:
             raise ValueError('Historical demo does not train a reward model; use the full THEMES method')

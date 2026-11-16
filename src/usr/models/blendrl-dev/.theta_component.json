@@ -41,7 +41,9 @@
   },
   "parameter_schema": {
     "type": "object",
-    "required": ["blender_model"],
+    "required": [
+      "blender_model"
+    ],
     "properties": {
       "actor_mode": {
         "type": "string",
@@ -122,12 +124,26 @@
       },
       "blender_model": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
-          "name": {"type": "string", "minLength": 1}
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "x-theta-domain": "model",
         "description": "Model used to produce blender weights."
+      },
+      "symbolic_state": {
+        "type": [
+          "string",
+          "object"
+        ],
+        "x-theta-domain": "datamodule",
+        "x-theta-contract": "symbolic_state/v1",
+        "description": "Builder that turns observations into [batch, objects, features] symbolic states for the logic actor and symbolic blender."
       }
     },
     "x-theta-config-schemas": {
@@ -245,26 +261,29 @@
       "monitoring_access": [
         "blendrl.expert_interventions.v1"
       ],
-      "input_requirements": [
+      "requires": [
         {
-          "slot": "symbolic_state_loader",
-          "contract": "symbolic_state/v1",
+          "level": "block",
+          "config": "model.symbolic_state",
+          "present": true,
           "when": {
-            "actor_mode": [
+            "model.actor_mode": [
               "hybrid",
               "logic"
             ]
-          }
+          },
+          "message": "BlendRL's hybrid and logic actors need a symbolic state builder: select model.symbolic_state."
         },
         {
-          "slot": "symbolic_state_loader",
-          "contract": "symbolic_state/v1",
+          "level": "block",
+          "config": "model.symbolic_state",
+          "present": true,
           "when": {
-            "blender": [
-              "symbolic",
-              "logic"
+            "model.blender": [
+              "symbolic"
             ]
-          }
+          },
+          "message": "BlendRL's symbolic blender needs a symbolic state builder: select model.symbolic_state."
         }
       ]
     },
@@ -278,13 +297,6 @@
       "id": "blendrl-dev/reliance",
       "kind": "monitor",
       "entry_point": "reliance_monitor.py:BlendReliance",
-      "requires": [
-        "probe_forward.v1",
-        "post_update.v1",
-        "module_interventions.v1",
-        "blendrl.expert_interventions.v1",
-        "policy_probabilities.v1"
-      ],
       "monitoring": {
         "catalog": "reliance_catalog.py:describe"
       },
@@ -301,20 +313,19 @@
             "minimum": 0
           }
         }
-      }
+      },
+      "hooks": [
+        "probe_forward.v1",
+        "post_update.v1",
+        "module_interventions.v1",
+        "blendrl.expert_interventions.v1",
+        "policy_probabilities.v1"
+      ]
     },
     {
       "id": "blendrl-dev_symbolic_state",
       "kind": "datamodule",
-      "role": "symbolic_state",
       "entry_point": "symbolic_state.py:SymbolicStateLoader",
-      "output_contracts": [
-        "symbolic_state/v1"
-      ],
-      "paradigms": [
-        "online_rl",
-        "offline_rl"
-      ],
       "parameter_schema": {
         "type": "object",
         "properties": {
@@ -343,7 +354,20 @@
           }
         },
         "additionalProperties": false
-      }
+      },
+      "provides": [
+        "symbolic_state/v1"
+      ],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl",
+            "offline_rl"
+          ]
+        }
+      ]
     }
   ],
   "payload": {

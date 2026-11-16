@@ -1,5 +1,4 @@
 # Stable-Baselines3 PPO (Proximal Policy Optimization)
-compatible_paradigms: [online_rl]
 algorithm: sb3-dev/ppo
 backend: sb3
 policy: MlpPolicy

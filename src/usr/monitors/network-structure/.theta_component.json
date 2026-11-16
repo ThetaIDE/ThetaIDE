@@ -48,13 +48,13 @@
       "id": "network-structure",
       "kind": "monitor",
       "entry_point": "monitor.py:NetworkStructure",
-      "requires": [
-        "probe_forward.v1",
-        "post_update.v1"
-      ],
       "monitoring": {
         "catalog": "catalog.py:describe"
-      }
+      },
+      "hooks": [
+        "probe_forward.v1",
+        "post_update.v1"
+      ]
     }
   ],
   "config_path": "monitor/network-structure.yaml",

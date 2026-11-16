@@ -123,6 +123,10 @@ class PluginScaffolder:
                     payload={'implementations':[code_file.name, '__init__.py'], 'resources':[],
                              'configs':{meta['config_path']:relative}})
         if kind == 'env': meta['capabilities'][0]['resource_root'] = '.'
+        # The paradigm option becomes the component's one compatibility declaration.
+        paradigms = meta.pop('paradigms', None)
+        if paradigms:
+            meta['capabilities'][0]['requires'] = [{'level': 'block', 'config': 'paradigm', 'in': list(paradigms)}]
 
     def _scaffold_model(self, name: str, opts: ScaffoldOptions) -> ScaffoldResult:
         target_dir = opts.output_dir or (self.workspace_root / "src" / "usr" / "models" / name)
@@ -186,13 +190,10 @@ from . import {name}_model  # noqa: F401
 
         # 3. Editable base config in src/usr/config/model/<name>.yaml
         paradigms = opts.paradigms or ["online_rl", "offline_rl", "supervised"]
-        paradigms_yaml = "\n".join(f"  - {p}" for p in paradigms)
         cfg_file = self.paths.config / "model" / f"{name}.yaml"
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         cfg_yaml = f"""# Default configuration for {name}
 type: {name}
-paradigms:
-{paradigms_yaml}
 hidden_sizes: [64, 64]
 """
         cfg_file.write_text(cfg_yaml, encoding="utf-8")
@@ -241,7 +242,6 @@ hidden_sizes: [64, 64]
         desc = opts.description or f"Custom {name} algorithm component for Theta-IDE."
 
         paradigms = opts.paradigms or ["online_rl"]
-        paradigms_yaml = "\n".join(f"  - {p}" for p in paradigms)
 
         # 1. Python agent implementation
         code_file = target_dir / f"{name}_agent.py"
@@ -259,10 +259,6 @@ from src.app.api.models import build_model
 class {class_name}(L.LightningModule):
     """Pluggable algorithm component extending PyTorch Lightning."""
 
-    @classmethod
-    def get_supported_paradigms(cls) -> List[str]:
-        """Declare which learning paradigms this algorithm supports."""
-        return {repr(paradigms)}
 
     def __init__(self, cfg: Any, env: Any = None, **kwargs: Any):
         super().__init__()
@@ -313,8 +309,6 @@ class {class_name}(L.LightningModule):
         cfg_yaml = f"""# Default algorithm hyperparameters for {name}
 algorithm: {name}
 agent: {name}
-paradigms:
-{paradigms_yaml}
 lr: 0.0003
 batch_size: 64
 gamma: 0.99
@@ -360,7 +354,6 @@ epochs: 10
         desc = opts.description or f"Custom {name} simulator & grounding environment for Theta-IDE."
 
         paradigms = opts.paradigms or ["online_rl"]
-        paradigms_yaml = "\n".join(f"  - {p}" for p in paradigms)
 
         # 1. Environment implementation
         env_file = target_dir / "env.py"
@@ -393,9 +386,6 @@ class {name.capitalize()}GymEnv(gym.Env):
 class {class_name}:
     """Environment plugin contract implementation."""
 
-    @classmethod
-    def get_supported_paradigms(cls) -> List[str]:
-        return {repr(paradigms)}
 
     @classmethod
     def make_env(cls, env_id: str = "{name}", **kwargs: Any) -> gym.Env:
@@ -450,8 +440,6 @@ class VectorizedEnv(VectorizedBaseEnv):
         cfg_yaml = f"""# @package _global_
 env:
   name: {name}
-  paradigms:
-{paradigms_yaml}
   monitor_metric: "eval/reward"
   preprocess_on_load: false
   num_envs: 1
@@ -462,16 +450,7 @@ env:
         cfg_file.write_text(cfg_yaml, encoding="utf-8")
         created.append(cfg_file)
 
-        # 4. Optional starter domain rules in the research resources tree.
-        rules_dir = self.workspace_root / "src/usr/rules" / name
-        rules_dir.mkdir(parents=True, exist_ok=True)
-        rules_file = rules_dir / "default.rules"
-        rules_file.write_text(
-            f"# Domain rules for {name}\n# Example: action_preferred(X) :- state_positive(X).\n", encoding="utf-8"
-        )
-        created.append(rules_file)
-
-        # 5. Manifest
+        # 4. Manifest
         meta_file = target_dir / ".theta_component.json"
         meta = {
             "id": name,
@@ -527,9 +506,6 @@ class {name.capitalize()}Dataset(Dataset):
 class {class_name}(L.LightningDataModule):
     """Custom data module providing training batches and trajectory window sampling."""
 
-    @classmethod
-    def get_supported_paradigms(cls) -> List[str]:
-        return {repr(paradigms)}
 
     def __init__(self, batch_size: int = 64, **kwargs: Any):
         super().__init__()
@@ -608,9 +584,6 @@ from src.app.api.evaluation import register_evaluator
 class {class_name}:
     """Evaluates agent safety, verification bounds, or saliency attributions."""
 
-    @classmethod
-    def get_supported_paradigms(cls) -> List[str]:
-        return {repr(paradigms)}
 
     def __init__(self, **kwargs: Any):
         self.step_metrics: list[float] = []
@@ -690,9 +663,6 @@ from src.app.api.plotting import BasePlotter, clean_label, get_style_info, movin
 class {class_name}(BasePlotter):
     """Custom visualization and performance diagnostic plotter."""
 
-    @classmethod
-    def get_supported_paradigms(cls) -> List[str]:
-        return {repr(paradigms)}
 
     def __init__(self):
         super().__init__("{name}")
@@ -762,7 +732,7 @@ output_dir: null
                 "config_path": "monitor/" + name + ".yaml"}
         self._native_metadata(meta, target, source, "Monitor", profile)
         cap = meta["capabilities"][0]
-        cap["requires"] = ["probe_forward.v1", "post_update.v1"]
+        cap["hooks"] = ["probe_forward.v1", "post_update.v1"]
         catalog = target / "catalog.py"
         catalog.write_text('def describe(config, context):\n    return [{"name": "interp/" + config["instance"] + "/samples", "requires": ["probe_forward.v1", "post_update.v1"]}]\n')
         meta["payload"]["implementations"].append("catalog.py")

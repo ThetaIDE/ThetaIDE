@@ -11,9 +11,3 @@ default_data_module: RLReplayBufferDataModule
 eval_protocol: OfflineRLEvalProtocol
 default_callbacks:
   - ModelCheckpointCallback
-constraints:
-  requires:
-    methods: non_empty
-    agent: required
-  forbids:
-    eval_episodes: non_zero

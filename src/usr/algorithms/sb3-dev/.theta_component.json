@@ -262,9 +262,6 @@
     "agent/sb3-dev/sac.yaml",
     "experiment/Execution/sb3_smoke.yaml"
   ],
-  "paradigms": [
-    "online_rl"
-  ],
   "storage_version": 3,
   "api_version": 1,
   "capabilities": [
@@ -273,9 +270,6 @@
       "kind": "algorithm",
       "entry_point": "sb3_runner.py:execute",
       "aliases": [],
-      "paradigms": [
-        "online_rl"
-      ],
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -292,9 +286,6 @@
       "execution_contract": 1,
       "backend": "sb3",
       "execution_features": {
-        "input_types": [
-          "live_environment"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -310,16 +301,32 @@
       "resource_hints": {
         "base_memory_gib": 0.55
       },
-      "resource_hint_hook": "execution_hooks.py:resource_hints"
+      "resource_hint_hook": "execution_hooks.py:resource_hints",
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        },
+        {
+          "level": "block",
+          "config": "dataset_path",
+          "present": false
+        }
+      ]
     },
     {
       "id": "sb3-dev/dqn",
       "kind": "algorithm",
       "entry_point": "sb3_runner.py:execute",
       "aliases": [],
-      "paradigms": [
-        "online_rl"
-      ],
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -336,9 +343,6 @@
       "execution_contract": 1,
       "backend": "sb3",
       "execution_features": {
-        "input_types": [
-          "live_environment"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -354,16 +358,32 @@
       "resource_hints": {
         "base_memory_gib": 0.55
       },
-      "resource_hint_hook": "execution_hooks.py:resource_hints"
+      "resource_hint_hook": "execution_hooks.py:resource_hints",
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        },
+        {
+          "level": "block",
+          "config": "dataset_path",
+          "present": false
+        }
+      ]
     },
     {
       "id": "sb3-dev/ppo",
       "kind": "algorithm",
       "entry_point": "sb3_runner.py:execute",
       "aliases": [],
-      "paradigms": [
-        "online_rl"
-      ],
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -380,9 +400,6 @@
       "execution_contract": 1,
       "backend": "sb3",
       "execution_features": {
-        "input_types": [
-          "live_environment"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -398,16 +415,32 @@
       "resource_hints": {
         "base_memory_gib": 0.55
       },
-      "resource_hint_hook": "execution_hooks.py:resource_hints"
+      "resource_hint_hook": "execution_hooks.py:resource_hints",
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        },
+        {
+          "level": "block",
+          "config": "dataset_path",
+          "present": false
+        }
+      ]
     },
     {
       "id": "sb3-dev/sac",
       "kind": "algorithm",
       "entry_point": "sb3_runner.py:execute",
       "aliases": [],
-      "paradigms": [
-        "online_rl"
-      ],
       "monitoring": {
         "supports": [
           "scalars.v1",
@@ -419,9 +452,6 @@
       "execution_contract": 1,
       "backend": "sb3",
       "execution_features": {
-        "input_types": [
-          "live_environment"
-        ],
         "evaluation": "provider",
         "resume_modes": [
           "inference"
@@ -437,7 +467,26 @@
       "resource_hints": {
         "base_memory_gib": 0.55
       },
-      "resource_hint_hook": "execution_hooks.py:resource_hints"
+      "resource_hint_hook": "execution_hooks.py:resource_hints",
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "data_module",
+          "present": false
+        },
+        {
+          "level": "block",
+          "config": "dataset_path",
+          "present": false
+        }
+      ]
     }
   ],
   "payload": {

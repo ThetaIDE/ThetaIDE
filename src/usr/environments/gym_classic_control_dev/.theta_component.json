@@ -167,14 +167,48 @@
         "gym_classic_control_dev/mountaincar",
         "gym_classic_control_dev/pendulum"
       ],
-      "resource_root": "."
+      "resource_root": ".",
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl",
+            "offline_rl"
+          ]
+        },
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl"
+          ],
+          "when": {
+            "env.env_id": [
+              "Acrobot-v1",
+              "Pendulum-v1"
+            ]
+          },
+          "message": "Acrobot and Pendulum have no offline datasets; use them in online_rl."
+        }
+      ]
     },
     {
       "id": "gym_classic_control_dev/cartpole",
       "kind": "env",
       "entry_point": "env_vectorized.py:VectorizedEnv",
       "resource_root": "resources/cartpole",
-      "aliases": []
+      "aliases": [],
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl",
+            "offline_rl"
+          ]
+        }
+      ]
     }
   ],
   "payload": {

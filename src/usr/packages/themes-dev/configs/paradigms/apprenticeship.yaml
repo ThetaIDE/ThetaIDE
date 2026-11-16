@@ -6,6 +6,3 @@ training: {budget: phases}
 runner: themes-dev/runner
 default_data_module: themes-dev/trajectories
 monitor_metric: eval/mixture_nll
-constraints:
-  requires: {methods: non_empty}
-  forbids: {eval_episodes: non_zero}

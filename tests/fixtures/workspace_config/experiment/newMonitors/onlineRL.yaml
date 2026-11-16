@@ -38,6 +38,10 @@ methods:
       symbolic:
         rules: mountaincar/monitoring_default
         type: nsfr
+      symbolic_state:
+        name: blendrl-dev/symbolic_state
+        feature_count: 2
+        object_count: 2
     monitors:
       blend_reliance:
         component: blendrl-dev/reliance
@@ -112,11 +116,6 @@ methods:
         enabled: false
       network:
         enabled: false
-    symbolic_state_loader:
-      name: blendrl-dev/symbolic_state
-      params:
-        feature_count: 2
-        object_count: 2
 telemetry:
   monitors:
     enabled: true

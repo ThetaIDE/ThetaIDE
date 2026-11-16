@@ -91,13 +91,13 @@
       "id": "activation-evolution",
       "kind": "monitor",
       "entry_point": "monitor.py:ActivationEvolution",
-      "requires": [
-        "probe_forward.v1",
-        "post_update.v1"
-      ],
       "monitoring": {
         "catalog": "catalog.py:describe"
-      }
+      },
+      "hooks": [
+        "probe_forward.v1",
+        "post_update.v1"
+      ]
     }
   ],
   "config_path": "monitor/activation-evolution.yaml",

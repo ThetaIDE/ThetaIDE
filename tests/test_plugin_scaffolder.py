@@ -47,7 +47,23 @@ def test_scaffold_environment(tmp_path):
     assert res.success is True
     assert (res.target_dir / "env.py").is_file()
     assert (tmp_path / "src" / "usr" / "config" / "env" / "quadrotor_sim.yaml").is_file()
-    assert (tmp_path / "src" / "usr" / "rules" / "quadrotor_sim" / "default.rules").is_file()
+    # Environments own no logic resources; a logic package declares the directory it reads.
+    assert not (tmp_path / "src" / "usr" / "rules").exists()
+
+
+@pytest.mark.parametrize("kind", ["agent", "model", "env", "datamodule"])
+def test_paradigm_option_becomes_the_components_requires_rule(tmp_path, kind):
+    import json
+    from src.app.components.archive import validate_native_package
+    res = PluginScaffolder(workspace_root=tmp_path).scaffold(
+        ScaffoldOptions(name="probe_" + kind, kind=kind, paradigms=["offline_rl"]))
+    assert res.success is True
+    meta = json.loads((res.target_dir / ".theta_component.json").read_text())
+    assert "paradigms" not in meta
+    assert meta["capabilities"][0]["requires"] == [{"level": "block", "config": "paradigm", "in": ["offline_rl"]}]
+    validate_native_package(meta, res.target_dir)
+    for profile in res.target_dir.rglob("*.yaml"):
+        assert "paradigms" not in profile.read_text()
 
 
 def test_scaffold_datamodule(tmp_path):

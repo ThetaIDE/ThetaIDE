@@ -28,6 +28,17 @@ from src.app.api.models import register_model
 from src.app.api.models import ActionResult
 
 
+def _plain(value):
+    """A configuration node as plain Python values."""
+    try:
+        from omegaconf import OmegaConf
+        if OmegaConf.is_config(value):
+            return OmegaConf.to_container(value, resolve=True)
+    except ImportError:
+        pass
+    return value
+
+
 def _softor(xs, dim=0, gamma=0.015):
     """Smooth logical OR used to merge action scores within this plugin."""
     if not torch.is_tensor(xs):
@@ -917,10 +928,16 @@ class BlenderActorCritic(nn.Module):
         """Consume symbolic states; expert, gate and critic construction stay here."""
         if self.actor_mode == "neural" and self.blender_mode == "neural":
             return neural_state
-        if getattr(self, "_symbolic_state_loader", None) is None:
-            from src.app.api.data import create_state_loader
-            self._symbolic_state_loader = create_state_loader(self.cfg)
-        return self._symbolic_state_loader(neural_state)
+        if getattr(self, "_symbolic_state_builder", None) is None:
+            selection = self.get_cfg("symbolic_state", None)
+            if selection is None:
+                raise ValueError("BlendRL's logic actor and symbolic blender need a symbolic state builder: set model.symbolic_state.")
+            from src.app.api.packages import load_selected
+            loader = load_selected("datamodule", _plain(selection))
+            if not callable(loader):
+                raise ValueError("The symbolic state builder must be callable.")
+            self._symbolic_state_builder = loader
+        return self._symbolic_state_builder(neural_state)
 
     def get_action_probs(self, neural_state):
         logic_state = self.build_logic_observation(neural_state)
