@@ -8,7 +8,7 @@ You are continuing the layer boundary refactor of Theta-IDE on the branch `imple
 
 Phases 0–7 are implemented: bundles `4d95ad5`, installed entry points `8da3c4c`, enforcement `252d3dc`. Two jobs remain, in this order:
 
-1. **Unify compatibility** following `docs/plans/COMPATIBILITY_REQUIREMENTS_PLAN.md`. Today paradigm compatibility has three homes, the data slot `role` two, and input contracts, execution input types, paradigm `allowed_agents` and the run-time-only `execution_preflight` overlap. The plan replaces them with one capability-level `requires` (plus `provides` and a validation-time `preflight` hook), evaluated by one core module in the form, validation, execution and bundle check. The user wants plugin authors to be able to enforce what their capability needs (a paradigm, a model or algorithm, a contract, specific configuration values) through their package alone. Convert every maintained package to the new declarations.
+1. **Unify compatibility** following `docs/plans/COMPATIBILITY_REQUIREMENTS_PLAN.md`; its design philosophy and decisions are confirmed with the user. Components declare compatibility on their capability (`requires` rules at an author-chosen `block` or `warn` level, `provides`, a validation-time `preflight`); paradigms describe only themselves (`allowed_agents` and paradigm `constraints` go); components own their sub-components through generic component-reference parameters (the core `symbolic_state_loader` slot and `role` go). The plan's audit removes every remaining component-specific behavior from core, the SDK and the desktop (rulesets, Slurm shell blocks, TensorBoard results special cases, the Optuna-named sweeper adapter). End state: the SDK and IDE do nothing extra for any component. Convert every maintained package.
 2. **Publish** (authorized by the user on 2026-11-16, once job 1 is done and verified). Follow `docs/development/THETA_HUB_RELEASE_WORKFLOW.md`. Publication pushes the `-v3` branches, releases the v3 batch on the Hub and merges this branch to `main` together with it, as the layer boundary plan requires.
 
 Uncommitted files from separate user tasks may be present (`frontend/components_panel.py`, `frontend/config_tree.py`, `tests/test_startup_performance.py`). Preserve them and never commit them with refactor work. Read `git status` first.
@@ -34,7 +34,7 @@ Vega awaits the user's design; do not infer one. BlendRL iteration stays local i
 
 ## Next work
 
-1. **Compatibility requirements:** the plan's units 1–4 (core, forms, packages, verification). Each changed v3 package gets a new version and release note. Report any of the user's own files the change makes out of date in one line each (for example, authored profiles under `src/usr/config` that set `compatible_paradigms`).
+1. **Compatibility requirements:** the plan's units 1–7. Each changed v3 package gets a new version and release note. Report any of the user's own files the change makes out of date in one line each.
 2. **Publication checklist:**
    - Rebuild Hub-v3 archives and registry entries for every package changed since the last preparation: Slurm 2.0.0 (scheduler contract v2), `antigravity`/`doom-sim`/`obsidian` 1.2.0 (SDK 3), `cew` 1.1.1, `neumann` 1.1.1, and everything job 1 converts.
    - Reconcile the prepared BlendRL release with the dev copy (`src/usr/models/blendrl-dev`; last preparation 1.3.2, source `7af130a`).
