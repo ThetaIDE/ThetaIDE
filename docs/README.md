@@ -66,6 +66,8 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Optuna 1.1.1 Hub release](reports/OPTUNA_HUB_RELEASE_20261116.md) — production feeds, archive hash, successful deployment and real Hub-card installation verification.
+
 - [UI refinement verification](reports/UI_REFINEMENTS_VERIFICATION_20261115.json) — focused form, Monitor/Results, terminal/navigation and native BlendRL checks; visual review and known failures.
 
 - [Phase 5c verification evidence](reports/LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json) — full per-file comparison against 5b, sandbox reruns, counts and remaining failure IDs.

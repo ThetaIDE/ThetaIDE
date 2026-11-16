@@ -66,6 +66,11 @@ python /path/to/Theta-IDE/run_pipeline.py component --root /path/to/existing-che
 
 ## Export and lifecycle
 
+To install the optional Optuna tuner, open **Components → Hub**, click **Refresh**,
+choose **All Components**, and install **Optuna tuner**. Version 1.1.1 is published
+for the current native storage-v3 IDE; the installer supplies its Python dependencies.
+See the [release verification](../reports/OPTUNA_HUB_RELEASE_20261116.md).
+
 ```bash
 python run_pipeline.py component export my_blendrl --out my_blendrl.zip
 ```

@@ -18,7 +18,7 @@ Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It
 
 5c was stabilized (`e0a09a2`), then the user supplied specific config and downstream UI requirements. That batch is implemented locally; read `docs/plans/UI_REFINEMENTS_20261115.md` and its linked verification evidence. Only the unclear sync-button/tree-navigation notes are deferred. Vega is for later: the user has a specific design and has not provided it. Do not infer or implement a Vega design. The results move remains unapproved.
 
-The sweep-rendering follow-up keeps saved range/list controls visible but read-only when a tuner is unavailable; provider readiness still gates edits and new sweeps. Optuna is not installed in the repository workspace, so its saved controls remain read-only until it is installed and ready.
+The sweep-rendering follow-up keeps saved range/list controls visible but read-only when a tuner is unavailable; provider readiness still gates edits and new sweeps. At the user's request, Optuna 1.1.1 is now published and verified through the production Hub; see `docs/reports/OPTUNA_HUB_RELEASE_20261116.md`. It is available through Hub → Refresh → All Components. It was tested in disposable workspaces; the repository workspace still has no Optuna installed. No other v3 release or IDE-main merge was published.
 
 ## How the user wants you to work
 
@@ -28,13 +28,13 @@ The sweep-rendering follow-up keeps saved range/list controls visible but read-o
 - When a change makes one of the user's files out of date, say so in one line (file and what moves where). Do not edit it unless asked, and do not dramatize it.
 - Keep reports short.
 
-## Where things stand (2026-11-15)
+## Where things stand (2026-11-16)
 
 - Phases 0–4 are done. Phase 5a/5b are done (`9129f8b` is 5b); 5c code is stabilized and verified. The user's results move and 5d/5e remain open. No module move is planned.
 - Tuning has one validated shape (`0f373a7`): `tuning.{component, metric, direction, options.<component>}` plus each method's `tune`. Optuna ships one sweeper config, `hydra/sweeper/theta_optuna`, compiled entirely from that block.
 - The `online_methods`/`task:` readers and the root `sweep` key are deleted.
 - **Core stays at `src/app` and `frontend`.** The `src/ide` move is dropped (user decision); phase 6 is only installed entry points and distribution verification. No forwarding modules exist or are allowed.
-- The v3 Hub releases are prepared in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpublished.
+- Optuna 1.1.1 is published in production Hub commit `8f80f5b`. The rest of the v3 Hub releases are prepared in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpublished. Reconcile their stale Optuna 1.1.0 listing with production before publishing; preserve the 1.1.1 archive.
 - Full 5c comparison: 2,636 passed, 52 skipped, 126 existing failures, zero new failure IDs against the saved 5b baseline. All sandbox-affected files pass outside the sandbox. Job-manager checks: 19 passed, 2 prerequisite skips. Evidence is linked from the status document.
 - The user's `src/usr/config/experiment/BlendRL/Cartpole/sweep_sustainedSolve.yaml` is out of date: `tuning.n_trials`/`n_jobs` belong under `tuning.options.optuna`. The user knows; leave it.
 

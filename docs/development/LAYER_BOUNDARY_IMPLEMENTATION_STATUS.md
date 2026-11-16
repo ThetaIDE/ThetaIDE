@@ -1,6 +1,6 @@
 # Layer boundary implementation status
 
-Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) on branch `implement/layer-boundaries`, as of 2026-11-15. This page describes only what is true now and what is left; replace its contents as work lands rather than appending dated sections. The dated evidence for phases 0–4 (commits, test counts, reasoning) is in the [implementation history](../reports/LAYER_BOUNDARY_HISTORY_20261115.md). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the next work in order.
+Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) on branch `implement/layer-boundaries`, as of 2026-11-16. This page describes only what is true now and what is left; replace its contents as work lands rather than appending dated sections. The dated evidence for phases 0–4 (commits, test counts, reasoning) is in the [implementation history](../reports/LAYER_BOUNDARY_HISTORY_20261115.md). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the next work in order.
 
 ## Progress
 
@@ -20,7 +20,7 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 ## Repositories
 
 - **IDE:** `implement/layer-boundaries` exists on `origin` (ThetaIDE/ThetaIDE); 5b, stabilized 5c and the UI refinement batch are local and unpushed. No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
-- **Hub releases:** worktrees `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`), local and unpushed. At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages are removed from the feed; until then the Hub validator fails on those seven storage-v2 entries. The user's own `../theta-plugins` and `../theta-hub` checkouts are never modified.
+- **Hub releases:** Optuna 1.1.1 was independently published at the user's request; [release verification](../reports/OPTUNA_HUB_RELEASE_20261116.md). The remaining v3 batch in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) is local and unpushed; reconcile its stale Optuna 1.1.0 listing before publication. At that publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages are removed from the feed; until then the staged v3 validator fails on those seven storage-v2 entries. The user's own `../theta-plugins` and `../theta-hub` checkouts are never modified.
 - **Repository workspace:** runs the prepared v3 releases (20 packages). Optuna and Slurm are not installed there (Slurm collides with the authored `ncshare-site` package, which owns `site/ncshare/*`). The 4f backup is in `.thetaide/migrations/20261114T163513Z/`.
 
 ## Unit 4h — phase 4 close-out
@@ -86,7 +86,7 @@ The requested config and downstream UI batch is implemented: measured label widt
 
 The unclear sync-button/tree-navigation notes are deferred, as is Vega pending the user's specific design. [Scope](../plans/UI_REFINEMENTS_20261115.md) and [focused verification](../reports/UI_REFINEMENTS_VERIFICATION_20261115.json). The results move still needs approval.
 
-Saved sweep ranges and lists retain their structured layout even without a ready tuner; their editing controls and floating actions stay disabled until readiness is restored. This also covers targets without ordinary parameter rows. The repository workspace still has no Optuna component installed.
+Saved sweep ranges and lists retain their structured layout even without a ready tuner; their editing controls and floating actions stay disabled until readiness is restored. This also covers targets without ordinary parameter rows. Optuna 1.1.1 is now available through Hub → Refresh → All Components; the repository workspace still has no Optuna component installed.
 
 
 ## Tests
