@@ -31,8 +31,15 @@ def provider_snapshot(paths=None):
          "parent": p.manifest.get("parent"), "configs": _effective_profiles(paths, p)}
         for p in get_catalog(paths).packages],
         "overrides": get_catalog(paths).overrides,
-        "user_rules": {file.relative_to(paths.rules).as_posix(): file_hash(file) for file in paths.rules.rglob('*')
-                       if file.is_file() and '__pycache__' not in file.parts}}
+        "workspace_resources": _workspace_resources(paths)}
+
+
+def _workspace_resources(paths):
+    """Digests of the workspace resource directories packages declare."""
+    from src.app.core.workspace_resources import workspace_directories
+    return {file.relative_to(paths.root).as_posix(): file_hash(file)
+            for directory in workspace_directories(paths) for file in directory.rglob('*')
+            if file.is_file() and '__pycache__' not in file.parts}
 
 
 def verify_snapshot(snapshot, paths=None):
@@ -48,10 +55,8 @@ def verify_snapshot(snapshot, paths=None):
                 raise RuntimeError(f'Provider config {relative} differs from launch snapshot')
     if get_catalog(paths).overrides != snapshot.get('overrides', get_catalog(paths).overrides):
         raise RuntimeError('Provider override selection differs from launch snapshot')
-    rules = {file.relative_to(paths.rules).as_posix(): file_hash(file) for file in paths.rules.rglob('*')
-             if file.is_file() and '__pycache__' not in file.parts}
-    if rules != snapshot.get('user_rules', rules):
-        raise RuntimeError('Authored rules differ from launch snapshot')
+    if _workspace_resources(paths) != snapshot['workspace_resources']:
+        raise RuntimeError('Workspace resources differ from launch snapshot')
 
 
 def run(script, args=(), run_name="__main__"):

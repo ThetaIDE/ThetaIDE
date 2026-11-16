@@ -4,7 +4,6 @@ Single source of truth for:
   - PROJECT_ROOT
   - Python executable path
   - PYTHONPATH for subprocesses
-  - Shell-embeddable environment setup block for Slurm scripts
 """
 
 import os
@@ -73,60 +72,3 @@ def get_subprocess_env(site_cfg=None, *, paths=None) -> dict:
         env.update({key: value for key, value in os.environ.items()
                     if key.startswith(('THETA_RESOURCE_', 'THETA_MANAGED_')) or key == 'THETAIDE_SETTINGS_FILE'})
     return env
-
-
-def get_shell_env_block(site_cfg=None) -> str:
-    """Generate shell export lines for Slurm scripts.
-
-    Includes PROJECT_ROOT, module loads, PYTHONPATH, and extra env vars.
-    Uses dynamic SLURM_SUBMIT_DIR / $(pwd) resolution so scripts remain
-    depersonalized and portable across users and cluster environments.
-    """
-    explicit_root = getattr(site_cfg, "project_root", None) if site_cfg else None
-    if explicit_root:
-        lines = [f'export PROJECT_ROOT="${{PROJECT_ROOT:-{explicit_root}}}"']
-    else:
-        lines = ['export PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"']
-
-    # Module loads (safe initialization for non-interactive Slurm subshells)
-    mod_list = getattr(site_cfg, "module_loads", []) or []
-    if mod_list:
-        lines.append("if ! command -v module &> /dev/null; then")
-        lines.append("    [ -f /usr/share/modules/init/bash ] && source /usr/share/modules/init/bash")
-        lines.append("    [ -f /etc/profile.d/modules.sh ] && source /etc/profile.d/modules.sh")
-        lines.append("fi")
-        for mod in mod_list:
-            lines.append(f"command -v module &> /dev/null && module load {mod} || true")
-
-    # Remote workspaces resolve installed/user providers from the explicitly selected tree.
-    lines.extend(['export THETA_WORKSPACE="${THETA_WORKSPACE:-$PROJECT_ROOT}"',
-                  'export THETA_DATA_DIR="${THETA_DATA_DIR:-$THETA_WORKSPACE/.thetaide}"'])
-    # PYTHONPATH
-    pp_parts = ["$PROJECT_ROOT", "$PROJECT_ROOT/src"]
-    for extra in getattr(site_cfg, "extra_pythonpath", []) or []:
-        pp_parts.append(f"$PROJECT_ROOT/{extra}")
-    pp_parts.append("$PYTHONPATH")
-    lines.append(f"export PYTHONPATH={':'.join(pp_parts)}")
-
-    snapshot = os.environ.get("THETA_PROVIDER_SNAPSHOT")
-    if snapshot:
-        from src.app.workspace import WorkspacePaths
-        try:
-            relative = Path(snapshot).relative_to(WorkspacePaths.for_process().root)
-            lines.append(f'export THETA_PROVIDER_SNAPSHOT="$THETA_WORKSPACE/{relative.as_posix()}"')
-        except ValueError:
-            import shlex
-            lines.append("export THETA_PROVIDER_SNAPSHOT=" + shlex.quote(snapshot))
-    # Extra env vars
-    for k, v in (getattr(site_cfg, "extra_env_vars", {}) or {}).items():
-        lines.append(f"export {k}={v}")
-
-    return "\n".join(lines) + "\n"
-
-
-def get_shell_python_cmd(site_cfg=None) -> str:
-    """Return the shell-embeddable python command for Slurm scripts."""
-    venv_dir = "venv"
-    if site_cfg and hasattr(site_cfg, "venv_dir"):
-        venv_dir = str(getattr(site_cfg, "venv_dir", "venv"))
-    return f"$PROJECT_ROOT/{venv_dir}/bin/python3"

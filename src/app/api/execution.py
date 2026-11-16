@@ -18,7 +18,7 @@ Engines and workers
     ``saved_run_id``            the run identifier recorded in a saved run directory.
 
 Interpreters and environments
-    ``get_python_executable``, ``get_shell_python_cmd``, ``get_shell_env_block``
+    ``get_python_executable``
 
 Processes
     ``ProcessOutput``, ``kill_process_tree``, ``cancellation_requested``
@@ -42,8 +42,6 @@ _EXPORTS = {
     "task_worker_main": "src.app.pipeline.task_worker:main",
     "saved_run_id": "src.app.pipeline.result_paths:saved_run_id",
     "get_python_executable": "src.app.pipeline.runtime:get_python_executable",
-    "get_shell_python_cmd": "src.app.pipeline.runtime:get_shell_python_cmd",
-    "get_shell_env_block": "src.app.pipeline.runtime:get_shell_env_block",
     "ProcessOutput": "src.app.services.process_output:ProcessOutput",
     "kill_process_tree": "src.app.services.processes:kill_process_tree",
     "cancellation_requested": "src.app.services.cancellation:requested",
@@ -60,7 +58,7 @@ __getattr__, __dir__ = lazy_exports(__name__, _EXPORTS)
 def provider_worker_command(python_cmd: str, engine_script: str, arguments) -> str:
     """Shell command that runs ``engine_script`` with ``arguments`` through the host worker.
 
-    ``python_cmd`` is already shell-formatted (see ``get_shell_python_cmd``).
+    ``python_cmd`` is already shell-formatted (for example the Slurm component's job script interpreter).
     """
     quoted = " ".join(shlex.quote(str(argument)) for argument in arguments)
     return f"{python_cmd} -m {PROVIDER_WORKER_MODULE} {shlex.quote(str(engine_script))} {quoted}"

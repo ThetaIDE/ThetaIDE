@@ -179,8 +179,10 @@ def test_optuna_sweeper_does_not_import_lightning_when_pruning_is_off(tmp_path):
         "            raise ModuleNotFoundError('Lightning intentionally unavailable')\n"
         "sys.meta_path.insert(0, BlockLightning())\n"
         "import optuna\n"
-        "from hydra_plugins.theta_optuna_sweeper import ThetaOptunaSweeper\n"
-        "ThetaOptunaSweeper(optuna.samplers.RandomSampler(), 'minimize', None, 'test', 1, 1, None, 'none', 5, 0, 0, 0)\n",
+        "from hydra_plugins.theta_sweeper import ThetaSweeper\n"
+        "ThetaSweeper('optuna', sampler=optuna.samplers.RandomSampler(), direction='minimize', storage=None,"
+        " study_name='test', n_trials=1, n_jobs=1, search_space=None, pruner='none', pruner_startup_trials=5,"
+        " pruner_warmup_steps=0, timeout_seconds=0, max_failed_trials=0)\n",
         encoding="utf-8",
     )
     from component_fixtures import optional_workspace

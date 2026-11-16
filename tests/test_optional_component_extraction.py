@@ -87,8 +87,8 @@ def test_optuna_archive_has_setup_and_hydra_sweeper_export(tmp_path, monkeypatch
     package = get_catalog(paths).package('optuna')
     current = load_module(package, 'component.py', paths=paths)
     assert current.OptunaTuner().api_version == 1
-    from hydra_plugins.theta_optuna_sweeper import _implementation
-    assert _implementation() is load_module(package, 'sweeper.py', paths=paths).ThetaOptunaSweeper
+    from hydra_plugins.theta_sweeper import _implementation
+    assert _implementation('optuna') is load_module(package, 'sweeper.py', paths=paths).ThetaOptunaSweeper
     for removed in ('src.app.tuners.optuna.component', 'src.app.pipeline.tuners_optuna'):
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module(removed)

@@ -14,9 +14,9 @@ pytestmark = pytest.mark.skipif(not RECIPE.exists(), reason="Local anticipatory 
 
 
 def valuation():
-    from src.app.services.rulesets import resolve_ruleset
-    resource = resolve_ruleset(ROOT, "cartpole", "anticipatory_v1")
-    spec = importlib.util.spec_from_file_location("anticipatory_valuation", resource.valuation_path)
+    from src.app.workspace import WorkspacePaths
+    resource = WorkspacePaths(ROOT).resource("rules") / "cartpole/anticipatory_v1"
+    spec = importlib.util.spec_from_file_location("anticipatory_valuation", resource / "valuation.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

@@ -79,8 +79,8 @@ def test_core_and_desktop_name_no_optional_or_authored_package():
                                                           *(ROOT / "src/plugins/app/bundled").glob("*/plugin.json")]}
     # Package IDs; capability IDs are ordinary words ("tuning", "losses") that name config keys too.
     names = {json.loads((root / ".theta_component.json").read_text())["id"] for root in package_roots()}
-    # Registered exceptions: the Hydra discovery adapter for the Optuna sweeper, and the local site.
-    allowed = {("hydra_plugins/theta_optuna_sweeper.py", "optuna")}
+    # Registered exception: the local site.
+    allowed = set()
     names -= bundled | {"local", "default"}
     found = []
     for path in host_files():
@@ -89,6 +89,28 @@ def test_core_and_desktop_name_no_optional_or_authored_package():
             if (isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
                     and (relative, node.value) not in allowed):
                 found.append(f"{relative}:{node.lineno}: {node.value!r}")
+    assert found == []
+
+
+CORE_TREES = [ROOT / "src/app", ROOT / "hydra_plugins", ROOT / "run_pipeline.py", ROOT / "frontend/results",
+              ROOT / "frontend/config_panel", ROOT / "frontend/config_model.py", ROOT / "frontend/config_viewer.py",
+              ROOT / "frontend/parameter_actions.py"]
+
+
+@pytest.mark.parametrize("token", ["symbolic_state", "ruleset", "rules_root", "compatible_paradigms",
+                                   "allowed_agents", "tensorboard", "tfevents", "slurm_submit_dir", "optuna",
+                                   "sb3", "d3rlpy"])
+def test_core_has_no_component_special_cases(token):
+    """Compatibility, resources, result categories, sweepers and scheduler shells belong to their packages."""
+    found = []
+    files = sorted(p for root in CORE_TREES for p in ([root] if root.is_file() else root.rglob("*.py"))
+                   if "__pycache__" not in p.parts and ".venv" not in p.parts)
+    for path in files:
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and token in node.value.lower():
+                found.append(f"{path.relative_to(ROOT).as_posix()}:{node.lineno}")
+            elif isinstance(node, ast.Name) and token in node.id.lower():
+                found.append(f"{path.relative_to(ROOT).as_posix()}:{node.lineno}")
     assert found == []
 
 
@@ -171,13 +193,24 @@ def test_sdk_exports_are_canonical_host_objects():
     assert monitoring.Result is monitor_api.Result and monitoring.ModelAccess is monitor_api.ModelAccess
     assert monitoring.validate_params is measurements.validate_params
     assert execution.execute_backend is core_execution.execute_backend
-    assert data.create_state_loader is data_loaders.create_state_loader
+    assert data.loader_selection is data_loaders.loader_selection
+    from src.app.api import config as sdk_config, packages
+    from src.app.core import requirements, provider_loader
+    from src.app.api import SDK_VERSION
+    assert SDK_VERSION == "3.1"
+    assert sdk_config.compatibility is requirements.compatibility
+    assert packages.load_selected is requirements.load_selected
+    assert packages.resource_entries is provider_loader.resource_entries
+    for removed in ("create_state_loader", "state_loader_choices", "input_requirements"):
+        assert not hasattr(data, removed)
+    with pytest.raises(ImportError):
+        importlib.import_module("src.app.api.rulesets")
     from src.app.api import results
     from src.app.services import catalog
     assert results.list_runs is catalog.list_runs and results.read_run_file is catalog.read_run_file
     assert execution.task_worker_command("py", "a", 1) == ["py", "-u", "-m", "src.app.pipeline.task_worker", "a", "1"]
     for module in ("workspace", "errors", "config", "execution", "tuning", "sites", "models", "agents", "plotting",
-                   "packages", "environments", "data", "evaluation", "rulesets", "telemetry", "monitoring", "results",
+                   "packages", "environments", "data", "evaluation", "telemetry", "monitoring", "results",
                    "desktop"):
         sdk = importlib.import_module(f"src.app.api.{module}")
         for name in sdk.__all__:
@@ -189,8 +222,8 @@ def test_sdk_exports_are_canonical_host_objects():
 def test_headless_sdk_imports_without_qt_or_optional_libraries():
     import subprocess
     code = ("import sys\nfrom src.app.api import workspace, errors, config, execution, tuning, sites, packages,"
-            " evaluation, rulesets, telemetry, results\n"
-            "for m in (workspace, errors, config, execution, tuning, sites, packages, evaluation, rulesets, telemetry,"
+            " evaluation, telemetry, results\n"
+            "for m in (workspace, errors, config, execution, tuning, sites, packages, evaluation, telemetry,"
             " results):\n"
             "    [getattr(m, n) for n in m.__all__]\n"
             "bad = [k for k in sys.modules if k.split('.')[0] in ('PyQt6', 'optuna', 'sqlalchemy')]\n"

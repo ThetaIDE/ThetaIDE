@@ -11,10 +11,7 @@ def opening_targets(action, *, value, context, workspace):
     if action.get("type") != "open-in-editor":
         raise ValueError("Unsupported parameter action")
     root = Path(workspace).resolve()
-    if action.get("domain") == "ruleset":
-        from src.app.services.rulesets import rules_folder_targets
-        targets = rules_folder_targets(value=value, context=context)
-    elif "handler" in action:
+    if "handler" in action:
         handler = action["handler"]
         from src.app.core.provider_catalog import get_catalog
         from src.app.core.provider_loader import load_module, resolve_resource
@@ -37,8 +34,18 @@ def opening_targets(action, *, value, context, workspace):
             spec.loader.exec_module(module)
             callback = getattr(module, handler['function'])
         targets = callback(value=value, context=context)
-    else:
+    elif "path" in action:
         targets = action["path"]
+    elif action.get("resource"):
+        # The selected entry of a declared workspace resource, or the user's directory for it.
+        from src.app.core.workspace_resources import entries
+        from src.app.workspace import WorkspacePaths
+        paths = WorkspacePaths(root)
+        name = action["resource"]
+        found = entries(name, paths).get(value) if isinstance(value, str) else None
+        targets = [{"path": str(found or paths.resource(name)), "label": action.get("label") or f"Open {name} folder"}]
+    else:
+        raise ValueError("The parameter action names no path, handler or resource")
     if isinstance(targets, (str, Path, dict)):
         targets = [targets]
     result = []

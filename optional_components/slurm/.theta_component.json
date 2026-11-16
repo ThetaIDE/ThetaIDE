@@ -57,7 +57,8 @@
       "execution.py",
       "headers.py",
       "resources.py",
-      "settings.py"
+      "settings.py",
+      "shell.py"
     ],
     "resources": [],
     "configs": {

@@ -23,7 +23,6 @@ class PortType(str, Enum):
     CHECKPOINT = "checkpoint"
     VALUE_ESTIMATOR = "value_estimator"
     METRICS = "metrics"
-    LOGIC_RULES = "logic_rules"
     GENERIC = "generic"
 
     @property
@@ -34,7 +33,6 @@ class PortType(str, Enum):
             PortType.CHECKPOINT: "#a855f7",  # Purple
             PortType.VALUE_ESTIMATOR: "#f59e0b",  # Amber
             PortType.METRICS: "#10b981",  # Emerald
-            PortType.LOGIC_RULES: "#f43f5e",  # Rose/Coral
             PortType.GENERIC: "#ebdbb2",  # Warm Text
         }
         return colors.get(self, "#ebdbb2")
@@ -46,7 +44,6 @@ class PortType(str, Enum):
             PortType.CHECKPOINT: "Model Checkpoint",
             PortType.VALUE_ESTIMATOR: "Value Estimator",
             PortType.METRICS: "Evaluation Metrics",
-            PortType.LOGIC_RULES: "Logic Ruleset",
             PortType.GENERIC: "Generic Artifact",
         }
         return names.get(self, self.value)

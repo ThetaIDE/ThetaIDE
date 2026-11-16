@@ -10,7 +10,9 @@ import subprocess
 
 from omegaconf import OmegaConf
 
-from src.app.api.execution import get_shell_env_block, get_shell_python_cmd, provider_worker_command
+from src.app.api.execution import provider_worker_command
+
+from .shell import env_block, python_cmd as shell_python_cmd
 
 
 def get_gres_header(res, site_cfg):
@@ -110,11 +112,11 @@ def generate_sbatch_script(job_name, cmd_args, log_dir, cfg, dependency=None, is
     script += "\n"
 
     site_cfg = getattr(cfg, "site", None)
-    script += get_shell_env_block(site_cfg)
+    script += env_block(site_cfg)
     script += "\n"
 
     # Construct the python command using site-aware venv path
-    python_cmd = get_shell_python_cmd(site_cfg)
+    python_cmd = shell_python_cmd(site_cfg)
     from src.app.api.execution import resolve_engine
     engine_script, engine_python = resolve_engine({}, cfg)
     if engine_python: python_cmd = shlex.quote(engine_python)

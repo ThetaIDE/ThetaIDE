@@ -21,7 +21,7 @@ def rename_results(kind: str, group: str, experiment_id: str, new_name: str, *, 
     base = catalog.results_dir(workspace=workspace).resolve()
     logs_dir = base / "logs"
     launch_root = catalog._workspace(workspace).root
-    roots = (*catalog.RESULT_ROOTS, "executions")
+    roots = (*catalog.result_roots(workspace=workspace), "executions")
     known = [path.relative_to(logs_dir / group).as_posix()
              for path in iter_run_dirs(logs_dir) if path.is_relative_to(logs_dir / group)]
     new_group = new_name if kind == "group" else group

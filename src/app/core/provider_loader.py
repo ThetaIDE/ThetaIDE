@@ -377,3 +377,19 @@ def environment_resource(environment, relative, paths=None):
     candidate = package.resource(str(Path(resource_root) / relative))
     if not candidate.is_file(): raise FileNotFoundError(f"Environment resource is missing: {candidate}")
     return candidate
+
+
+def resource_entries(name, *, paths=None):
+    """Entry ID -> directory of a workspace resource packages declare (``workspace_resources``)."""
+    from src.app.core.workspace_resources import entries
+    if paths is None:
+        paths = _caller_paths(sys._getframe(1).f_globals.get("__name__"))
+    return entries(name, paths)
+
+
+def resource_entry(name, entry_id, *, paths=None):
+    """The directory of one entry of a declared workspace resource."""
+    from src.app.core.workspace_resources import entry
+    if paths is None:
+        paths = _caller_paths(sys._getframe(1).f_globals.get("__name__"))
+    return entry(name, entry_id, paths)

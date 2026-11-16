@@ -205,10 +205,9 @@ ARTIFACT_KINDS = (
     "metadata",
     "checkpoint",
     "cache",
-    "tensorboard",
     "log",
     "other",
-)
+)  # A run logger's declared results category follows these.
 
 
 @dataclass

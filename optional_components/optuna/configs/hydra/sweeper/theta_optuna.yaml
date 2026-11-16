@@ -1,6 +1,7 @@
 # @package hydra.sweeper
 # Every value is compiled from the experiment's tuning block by the Optuna tuner component.
-_target_: hydra_plugins.theta_optuna_sweeper.ThetaOptunaSweeper
+_target_: hydra_plugins.theta_sweeper.ThetaSweeper
+tuner: optuna
 sampler: {}
 direction: ???
 storage: ???

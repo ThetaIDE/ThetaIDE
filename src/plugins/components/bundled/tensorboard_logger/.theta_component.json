@@ -2,7 +2,7 @@
   "id": "tensorboard_logger",
   "name": "TensorBoard run logger",
   "kind": "package",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "storage_version": 3,
   "api_version": 1,
   "capabilities": [
@@ -11,7 +11,13 @@
       "kind": "run_logger",
       "entry_point": "provider.py:create_logger",
       "activation_plugin": "tensorboard",
-      "label": "Log to TensorBoard"
+      "label": "Log to TensorBoard",
+      "results": {
+        "category": "tensorboard",
+        "patterns": [
+          "events.out.tfevents*"
+        ]
+      }
     }
   ],
   "payload": {

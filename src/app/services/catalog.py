@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import fnmatch
 import io
 import json
 import os
@@ -632,7 +633,8 @@ def _metrics_rows(path: Path, since: int) -> tuple[list[dict[str, str]], list[st
 # ── Run manifest: every artifact a run produced ───────────────────────────────
 
 # Top-level folders of results/ that hold per-run output as <root>/<group>/<experiment_id>/...
-RESULT_ROOTS = ("logs", "plots", "checkpoints", "tensorboard", "datasets")
+# Run loggers add the categories they declare (see result_categories).
+RESULT_ROOTS = ("logs", "plots", "checkpoints", "datasets")
 MANIFEST_LIMIT = 5000
 
 _KIND_BY_SUFFIX = {
@@ -669,11 +671,29 @@ def results_dir(*, workspace=None) -> Path:
     return logs_dir.parent
 
 
-def _artifact_kind(root: str, path: Path) -> str:
+def result_categories(*, workspace=None) -> dict[str, tuple[str, ...]]:
+    """Results categories installed run loggers declare: category -> file name patterns they write."""
+    from src.app.core.provider_catalog import get_catalog
+    categories: dict[str, tuple[str, ...]] = {}
+    for package in get_catalog(_workspace(workspace)).packages:
+        for capability in package.capabilities:
+            declared = capability.metadata.get("results") if capability.kind == "run_logger" else None
+            if declared:
+                patterns = categories.get(declared["category"], ())
+                categories[declared["category"]] = tuple(dict.fromkeys((*patterns, *declared["patterns"])))
+    return categories
+
+
+def result_roots(*, workspace=None) -> tuple[str, ...]:
+    """Every top-level results folder holding per-run output: the core roots and declared categories."""
+    return tuple(dict.fromkeys((*RESULT_ROOTS, *result_categories(workspace=workspace))))
+
+
+def _artifact_kind(root: str, path: Path, categories: dict[str, tuple[str, ...]]) -> str:
     if root == "logs" and path.name == "metrics.csv":
         return "metrics"
-    if root == "tensorboard" and path.name.startswith("events.out.tfevents"):
-        return "tensorboard"
+    if any(fnmatch.fnmatch(path.name, pattern) for pattern in categories.get(root, ())):
+        return root
     return _KIND_BY_SUFFIX.get(path.suffix.lower(), "other")
 
 
@@ -682,7 +702,7 @@ def _run_dirs(group: str, experiment_id: str, *, workspace=None) -> dict[str, Pa
     check_path_segment(group)
     check_result_path(experiment_id)
     base = results_dir(workspace=workspace)
-    dirs = {root: base / root / group / experiment_id for root in RESULT_ROOTS}
+    dirs = {root: base / root / group / experiment_id for root in result_roots(workspace=workspace)}
     return {root: path for root, path in dirs.items() if path.is_dir()}
 
 
@@ -734,7 +754,7 @@ def archive_run(group: str, experiment_id: str, destination: str, *, workspace=N
 def _mutable_group_dirs(group: str, *, workspace=None) -> dict[str, Path]:
     check_path_segment(group)
     base = results_dir(workspace=workspace)
-    dirs = {root: base / root / group for root in RESULT_ROOTS}
+    dirs = {root: base / root / group for root in result_roots(workspace=workspace)}
     dirs = {root: path for root, path in dirs.items() if path.is_dir()}
     if not dirs:
         raise FileNotFoundError(f"Group not found: {group}")
@@ -786,10 +806,11 @@ def _readable_run_dirs(group: str, experiment_id: str, *, workspace=None):
 
 
 def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *, workspace=None) -> dict[str, Any]:
-    """Every file a run produced across results/{logs,plots,checkpoints,tensorboard,datasets}.
+    """Every file a run produced across results/{logs,plots,checkpoints,datasets} and run-logger categories.
 
     Each artifact has a `path` relative to results/ (read it with read_run_file), a `kind` (metrics, table,
-    figure, report, config, metadata, checkpoint, cache, tensorboard, log, other), and the `agent` and
+    figure, report, config, metadata, checkpoint, cache, log, other, or a run logger's declared results
+    category for the files it writes), and the `agent` and
     `version` folders it sits under, when it has them. `agents` maps each agent with logged metrics to its
     version folders, oldest first. Raises FileNotFoundError if the run has no folders.
     """
@@ -833,10 +854,11 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
         return parts[0] in complete_methods
 
     saved = nested_run_names(run_logs)
+    categories = result_categories(workspace=workspace)
     artifacts: list[dict[str, Any]] = []
     truncated = False
     for root, run_dir in dirs.items():
-        # Prune active version directories before walking their files (notably TensorBoard logs).
+        # Prune active version directories before walking their files (notably run-logger event files).
         for directory, children, files in os.walk(run_dir):
             relative = Path(directory).relative_to(run_dir).parts
             children[:] = sorted(name for name in children if (relative or name not in saved)
@@ -854,7 +876,7 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
                     {
                         "path": path.relative_to(base).as_posix(),
                         "root": root,
-                        "kind": _artifact_kind(root, path),
+                        "kind": _artifact_kind(root, path, categories),
                         "agent": parts[0] if len(parts) > 1 else None,
                         "version": next((p for p in parts[1:-1] if p.startswith("version_")), None),
                         "size": stat.st_size,

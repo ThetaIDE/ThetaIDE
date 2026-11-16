@@ -15,11 +15,13 @@ COMPONENT_DIRECTORIES = {
     "evaluator": "src/usr/eval", "eval": "src/usr/eval",
     "env": "src/usr/environments", "environment": "src/usr/environments",
     "plotter": "src/usr/plotters", "plot": "src/usr/plotters",
-    "objective": "src/usr/objectives", "rules": "src/usr/rules",
+    "objective": "src/usr/objectives",
     "site": "src/usr/sites",
     "monitor": "src/usr/monitors", "tuner": "src/usr/tuners", "plugin": "src/usr/app_plugins",
     "experiment": "src/usr/experiments", "suite": "src/usr/packages", "package": "src/usr/packages",
 }
+# src/usr directories with a fixed purpose; a package's workspace resource cannot claim one.
+RESERVED_RESEARCH_DIRECTORIES = frozenset({"config", "datasets", "results", *(Path(d).name for d in COMPONENT_DIRECTORIES.values())})
 
 
 @dataclass(frozen=True)
@@ -92,8 +94,12 @@ class WorkspacePaths:
     def datasets(self): return self.research / "datasets"
     @property
     def research(self): return self.root / "src/usr"
-    @property
-    def rules(self): return self.research / "rules"
+    def resource(self, name):
+        """The workspace directory of a resource packages declare in ``workspace_resources``."""
+        import re
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", str(name)) or name in RESERVED_RESEARCH_DIRECTORIES:
+            raise ValueError(f"Invalid workspace resource name: {name!r}")
+        return self.research / name
     @property
     def results(self): return self.research / "results"
     @property
