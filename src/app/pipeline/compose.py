@@ -133,7 +133,7 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
 
 
 def _validate_method_composition(composed: ComposedExperiment) -> None:
-    """Preflight the same per-method Hydra overrides used by the Optuna launcher.
+    """Preflight the same per-method Hydra overrides used by a tuner's sweeper.
 
     A representative value exercises path existence and Hydra composition before
     starting a study; dimension bounds and types are checked by the tuner.

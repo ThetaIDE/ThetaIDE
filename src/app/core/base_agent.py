@@ -190,10 +190,6 @@ class BaseAgent(L.LightningModule, ABC):
 class OnlineAgentBase(BaseAgent):
     """Base class for online policy-learning agents."""
 
-    @classmethod
-    def get_supported_paradigms(cls) -> list[str]:
-        return ["online_rl"]
-
 
 class OfflineAgentBase(BaseAgent):
     """Base class for offline RL agents.
@@ -203,10 +199,6 @@ class OfflineAgentBase(BaseAgent):
         - Interval-based dataset limit management (on_train_epoch_start)
         - Common offline training epoch tracking
     """
-
-    @classmethod
-    def get_supported_paradigms(cls) -> list[str]:
-        return ["offline_rl"]
 
     def on_train_start(self):
         """Preload datasets to agent device on training start."""

@@ -65,10 +65,12 @@ def validate_native_package(meta, source):
             raise ValueError(f"Export {name!r} must name a payload Python file")
     selectors = set()
     for cap in meta["capabilities"]:
-        if cap.get("kind") == "monitor":
-            required = cap.get("requires")
-            if not isinstance(required, list) or not required or not all(isinstance(v, str) and v.strip() for v in required):
-                raise ValueError("Monitor capabilities require a nonempty requires hook list")
+        if cap.get("kind") == "monitor" and not cap.get("hooks"):
+            raise ValueError("Monitor capabilities declare the runtime hooks they need in a nonempty hooks list")
+        from src.app.core.requirements import rule_error
+        for rule in cap.get("requires", []):
+            if problem := rule_error(rule):
+                raise ValueError(f"Capability {cap['id']}: invalid requires rule {rule!r}: {problem}")
         if "monitoring_access" in cap and (not isinstance(cap["monitoring_access"], list) or
                 not all(isinstance(v, str) and v.strip() for v in cap["monitoring_access"])):
             raise ValueError("monitoring_access must be a list of model capabilities")
@@ -91,7 +93,7 @@ def validate_native_package(meta, source):
         if file.suffix == ".py" and not sep: raise ValueError(f"Executable entry point needs an explicit object: {entry}")
         if not any(file == root or file.is_relative_to(root) for root in declared):
             raise ValueError(f"Entry point is outside declared payload: {entry}")
-        for hook_name in ("execution_preflight", "resource_hint_hook"):
+        for hook_name in ("preflight", "resource_hint_hook"):
             if hook_name not in cap:
                 continue
             hook_entry, _, hook_attr = cap[hook_name].partition(":")
@@ -131,8 +133,12 @@ def validate_native_package(meta, source):
         relative = path.relative_to(source).as_posix()
         if relative.startswith(protected):
             raise ValueError(f"Protected workspace payload: {relative}; use package-owned resources")
-    for key in ('rules_root',):
-        if key in meta and not resource(meta[key]).is_dir(): raise ValueError(f'{key} must name a package directory')
+    from src.app.workspace import RESERVED_RESEARCH_DIRECTORIES
+    for name, declaration in (meta.get('workspace_resources') or {}).items():
+        if name in RESERVED_RESEARCH_DIRECTORIES:
+            raise ValueError(f'Workspace resource {name!r} is a reserved src/usr directory')
+        if 'path' in declaration and not resource(declaration['path']).is_dir():
+            raise ValueError(f'workspace_resources.{name}.path must name a package directory')
     for cap in meta['capabilities']:
         if 'resource_root' in cap and not resource(cap['resource_root']).is_dir():
             raise ValueError('resource_root must name a package directory')

@@ -46,24 +46,18 @@ def test_paradigm_is_registered():
     assert PARADIGM in list_paradigms()
 
 
-def test_declares_no_agents():
-    """An empty allow-list is what makes methods model-only, as in supervised."""
-    assert load_paradigm(PARADIGM)["allowed_agents"] == []
+def test_methods_consist_of_a_model_only():
+    """The method contract, not a list of components, makes unsupervised methods model-only."""
+    assert load_paradigm(PARADIGM)["method"] == {"algorithm": "forbidden", "model": "required"}
 
 
-def test_forbids_the_rl_agents():
-    """An empty allow-list is what disallows RL agent harnesses in unsupervised learning."""
-    defn = load_paradigm(PARADIGM)
-    assert defn.get("allowed_agents") == []
-
-
-def test_requires_methods():
-    requires = load_paradigm(PARADIGM)["constraints"]["requires"]
-    assert requires["methods"] == "non_empty"
-
-
-def test_forbids_simulator_rollouts():
-    assert load_paradigm(PARADIGM)["constraints"]["forbids"]["eval_episodes"] == "non_zero"
+def test_describes_only_itself():
+    """Paradigms never list components; components declare compatibility themselves."""
+    from src.app.pipeline.validation import paradigm_errors
+    definition = load_paradigm(PARADIGM)
+    assert paradigm_errors(definition) == []
+    assert paradigm_errors({**definition, "allowed_agents": []})
+    assert paradigm_errors({**definition, "constraints": {"requires": {"methods": "non_empty"}}})
 
 
 def test_does_not_opt_into_eval_episodes():
@@ -131,8 +125,7 @@ def test_unknown_paradigm_keeps_the_rl_assumption():
     assert paradigm_uses_static_dataset("not_a_paradigm") is False
 
 
-def test_missing_allow_list_is_not_the_same_as_an_empty_one():
-    """validation treats absent as unrestricted and [] as forbidding agents."""
+def test_no_paradigm_keeps_the_rl_assumption():
     assert paradigm_uses_agents(None) is True
 
 

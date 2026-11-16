@@ -1,4 +1,4 @@
-"""Input ownership, per-method binding, and inference-time state conversion."""
+"""Data module binding per method, and components that own their sub-components."""
 import json
 import shutil
 from pathlib import Path
@@ -8,10 +8,8 @@ import torch
 import yaml
 from omegaconf import OmegaConf
 
-from src.app.core.data_loaders import (
-    create_state_loader, data_loader_errors, input_requirements, loader_selection,
-    merge_loader_selection, state_loader_choices,
-)
+from src.app.core.data_loaders import data_loader_errors, loader_selection, merge_loader_selection
+from src.app.core.requirements import compatibility, load_selected
 from src.app.pipeline.config import deep_merge, parse_methods_dict
 from src.app.workspace import WorkspacePaths
 
@@ -46,43 +44,38 @@ def cfg(**extra):
 
 
 def test_method_bindings_replace_provider_params_and_preserve_shared_data_policy(loader_workspace):
-    base = cfg(data_module={'name': 'one', 'params': {'old': 3}},
-               symbolic_state_loader={'name': 'blendrl-dev/cartpole_state', 'params': {'feature_count': 4}},
-               dataset_path='/shared/data', seed=12, val_split=.2)
-    method = {'data_module': {'name': 'two', 'params': {'new': 5}},
-              'symbolic_state_loader': {'params': {'object_count': 3}}}
+    base = cfg(data_module={'name': 'one', 'params': {'old': 3}}, dataset_path='/shared/data', seed=12, val_split=.2)
+    method = {'data_module': {'name': 'two', 'params': {'new': 5}}}
     selection, source = loader_selection(base, 'data_module', method, paths=loader_workspace)
     assert selection == {'name': 'two', 'params': {'new': 5}} and source == 'method'
-    state, _ = loader_selection(base, 'symbolic_state_loader', method, paths=loader_workspace)
-    assert state == {'name': 'blendrl-dev_symbolic_state', 'params': {'object_count': 3, 'feature_count': 4, 'builder': None}}
-    assert base['symbolic_state_loader']['params'] == {'feature_count': 4}
     assert (base['dataset_path'], base['seed'], base['val_split']) == ('/shared/data', 12, .2)
     assert deep_merge(base, method)['data_module'] == method['data_module']
     assert merge_loader_selection(base['data_module'], None) is None
     assert merge_loader_selection('one', {'params': {'batch_size': 5}}) == {'name': 'one', 'params': {'batch_size': 5}}
+    with pytest.raises(ValueError, match='Unknown data selection'):
+        loader_selection(base, 'symbolic_state_loader', paths=loader_workspace)
 
 
-def test_requirements_follow_selected_model_mode_and_reject_wrong_role(loader_workspace):
+def blocked(settings, paths):
+    return [f.message for f in compatibility(settings, paths=paths) if f.level == 'block']
+
+
+def test_the_model_declares_when_it_needs_its_state_builder(loader_workspace):
     settings = cfg()
-    assert any('requires symbolic_state_loader' in e for e in data_loader_errors(settings, paths=loader_workspace))
+    assert any('symbolic state builder' in m for m in blocked(settings, loader_workspace))
     settings['model']['actor_mode'] = 'neural'
-    assert input_requirements(settings, paths=loader_workspace) == []
+    assert blocked(settings, loader_workspace) == []
     settings['model']['blender'] = 'symbolic'
-    assert input_requirements(settings, paths=loader_workspace)
-    settings['symbolic_state_loader'] = 'SimulatorDataModule'
-    assert data_loader_errors(settings, paths=loader_workspace)
-    settings['symbolic_state_loader'] = 'blendrl-dev/cartpole_state'
-    assert data_loader_errors(settings, paths=loader_workspace) == []
-    settings['data_module'] = 'blendrl-dev/cartpole_state'
-    assert any('supplies symbolic_state' in e for e in data_loader_errors(settings, paths=loader_workspace))
-    settings.pop('data_module')
-    settings['symbolic_state_loader'] = {'name': 'blendrl-dev/cartpole_state', 'params': {'object_count': 0}}
-    assert any('minimum' in e for e in data_loader_errors(settings, paths=loader_workspace))
+    assert any('symbolic blender' in m for m in blocked(settings, loader_workspace))
+    settings['model']['symbolic_state'] = 'blendrl-dev/cartpole_state'
+    assert blocked(settings, loader_workspace) == []
+    # The reference parameter is narrowed by a contract; a component without it is refused.
+    settings['model']['symbolic_state'] = 'SimulatorDataModule'
+    assert any("to provide 'symbolic_state/v1'" in m for m in blocked(settings, loader_workspace))
 
 
-def test_state_loader_preserves_values_gradients_device_and_never_imports_model(loader_workspace):
-    selected = cfg(symbolic_state_loader='blendrl-dev/cartpole_state')
-    loader = create_state_loader(selected, paths=loader_workspace)
+def test_state_builder_preserves_values_gradients_device_and_never_imports_model(loader_workspace):
+    loader = load_selected('datamodule', 'blendrl-dev/cartpole_state', paths=loader_workspace)
     state = torch.tensor([[1., 2., 3., 4.]], requires_grad=True)
     symbolic = loader(state)
     assert symbolic.shape == (1, 2, 4) and symbolic.device == state.device
@@ -96,17 +89,17 @@ def test_state_loader_preserves_values_gradients_device_and_never_imports_model(
         loader(torch.zeros(4))
     with pytest.raises(ValueError, match='2 symbolic objects'):
         loader(torch.zeros(2, 1, 4))
-    choices = state_loader_choices(paths=loader_workspace)
-    assert {'blendrl-dev_symbolic_state', 'blendrl-dev/cartpole_state', 'blendrl-dev/symbolic_state'} <= choices.keys()
+    # A mapping selection overrides the selected profile's values.
+    loader = load_selected('datamodule', {'name': 'blendrl-dev/cartpole_state', 'object_count': 3}, paths=loader_workspace)
+    assert loader(torch.zeros(1, 4)).shape == (1, 3, 4)
 
 
 def test_environment_does_not_select_model_inputs(loader_workspace):
     selected = cfg(env={'data_module': 'bad', 'symbolic_observation_builder': 'bad:builder'})
     selection, source = loader_selection(selected, 'data_module', paths=loader_workspace)
     assert selection['name'] == 'SimulatorDataModule' and source == 'paradigm'
-    assert any('requires symbolic_state_loader' in e for e in data_loader_errors(selected, paths=loader_workspace))
-    with pytest.raises(ValueError, match='Select symbolic_state_loader'):
-        create_state_loader(selected, paths=loader_workspace)
+    assert any('symbolic state builder' in m for m in blocked(selected, loader_workspace))
+    assert data_loader_errors(selected, paths=loader_workspace) == []
 
 
 def test_method_inputs_reach_run_and_hydra_replaces_old_parameters(fixture_workspace, monkeypatch):
@@ -122,32 +115,27 @@ defaults:
 data_module:
   name: first
   params: {old_parameter: 9}
-symbolic_state_loader:
-  name: state_first
-  params: {old_state_parameter: 7}
 methods:
   demo:
     agent: loader_probe
     model: basics/dnn
     data_module: {name: second, params: {batch_size: 16}}
-    symbolic_state_loader: {name: state_second, params: {object_count: 2}}
 ''')
     composed = compose_experiment('thetaide/_loader_test', workspace=paths)
     method = parse_methods_dict(composed.cfg, paths=paths)['demo']
     args = build_method_overrides('demo', method, cfg=composed.cfg, workspace=paths, config_dir=paths.config)
-    assert not any('agent.data_module' in a or 'agent.symbolic_state_loader' in a for a in args)
+    assert not any('agent.data_module' in a for a in args)
     trial = compose_experiment('thetaide/_loader_test', [a for a in args if not a.startswith('+experiment=')], workspace=paths)
     assert OmegaConf.to_container(trial.cfg.data_module) == {'name': 'second', 'params': {'batch_size': 16}}
-    assert OmegaConf.to_container(trial.cfg.symbolic_state_loader) == {'name': 'state_second', 'params': {'object_count': 2}}
     # Explicit launch overrides retain the final say.
     args = build_method_overrides('demo', method, cfg=composed.cfg, workspace=paths, config_dir=paths.config,
-                                 extra_args=['++symbolic_state_loader.params.object_count=3'])
+                                 extra_args=['++data_module.params.batch_size=3'])
     trial = compose_experiment('thetaide/_loader_test', [a for a in args if not a.startswith('+experiment=')], workspace=paths)
-    assert trial.cfg.symbolic_state_loader.params.object_count == 3
+    assert trial.cfg.data_module.params.batch_size == 3
     cli = compose_experiment('thetaide/_loader_test', [
-        '++symbolic_state_loader.name=third', '++symbolic_state_loader.params.object_count=4',
+        '++data_module.name=third', '++data_module.params.batch_size=4',
     ], workspace=paths)
-    assert OmegaConf.to_container(cli.cfg.symbolic_state_loader) == {'name': 'third', 'params': {'object_count': 4}}
+    assert OmegaConf.to_container(cli.cfg.data_module) == {'name': 'third', 'params': {'batch_size': 4}}
 
 
 @pytest.fixture(scope='module')
@@ -187,11 +175,12 @@ def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(blen
         'model': {'architecture': 'blendrl-dev', 'actor_mode': actor_mode, 'blend_function': 'softmax',
                   'neural': {'type': 'dnn', 'hidden_sizes': [16, 16]},
                   'symbolic': {'type': 'nsfr', 'rules': 'cartpole/variant2'},
-                  'blender': 'neural', 'blender_model': {'name': 'basics/dnn', 'hidden_sizes': [8]}},
-        'symbolic_state_loader': 'blendrl-dev/cartpole_state', 'env': {},
+                  'blender': 'neural', 'blender_model': {'name': 'basics/dnn', 'hidden_sizes': [8]},
+                  'symbolic_state': 'blendrl-dev/cartpole_state'},
+        'env': {},
     }
     if actor_mode == 'neural':
-        selected_cfg.pop('symbolic_state_loader')
+        selected_cfg['model'].pop('symbolic_state')
     env = gym.make('CartPole-v1')
     kwargs = {'theta_config': selected_cfg, 'theta_model': 'blendrl-dev', 'env_name': 'cartpole',
               'action_meanings': ['left', 'right']}
@@ -223,53 +212,20 @@ def test_actual_blendrl_keeps_construction_training_and_checkpoint_behavior(blen
         env.close()
 
 
-def test_authoring_exposes_required_loader_and_uses_shared_preflight_status(loader_workspace, monkeypatch):
-    from PyQt6.QtWidgets import QApplication, QLabel
-    from frontend.config_model import ConfigTree
-    from frontend.config_viewer import ConfigViewer
-    import frontend.config_viewer as viewer_module
-
-    app = QApplication.instance() or QApplication([])
-    paths = loader_workspace
-    paths.config.mkdir(parents=True, exist_ok=True)
-    tree = ConfigTree(paths.config)
-    monkeypatch.setattr(viewer_module, 'config_tree', lambda *a, **k: tree)
-    recipe = paths.config / 'recipe.yaml'
-    values = {'paradigm': 'online_rl', 'methods': {'policy': {'agent': 'ppo', 'model': 'state-model'}}}
-    recipe.write_text(yaml.safe_dump(values))
-    widget = ConfigViewer()
-    widget.load_file(recipe, 'experiment/probe/recipe.yaml')
-    try:
-        assert any('requires symbolic_state_loader' in w.text()
-                   for w in widget.findChildren(QLabel, 'dataLoaderStatus'))
-        assert widget.raw_data == values and not widget.is_dirty
-        combo = widget.field_widgets['methods.policy.symbolic_state_loader']
-        combo.setCurrentIndex(combo.findData('blendrl-dev/cartpole_state'))
-        app.processEvents()
-        assert not widget.findChildren(QLabel, 'dataLoaderStatus')
-        assert widget.raw_data['methods']['policy']['symbolic_state_loader']['name'] == 'blendrl-dev/cartpole_state'
-        assert widget.save_to_disk()
-        assert yaml.safe_load(recipe.read_text())['methods']['policy']['symbolic_state_loader']['params'] == {
-            'object_count': 2, 'feature_count': 4, 'builder': None}
-    finally:
-        widget.close()
-
-
 def test_algorithms_can_require_different_training_contracts(loader_workspace):
     paths = loader_workspace
     manifest = paths.user('model') / 'state-model/.theta_component.json'
     meta = json.loads(manifest.read_text())
     for provider, output in [('transition_loader', 'rl_transitions/v1'), ('sequence_loader', 'trajectories/v1')]:
-        meta['capabilities'].append({'id': provider, 'kind': 'datamodule', 'role': 'training',
-                                     'entry_point': 'never_construct.py:Model', 'output_contracts': [output]})
+        meta['capabilities'].append({'id': provider, 'kind': 'datamodule',
+                                     'entry_point': 'never_construct.py:Model', 'provides': [output]})
     meta['capabilities'].append({'id': 'sequence_method', 'kind': 'algorithm', 'entry_point': 'never_construct.py:Model',
-                                'input_requirements': [{'slot': 'data_module', 'contract': 'trajectories/v1'}]})
+                                'requires': [{'level': 'block', 'kind': 'datamodule', 'contract': 'trajectories/v1'}]})
     manifest.write_text(json.dumps(meta))
-    settings = {'paradigm': 'offline_rl', 'data_module': 'transition_loader'}
-    method = {'agent': 'sequence_method'}
-    assert any('does not produce' in e for e in data_loader_errors(settings, method, paths=paths))
-    method['data_module'] = 'sequence_loader'
-    assert data_loader_errors(settings, method, paths=paths) == []
+    settings = {'paradigm': 'offline_rl', 'data_module': 'transition_loader', 'methods': {'m': {'agent': 'sequence_method'}}}
+    assert any("datamodule providing 'trajectories/v1'" in m for m in blocked(settings, paths))
+    settings['methods']['m']['data_module'] = 'sequence_loader'
+    assert blocked(settings, paths) == []
 
 
 def test_neural_actor_passes_loaded_states_to_its_symbolic_gate(blendrl_paths):

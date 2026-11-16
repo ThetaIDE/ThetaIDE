@@ -138,13 +138,12 @@ def build_method_overrides(
 
     # Inputs belong to the run, never agent.* or model.*. Clear inherited maps
     # before installing a different provider so Hydra cannot retain its params.
-    from src.app.core.data_loaders import LOADER_SLOTS, loader_selection
-    for slot in LOADER_SLOTS:
-        if slot in method_cfg or (cfg is not None and cfg.get(slot) is not None):
-            selection, _ = loader_selection(cfg or {}, slot, method_cfg, paths=paths)
-            overrides.append(f"++{slot}=null")
-            if selection is not None:
-                overrides.append(f"++{slot}={_format_hydra_val(selection)}")
+    from src.app.core.data_loaders import SLOT, loader_selection
+    if SLOT in method_cfg or (cfg is not None and cfg.get(SLOT) is not None):
+        selection, _ = loader_selection(cfg or {}, SLOT, method_cfg, paths=paths)
+        overrides.append(f"++{SLOT}=null")
+        if selection is not None:
+            overrides.append(f"++{SLOT}={_format_hydra_val(selection)}")
 
     # Monitor instances are run-level settings, even when configured per method.
     # Hydra already composed the shared instances; apply this method's overrides
@@ -203,7 +202,6 @@ def build_method_overrides(
         "venv_python",
         "venv",
         "data_module",
-        "symbolic_state_loader",
         "monitors",
     }
     _MODEL_KEYS = {

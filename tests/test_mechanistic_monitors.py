@@ -349,7 +349,7 @@ def test_monitor_suggestions_follow_installed_capabilities(tmp_path):
             "id": package, "name": package, "kind": "monitor", "version": "1.0.0",
             "storage_version": 3, "api_version": 1,
             "capabilities": [{"id": cid, "kind": "monitor", "entry_point": "monitor.py:Monitor",
-                              "requires": ["probe_forward.v1"]} for cid in ids],
+                              "hooks": ["probe_forward.v1"]} for cid in ids],
             "payload": {"implementations": ["monitor.py"], "resources": [], "configs": {}}}))
     properties = schema_for(("monitors",), {}, get_catalog(paths))["properties"]
     assert properties == {

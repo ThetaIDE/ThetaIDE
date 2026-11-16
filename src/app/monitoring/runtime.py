@@ -60,7 +60,7 @@ class MonitorManager:
                     if declarations and not entry["outputs"]:
                         entry["disabled"] = True
                         continue
-                    required = set(capability.metadata.get("requires", ["probe_forward.v1"]))
+                    required = set(capability.metadata["hooks"])
                     if missing := required - self.access.capabilities - {"post_update.v1"}:
                         raise ValueError(f"Model adapter lacks capabilities: {sorted(missing)}")
                     self.access.target(spec["target"])

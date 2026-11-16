@@ -1,7 +1,8 @@
-"""Resolve experiment defaults and method-specific data input providers.
+"""Resolve the experiment's and each method's data module selection.
 
-Training batches and inference-time state conversion are separate slots. Provider
-requirements live in component manifests, so the pipeline never names a model.
+A data module is one of the component kinds a paradigm's method consists of.
+What other components need from it is declared in their compatibility rules
+(src/app/core/requirements.py), never here.
 """
 from __future__ import annotations
 
@@ -12,8 +13,7 @@ from src.app.workspace import WorkspacePaths
 from src.app.core.provider_discovery import discovery_cached
 from src.app.core.provider_metadata import profile_values
 
-LOADER_SLOTS = ("data_module", "symbolic_state_loader")
-SLOT_ROLES = {"data_module": "training", "symbolic_state_loader": "symbolic_state"}
+SLOT = "data_module"
 
 
 @discovery_cached
@@ -67,7 +67,7 @@ def loader_override_args(arguments):
     for argument in arguments:
         key = argument.split("=", 1)[0].lstrip("+")
         slot = key.split(".", 1)[0]
-        if slot in LOADER_SLOTS and key in (slot, slot + ".name", slot + ".class", slot + ".type"):
+        if slot == SLOT and key in (slot, slot + ".name", slot + ".class", slot + ".type"):
             override = parser.parse_override(argument)
             if not override.is_sweep_override():
                 value = override.value()
@@ -77,24 +77,26 @@ def loader_override_args(arguments):
     return result
 
 
-def loader_selection(cfg, slot, method=None, *, paths=None):
-    """Return a normalized selection and its source without importing providers."""
+def loader_selection(cfg, slot=SLOT, method=None, *, paths=None):
+    """Return a normalized data module selection and its source without importing providers."""
+    if slot != SLOT:
+        raise ValueError(f"Unknown data selection {slot!r}; methods select a {SLOT}")
     paths = paths or WorkspacePaths.for_process()
     value, source = cfg.get(slot), "experiment"
     if method is not None and slot in method:
         value = merge_loader_selection(value, method[slot])
         source = "method"
-    if value is None and slot == "data_module":
-        path = paths.resolve_config("paradigms/" + str(cfg.get("paradigm", "online_rl")) + ".yaml")
+    if value is None and cfg.get("paradigm"):
+        path = paths.resolve_config("paradigms/" + str(cfg.get("paradigm")) + ".yaml")
         paradigm = yaml.safe_load(path.read_text()) if path.is_file() else {}
-        value = (paradigm or {}).get("default_data_module") or (paradigm or {}).get("data_module")
+        value = (paradigm or {}).get("default_data_module")
         source = "paradigm"
     name = loader_name(value)
     if not name:
         return None, source
     profile = _profile("data", name, paths)
     provider = profile.get("data_module") or profile.get("name") or name
-    reserved = {"name", "class", "type", "data_module", "role", "compatible_paradigms", "params"}
+    reserved = {"name", "class", "type", "data_module", "params"}
     params = {k: v for k, v in profile.items() if k not in reserved}
     params.update(profile.get("params") or {})
     if hasattr(value, "items"):
@@ -104,52 +106,6 @@ def loader_selection(cfg, slot, method=None, *, paths=None):
     return {"name": provider, "params": params}, source
 
 
-def _selected_component(cfg, method, kind, paths):
-    from src.app.pipeline.config import deep_merge
-    value = method.get(kind, cfg.get(kind, {})) if method is not None else cfg.get(kind, {})
-    name = loader_name(value)
-    if hasattr(value, "get"):
-        name = value.get("architecture") or value.get("algorithm") or name
-    defaults = _profile(kind, name, paths) if name else {}
-    params = method.get(kind + "_params", {}) if method is not None else {}
-    config = deep_merge(defaults, plain(params))
-    if hasattr(value, "items"):
-        config = deep_merge(config, plain(value))
-    return name, config
-
-
-def input_requirements(cfg, method=None, *, paths=None):
-    """Collect conditional requirements from the selected algorithm and model."""
-    from src.app.core.provider_catalog import get_catalog
-    paths = paths or WorkspacePaths.for_process()
-    catalog = get_catalog(paths)
-    result = []
-    for kind, capability_kind in (("model", "model"), ("agent", "algorithm")):
-        name, config = _selected_component(cfg, method, kind, paths)
-        if not name:
-            continue
-        selected = catalog.resolve(capability_kind, str(config.get("architecture") or config.get("algorithm") or config.get("name") or name))
-        if selected is None:
-            # A profile selector may differ from the capability's public ID.
-            owners = [(p, c) for p in catalog.packages for c in p.capabilities
-                      if c.kind == capability_kind and f"{kind}/{name}.yaml" in p.manifest.get("payload", {}).get("configs", {})]
-            selected = owners[0] if len(owners) == 1 else None
-        if selected is None:
-            continue
-        package, capability = selected
-        for requirement in capability.metadata.get("input_requirements", package.manifest.get("input_requirements", [])):
-            matches = True
-            for key, allowed in requirement.get("when", {}).items():
-                value = config
-                for part in key.split("."):
-                    value = value.get(part) if hasattr(value, "get") else None
-                if value not in allowed:
-                    matches = False
-            if matches:
-                result.append({**requirement, "consumer": name})
-    return result
-
-
 def loader_metadata(selection, *, paths=None):
     from src.app.core.provider_metadata import capability_metadata
     if not selection:
@@ -157,85 +113,19 @@ def loader_metadata(selection, *, paths=None):
     return capability_metadata("datamodule", selection["name"], paths or WorkspacePaths.for_process())
 
 
-def state_loader_choices(*, paths=None):
-    """State providers and distinct profiles, without importing model packages."""
-    return _state_loader_choices(paths or WorkspacePaths.for_process())
-
-
-@discovery_cached
-def _state_loader_choices(paths):
-    from src.app.core.provider_catalog import get_catalog, DuplicateProvider
-    from src.app.core.provider_metadata import selector_metadata
-    choices = {name: {} for name, metadata in selector_metadata("datamodule", paths).items()
-               if metadata.get("role") == "symbolic_state"}
-    for package in get_catalog(paths).packages:
-        for selector, relative in package.manifest.get("payload", {}).get("configs", {}).items():
-            if not selector.startswith("data/"):
-                continue
-            path = paths.resolve_config(selector)
-            if not path.is_file():
-                path = package.root / relative
-            profile = profile_values(path)
-            try:
-                metadata = loader_metadata({"name": profile.get("data_module") or profile.get("name") or ""}, paths=paths)
-            except DuplicateProvider:
-                continue
-            if profile.get("role", metadata.get("role")) == "symbolic_state":
-                choices[selector.removeprefix("data/").removesuffix(".yaml")] = profile
-    return choices
-
-
 def data_loader_errors(cfg, method=None, *, paths=None):
-    """Shared authoring/preflight contract check. Does not execute plugin code."""
+    """The selected data module is a known provider and its parameters match its schema."""
+    from src.app.core.provider_metadata import BUILTIN_SELECTORS
     paths = paths or WorkspacePaths.for_process()
-    requirements = input_requirements(cfg, method, paths=paths)
-    errors = []
-    for slot in LOADER_SLOTS:
-        selection, _ = loader_selection(cfg, slot, method, paths=paths)
-        needs = [r for r in requirements if r["slot"] == slot]
-        if selection is None:
-            errors.extend(f"{r['consumer']} requires {slot} producing {r['contract']}. Select one in Data Loaders." for r in needs)
-            continue
-        metadata = loader_metadata(selection, paths=paths)
-        if not metadata:
-            # Built-in training modules predate manifest capabilities.
-            if slot != "data_module" or selection["name"] not in {
-                "RLDataModule", "RLReplayBufferDataModule", "SimulatorDataModule", "SupervisedDataModule",
-                "CrossValidationDataModule", "TabularNpzDataModule", "SupervisedNpzDataModule", "UnsupervisedDataModule",
-            }:
-                errors.append(f"Unknown {slot} provider '{selection['name']}'.")
-            elif needs:
-                errors.extend(f"{r['consumer']} requires {r['contract']}; {selection['name']} has no declared output contract."
-                              for r in needs)
-            continue
-        role = metadata.get("role", "training")
-        if role != SLOT_ROLES[slot]:
-            errors.append(f"{selection['name']} supplies {role}, but {slot} needs {SLOT_ROLES[slot]}.")
-        supported = metadata.get("paradigms")
-        if supported and cfg.get("paradigm") not in supported:
-            errors.append(f"{selection['name']} does not support paradigm '{cfg.get('paradigm')}'.")
-        for requirement in needs:
-            if requirement["contract"] not in metadata.get("output_contracts", []):
-                errors.append(f"{requirement['consumer']} requires {requirement['contract']}; {selection['name']} does not produce it.")
-        schema = metadata.get("parameter_schema")
-        if schema:
-            from jsonschema import Draft202012Validator
-            errors.extend(f"{slot} {selection['name']}: {e.message}" for e in Draft202012Validator(schema).iter_errors(selection["params"]))
-    return list(dict.fromkeys(errors))
-
-
-def create_state_loader(cfg, *, paths=None):
-    """Instantiate an inference-time converter, never a model or training runner."""
-    from src.app.core.provider_loader import load_capability
-    from src.app.core.provider_catalog import get_catalog
-    paths = paths or WorkspacePaths.for_process()
-    selection, _ = loader_selection(cfg, "symbolic_state_loader", paths=paths)
+    selection, _ = loader_selection(cfg, SLOT, method, paths=paths)
     if selection is None:
-        raise ValueError("A symbolic observation builder is required. Select symbolic_state_loader in Data Loaders.")
-    selected = get_catalog(paths).resolve("datamodule", selection["name"])
-    if selected is None or selected[1].metadata.get("role") != "symbolic_state":
-        raise ValueError(f"'{selection['name']}' is not a symbolic state loader.")
-    loader = load_capability(*selected, paths=paths)(**selection["params"])
-    if not callable(loader):
-        raise ValueError("A symbolic state loader must be callable.")
-    return loader
+        return []
+    metadata = loader_metadata(selection, paths=paths)
+    if not metadata:
+        return [] if selection["name"] in BUILTIN_SELECTORS["datamodule"] else [f"Unknown {SLOT} provider '{selection['name']}'."]
+    schema = metadata.get("parameter_schema")
+    if not schema:
+        return []
+    from jsonschema import Draft202012Validator
+    return list(dict.fromkeys(f"{SLOT} {selection['name']}: {e.message}"
+                              for e in Draft202012Validator(schema).iter_errors(selection["params"])))

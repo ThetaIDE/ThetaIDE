@@ -107,7 +107,7 @@ def deep_merge(base: dict, override: dict) -> dict:
         return base
     result = dict(base)
     for k, v in override.items():
-        if k in ("data_module", "symbolic_state_loader") and k in result:
+        if k == "data_module" and k in result:
             from src.app.core.data_loaders import merge_loader_selection
             result[k] = merge_loader_selection(result[k], v)
         elif k in result and isinstance(result[k], dict) and isinstance(v, dict):

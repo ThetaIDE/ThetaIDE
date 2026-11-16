@@ -26,8 +26,8 @@ from .models import AuthorInfo, HubComponent, ReleaseInfo
 
 def _authoring_hash(meta):
     fields = ("name", "description", "parameter_schema", "editor_actions", "entry_point",
-              "entry_points", "dependencies", "paradigms", "aliases", "provides",
-              "storage_version", "api_version", "capabilities", "payload", "rules_root")
+              "entry_points", "dependencies", "aliases",
+              "storage_version", "api_version", "capabilities", "payload", "workspace_resources")
     return hashlib.sha256(json.dumps({key: meta[key] for key in fields if key in meta}, sort_keys=True).encode()).hexdigest()
 
 

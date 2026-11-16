@@ -132,11 +132,14 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
         config = effective_config(cfg)
     else:
         config = dict(cfg)
+    from src.app.core.requirements import warnings_record
+    # A run records the compatibility warnings it ran with, so results show off-label use.
     manifest = {"schema_version": 1, "execution_id": execution_id, "group": str(cfg.group),
                 "experiment_id": str(cfg.experiment_id), "result_experiment_id": result_experiment_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "owner_pid": int(os.environ.get("THETA_PIPELINE_PID", os.getpid())),
-                "parent": parent, "config": config, "plan": plan, "runs": runs}
+                "parent": parent, "config": config, "plan": plan, "runs": runs,
+                "compatibility_warnings": warnings_record(cfg, paths=paths)}
     path = root / "manifest.json"
     lock = threading.Lock()
 

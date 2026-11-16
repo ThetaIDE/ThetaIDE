@@ -110,7 +110,7 @@ def validate_context(context, *, catalog, script=None, configured=None):
         if selected is None:
             raise ValueError(f"Monitor {identity}: component {spec['component']!r} is not installed")
         metadata = selected[1].metadata
-        required = set(metadata.get("requires", ["probe_forward.v1"]))
+        required = set(metadata["hooks"])
         if missing := required - supported:
             raise ValueError(f"Monitor {identity}: runner/model lacks required hooks: {', '.join(sorted(missing))}")
         # Parameter schemas are also checked by the component constructor. Headless

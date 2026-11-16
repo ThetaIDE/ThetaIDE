@@ -2,7 +2,7 @@
 
 A bundle is built from one composed experiment: the application build, the
 providers the experiment selects with their declared component dependencies,
-the workspace configuration and authored rules it uses, and the workspace
+the workspace configuration and the workspace resources those providers declare, and the workspace
 identity files. Results, datasets, unselected providers and other experiments
 are never included. One manifest describes it, and extraction, activation,
 execution and continuation accept exactly this schema.
@@ -198,8 +198,9 @@ def build(selection, destination):
             if resolved.origin == 'workspace': _add(files, relative, resolved.file)
         configs.append({'selector': resolved.selector, 'owner': resolved.package.id if resolved.package else None,
                         'origin': resolved.origin, 'sha256': digest(resolved.file), 'path': relative})
-    rules = paths.rules
-    if rules.is_dir(): _walk(rules, _within(rules, paths.root, 'Rules'), files)
+    from src.app.core.workspace_resources import workspace_directories
+    for directory in workspace_directories(paths, selection.packages):
+        if directory.is_dir(): _walk(directory, _within(directory, paths.root, 'Workspace resource'), files)
     for name in WORKSPACE_STATE:
         if (paths.data_dir / name).is_file(): _add(files, '.thetaide/' + name, paths.data_dir / name)
     hashes = {}
@@ -261,6 +262,10 @@ def check(directory, manifest):
     absent = {package.id for package in selection.packages} - {item['id'] for item in manifest['providers']}
     if missing or absent:
         raise ValueError(f'The bundle of {experiment["selector"]} lacks ' + ', '.join(sorted({*missing, *absent})))
+    from src.app.core.requirements import compatibility
+    blocked = [str(finding) for finding in compatibility(selection.cfg, paths=paths) if finding.level == 'block']
+    if blocked:
+        raise ValueError(f'The bundle of {experiment["selector"]} is incompatible: ' + ' '.join(blocked))
 
 
 def _allowed(relative):

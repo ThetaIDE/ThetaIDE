@@ -346,14 +346,17 @@ def test_registry_discovery_never_executes_new_format_provider(tmp_path, monkeyp
 def test_run_snapshot_verifies_active_config_rules_and_override_identity(tmp_path):
     from src.app.pipeline.provider_worker import provider_snapshot,verify_snapshot
     installer=HubInstaller(tmp_path/'workspace',tmp_path/'state')
-    installer.install(archive(tmp_path),install_dependencies=False)
+    installer.install(archive(tmp_path,workspace_resources={'lemmas':{'depth':2}}),install_dependencies=False)
     paths=installer.paths;snapshot=provider_snapshot(paths)
     overrides=paths.data_dir/'provider_overrides.json';overrides.parent.mkdir(parents=True,exist_ok=True)
     overrides.write_text(json.dumps({'model:toy':'another_owner'}))
     with pytest.raises(RuntimeError,match='override'):verify_snapshot(snapshot,paths)
     overrides.write_text('{}')
-    rule=paths.rules/'env/test/clauses.txt';rule.parent.mkdir(parents=True);rule.write_text('rule(X).\n')
-    with pytest.raises(RuntimeError,match='rules'):verify_snapshot(snapshot,paths)
+    # Only resource directories an installed package declares belong to the run's identity.
+    other=paths.resource('notes')/'scratch.txt';other.parent.mkdir(parents=True);other.write_text('x\n')
+    verify_snapshot(snapshot,paths)
+    rule=paths.resource('lemmas')/'env/test/clauses.txt';rule.parent.mkdir(parents=True);rule.write_text('rule(X).\n')
+    with pytest.raises(RuntimeError,match='Workspace resources'):verify_snapshot(snapshot,paths)
     rule.unlink()
     (paths.config/'model').mkdir(parents=True);(paths.config/'model/toy.yaml').write_text('architecture: toy\nvalue: 9\n')
     with pytest.raises(RuntimeError,match='config'):verify_snapshot(snapshot,paths)
@@ -394,7 +397,8 @@ def test_workspace_switch_keeps_base_paradigms_and_selected_overrides(tmp_path, 
         workspace = tmp_path / label
         directory = workspace / 'src/usr/config/paradigms'
         directory.mkdir(parents=True)
-        (directory / 'online_rl.yaml').write_text('marker: ' + label + '\n')
+        base = (Path(__file__).resolve().parents[1] / 'src/app/config_defaults/paradigms/online_rl.yaml').read_text()
+        (directory / 'online_rl.yaml').write_text(base + 'description: ' + label + '\n')
         monkeypatch.setenv('THETA_WORKSPACE', str(workspace))
         assert {'online_rl', 'offline_rl', 'supervised', 'unsupervised'} <= set(list_paradigms())
-        assert load_paradigm('online_rl')['marker'] == label
+        assert load_paradigm('online_rl')['description'] == label

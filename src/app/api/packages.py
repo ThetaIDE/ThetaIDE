@@ -10,6 +10,13 @@
     ``environment_resource(environment, relative)``
                                            a file under the ``resource_root`` an environment
                                            capability declares, for packages that pair with it.
+    ``load_selected(kind, selection)``     load the component a component-reference parameter
+                                           (``x-theta-domain``) selects and call its entry point
+                                           with the selection's parameters.
+    ``resource_entries(name)``             entry ID -> directory of a workspace resource packages
+                                           declare in ``workspace_resources`` (``src/usr/<name>`` and
+                                           the declaring packages' own entries).
+    ``resource_entry(name, entry)``        the directory of one such entry.
     ``selected_capability(kind, selector)``
                                            the provider capability a configured selector names
                                            (``.id``, ``.kind``, ``.metadata``, ``.load()``, and its
@@ -21,6 +28,7 @@ See docs/reference/PLUGIN_STORAGE.md#cross-package-exports.
 """
 from ._exports import lazy_exports
 
-_EXPORTS = {name: f"src.app.core.provider_loader:{name}" for name in ("provider_export", "configured_export", "environment_resource", "selected_capability")}
+_EXPORTS = {name: f"src.app.core.provider_loader:{name}" for name in ("provider_export", "configured_export", "environment_resource", "selected_capability", "resource_entries", "resource_entry")}
+_EXPORTS["load_selected"] = "src.app.core.requirements:load_selected"
 __all__ = sorted(_EXPORTS)
 __getattr__, __dir__ = lazy_exports(__name__, _EXPORTS)

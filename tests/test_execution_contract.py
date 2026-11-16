@@ -45,7 +45,7 @@ def test_a_selected_package_profile_with_a_script_entrypoint_fails(tmp_path):
     (package / ".theta_component.json").write_text(json.dumps({
         "id": "legacy-runner", "name": "Legacy", "kind": "method", "version": "1.0.0", "storage_version": 3, "api_version": 1,
         "capabilities": [{"id": "legacy/ppo", "kind": "algorithm", "entry_point": "runner.py:execute", "execution_contract": 1,
-                          "backend": "legacy", "paradigms": ["online_rl"]}],
+                          "backend": "legacy", "requires": [{"level": "block", "config": "paradigm", "in": ["online_rl"]}]}],
         "payload": {"implementations": ["runner.py"], "resources": [], "configs": {"agent/legacy/ppo.yaml": "configs/agent/legacy/ppo.yaml"}}}))
     with pytest.raises((ValueError, ConfigurationError), match=r"Removed execution fields: agent profile legacy/ppo \(legacy-runner@1.0.0\)\.entrypoint"):
         resolve_engine({"agent": "legacy/ppo"}, paths=paths)
@@ -58,7 +58,7 @@ def sentinel_workspace(tmp_path, runner="Sentinel"):
     (config / "paradigms").mkdir(exist_ok=True)
     (config / "paradigms/probe.yaml").write_text(
         f"type: base\nrunner: {runner}\nenvironment_source: live_environment\n"
-        "method: {algorithm: forbidden, model: required}\nallowed_agents: []\n")
+        "method: {algorithm: forbidden, model: required}\ntraining: {budget: epochs}\n")
     (config / "env").mkdir(exist_ok=True)
     (config / "env/probe.yaml").write_text("name: probe\n")
     (config / "model").mkdir(exist_ok=True)

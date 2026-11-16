@@ -1,7 +1,8 @@
-"""Provider-neutral execution features and selected-provider hooks.
+"""Provider-neutral execution features and the selected provider's resource hook.
 
 Catalog inspection reads declarations only. Hooks execute only for the selected
-provider during preflight or resource planning and must be read-only.
+provider during resource planning and must be read-only. What a provider needs
+from the rest of an experiment is a compatibility rule (src/app/core/requirements.py).
 """
 from __future__ import annotations
 
@@ -12,7 +13,6 @@ import math
 
 @dataclass(frozen=True)
 class ExecutionFeatures:
-    input_types: tuple[str, ...] = ()
     evaluation: str = "provider"
     resume_modes: tuple[str, ...] = ()
     checkpoint_formats: tuple[str, ...] = ()
@@ -30,7 +30,7 @@ class ExecutionFeatures:
         if unknown:
             raise ValueError(f"Unknown execution features: {sorted(unknown)}")
         values = dict(values)
-        for name in ("input_types", "resume_modes", "checkpoint_formats"):
+        for name in ("resume_modes", "checkpoint_formats"):
             if name in values:
                 items = values[name]
                 if not isinstance(items, (list, tuple)) or any(not isinstance(x, str) or not x for x in items):
@@ -52,16 +52,11 @@ class ExecutionFeatures:
             raise ValueError(f"{owner}: runner owns native evaluation; configured evaluator providers are unsupported")
         if any(cfg.get(key) for key in ("resume", "recover", "resume_from")) and "training" not in self.resume_modes:
             raise ValueError(f"{owner}: exact training resume is unsupported; consult the provider's inference reload modes")
-        if cfg.get("data_module") and "data_module" not in self.input_types:
-            raise ValueError(f"{owner}: custom data_module selection is unsupported; supported inputs: {self.input_types}")
-        if cfg.get("dataset_path") and "dataset_path" not in self.input_types:
-            raise ValueError(f"{owner}: dataset_path input is unsupported; supported inputs: {self.input_types}")
         if tuning_enabled(cfg) and not (self.tuning and self.winner_promotion):
             raise ValueError(f"{owner}: tuning/winner-promotion is unsupported for this execution provider")
 
 
 LIGHTNING_FEATURES = ExecutionFeatures(
-    input_types=("data_module", "dataset_path", "live_environment"),
     evaluation="configured", resume_modes=("training", "inference"),
     checkpoint_formats=("lightning.ckpt",), tuning=True, winner_promotion=True,
     intermediate_values=True,

@@ -13,7 +13,6 @@ functionality from the modules of this package only:
 ``src.app.api.environments`` vectorized environment base class
 ``src.app.api.data``       data modules, registration and transition datasets
 ``src.app.api.evaluation`` evaluator registration
-``src.app.api.rulesets``   ruleset discovery and resolution
 ``src.app.api.telemetry``  run telemetry for engines outside Lightning
 ``src.app.api.results``    read-only access to run results
 ``src.app.api.monitoring`` mechanistic monitors for engines outside Lightning
@@ -35,7 +34,7 @@ it.
 """
 from __future__ import annotations
 
-SDK_VERSION = "3.0"
+SDK_VERSION = "3.1"
 
 
 def sdk_requirement_error(spec) -> str | None:

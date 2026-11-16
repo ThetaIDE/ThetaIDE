@@ -65,10 +65,11 @@ def _declare_test_providers(tmp_path, monkeypatch):
             root=paths.user(kind)/name;root.mkdir(parents=True)
             (root/'provider.py').write_text('class Provider: pass\n')
             paradigms=['online_rl'] if name=='ppo' else ['offline_rl'] if kind=='algorithm' else []
-            capability={'id':name,'kind':kind,'entry_point':'provider.py:Provider','paradigms':paradigms}
+            capability={'id':name,'kind':kind,'entry_point':'provider.py:Provider'}
+            if paradigms:
+                capability['requires']=[{'level':'block','config':'paradigm','in':paradigms}]
             if kind=='algorithm':
-                capability.update(execution_contract=1, backend='lightning',
-                                  execution_features={'input_types': ['data_module', 'dataset_path', 'live_environment']})
+                capability.update(execution_contract=1, backend='lightning')
             meta={'id':name,'name':name,'kind':kind,'version':'1.0.0','storage_version':3,'api_version':1,
                   'capabilities':[capability],
                   'payload':{'implementations':['provider.py'],'resources':[],'configs':{}}}
@@ -112,7 +113,7 @@ def test_missing_methods_online_rl(mock_yaml, mock_cfg_online):
         "group": "",
         "experiment_id": "",
     })
-    with pytest.raises(ConfigurationError, match="requires 'methods'"):
+    with pytest.raises(ConfigurationError, match="declares no enabled methods"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
@@ -167,17 +168,17 @@ def test_ppo_forbidden_in_offline_rl(mock_yaml, mock_cfg_offline):
     mock_cfg_offline["methods"] = {
         "ppo_dnn": {"agent": "ppo", "model": "dnn"}
     }
-    with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'offline_rl'|forbidden in paradigm 'offline_rl')"):
+    with pytest.raises(ConfigurationError, match=r"requires paradigm in \['online_rl'\]; got 'offline_rl'"):
         validate_experiment_config(mock_cfg_offline, "test_exp")
 
 
 @patch("src.app.pipeline.validation._load_raw_experiment_yaml", return_value={})
 def test_disallowed_agent_in_online_rl(mock_yaml, mock_cfg_online):
-    """Online RL paradigm must reject agents not in allowed_agents."""
+    """An algorithm that declares another paradigm is blocked in online_rl."""
     mock_cfg_online["methods"] = {
         "bad_method": {"agent": "unsupported_algo", "model": "dnn"}
     }
-    with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'online_rl'|forbidden in paradigm 'online_rl')"):
+    with pytest.raises(ConfigurationError, match=r"requires paradigm in \['offline_rl'\]; got 'online_rl'"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
@@ -187,7 +188,7 @@ def test_cql_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
     mock_cfg_online["methods"] = {
         "cql_dnn": {"agent": "cql", "model": "dnn"}
     }
-    with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'online_rl'|forbidden in paradigm 'online_rl')"):
+    with pytest.raises(ConfigurationError, match=r"requires paradigm in \['offline_rl'\]; got 'online_rl'"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
@@ -197,7 +198,7 @@ def test_iql_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
     mock_cfg_online["methods"] = {
         "iql_dnn": {"agent": "iql", "model": "dnn"}
     }
-    with pytest.raises(ConfigurationError, match="(not allowed in paradigm 'online_rl'|forbidden in paradigm 'online_rl')"):
+    with pytest.raises(ConfigurationError, match=r"requires paradigm in \['offline_rl'\]; got 'online_rl'"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
@@ -207,7 +208,7 @@ def test_cew_forbidden_in_online_rl(mock_yaml, mock_cfg_online):
     mock_cfg_online["methods"] = {
         "cew_dnn": {"agent": "cew", "model": "dnn"}
     }
-    with pytest.raises(ConfigurationError, match="(forbidden in paradigm 'online_rl'|not allowed in paradigm 'online_rl')"):
+    with pytest.raises(ConfigurationError, match=r"requires paradigm in \['offline_rl'\]; got 'online_rl'"):
         validate_experiment_config(mock_cfg_online, "test_exp")
 
 
@@ -231,22 +232,23 @@ def test_offline_rl_method_missing_agent_raises(mock_yaml, mock_cfg_offline):
         validate_experiment_config(mock_cfg_offline, "test_exp")
 
 
-def test_agent_supported_paradigms_from_installed_manifest(tmp_path, monkeypatch):
-    """Component manifests (.theta_component.json) in methods directory define supported paradigms."""
+def test_algorithm_declares_its_own_paradigms(tmp_path, monkeypatch):
+    """An installed algorithm's requires rule, not the paradigm, decides where it may run."""
     import json
-
-    from src.app.pipeline.validation import _get_agent_supported_paradigms
+    from omegaconf import OmegaConf
+    from src.app.core.requirements import compatibility
+    from src.app.workspace import WorkspacePaths
 
     method_dir = tmp_path / "src" / "usr" / "algorithms" / "custom_agent"
     method_dir.mkdir(parents=True, exist_ok=True)
-    manifest = method_dir / ".theta_component.json"
-    manifest.write_text(json.dumps({"id":"custom_agent","name":"Custom agent","kind":"algorithm","version":"1.0.0","storage_version":3,"api_version":1,"capabilities":[{"id":"custom_agent","kind":"algorithm","entry_point":"agent.py:Agent"}],"payload":{"implementations":["agent.py"],"resources":[],"configs":{}},"paradigms":["offline_rl"]}), encoding="utf-8")
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    (method_dir / ".theta_component.json").write_text(json.dumps({"id":"custom_agent","name":"Custom agent","kind":"algorithm","version":"1.0.0","storage_version":3,"api_version":1,"capabilities":[{"id":"custom_agent","kind":"algorithm","entry_point":"agent.py:Agent","requires":[{"level":"warn","config":"paradigm","in":["offline_rl"],"message":"Only tested offline."}]}],"payload":{"implementations":["agent.py"],"resources":[],"configs":{}}}), encoding="utf-8")
     (method_dir / "agent.py").write_text("class Agent: pass\n")
-    paradigms = _get_agent_supported_paradigms("custom_agent")
-    assert paradigms == ["offline_rl"]
+    paths = WorkspacePaths(tmp_path)
+    cfg = OmegaConf.create({"paradigm": "online_rl", "methods": {"m": {"agent": "custom_agent", "model": "dnn"}}})
+    findings = compatibility(cfg, paths=paths)
+    assert [(f.level, f.method, f.message) for f in findings] == [("warn", "m", "Only tested offline.")]
+    cfg.paradigm = "offline_rl"
+    assert compatibility(cfg, paths=paths) == []
 
 
 def test_find_missing_components_detects_uninstalled_components():

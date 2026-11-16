@@ -21,7 +21,7 @@ def provider(tmp_path, *, features=None, hints=None, hooks=False):
                   'execution_features': features if features is not None else asdict(LIGHTNING_FEATURES),
                   'resource_hints': hints if hints is not None else {'base_memory_gib': .4, 'cpu': .5, 'accelerator': False}}
     if hooks:
-        capability.update(execution_preflight='hooks.py:validate', resource_hint_hook='hooks.py:resources')
+        capability.update(preflight='hooks.py:validate', resource_hint_hook='hooks.py:resources')
     manifest = {'id': 'independent', 'name': 'Independent', 'version': '1.0.0', 'storage_version': 3,
                 'api_version': 1, 'kind': 'suite', 'capabilities': [capability],
                 'payload': {'implementations': ['adapter.py', 'hooks.py'], 'resources': [], 'configs': {}}}
@@ -30,21 +30,25 @@ def provider(tmp_path, *, features=None, hints=None, hooks=False):
         'from src.app.core.execution import RunResult\n'
         'def execute(cfg,context):\n return RunResult(metrics={"independent": 3})\n')
     (root / 'hooks.py').write_text(
-        'def validate(cfg, *, paths):\n'
-        ' if cfg.get("invalid"): raise ValueError("independent constraint")\n'
+        'def validate(cfg, method, *, paths):\n'
         ' assert paths.root.name == cfg["expected_workspace"]\n'
+        ' return {"block": ["independent constraint"] if cfg.get("invalid") else [], "warn": [f"checked {method}"]}\n'
         'def resources(cfg, *, paths):\n return {"cpu": 2.5}\n')
     return WorkspacePaths(tmp_path)
 
 
 def test_independent_dispatch_and_selected_preflight(tmp_path, monkeypatch):
+    from src.app.core.requirements import compatibility
     paths = provider(tmp_path, hooks=True)
     monkeypatch.chdir(tmp_path.parent)
     cfg = {'agent': 'probe/learn', 'expected_workspace': tmp_path.name}
     assert execution_backend(cfg, paths=paths)[0] == 'unfamiliar-engine'
     assert execute_backend(cfg, RunContext('one', paths, 1, tmp_path)).metrics == {'independent': 3}
-    with pytest.raises(ValueError, match='independent constraint'):
-        execution_backend({**cfg, 'invalid': True}, paths=paths)
+    # Preflight is a validation-time compatibility check, not part of execution.
+    assert [(f.level, f.message) for f in compatibility(cfg, paths=paths)] == [('warn', 'checked None')]
+    findings = compatibility({**cfg, 'invalid': True, 'methods': {'m': {'agent': 'probe/learn'}}}, paths=paths)
+    assert [(f.level, f.method, f.message) for f in findings] == [
+        ('block', 'm', 'independent constraint'), ('warn', 'm', 'checked m')]
     # Metadata browsing must not import either the adapter or its hooks.
     (paths.root / 'src/usr/packages/independent/hooks.py').write_text('raise AssertionError("catalog executed code")')
     assert get_catalog(paths).resolve('algorithm', 'probe/learn')
@@ -54,8 +58,6 @@ def test_independent_dispatch_and_selected_preflight(tmp_path, monkeypatch):
     ({'evaluator': 'external'}, 'native evaluation'),
     ({'resume_from': 'saved.native'}, 'exact training resume'),
     ({'recover': True}, 'exact training resume'),
-    ({'data_module': 'custom'}, 'custom data_module'),
-    ({'dataset_path': 'transitions.npz'}, 'dataset_path input'),
     ({'tuning': {'component': 'independent', 'n_trials': 2}}, 'tuning/winner-promotion'),
 ])
 def test_conservative_features_reject_unsupported_operations(tmp_path, extra, message):
@@ -114,12 +116,25 @@ def test_invalid_features_fail(features):
 @pytest.mark.parametrize('agent,extra,message', [
     ('sb3-dev/ppo', {'evaluator': 'custom'}, 'native evaluation'),
     ('sb3-dev/ppo', {'resume_from': 'x.zip'}, 'exact training resume'),
-    ('d3rlpy-dev/bc', {'data_module': 'custom'}, 'custom data_module'),
     ('d3rlpy-dev/bc', {'tuning': {'component': 'optuna', 'n_trials': 2}}, 'tuning/winner-promotion'),
 ])
 def test_migrated_adapters_preserve_rejections(agent, extra, message):
     with pytest.raises(ValueError, match=message):
         execution_backend({'agent': agent, **extra})
+
+
+@pytest.mark.parametrize('agent,extra', [
+    ('sb3-dev/ppo', {'data_module': 'custom'}),
+    ('sb3-dev/ppo', {'dataset_path': 'transitions.npz'}),
+    ('d3rlpy-dev/bc', {'data_module': 'custom'}),
+])
+def test_migrated_adapters_declare_their_inputs(agent, extra):
+    from src.app.core.requirements import compatibility
+    key = next(iter(extra))
+    paradigm = 'online_rl' if agent.startswith('sb3') else 'offline_rl'
+    findings = compatibility({'agent': agent, 'paradigm': paradigm, **extra})
+    assert [(f.level, f.rule['config']) for f in findings] == [('block', key)]
+    assert compatibility({'agent': agent, 'paradigm': paradigm}) == []
 
 
 @pytest.mark.parametrize('reference,declared,message', [
@@ -133,7 +148,7 @@ def test_hook_payload_validation_is_metadata_only(tmp_path, reference, declared,
     root = paths.root / 'src/usr/packages/independent'
     (root / 'hooks.py').write_text('raise AssertionError("validation executed provider code")')
     manifest = json.loads((root / '.theta_component.json').read_text())
-    manifest['capabilities'][0]['execution_preflight'] = reference
+    manifest['capabilities'][0]['preflight'] = reference
     if not declared:
         manifest['payload']['implementations'].remove('hooks.py')
     with pytest.raises(ValueError, match=message):

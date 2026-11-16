@@ -80,10 +80,6 @@ def execute(cfg, context):
                 f"Paradigm '{paradigm_name}' does not declare a data module; configure one with 'data_module'."
             )
 
-    supported = getattr(DataModuleCls, "get_supported_paradigms", None)
-    if dm_name and callable(supported) and paradigm_name not in supported():
-        raise ValueError(f"Data module '{dm_name}' does not support paradigm '{paradigm_name}'")
-
     datamodule = DataModuleCls(cfg, **dm_params) if dm_params else DataModuleCls(cfg)
 
     # 2. Build Model / Agent based on paradigm

@@ -134,10 +134,6 @@ def configured_evaluator_callbacks(cfg) -> list[Callback]:
     cls = get_evaluator_class(str(name))
     if cls is None:
         raise ValueError(f"Evaluator '{name}' is not registered")
-    supported = getattr(cls, "get_supported_paradigms", None)
-    paradigm = cfg.get("paradigm")
-    if paradigm and callable(supported) and paradigm not in supported():
-        raise ValueError(f"Evaluator '{name}' does not support paradigm '{paradigm}'")
     instance = cls(**{key: value for key, value in params.items() if key not in ("enabled", "frequency")})
     if isinstance(instance, Callback):
         return [instance]

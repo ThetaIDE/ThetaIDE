@@ -124,7 +124,7 @@ def execution_backend(cfg, *, paths=None):
         backend = capability.metadata.get("backend")
         if not isinstance(backend, str) or not backend.strip():
             raise ValueError(f"Provider {package.id}@{package.version}: a nonempty backend is required")
-        from src.app.core.execution_features import selected_features, provider_hook
+        from src.app.core.execution_features import selected_features
         selected_features(selected).validate(cfg, owner=f"{package.id}@{package.version}")
     elif cfg.get("agent"):
         raise ValueError(f"Unresolved selected algorithm: {cfg.get('agent')}")
@@ -133,8 +133,6 @@ def execution_backend(cfg, *, paths=None):
     explicit = cfg.get("backend") or profile.get("backend")
     if explicit and explicit != backend:
         raise ValueError(f"Selected backend {explicit!r} conflicts with component backend {backend!r}")
-    if selected:
-        provider_hook(selected, "execution_preflight", cfg, paths=paths)
     return backend, selected
 
 

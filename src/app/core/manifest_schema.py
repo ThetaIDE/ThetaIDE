@@ -7,19 +7,45 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from src.app.core.requirements import RULE_SCHEMA
+
 COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "ThetaComponentManifest",
     "description": "Manifest metadata describing an installable Theta-IDE research component or plugin.",
     "type": "object",
     "required": ["id", "name", "kind", "version", "storage_version", "api_version", "capabilities", "payload"],
+    "additionalProperties": False,
     "properties": {
+        "license": {"type": "string"},
+        "repository": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "icon": {"type": "string"},
+        "entry_point": {"type": "string"},
+        "default_enabled": {"type": "boolean"},
+        "extra": {"type": "object"},
+        "origin": {"type": "string"},
+        "parent": {"type": "object"},
+        "installed_from": {"type": ["string", "object"]},
+        "sha256": {"type": "string"},
+        # Installation records the lifecycle writes into an installed package's manifest.
+        "authoring_hash": {"type": "string"},
+        "installed_files": {"type": "array"},
+        "source_hashes": {"type": "object"},
+        "asset_hashes": {"type": "object"},
+        "target_dir": {"type": "string"},
+        "retained_edits": {"type": "array", "items": {"type": "string"}},
+        "saved_local_changes": {},
         "storage_version": {"type": "integer", "const": 3},
         "api_version": {"type": "integer", "const": 1},
         "capabilities": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "entry_point"],
+            "additionalProperties": False,
+            "if": {"properties": {"kind": {"const": "monitor"}}}, "then": {"required": ["hooks"]},
             "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"type": "string"},
                            "entry_point": {"type": "string", "minLength": 1},
                            "aliases": {"type": "array", "items": {"type": "string"}},
+                           "label": {"type": "string", "minLength": 1},
+                           "activation_plugin": {"type": "string", "minLength": 1},
                            "contribution_api": {"type": "integer", "minimum": 1},
                            "readiness": {"type": "object", "additionalProperties": False, "properties": {
                                "config": {"type": "array", "items": {"type": "string", "minLength": 1}},
@@ -40,7 +66,6 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                            "execution_features": {
                                "type": "object", "additionalProperties": False,
                                "properties": {
-                                   "input_types": {"type": "array", "items": {"type": "string", "minLength": 1}},
                                    "evaluation": {"enum": ["provider", "configured", "both"]},
                                    "resume_modes": {"type": "array", "items": {"enum": ["training", "inference"]}},
                                    "checkpoint_formats": {"type": "array", "items": {"type": "string", "minLength": 1}},
@@ -48,21 +73,33 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                                    "episode_outcomes": {"type": "boolean"},
                                    "intermediate_values": {"type": "boolean"},
                                }},
-                           "execution_preflight": {"type": "string", "pattern": r"^.+\.py:.+$"},
+                           "requires": {"type": "array", "items": RULE_SCHEMA,
+                                        "description": "Compatibility rules for each method that selects this capability."},
+                           "provides": {"type": "array", "items": {"type": "string", "minLength": 1},
+                                        "description": "Opaque contract IDs this capability satisfies."},
+                           "preflight": {"type": "string", "pattern": r"^.+\.py:.+$"},
                            "resource_hint_hook": {"type": "string", "pattern": r"^.+\.py:.+$"},
                            "resource_hints": {"type": "object", "additionalProperties": False, "properties": {
                                "base_memory_gib": {"type": "number", "exclusiveMinimum": 0},
                                "cpu": {"type": "number", "exclusiveMinimum": 0},
                                "accelerator": {"type": "boolean"}}},
-                           "role": {"enum": ["training", "symbolic_state"]},
-                           "output_contracts": {"type": "array", "items": {"type": "string", "minLength": 1}},
-                           "parameter_schema": {"type": "object"},
-                           "input_requirements": {"type": "array", "items": {
-                               "type": "object", "required": ["slot", "contract"], "properties": {
-                                   "slot": {"enum": ["data_module", "symbolic_state_loader"]},
-                                   "contract": {"type": "string", "minLength": 1},
-                                   "when": {"type": "object", "additionalProperties": {"type": "array"}}
-                               }}}}}},
+                           "resource_root": {"type": "string", "minLength": 1},
+                           "results": {"type": "object", "additionalProperties": False, "required": ["category", "patterns"],
+                               "properties": {"category": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+                                              "patterns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}},
+                               "description": "Run loggers: the results category and file patterns they write."},
+                           "hooks": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1},
+                                     "description": "Monitors: runtime hooks the runner or model must offer."},
+                           "monitoring": {"type": "object"},
+                           "monitoring_access": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                           "monitor_defaults": {"type": "object"},
+                           "parameter_schema": {"type": "object"}}}},
+        "workspace_resources": {"type": "object", "description": "Workspace resource directories the package reads: "
+                                "name -> {path: package directory with its own entries (optional), depth: entry depth}.",
+                                "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+                                "additionalProperties": {"type": "object", "additionalProperties": False, "required": ["depth"],
+                                    "properties": {"path": {"type": "string", "minLength": 1},
+                                                   "depth": {"type": "integer", "minimum": 1, "maximum": 4}}}},
         "exports": {"type": "object", "description": "Public cross-package objects: name -> 'file.py:attribute'.",
                     "propertyNames": {"pattern": r"^[A-Za-z_][A-Za-z0-9_.]*$"},
                     "additionalProperties": {"type": "string", "pattern": r"^[^:]+\.py:[A-Za-z_][A-Za-z0-9_.]*$"}},
@@ -89,7 +126,6 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                 "algorithm",
                 "objective",
                 "tuner",
-                "rules",
                 "method",
                 "agent",
                 "env",
@@ -119,10 +155,6 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
             "type": ["object", "string"],
             "description": "Author or research lab information.",
         },
-        "target_path": {
-            "type": "string",
-            "description": "Relative workspace destination directory.",
-        },
         "config_path": {
             "type": "string",
             "description": "Primary config selector, relative to the config root (e.g. model/mlp.yaml).",
@@ -151,11 +183,6 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
         "hidden": {
             "type": "boolean",
             "description": "Whether to omit this component from normal Hub discovery.",
-        },
-        "provides": {
-            "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "description": "Additional component IDs installed by this package.",
         },
         "aliases": {
             "type": "array",
@@ -225,11 +252,6 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
             "type": "string",
             "description": "ISO-8601 timestamp of package creation.",
         },
-        "paradigms": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Learning paradigms compatible with this component (e.g. ['online_rl', 'offline_rl', 'supervised']).",
-        },
         "parameter_schema": {
             "type": "object",
             "required": ["type", "properties"],
@@ -248,7 +270,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                     "description": "Per-config-path JSON Schemas for components that bundle multiple profiles.",
                 },
             },
-            "description": "JSON Schema object describing component parameters. Use properties for nested keys, enum for dropdown choices, x-theta-domain: model for installed model component choices, and x-theta-config-schemas for profile-specific schemas.",
+            "description": "JSON Schema object describing component parameters. Use properties for nested keys, enum for dropdown choices, x-theta-domain: <kind> for a picker of installed components of that kind (narrowed by x-theta-contract), x-theta-resource: <name> for entries of a declared workspace resource, and x-theta-config-schemas for profile-specific schemas.",
         },
     },
 }
@@ -257,7 +279,7 @@ SEMVER_REGEX = re.compile(r"^\d+\.\d+\.\d+.*$")
 ID_REGEX = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
 VALID_KINDS = {
     "site",
-    "algorithm", "objective", "tuner", "rules",
+    "algorithm", "objective", "tuner",
     "monitor",
     "model",
     "method",

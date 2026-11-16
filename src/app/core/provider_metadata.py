@@ -6,7 +6,7 @@ from src.app.core.provider_discovery import discovery_cached
 
 
 # Core data modules and evaluators of the base paradigms. They have no package
-# manifest and no paradigm restriction.
+# manifest and declare no compatibility rules.
 BUILTIN_SELECTORS = {
     "datamodule": (
         "RLDataModule", "SimulatorDataModule", "RLReplayBufferDataModule",
@@ -32,9 +32,7 @@ def capability_metadata(kind, name, paths):
     if selected is None:
         return {}
     package, capability = selected
-    metadata = {"id": capability.id, **capability.metadata}
-    metadata["paradigms"] = metadata.get("paradigms") or package.manifest.get("paradigms")
-    return metadata
+    return {"id": capability.id, **capability.metadata}
 
 
 @discovery_cached

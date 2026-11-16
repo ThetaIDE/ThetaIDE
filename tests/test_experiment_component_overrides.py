@@ -57,9 +57,7 @@ class Probe:
 
 
 class OnlineOnlyProbe(Probe):
-    @classmethod
-    def get_supported_paradigms(cls):
-        return ["online_rl"]
+    pass
 
 
 class Hook:
@@ -92,7 +90,9 @@ def probe_evaluators(tmp_path, monkeypatch):
     (root / ".theta_component.json").write_text(json.dumps({
         "id": "probes", "name": "Probes", "kind": "evaluator", "version": "1.0.0",
         "storage_version": 3, "api_version": 1,
-        "capabilities": [{"id": key, "kind": "evaluator", "entry_point": f"probes.py:{name}"}
+        "capabilities": [{"id": key, "kind": "evaluator", "entry_point": f"probes.py:{name}",
+                          **({"requires": [{"level": "block", "config": "paradigm", "in": ["online_rl"]}]}
+                             if key == "online_only_probe" else {})}
                          for key, name in capabilities.items()],
         "payload": {"implementations": ["probes.py"], "resources": [], "configs": {}},
         "dependencies": {"components": [], "pip": []}}))
@@ -117,10 +117,12 @@ def test_declared_evaluator_receives_recipe_parameters(probe_evaluators):
     with pytest.raises(ValueError, match="not registered"):
         configured_evaluator_callbacks(OmegaConf.create({"evaluator": "missing_probe"}))
 
-    with pytest.raises(ValueError, match="does not support paradigm"):
-        configured_evaluator_callbacks(OmegaConf.create({
-            "paradigm": "supervised", "evaluator": {"name": "online_only_probe", "params": {"threshold": 0.8}}
-        }))
+    # The evaluator's own requirements, not its class, decide where it may run.
+    from src.app.core.requirements import compatibility
+    selected = {"evaluator": {"name": "online_only_probe", "params": {"threshold": 0.8}}}
+    findings = compatibility({"paradigm": "supervised", **selected})
+    assert [(f.level, f.capability) for f in findings] == [("block", "evaluator:online_only_probe")]
+    assert compatibility({"paradigm": "online_rl", **selected}) == []
 
     assert configured_evaluator_callbacks(OmegaConf.create({
         "evaluator": {"name": "component_override_probe", "params": {"enabled": False, "threshold": 0.8}}
@@ -199,19 +201,20 @@ def test_panel_filters_components_by_declared_paradigm(qapp, tmp_path):
     from frontend.config_model import ConfigTree
     from frontend.config_viewer import ConfigViewer
 
+    import json
+    from src.app.workspace import WorkspacePaths
     root = tmp_path / "src/usr/config"
-    (root / "paradigms").mkdir(parents=True)
-    (root / "paradigms" / "unsupervised.yaml").write_text(
-        "environment_source: static_dataset\nmethod: {algorithm: forbidden, model: required}\n",
-        encoding="utf-8",
-    )
-    (root / "data").mkdir()
-    (root / "data" / "table.yaml").write_text(
-        "data_module: fixture_table\ncompatible_paradigms: [unsupervised]\n", encoding="utf-8"
-    )
-    (root / "data" / "simulator.yaml").write_text(
-        "data_module: fixture_simulator\ncompatible_paradigms: [online_rl]\n", encoding="utf-8"
-    )
+    root.mkdir(parents=True)
+    package = WorkspacePaths(tmp_path).user("package") / "fixture-data"
+    package.mkdir(parents=True)
+    (package / "loaders.py").write_text("class Loader: pass\n")
+    (package / ".theta_component.json").write_text(json.dumps({
+        "id": "fixture-data", "name": "Fixture data", "kind": "datamodule", "version": "1.0.0",
+        "storage_version": 3, "api_version": 1,
+        "capabilities": [{"id": name, "kind": "datamodule", "entry_point": "loaders.py:Loader",
+                          "requires": [{"level": "block", "config": "paradigm", "in": [paradigm]}]}
+                         for name, paradigm in (("fixture_table", "unsupervised"), ("fixture_simulator", "online_rl"))],
+        "payload": {"implementations": ["loaders.py"], "resources": [], "configs": {}}}))
     viewer = ConfigViewer()
     viewer.raw_data["paradigm"] = "unsupervised"
     with patch("frontend.config_viewer.config_tree", return_value=ConfigTree(root)):

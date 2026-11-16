@@ -4,7 +4,7 @@
       metrics: [eval/reward, losses/]    # a name, or a section ending in "/" for all of its metrics
 
 Unset (or empty): every metric is recorded, as before. Set: only the listed ones reach metrics.csv, the
-live stream and TensorBoard, and work that only exists to produce unlisted metrics is skipped (see
+live stream and run loggers, and work that only exists to produce unlisted metrics is skipped (see
 `keeps_section`): no evaluation episodes without an eval/ metric, no system sampling without a system/
 one. Counters the plots need as an x-axis are always recorded.
 

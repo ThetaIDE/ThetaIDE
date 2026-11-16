@@ -12,10 +12,3 @@ eval_protocol: ClassificationEvalProtocol
 default_callbacks:
   - EarlyStoppingCallback
   - BestCheckpointCallback
-constraints:
-  requires:
-    methods: non_empty
-  forbids:
-    eval_episodes: non_zero
-
-allowed_agents: []

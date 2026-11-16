@@ -186,7 +186,7 @@ def test_selected_components_are_intersected_with_actual_runner_hooks(tmp_path):
         {"name": "interp/", "requires": ["activations.v1"]}]}})
     tuner = package("tuner", "tuner", {"monitoring": {"provides": [{"name": "tuning/score"}]}})
     unrelated = package("unrelated", "model", {"monitoring": {"provides": [{"name": "unrelated/"}]}})
-    standalone = package("standalone", "monitor", {"requires": ["scalars.v1"],
+    standalone = package("standalone", "monitor", {"hooks": ["scalars.v1"],
         "monitoring": {"provides": [{"name": "standalone/score"}]}})
     catalog.packages = [runner, model, tuner, unrelated, standalone]
     script = str(runner.root / "component.py")

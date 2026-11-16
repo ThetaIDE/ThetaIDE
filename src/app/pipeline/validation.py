@@ -34,6 +34,37 @@ from src.app.telemetry.selection import selection_errors
 from src.app.workspace import WorkspacePaths
 
 
+# A paradigm describes only itself: the component kinds its methods consist of,
+# where its environment comes from, its runner, budget and evaluation protocol.
+PARADIGM_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["type", "environment_source", "method", "training", "runner"],
+    "properties": {
+        "type": {"enum": ["base", "meta"]},
+        "description": {"type": "string"},
+        "environment_source": {"enum": ["live_environment", "static_dataset"]},
+        "method": {"type": "object", "additionalProperties": False, "required": ["algorithm", "model"],
+                   "properties": {"algorithm": {"enum": ["required", "optional", "forbidden"]},
+                                  "model": {"enum": ["required", "optional", "forbidden"]}}},
+        "training": {"type": "object", "additionalProperties": False, "required": ["budget"],
+                     "properties": {"budget": {"type": "string", "minLength": 1}}},
+        "runner": {"type": "string", "minLength": 1},
+        "default_data_module": {"type": "string", "minLength": 1},
+        "eval_protocol": {"type": "string", "minLength": 1},
+        "allows_eval_episodes": {"type": "boolean"},
+        "default_callbacks": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "monitor_metric": {"type": "string", "minLength": 1},
+    },
+}
+
+
+def paradigm_errors(definition) -> list[str]:
+    import jsonschema
+    validator = jsonschema.Draft202012Validator(PARADIGM_SCHEMA)
+    return [(".".join(str(p) for p in error.absolute_path) + ": " if error.absolute_path else "") + error.message
+            for error in validator.iter_errors(definition)]
+
+
 def _load_all_paradigms(*, paths=None) -> dict[str, dict]:
     """Load every effective ``paradigms/<name>.yaml`` profile.
 
@@ -66,6 +97,8 @@ def load_paradigm(paradigm_name: str, *, paths=None) -> dict:
             f"Available paradigms: {sorted(paradigms.keys())}. "
             f"To add a new paradigm create src/usr/config/paradigms/<name>.yaml."
         )
+    if errors := paradigm_errors(paradigms[paradigm_name]):
+        raise ConfigurationError(f"[ConfigurationError] Invalid paradigm '{paradigm_name}': " + "; ".join(errors))
     return paradigms[paradigm_name]
 
 
@@ -101,11 +134,7 @@ def paradigm_uses_static_dataset(paradigm_name: str | None, *, paths=None) -> bo
         defn = load_paradigm(paradigm_name or "", paths=paths)
     except ConfigurationError:
         return False
-    declared = defn.get("environment_source")
-    if isinstance(declared, str) and declared:
-        return declared == "static_dataset"
-    data_module = defn.get("data_module") or defn.get("default_data_module")
-    return bool(data_module and data_module != "SimulatorDataModule")
+    return defn["environment_source"] == "static_dataset"
 
 
 def paradigm_uses_live_environment(paradigm_name: str | None, *, paths=None) -> bool:
@@ -114,87 +143,12 @@ def paradigm_uses_live_environment(paradigm_name: str | None, *, paths=None) -> 
         defn = load_paradigm(paradigm_name or "", paths=paths)
     except ConfigurationError:
         return True
-    declared = defn.get("environment_source")
-    if isinstance(declared, str) and declared:
-        return declared == "live_environment"
-    return not paradigm_uses_static_dataset(paradigm_name, paths=paths)
+    return defn["environment_source"] == "live_environment"
 
 
 def _algorithm_requirement(paradigm_def: dict[str, Any]) -> str:
     """Return the paradigm's declared method.algorithm contract."""
-    method = paradigm_def.get("method")
-    declared = method.get("algorithm") if isinstance(method, dict) else None
-    if isinstance(declared, str) and declared in ("required", "optional", "forbidden"):
-        return declared
-    raise ConfigurationError(
-        "Paradigm manifests must declare method.algorithm as 'required', 'optional' or 'forbidden'.")
-
-
-# ---------------------------------------------------------------------------
-# Constraint checking helpers
-# ---------------------------------------------------------------------------
-
-
-def _deep_get(cfg: Any, dotted_key: str, default=None):
-    """Resolve a dotted key path against a Hydra cfg or plain dict.
-
-    E.g. _deep_get(cfg, 'env.name') returns cfg.env.name.
-    """
-    parts = dotted_key.split(".")
-    obj = cfg
-    for part in parts:
-        if obj is None:
-            return default
-        if isinstance(obj, dict):
-            obj = obj.get(part)
-        else:
-            # OmegaConf / MagicMock — use getattr then .get
-            try:
-                obj = getattr(obj, part)
-            except AttributeError:
-                try:
-                    obj = obj.get(part)
-                except Exception:
-                    return default
-    return obj if obj is not None else default
-
-
-_CONSTRAINT_CHECKERS = {
-    "non_empty": lambda v: bool(v),
-    "non_zero": lambda v: bool(v) and v != 0,
-    "true": lambda v: v is True,
-    "false": lambda v: v is False,
-    True: lambda v: v is True,
-    False: lambda v: v is False,
-}
-
-
-def _check_paradigm_constraints(cfg: Any, paradigm_name: str, constraints: dict, env_name: str) -> None:
-    """Apply requires/forbids rules from the paradigm definition.
-
-    Raises ConfigurationError on any violation.
-    """
-    for key, rule in (constraints.get("requires") or {}).items():
-        if rule not in _CONSTRAINT_CHECKERS:
-            continue  # unknown rule type, skip silently
-        val = _deep_get(cfg, key)
-        if not _CONSTRAINT_CHECKERS[rule](val):
-            raise ConfigurationError(
-                f"[ConfigurationError] Paradigm '{paradigm_name}' requires '{key}' "
-                f"to satisfy rule '{rule}', but got {val!r} "
-                f"(env: '{env_name}')."
-            )
-
-    for key, rule in (constraints.get("forbids") or {}).items():
-        if rule not in _CONSTRAINT_CHECKERS:
-            continue
-        val = _deep_get(cfg, key)
-        if _CONSTRAINT_CHECKERS[rule](val):
-            raise ConfigurationError(
-                f"[ConfigurationError] Paradigm '{paradigm_name}' forbids '{key}' "
-                f"from satisfying rule '{rule}', but got {val!r} "
-                f"(env: '{env_name}')."
-            )
+    return paradigm_def["method"]["algorithm"]
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +212,8 @@ def validate_experiment_config(
         execution_backend(effective, paths=paths)
 
     paradigm_def = load_paradigm(paradigm_name, paths=paths)  # raises ConfigurationError if unknown
-    constraints = paradigm_def.get("constraints", {})
+    if not parse_methods_dict(cfg, paths=paths):
+        raise ConfigurationError(f"[ConfigurationError] Experiment '{experiment_name}' declares no enabled methods.")
 
     # --- eval_episodes: check raw YAML for explicit override ---
     allows_eval_episodes = paradigm_def.get("allows_eval_episodes", False)
@@ -272,9 +227,6 @@ def validate_experiment_config(
                 f"simulated gym rollouts — policy actions cannot alter historical trajectories. "
                 f"Remove 'eval_episodes' from the experiment config."
             )
-
-    # --- Apply paradigm constraints ---
-    _check_paradigm_constraints(cfg, paradigm_name, constraints, env_name)
 
     # --- Periodic checkpoints: checkpoint_every_steps or num_checkpoints ---
     for problem in checkpoint_errors(cfg):
@@ -307,11 +259,13 @@ def validate_experiment_config(
     _validate_methods_for_paradigm(cfg, paradigm_name, paradigm_def, paths=paths)
 
     from src.app.core.data_loaders import data_loader_errors
-    paths = workspace or (WorkspacePaths.from_config_root(config_dir) if config_dir else WorkspacePaths.for_process())
-    for method_name, method in (parse_methods_dict(cfg, paths=paths) or {"training": None}).items():
+    for method_name, method in parse_methods_dict(cfg, paths=paths).items():
         errors = data_loader_errors(cfg, method, paths=paths)
         if errors:
             raise ConfigurationError(f"Method '{method_name}': " + " ".join(errors))
+
+    # --- Compatibility: what the selected components declare they need ---
+    notices.extend(compatibility_notices(cfg, paths=paths))
 
     # External files are not installable components. Report dataset errors before
     # the component inventory can turn them into misleading Hub guidance.
@@ -414,9 +368,7 @@ def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: d
     if not methods:
         return
 
-    allowed_agents = paradigm_def.get("allowed_agents", None)
     algorithm_requirement = _algorithm_requirement(paradigm_def)
-    forbidden_agents = paradigm_def.get("forbidden_agents", [])
 
     for method_name, method_cfg in methods.items():
         ag = method_cfg.get("agent")
@@ -452,61 +404,24 @@ def _validate_methods_for_paradigm(cfg: Any, paradigm_name: str, paradigm_def: d
                     f"but method '{method_name}' declared 'agent: {agent_algo}'."
                 )
 
-        # Forbidden agents check
-        if forbidden_agents and agent_algo:
-            clean_algo = agent_algo.lower().replace("-", "_")
-            if any(
-                clean_algo == f.lower()
-                or clean_algo.startswith(f.lower() + "_")
-                or clean_algo.startswith(f.lower() + "/")
-                or clean_algo.endswith("/" + f.lower())
-                for f in forbidden_agents
-            ):
-                raise ConfigurationError(
-                    f"[ConfigurationError] Method '{method_name}' uses agent '{agent_algo}', "
-                    f"which is forbidden in paradigm '{paradigm_name}'. Forbidden agents: {forbidden_agents}."
-                )
-
         if algorithm_requirement == "required" and not agent_algo:
-            allowed_str = f" (allowed: {allowed_agents})" if allowed_agents else ""
             raise ConfigurationError(
-                f"[ConfigurationError] Paradigm '{paradigm_name}' requires an agent harness{allowed_str}, "
+                f"[ConfigurationError] Paradigm '{paradigm_name}' requires an agent harness, "
                 f"but method '{method_name}' has no 'agent' declared."
             )
 
-        if agent_algo:
-            # 1. Query agent-declared supported paradigms
-            agent_paradigms = _get_agent_supported_paradigms(agent_algo, paths=paths)
-            if agent_paradigms is not None:
-                if paradigm_name.lower() not in agent_paradigms:
-                    raise ConfigurationError(
-                        f"[ConfigurationError] Method '{method_name}' uses agent '{agent_algo}', "
-                        f"which is not allowed in paradigm '{paradigm_name}'."
-                    )
-            elif allowed_agents:
-                # 2. Fallback to paradigm allowed_agents if defined
-                clean_algo = agent_algo.lower().replace("-", "_")
-                in_allowed = any(
-                    clean_algo == a.lower()
-                    or clean_algo.startswith(a.lower() + "_")
-                    or clean_algo.startswith(a.lower() + "/")
-                    or clean_algo.endswith("/" + a.lower())
-                    for a in allowed_agents
-                )
-                if not in_allowed:
-                    raise ConfigurationError(
-                        f"[ConfigurationError] Method '{method_name}' uses agent '{agent_algo}', "
-                        f"which is not allowed in paradigm '{paradigm_name}'. Allowed agents: {allowed_agents}."
-                    )
 
-
-def _get_agent_supported_paradigms(agent_algo: str, *, paths=None) -> list[str] | None:
-    from src.app.core.provider_catalog import get_catalog
-    selected = get_catalog(paths).resolve("algorithm", agent_algo)
-    if selected is None: return None
-    package, cap = selected
-    paradigms = cap.metadata.get("paradigms", package.manifest.get("paradigms"))
-    return [str(p).lower() for p in paradigms] if paradigms else None
+def compatibility_notices(cfg: Any, *, paths=None) -> list[str]:
+    """Raise on ``block`` findings; return ``warn`` findings as notices (also printed)."""
+    from src.app.core.requirements import compatibility
+    findings = compatibility(cfg, paths=paths)
+    blocked = [str(f) for f in findings if f.level == "block"]
+    if blocked:
+        raise ConfigurationError("[ConfigurationError] Incompatible selection: " + " ".join(blocked))
+    warnings = [f"Compatibility warning: {f}" for f in findings if f.level == "warn"]
+    for warning in warnings:
+        print(warning)
+    return warnings
 
 
 def _provider_exists(kind, selector, *, paths=None):
