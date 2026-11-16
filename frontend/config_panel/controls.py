@@ -1073,3 +1073,37 @@ class MethodCardsContainer(QWidget):
                 g = card.geometry()
                 painter.drawLine(g.right() + 4, g.top() + 4, g.right() + 4, g.bottom() - 4)
             painter.end()
+
+
+COMPATIBILITY_LEVEL_ROLE = Qt.ItemDataRole.UserRole + 41
+
+
+def mark_candidates(combo, findings_for) -> None:
+    """Mark picker candidates with compatibility findings; the item tooltip gives the messages.
+
+    Pickers omit candidates their requirements block before this runs, so a blocked
+    item here is the current selection, which stays visible until it is changed.
+    """
+    for index in range(combo.count()):
+        name = combo.itemData(index) if combo.itemData(index) is not None else combo.itemText(index)
+        findings = findings_for(name) if name else []
+        if not findings:
+            continue
+        level = "block" if any(f.level == "block" for f in findings) else "warn"
+        role = "number" if level == "block" else "accent"
+        combo.setItemIcon(index, svg_icon("warning", {(QIcon.Mode.Normal, QIcon.State.Off): role}))
+        combo.setItemData(index, "\n".join(f.message for f in findings), Qt.ItemDataRole.ToolTipRole)
+        combo.setItemData(index, level, COMPATIBILITY_LEVEL_ROLE)
+
+
+def compatibility_status(findings) -> list:
+    """Inline status lines for the findings of a current selection."""
+    lines = []
+    for finding in findings:
+        prefix = "Incompatible" if finding.level == "block" else "Off-label"
+        line = label(f"{prefix}: {finding.message}", "muted", wrap=True)
+        line.setObjectName("compatibilityStatus")
+        line.setProperty("compatibilityLevel", finding.level)
+        line.setToolTip(finding.capability)
+        lines.append(line)
+    return lines

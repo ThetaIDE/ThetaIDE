@@ -71,46 +71,29 @@ def test_experiments_exclude_base_templates(tree):
 
 
 # ----------------------------------------------------------- agent rules
+# Algorithms declare where they may run; paradigms list no components.
 
 
-def test_online_rl_permits_online_algorithms(tree):
-    paradigm = Paradigm("online_rl", "", ("ppo", "sac"), (), raw={"allowed_agents": ["ppo", "sac"]})
-    assert paradigm.permits_agent(Agent("sb3/ppo", "PPO"))
-    assert paradigm.permits_agent(Agent("sb3/sac", "SAC"))
-    assert not paradigm.permits_agent(Agent("d3rlpy/cql", "CQL"))
+def test_algorithm_requirements_decide_which_paradigms_offer_it(tree):
+    online = {a.name for a in tree.agents_for("online_rl")}
+    offline = {a.name for a in tree.agents_for("offline_rl")}
+    assert "sb3-dev/ppo" in online and "sb3-dev/ppo" not in offline
+    assert "d3rlpy-dev/cql" in offline and "d3rlpy-dev/cql" not in online
 
 
-def test_offline_rl_permits_offline_algorithms(tree):
-    paradigm = Paradigm("offline_rl", "", ("cql", "iql"), (), raw={"allowed_agents": ["cql", "iql"]})
-    assert paradigm.permits_agent(Agent("d3rlpy/cql", "CQL"))
-    assert paradigm.permits_agent(Agent("d3rlpy/iql", "IQL"))
-    assert not paradigm.permits_agent(Agent("sb3/ppo", "PPO"))
+def test_a_draft_that_breaks_an_algorithm_rule_hides_it_and_explains_why(tree):
+    assert "sb3-dev/ppo" not in {a.name for a in tree.agents_for("online_rl", {"dataset_path": "x.npz"})}
+    findings = tree.candidate_findings("agent", "sb3-dev/ppo", {"paradigm": "online_rl", "dataset_path": "x.npz"})
+    assert [f.level for f in findings] == ["block"] and "dataset_path" in findings[0].message
 
 
-def test_offline_rl_rejects_ppo(tree):
-    offline = Paradigm("offline_rl", "", (), ("ppo",), raw={"forbidden_agents": ["ppo"]})
-    assert not offline.permits_agent(Agent("sb3/ppo", "PPO"))
-
-
-def test_online_rl_rejects_offline_algorithms(tree):
-    online = Paradigm("online_rl", "", (), ("cql", "iql"), raw={"forbidden_agents": ["cql", "iql"]})
-    assert not online.permits_agent(Agent("d3rlpy/cql", "CQL"))
-    assert not online.permits_agent(Agent("d3rlpy/iql", "IQL"))
-
-
-def test_supervised_has_no_declared_agents(tree):
-    """Documents a real gap: supervised declares an empty allow-list."""
+def test_supervised_offers_no_rl_algorithm(tree):
     assert tree.agents_for("supervised") == []
 
 
-def test_permits_agent_accepts_agent_object(tree):
-    online = Paradigm("online_rl", "", ("ppo",), (), raw={"allowed_agents": ["ppo"]})
-    assert online.permits_agent(Agent("sb3/ppo", "PPO"))
-
-
-def test_agent_allow_and_forbid_lists_are_disjoint(tree):
+def test_paradigms_describe_only_themselves(tree):
     for paradigm in tree.paradigms.values():
-        assert not set(paradigm.allowed_agents) & set(paradigm.forbidden_agents)
+        assert not {"allowed_agents", "forbidden_agents", "constraints"} & set(paradigm.raw)
 
 
 # ------------------------------------------------------- environment rules
@@ -156,10 +139,11 @@ def test_nested_environment_is_available(tree):
     assert first in tree.environments
 
 
-def test_paradigm_without_env_constraint_permits_everything():
-    paradigm = Paradigm(name="anything", description="", allowed_agents=(), forbidden_agents=())
+def test_paradigm_permits_environments_of_its_source_or_undeclared():
+    paradigm = Paradigm(name="anything", description="", raw={"environment_source": "live_environment"})
     assert paradigm.permits_environment(Environment(name="x"))
-    assert paradigm.permits_environment(Environment(name="y"))
+    assert paradigm.permits_environment(Environment(name="y", raw={"env_id": "CartPole-v1"}))
+    assert not paradigm.permits_environment(Environment(name="z", raw={"dataset_path": "d.npz"}))
 
 
 # ---------------------------------------------------------- field enabling
@@ -345,5 +329,5 @@ def test_model_component_domain_parameters_are_schema_declared(tree):
         }
         for model_name, model in tree.models.items()
     }
-    assert domains["blendrl-dev"] == {"neural", "symbolic"}
+    assert domains["blendrl-dev"] == {"neural", "symbolic", "blender_model", "symbolic_state"}
     assert domains["dnn"] == set()

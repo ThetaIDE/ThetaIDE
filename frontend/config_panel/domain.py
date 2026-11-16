@@ -272,10 +272,9 @@ def _component_name(value: Any) -> str:
 def _component_default_params(self, kind: str, name: str) -> dict:
     profile = self._component_choices(kind).get(name, {})
     reserved = {
-        "data_module": {"name", "class", "type", "data_module", "role", "compatible_paradigms"},
-        "symbolic_state_loader": {"name", "class", "type", "data_module", "role", "compatible_paradigms"},
-        "evaluator": {"name", "class", "type", "evaluator", "compatible_paradigms"},
-    }.get(kind, {"name", "class", "type", "plotter", "compatible_paradigms"})
+        "data_module": {"name", "class", "type", "data_module"},
+        "evaluator": {"name", "class", "type", "evaluator"},
+    }.get(kind, {"name", "class", "type", "plotter"})
     return {key: copy.deepcopy(value) for key, value in profile.items() if key not in reserved}
 
 
@@ -675,10 +674,10 @@ def _parameter_context_config(self):
 
 def _component_parameter_schema(self, path: tuple[str, ...]) -> dict[str, Any]:
     """Look up the active component's declared schema node for a YAML path."""
-    from src.app.core.data_loaders import LOADER_SLOTS, loader_metadata, loader_selection
+    from src.app.core.data_loaders import SLOT, loader_metadata, loader_selection
 
     prefix = 3 if path[:1] == ("methods",) and len(path) > 2 else 1
-    if len(path) > prefix and path[prefix - 1] in LOADER_SLOTS and path[prefix] == "params":
+    if len(path) > prefix and path[prefix - 1] == SLOT and path[prefix] == "params":
         from src.app.pipeline.config import deep_merge, parse_methods_dict
 
         context = deep_merge(self._get_resolved_defaults(), self.raw_data)
@@ -1733,3 +1732,9 @@ def _drop_empty_methods(self):
         methods.pop("params", None)
     if not methods:
         self.raw_data.pop("methods", None)
+
+
+def _compatibility_draft(self) -> dict:
+    """The experiment as composed so far: inherited defaults with this document's values over them."""
+    from src.app.pipeline.config import deep_merge
+    return deep_merge(self._get_resolved_defaults(), self.raw_data)

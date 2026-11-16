@@ -50,7 +50,7 @@ def _render_remaining_sections(self):
         k: v
         for k, v in self.raw_data.items()
         if k not in FIXED_BOX_KEYS
-        and k not in ("data_module", "symbolic_state_loader", "evaluator", "plots", "plot_overrides")
+        and k not in ("data_module", "evaluator", "plots", "plot_overrides")
     }
     if isinstance(self.raw_data.get("tuning"), dict):
         # The sweep has its own card; don't render it again as a generic section.

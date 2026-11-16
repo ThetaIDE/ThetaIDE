@@ -524,7 +524,7 @@ class ToggleSlider(QAbstractButton):
 
 
 class TagCloudWidget(QWidget):
-    """Interactive tag cloud / chip editor for lists of strings (e.g. compatible_paradigms)."""
+    """Interactive tag cloud / chip editor for lists of strings."""
     tagsChanged = pyqtSignal(list)
 
     def __init__(self, tags: list[str] | None = None, available_options: list[str] | None = None, parent=None):

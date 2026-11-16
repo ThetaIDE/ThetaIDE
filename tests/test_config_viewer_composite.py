@@ -513,7 +513,7 @@ def test_model_component_parameter_domains(tmp_path):
     from frontend.config_model import Model
 
     assert COMPOSITE in config_tree().models
-    assert model_domains(COMPOSITE) == {"neural", "symbolic", "blender_model"}
+    assert model_domains(COMPOSITE) == {"neural", "symbolic", "blender_model", "symbolic_state"}
     assert model_domains("basics/dnn") == set()
 
     # Child model choices are declared by the model component's parameter schema.

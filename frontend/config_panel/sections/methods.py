@@ -28,6 +28,8 @@ from ..controls import (
     _parameter_row,
     _parameter_title,
     _reveal_remove_on_row_hover,
+    compatibility_status,
+    mark_candidates,
 )
 from ..editors import number_field
 
@@ -35,6 +37,8 @@ from ..editors import number_field
 def build(self, data, resolved, tree, paradigm, is_base):
     # --- BOX 2 / 3: METHODS & AGENT ARCHITECTURES ---
     methods_dict = data.get("methods", {})
+    # Pickers and status lines judge candidates against the experiment composed so far.
+    draft = self._compatibility_draft()
     box_methods = ConfigBox("Methods", "Configured agents, policies, and hyperparameter overrides")
     box_methods.setProperty("specialParameterLayout", True)
     m_layout = QVBoxLayout()
@@ -275,7 +279,7 @@ def build(self, data, resolved, tree, paradigm, is_base):
             if not paradigm_has_agents and not agent_val:
                 pass
             elif tree and tree.paradigms.get(paradigm):
-                permitted = [a.name for a in tree.agents_for(paradigm)]
+                permitted = [a.name for a in tree.agents_for(paradigm, draft, m_spec)]
                 txt_agent = ComboBox()
                 txt_agent.setMaximumWidth(TEXT_FIELD_WIDTH)
                 txt_agent.setPlaceholderText("Select algorithm...")
@@ -295,17 +299,13 @@ def build(self, data, resolved, tree, paradigm, is_base):
                             txt_agent.setToolTip(
                                 f"Missing component: No agent profile '{agent_val}' is available. Install its package via Component Hub."
                             )
-                        else:
-                            txt_agent.setToolTip(
-                                f"'{agent_val}' is not permitted by {paradigm} "
-                                f"(allowed: {', '.join(permitted) or 'none declared'})"
-                            )
                     else:
-                        txt_agent.setToolTip(f"Agents permitted by {paradigm}")
+                        txt_agent.setToolTip("Algorithms whose requirements allow this experiment")
                     txt_agent.setCurrentText(agent_val)
                 else:
                     txt_agent.setCurrentIndex(-1)
-                    txt_agent.setToolTip(f"Select an agent permitted by {paradigm}")
+                    txt_agent.setToolTip("Select an algorithm whose requirements allow this experiment")
+                mark_candidates(txt_agent, lambda name, ms=m_spec: tree.candidate_findings("agent", name, draft, ms))
 
                 def _on_agent_changed(v, mn=m_name, cur_ag=agent_val):
                     if self._block_updates or v == cur_ag:
@@ -459,7 +459,7 @@ def build(self, data, resolved, tree, paradigm, is_base):
                 txt_model = ComboBox()
                 txt_model.setMaximumWidth(TEXT_FIELD_WIDTH)
                 txt_model.setPlaceholderText("Select model...")
-                known = tree.model_names
+                known = sorted(m.name for m in tree.models_for(paradigm, draft, m_spec))
                 txt_model.addItems(known)
                 if model_name:
                     if model_name not in known:
@@ -483,6 +483,7 @@ def build(self, data, resolved, tree, paradigm, is_base):
                     else:
                         txt_model.setToolTip("Model profiles from the workspace and installed packages")
                     txt_model.setCurrentText(model_name)
+                mark_candidates(txt_model, lambda name, ms=m_spec: tree.candidate_findings("model", name, draft, ms))
 
                 def _on_model_changed(v, mn=m_name, cur_mn=model_name):
                     if self._block_updates or v == cur_mn:
@@ -599,7 +600,6 @@ def build(self, data, resolved, tree, paradigm, is_base):
                 "batch_size",
                 "gamma",
                 "data_module",
-                "symbolic_state_loader",
             }
             consumed_keys.update(agent_keys_present)
             consumed_keys.update(model_keys_present)
@@ -635,6 +635,16 @@ def build(self, data, resolved, tree, paradigm, is_base):
                     _reveal_remove_on_row_hover(row_extra, btn_del)
                     self._add_sweep_toggle(row_extra, m_name, f"agent.{extra_k}", extra_v)
                     train_rows.append((str(extra_k), row_extra))
+
+            if tree is not None:
+                from src.app.core.requirements import method_findings
+                try:
+                    findings = method_findings(draft, m_name, m_spec, paths=tree.workspace, preflight=False)
+                except ValueError as exc:
+                    findings = []
+                    sc_layout.add_parameter(("methods", m_name, "compatibility", "error"), None, label(str(exc), "muted", wrap=True))
+                for index, line in enumerate(compatibility_status(findings)):
+                    sc_layout.add_parameter(("methods", m_name, "compatibility", str(index)), None, line)
 
             if train_rows:
                 for t_lbl, t_row in train_rows:
@@ -685,7 +695,7 @@ def build(self, data, resolved, tree, paradigm, is_base):
 
             # Agent Algorithm row
             if tree and tree.paradigms.get(paradigm):
-                p_permitted = [a.name for a in tree.agents_for(paradigm)]
+                p_permitted = [a.name for a in tree.agents_for(paradigm, draft, self._pending_new_method_spec)]
                 p_rules = tree.paradigms[paradigm]
                 if p_permitted:
                     p_txt_agent = ComboBox()
@@ -728,7 +738,7 @@ def build(self, data, resolved, tree, paradigm, is_base):
                 p_txt_model.setEditable(True)
                 p_txt_model.setMaximumWidth(TEXT_FIELD_WIDTH)
                 p_txt_model.setPlaceholderText("Select or enter model...")
-                p_txt_model.addItems(tree.model_names)
+                p_txt_model.addItems(sorted(m.name for m in tree.models_for(paradigm, draft, self._pending_new_method_spec)))
                 init_model = self._pending_new_method_spec.get("model")
                 if init_model:
                     p_txt_model.setCurrentText(str(init_model))

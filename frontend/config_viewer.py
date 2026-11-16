@@ -872,6 +872,10 @@ class ConfigViewer(QWidget):
         from .config_panel.domain import _get_resolved_defaults
         return _get_resolved_defaults(self)
 
+    def _compatibility_draft(self) -> dict:
+        from .config_panel.domain import _compatibility_draft
+        return _compatibility_draft(self)
+
     def _group_name(self):
         from .config_panel.domain import _group_name
         return _group_name(self)
@@ -1056,35 +1060,30 @@ class ConfigViewer(QWidget):
     def _component_choices_for(self, kind, paradigm, paths, config_root):
         from src.app.core.provider_metadata import capability_metadata, selector_metadata
         from src.app.core.provider_catalog import DuplicateProvider
-        if kind == "symbolic_state_loader":
-            from src.app.core.data_loaders import state_loader_choices
-            profiles = state_loader_choices(paths=paths)
-            capability_kind, selector = "datamodule", "data_module"
-        else:
-            directory, selector, capability_kind = {
-                "data_module": ("data", "data_module", "datamodule"),
-                "evaluator": ("eval", "evaluator", "evaluator"),
-                "plots": ("plot", "plotter", "plotter"),
-            }[kind]
-            profiles = {}
-            for root in dict.fromkeys((config_root, *paths.config_roots())):
-                for name, values in _component_profiles(root, directory, selector, workspace=paths).items():
-                    profiles.setdefault(name, values)
-            for name in selector_metadata(capability_kind, paths):
-                profiles.setdefault(name, {})
+        from src.app.core.requirements import candidate_findings
+        directory, selector, capability_kind = {
+            "data_module": ("data", "data_module", "datamodule"),
+            "evaluator": ("eval", "evaluator", "evaluator"),
+            "plots": ("plot", "plotter", "plotter"),
+        }[kind]
+        profiles = {}
+        for root in dict.fromkeys((config_root, *paths.config_roots())):
+            for name, values in _component_profiles(root, directory, selector, workspace=paths).items():
+                profiles.setdefault(name, values)
+        for name in selector_metadata(capability_kind, paths):
+            profiles.setdefault(name, {})
         allowed = {}
+        draft = {"paradigm": paradigm} if paradigm else {}
         for name, values in profiles.items():
             try:
-                metadata = capability_metadata(capability_kind, str(values.get(selector) or values.get("name") or name), paths)
+                capability_metadata(capability_kind, str(values.get(selector) or values.get("name") or name), paths)
             except DuplicateProvider:
                 continue
-            if kind in ("data_module", "symbolic_state_loader"):
-                role = values.get("role", metadata.get("role", "training"))
-                if role != ("training" if kind == "data_module" else "symbolic_state"):
-                    continue
-            supported = values.get("compatible_paradigms") or metadata.get("paradigms")
-            if not paradigm or not supported or paradigm in supported:
-                allowed[name] = values
+            # A data module's own requirements decide where it may be selected.
+            if kind == "data_module" and any(f.level == "block" for f in
+                                             candidate_findings(draft, {}, "data_module", name, paths=paths)):
+                continue
+            allowed[name] = values
         return allowed
 
     @staticmethod
@@ -1375,18 +1374,18 @@ class ConfigViewer(QWidget):
         from .config_panel.editors import value_editor
         return value_editor(value, {}, write)
 
-    def _ruleset_domain_choices(self):
-        """Browse the complete runtime catalog, independent of the simulator."""
+    def _resource_widget(self, name, value, write):
+        """Picker of a declared workspace resource's entries; an unavailable value stays visible."""
         tree = self.tree
-        if tree is None:
-            return []
-        return tree.ruleset_names()
-
-    def _ruleset_widget(self, value, write):
         combo = HierarchicalComboBox()
         combo.setMaximumWidth(TEXT_FIELD_WIDTH)
         combo.addItem("", None)
-        for choice in self._ruleset_domain_choices():
+        try:
+            choices = tree.resource_entries(name) if tree is not None else []
+        except ValueError as exc:
+            choices = []
+            combo.setProperty("resourceError", str(exc))
+        for choice in choices:
             combo.addItem(choice, choice)
         index = combo.findData(value)
         if index < 0 and value is not None:
@@ -1395,8 +1394,9 @@ class ConfigViewer(QWidget):
             index = 1
         combo.setCurrentIndex(max(0, index))
         combo.currentIndexChanged.connect(lambda i: write(combo.itemData(i)))
-        combo.currentTextChanged.connect(combo.setToolTip)
-        combo.setToolTip(combo.currentText())
+        error = combo.property("resourceError")
+        combo.currentTextChanged.connect(lambda text: combo.setToolTip(error or text))
+        combo.setToolTip(error or combo.currentText())
         return combo
 
     def _parameter_context_config(self):
@@ -1427,7 +1427,7 @@ class ConfigViewer(QWidget):
             button.setProperty("parameterPath", ".".join(action_path))
             row.insertWidget(row.count() - 1, button)
             _reveal_remove_on_row_hover(row, button, reserve_space=False, floating=False)
-            effective_action = {**action, "domain": schema.get("x-theta-domain")}
+            effective_action = {**action, "resource": schema.get("x-theta-resource")}
             button.clicked.connect(lambda _checked=False, a=effective_action, b=button: self._open_parameter_action(
                 a, current[0], action_path or tuple(str(wrapper.property("parameterPath") or "").split(".")), b))
         return wrapper
@@ -1467,8 +1467,8 @@ class ConfigViewer(QWidget):
         if schema.get("x-theta-domain") == "model":
             tree = self.tree
             choices = tree.model_names if tree else []
-        elif schema.get("x-theta-domain") == "ruleset":
-            return self._ruleset_widget(value, write)
+        elif schema.get("x-theta-resource"):
+            return self._resource_widget(schema["x-theta-resource"], value, write)
         return value_editor(value, schema, write, choices=choices)
 
     def _component_parameter_schema(self, path: tuple[str, ...]) -> dict[str, Any]:
@@ -1477,7 +1477,7 @@ class ConfigViewer(QWidget):
 
     @staticmethod
     def _schema_has_choices(schema: dict[str, Any]) -> bool:
-        return bool(schema.get("enum")) or schema.get("x-theta-domain") in ("model", "ruleset")
+        return bool(schema.get("enum")) or schema.get("x-theta-domain") == "model" or bool(schema.get("x-theta-resource"))
 
     def _list_field(self, items, write):
         from .config_panel.editors import draft_field
@@ -1558,11 +1558,7 @@ class ConfigViewer(QWidget):
             widget = self._schema_widget(value, schema, write, action_path=path)
             widget.setProperty("parameterPath", ".".join(path))
             return widget
-        if key in ("compatible_paradigms", "paradigms"):
-            widget = TagCloudWidget(tags=value if isinstance(value, list) else ([value] if value else []),
-                                    available_options=_get_available_paradigms())
-            widget.tagsChanged.connect(write)
-        elif (key in ("hidden_sizes", "hidden_dims", "latent_sizes") and isinstance(value, list)
+        if (key in ("hidden_sizes", "hidden_dims", "latent_sizes") and isinstance(value, list)
               and getattr(self.settings_manager, "visual_layer_editor", True)):
             widget = LayerStackWidget(layers=value)
             widget.layersChanged.connect(write)
@@ -1614,12 +1610,12 @@ class ConfigViewer(QWidget):
         if isinstance(schema, dict) and schema.get("x-theta-domain") == "model":
             tree = self.tree
             choices = tree.model_names if tree else []
-        elif isinstance(schema, dict) and schema.get("x-theta-domain") == "ruleset":
+        elif isinstance(schema, dict) and schema.get("x-theta-resource"):
             dialog = QDialog(self)
             dialog.setWindowTitle("Parameter Value")
             layout = QVBoxLayout(dialog)
             layout.addWidget(QLabel(f"Value for '{key}':"))
-            combo = self._ruleset_widget(schema.get("default"), lambda value: None)
+            combo = self._resource_widget(schema["x-theta-resource"], schema.get("default"), lambda value: None)
             layout.addWidget(combo)
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
             buttons.accepted.connect(dialog.accept)

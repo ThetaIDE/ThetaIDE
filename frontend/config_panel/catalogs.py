@@ -204,7 +204,6 @@ FIXED_BOX_KEYS = frozenset(
         "eval_every_n_epochs",
         "methods",
         "data_module",
-        "symbolic_state_loader",
         "env",
         "site",
         "trainer",

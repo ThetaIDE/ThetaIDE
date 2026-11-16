@@ -456,20 +456,6 @@ def test_form_load_and_rebuild_share_discovery_only_within_operation(viewer, mon
     assert widget.is_dirty and widget.raw_data["seed"] == 42
 
 
-def test_declared_loader_roles_skip_metadata_fallback(viewer, monkeypatch):
-    widget, _, _ = viewer
-    # The common fixture stubs choices; exercise the real filtering here.
-    del widget._component_choices
-    widget.raw_data = {"paradigm": "online_rl"}
-    monkeypatch.setattr("frontend.config_viewer._component_profiles", lambda *args, **kwargs: {
-        "train": {"role": "training"}, "state": {"role": "symbolic_state"},
-    })
-    monkeypatch.setattr("src.app.core.provider_metadata.selector_metadata", lambda *args: {})
-    with patch("src.app.core.data_loaders.loader_metadata") as metadata:
-        assert widget._component_choices("data_module") == {"train": {"role": "training"}}
-    metadata.assert_not_called()
-
-
 @pytest.mark.parametrize("rel,title", [
     ("experiment/demo/_base.yaml", "Group Defaults"),
     ("experiment/demo/nested/_base.yaml", "Experiment"),
@@ -876,7 +862,7 @@ def test_method_model_open_action_retains_component_owned_parameter_context(view
     assert buttons[0].property("parameterPath") == "methods.demo.model.rules"
 
 
-def ruleset_menu_action(combo, *parts):
+def resource_menu_action(combo, *parts):
     combo._populate_menu()
     menu = combo.popup_menu
     for part in parts[:-1]:
@@ -884,137 +870,84 @@ def ruleset_menu_action(combo, *parts):
     return next(a for a in menu.actions() if a.text() == parts[-1])
 
 
-def test_rules_control_browses_all_environments_and_opens_selected_folder(viewer, tmp_path):
-    from types import SimpleNamespace
-    widget, _, _ = viewer
-    config = tmp_path / "workspace/src/usr/config"
-    profile = config / "env/gym/cartpole.yaml"
-    profile.parent.mkdir(parents=True)
-    profile.write_text("env_id: CartPole-v1\n")
-    root = config.parents[2]
-    for env in ["cartpole", "mountaincar"]:
-        for name in ["default", "anticipatory_v1"]:
-            folder = root / f"src/usr/rules/{env}/{name}"
-            folder.mkdir(parents=True)
-            (folder / "clauses.txt").write_text("rules\n")
-    tree = ConfigTree(config)
-    tree.component_parameter_schemas["model/test.yaml"] = {"properties": {
-        "rules": {"type": "string", "x-theta-domain": "ruleset", "x-theta-actions": [
-            {"type": "open-in-editor", "handler": {"path": "obsolete_handler.py", "function": "unused"}}
-        ]}}}
-    set_config_tree(tree)
-    widget = load(viewer, {"rules": "default", "defaults": [{"override /env": "gym/cartpole"}],
-                           "env": {"num_envs": 1}}, "model/test.yaml")
-    opened = []
-    widget.editor_service = SimpleNamespace(open_folder=lambda path: opened.append(path) or True,
-                                            open_file=lambda path: pytest.fail("Rules must open as a folder"))
-    assert widget._ruleset_domain_choices() == ["cartpole/anticipatory_v1", "cartpole/default",
-                                                "mountaincar/anticipatory_v1", "mountaincar/default"]
-    button = next(b for b in widget.findChildren(QToolButton) if b.property("parameterOpen"))
-    combo = widget.findChild(HierarchicalComboBox)
-    assert not combo.isEditable()
-    assert widget.raw_data["rules"] == "default"  # Rendering keeps a bare ruleset name.
-    with patch("frontend.config_viewer.QMenu.exec") as menu:
-        button.click()
-        ruleset_menu_action(combo, "cartpole", "anticipatory_v1").trigger()
-        button.click()
-        assert not menu.called
-    assert widget.raw_data["rules"] == "cartpole/anticipatory_v1"
-    assert opened == [root / "src/usr/rules/cartpole/default", root / "src/usr/rules/cartpole/anticipatory_v1"]
-    # Qualified resources stay selected when the simulator's symbolic name changes.
-    widget.raw_data["env"]["symbolic_name"] = "mountaincar"
-    button.click()
-    assert opened[-1] == root / "src/usr/rules/cartpole/anticipatory_v1"
-    assert len(widget._ruleset_domain_choices()) == 4
-    ruleset_menu_action(combo, "mountaincar", "anticipatory_v1").trigger()
-    button.click()
-    assert opened[-1] == root / "src/usr/rules/mountaincar/anticipatory_v1"
-    widget.save_to_disk()
-    assert yaml.safe_load(widget.current_path.read_text())["rules"] == "mountaincar/anticipatory_v1"
-    set_config_tree(tree)  # Saving invalidates the global catalog cache.
-    # A component profile without any environment opens the catalog once.
-    combo.setCurrentText("default")
-    widget.raw_data = {"rules": "default"}
-    widget._get_resolved_defaults = lambda: {}
-    with patch("frontend.config_viewer.QMenu.exec") as menu:
-        button.click()
-        assert not menu.called
-    assert opened[-1] == root / "src/usr/rules"
+def offer_entries(tree, *entries):
+    tree.resource_entries = lambda name: list(entries) if name == "lemmas" else pytest.fail(f"unexpected resource {name}")
 
 
-def test_ruleset_menu_handles_directory_levels_cancellation_and_duplicate_names(viewer):
-    widget, _, _ = viewer
-    widget._ruleset_domain_choices = lambda: ["classic/cartpole/default", "classic/mountaincar/default"]
+def test_resource_menu_handles_directory_levels_cancellation_and_duplicate_names(viewer):
+    widget, tree, _ = viewer
+    offer_entries(tree, "classic/cartpole/default", "classic/mountaincar/default")
     written = []
-    combo = widget._schema_value_widget("classic/cartpole/default", {"x-theta-domain": "ruleset"}, written.append)
-    action = ruleset_menu_action(combo, "classic", "cartpole", "default")
+    combo = widget._schema_value_widget("classic/cartpole/default", {"x-theta-resource": "lemmas"}, written.append)
+    action = resource_menu_action(combo, "classic", "cartpole", "default")
     assert action.isChecked()
     assert action.data() == "classic/cartpole/default"
     with patch.object(type(combo.popup_menu), "exec", return_value=None) as menu:
         combo.showPopup()
         assert menu.called
     assert written == []
-    ruleset_menu_action(combo, "classic", "mountaincar", "default").trigger()
+    resource_menu_action(combo, "classic", "mountaincar", "default").trigger()
     assert written == ["classic/mountaincar/default"]
     assert combo.currentText() == "classic/mountaincar/default"
     assert combo.toolTip() == combo.currentText()
 
 
-def test_empty_ruleset_catalog_preserves_existing_value_without_free_text_entry(viewer):
-    widget, _, _ = viewer
-    widget._ruleset_domain_choices = lambda: []
+def test_empty_resource_catalog_preserves_existing_value_without_free_text_entry(viewer):
+    widget, tree, _ = viewer
+    offer_entries(tree)
     written = []
-    combo = widget._schema_value_widget("unavailable", {"type": "string", "x-theta-domain": "ruleset"}, written.append)
+    combo = widget._schema_value_widget("unavailable", {"type": "string", "x-theta-resource": "lemmas"}, written.append)
     assert isinstance(combo, HierarchicalComboBox)
     assert not combo.isEditable()
     assert combo.currentData() == "unavailable"
     assert written == []
 
 
-def test_blendrl_child_ruleset_menu_edits_the_method_and_preserves_environment(viewer):
+def test_child_model_resource_menu_edits_the_method_and_preserves_environment(viewer):
     widget, tree, root = viewer
     models = tree.config_root / "model"
     models.mkdir()
     for name, config in {
-        "blendrl": {"symbolic": "nsfr", "parameter_schema": {"properties": {
+        "router": {"symbolic": "prover", "parameter_schema": {"properties": {
             "symbolic": {"type": "string", "x-theta-domain": "model"}}}},
-        "nsfr": {"rules": "default", "parameter_schema": {"properties": {
-            "rules": {"type": "string", "x-theta-domain": "ruleset"}}}},
+        "prover": {"facts": "default", "parameter_schema": {"properties": {
+            "facts": {"type": "string", "x-theta-resource": "lemmas"}}}},
     }.items():
         (models / f"{name}.yaml").write_text(yaml.safe_dump(config))
-    set_config_tree(ConfigTree(tree.config_root))
-    widget._ruleset_domain_choices = lambda: ["cartpole/default", "mountaincar/default"]
-    widget = load(viewer, {"env": {"name": "demo"}, "methods": {"BlendRL": {
-        "model": {"name": "blendrl", "symbolic": {"name": "nsfr", "rules": "default"}}}}})
+    tree = ConfigTree(tree.config_root)
+    offer_entries(tree, "cartpole/default", "mountaincar/default")
+    set_config_tree(tree)
+    widget = load(viewer, {"env": {"name": "demo"}, "methods": {"Routed": {
+        "model": {"name": "router", "symbolic": {"name": "prover", "facts": "default"}}}}})
     combo = widget.findChild(HierarchicalComboBox)
-    ruleset_menu_action(combo, "mountaincar", "default").trigger()
+    resource_menu_action(combo, "mountaincar", "default").trigger()
     assert widget.raw_data["env"] == {"name": "demo"}
-    assert widget.raw_data["methods"]["BlendRL"]["model"]["symbolic"] == {
-        "name": "nsfr", "rules": "mountaincar/default"}
-    next(b for b in widget.findChildren(QToolButton) if b.toolTip() == "Remove 'rules'").click()
-    assert widget.raw_data["methods"]["BlendRL"]["model"]["symbolic"] == {"name": "nsfr"}
-    add = next(b for b in widget.findChildren(QToolButton) if b.toolTip() == "Add nsfr parameter")
-    next(a for a in add.menu().actions() if a.text() == "rules").trigger()
+    assert widget.raw_data["methods"]["Routed"]["model"]["symbolic"] == {
+        "name": "prover", "facts": "mountaincar/default"}
+    next(b for b in widget.findChildren(QToolButton) if b.toolTip() == "Remove 'facts'").click()
+    assert widget.raw_data["methods"]["Routed"]["model"]["symbolic"] == {"name": "prover"}
+    add = next(b for b in widget.findChildren(QToolButton) if b.toolTip() == "Add prover parameter")
+    next(a for a in add.menu().actions() if a.text() == "facts").trigger()
     combo = widget.findChild(HierarchicalComboBox)
-    ruleset_menu_action(combo, "cartpole", "default").trigger()
+    resource_menu_action(combo, "cartpole", "default").trigger()
     assert widget.save_to_disk()
     saved = yaml.safe_load((root / "test.yaml").read_text())
-    assert saved["methods"]["BlendRL"]["model"]["symbolic"] == {"name": "nsfr", "rules": "cartpole/default"}
+    assert saved["methods"]["Routed"]["model"]["symbolic"] == {"name": "prover", "facts": "cartpole/default"}
     assert saved["env"] == {"name": "demo"}
 
 
-def test_ruleset_add_dialog_uses_the_shared_nested_menu(viewer):
+def test_resource_add_dialog_uses_the_shared_nested_menu(viewer):
     from PyQt6.QtWidgets import QDialog
-    widget, _, _ = viewer
-    widget._ruleset_domain_choices = lambda: ["cartpole/default", "mountaincar/default"]
+    widget, tree, _ = viewer
+    offer_entries(tree, "cartpole/default", "mountaincar/default")
 
     def choose(dialog):
         combo = dialog.findChild(HierarchicalComboBox)
-        ruleset_menu_action(combo, "mountaincar", "default").trigger()
+        resource_menu_action(combo, "mountaincar", "default").trigger()
         return QDialog.DialogCode.Accepted
 
     with patch("frontend.config_viewer.QDialog.exec", new=choose):
-        selected = widget._prompt_component_parameter_value("rules", {"x-theta-domain": "ruleset"})
+        selected = widget._prompt_component_parameter_value("facts", {"x-theta-resource": "lemmas"})
     assert selected == "mountaincar/default"
 
 
@@ -1977,27 +1910,25 @@ def test_removing_invalid_monitor_instance_clears_warning_and_preserves_componen
 
 def test_data_loader_box_edits_method_bindings_and_preserves_inherited_selection(viewer):
     widget = load(viewer, {
-        'paradigm': 'online_rl', 'data_module': {'name': 'demo', 'params': {'scale': 2}},
-        'symbolic_state_loader': {'name': 'demo', 'params': {'scale': 3}},
+        'paradigm': 'online_rl', 'data_module': {'name': 'demo', 'params': {'scale': 3}},
         'methods': {'policy': {'agent': 'ppo', 'model': 'basics/dnn',
-                               'symbolic_state_loader': {'name': 'other', 'params': {'depth': 7}}}},
+                               'data_module': {'name': 'other', 'params': {'depth': 7}}}},
     })
     box = next(box for box in boxes(widget) if title(box) == 'Data Loaders')
-    assert widget.field_widgets['methods.policy.data_module'].currentData() == ''
-    assert widget.field_widgets['methods.policy.symbolic_state_loader'].currentData() == 'other'
+    assert widget.field_widgets['methods.policy.data_module'].currentData() == 'other'
     editor = next(w for w in box.findChildren(QAbstractSpinBox)
-                  if w.property('parameterPath') == 'methods.policy.symbolic_state_loader.params.depth')
+                  if w.property('parameterPath') == 'methods.policy.data_module.params.depth')
     assert isinstance(editor.parentWidget(), QWidget)
     editor.setValue(9)
-    assert widget.raw_data['methods']['policy']['symbolic_state_loader']['params']['depth'] == 9
-    widget._set_loader_binding(('methods', 'policy', 'symbolic_state_loader'), 'demo')
+    assert widget.raw_data['methods']['policy']['data_module']['params']['depth'] == 9
+    widget._set_loader_binding(('methods', 'policy', 'data_module'), 'demo')
     app.processEvents()
-    assert widget.raw_data['methods']['policy']['symbolic_state_loader'] == {
+    assert widget.raw_data['methods']['policy']['data_module'] == {
         'name': 'demo', 'params': {'scale': 1, 'nested': {'depth': 2}}}
-    widget._set_loader_binding(('methods', 'policy', 'symbolic_state_loader'), '')
+    widget._set_loader_binding(('methods', 'policy', 'data_module'), '')
     app.processEvents()
-    assert 'symbolic_state_loader' not in widget.raw_data['methods']['policy']
-    assert widget.raw_data['symbolic_state_loader'] == {'name': 'demo', 'params': {'scale': 3}}
+    assert 'data_module' not in widget.raw_data['methods']['policy']
+    assert widget.raw_data['data_module'] == {'name': 'demo', 'params': {'scale': 3}}
     assert not next(card for card in boxes(widget) if title(card) == "Data Loaders").findChildren(QCheckBox)
 
 

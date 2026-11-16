@@ -47,7 +47,7 @@ class ParameterBinding:
 
 def component_identity(path, value):
     """Promote a scalar selector without losing the selected component."""
-    if path and path[-1] in ("env", "site", "data_module", "symbolic_state_loader", "evaluator", "model", "agent"):
+    if path and path[-1] in ("env", "site", "data_module", "evaluator", "model", "agent"):
         if isinstance(value, str):
             return {"name": value}
     return None

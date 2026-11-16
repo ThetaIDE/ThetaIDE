@@ -108,10 +108,12 @@ def _yaml_files(directory: Path) -> list[Path]:
     )
 
 
+from src.app.core.requirements import SELECTION_KINDS as _SELECTION_KINDS
+
+
 @dataclass(frozen=True)
 class Environment:
     name: str
-    compatible_paradigms: tuple[str, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
     @property
@@ -147,27 +149,13 @@ class Environment:
         else:
             chosen_name = env_name or rel_name
 
-        paradigms = raw.get("compatible_paradigms")
-
-        if isinstance(paradigms, list):
-            cp = tuple(str(p) for p in paradigms)
-        elif isinstance(paradigms, str):
-            cp = (paradigms,)
-        else:
-            cp = ()
-
-        return cls(
-            name=chosen_name,
-            compatible_paradigms=cp,
-            raw=raw,
-        )
+        return cls(name=chosen_name, raw=raw)
 
 
 @dataclass(frozen=True)
 class Agent:
     name: str
     algorithm: str
-    compatible_paradigms: tuple[str, ...] = ()
     hyperparameters: Mapping[str, Any] = field(default_factory=dict, repr=False)
     parameter_schema: Mapping[str, Any] = field(default_factory=dict, repr=False)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
@@ -182,21 +170,10 @@ class Agent:
             except ValueError:
                 name = path.stem
 
-        paradigms = raw.get("compatible_paradigms")
-        if isinstance(paradigms, list):
-            cp = tuple(str(p) for p in paradigms)
-        elif isinstance(paradigms, str):
-            cp = (paradigms,)
-        else:
-            # Compatibility is component metadata; an omitted declaration
-            # leaves the component unconstrained.
-            cp = ()
-
         return cls(
             name=name,
             algorithm=raw.get("algorithm") or path.stem,
-            compatible_paradigms=cp,
-            hyperparameters={k: v for k, v in raw.items() if k not in ("algorithm", "compatible_paradigms", "parameter_schema")},
+            hyperparameters={k: v for k, v in raw.items() if k not in ("algorithm", "parameter_schema")},
             raw=raw,
         )
 
@@ -205,7 +182,6 @@ class Agent:
 class Model:
     name: str
     architecture: str
-    compatible_paradigms: tuple[str, ...] = ()
     parameters: Mapping[str, Any] = field(default_factory=dict, repr=False)
     parameter_schema: Mapping[str, Any] = field(default_factory=dict, repr=False)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
@@ -220,19 +196,10 @@ class Model:
             except ValueError:
                 name = path.stem
 
-        paradigms = raw.get("compatible_paradigms")
-        if isinstance(paradigms, list):
-            cp = tuple(str(p) for p in paradigms)
-        elif isinstance(paradigms, str):
-            cp = (paradigms,)
-        else:
-            cp = ()
-
         return cls(
             name=name,
             architecture=raw.get("architecture") or path.stem,
-            compatible_paradigms=cp,
-            parameters={k: v for k, v in raw.items() if k not in ("architecture", "compatible_paradigms", "parameter_schema")},
+            parameters={k: v for k, v in raw.items() if k not in ("architecture", "parameter_schema")},
             parameter_schema=dict(raw.get("parameter_schema") or {}),
             raw=raw,
         )
@@ -268,95 +235,30 @@ class Experiment:
 
 @dataclass(frozen=True)
 class Paradigm:
+    """A paradigm describes only itself; components declare their own compatibility."""
     name: str
     description: str
-    allowed_agents: tuple[str, ...]
-    forbidden_agents: tuple[str, ...]
-    requires: Mapping[str, Any] = field(default_factory=dict, repr=False)
-    forbids: Mapping[str, Any] = field(default_factory=dict, repr=False)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_file(cls, path: Path) -> Paradigm:
         raw = _read_yaml(path)
-        constraints = raw.get("constraints") or {}
-        return cls(
-            name=path.stem,
-            description=raw.get("description", ""),
-            allowed_agents=tuple(raw.get("allowed_agents") or ()),
-            forbidden_agents=tuple(raw.get("forbidden_agents") or ()),
-            requires=constraints.get("requires") or {},
-            forbids=constraints.get("forbids") or {},
-            raw=raw,
-        )
-
-    def permits_agent(self, agent: Agent | str) -> bool:
-        algo = (agent.algorithm if isinstance(agent, Agent) else str(agent)).lower()
-        name = (agent.name if isinstance(agent, Agent) else str(agent)).lower()
-        clean = (algo, name, name.split("/")[-1], algo.split("/")[-1])
-        if any(
-            f.lower() in clean
-            or name.startswith(f.lower() + "/")
-            or name.endswith("/" + f.lower())
-            for f in self.forbidden_agents
-        ):
-            return False
-
-        if isinstance(agent, Agent) and agent.compatible_paradigms:
-            return self.name in agent.compatible_paradigms
-
-        # Fallback for agents without explicit compatible_paradigms
-        if "allowed_agents" in self.raw and not self.allowed_agents:
-            # Explicitly declared empty allow list (e.g. supervised)
-            return False
-
-        if self.allowed_agents:
-            for allowed in self.allowed_agents:
-                al = allowed.lower()
-                if al in (algo, name) or name.startswith(al + "/") or algo.startswith(al + "_") or name.endswith("/" + al):
-                    return True
-            return False
-
-        return True
-
-    def permits_model(self, model: Model | str) -> bool:
-        if isinstance(model, Model) and model.compatible_paradigms:
-            return self.name in model.compatible_paradigms
-        return True
+        return cls(name=path.stem, description=raw.get("description", ""), raw=raw)
 
     def permits_environment(self, environment: Environment) -> bool:
-        # A paradigm and environment must agree on whether data comes from a
-        # live simulator or a static dataset, even when older component
-        # metadata omits or misstates compatible_paradigms.
-        paradigm_source = self.environment_source
+        """A paradigm and environment must agree on whether data comes from a live simulator or a static dataset."""
         environment_source = environment.environment_source
-        if (
-            paradigm_source in {"live_environment", "static_dataset"}
-            and environment_source in {"live_environment", "static_dataset"}
-            and paradigm_source != environment_source
-        ):
-            return False
-        if not environment.compatible_paradigms:
-            return True
-        return self.name in environment.compatible_paradigms
+        return environment_source is None or environment_source == self.environment_source
 
     @property
     def environment_source(self) -> str:
-        """The kind of research environment an experiment supplies.
+        """The kind of research environment an experiment supplies (validated as required).
 
-        A static dataset is the offline form of an environment or task.  It is
+        A static dataset is the offline form of an environment or task. It is
         deliberately distinct from ``data_module``: the latter only adapts
         the environment's observations into batches a model can consume.
-
-        Older component packages did not declare this capability, so retain a
-        conservative compatibility inference while all paradigm manifests are
-        migrated.
         """
-        declared = self.raw.get("environment_source")
-        if isinstance(declared, str) and declared:
-            return declared
-        data_module = self.raw.get("data_module") or self.raw.get("default_data_module")
-        return "live_environment" if data_module == "SimulatorDataModule" else "static_dataset"
+        return self.raw.get("environment_source")
 
     @property
     def uses_static_dataset(self) -> bool:
@@ -366,13 +268,7 @@ class Paradigm:
     @property
     def budget_unit(self) -> str:
         """The primary training budget displayed when authoring this paradigm."""
-        training = self.raw.get("training")
-        declared = training.get("budget") if isinstance(training, Mapping) else None
-        if declared in {"timesteps", "epochs"}:
-            return declared
-        # Migration behavior for third-party paradigms authored before this
-        # capability was made explicit.
-        return "epochs" if self.uses_static_dataset else "timesteps"
+        return (self.raw.get("training") or {}).get("budget")
 
     @property
     def algorithm_requirement(self) -> str:
@@ -383,15 +279,7 @@ class Paradigm:
         compatible algorithm is installed, so the UI can explain the missing
         dependency instead of quietly authoring an invalid model-only method.
         """
-        method = self.raw.get("method")
-        declared = method.get("algorithm") if isinstance(method, Mapping) else None
-        if declared in ("required", "optional", "forbidden"):
-            return declared
-        if "allowed_agents" in self.raw and not self.allowed_agents:
-            return "forbidden"
-        if self.requires.get("agent") == "required" or self.allowed_agents:
-            return "required"
-        return "optional"
+        return (self.raw.get("method") or {}).get("algorithm")
 
     @property
     def allows_algorithm(self) -> bool:
@@ -402,8 +290,6 @@ class Paradigm:
         return self.algorithm_requirement == "required"
 
     def field_enabled(self, name: str) -> bool:
-        if name in self.forbids:
-            return False
         flag = _ALLOW_FLAGS.get(name)
         if flag is not None:
             # These are opt-in: validation.py reads paradigm_def.get(flag, False),
@@ -414,8 +300,6 @@ class Paradigm:
     def disabled_reason(self, name: str) -> str | None:
         if self.field_enabled(name):
             return None
-        if name in self.forbids:
-            return f"{self.name} forbids {name} ({self.forbids[name]})"
         return f"{self.name} does not enable {name}"
 
 
@@ -515,21 +399,12 @@ class ConfigTree:
                             normalized = Path(config_path).as_posix()
                             profile_schema = profile_schemas.get(normalized, parameter_schema) if isinstance(profile_schemas, dict) else parameter_schema
                             self.component_parameter_schemas[normalized] = profile_schema
-                    paradigms = meta.get("paradigms") or ()
-                    if isinstance(paradigms, list):
-                        paradigms_tuple = tuple(str(p) for p in paradigms)
-                    elif isinstance(paradigms, str):
-                        paradigms_tuple = (paradigms,)
-                    else:
-                        paradigms_tuple = ()
-
                     if kind in ("agent", "algorithm"):
                         existing = self.agents.get(comp_id)
                         if existing is not None:
                             self.agents[comp_id] = Agent(
                                 name=existing.name,
                                 algorithm=existing.algorithm,
-                                compatible_paradigms=existing.compatible_paradigms or paradigms_tuple,
                                 hyperparameters=existing.hyperparameters,
                                 parameter_schema=existing.parameter_schema or dict(parameter_schema or {}),
                                 raw=existing.raw,
@@ -538,7 +413,6 @@ class ConfigTree:
                             self.agents[comp_id] = Agent(
                                 name=comp_id,
                                 algorithm=str(meta.get("algorithm") or comp_id),
-                                compatible_paradigms=paradigms_tuple,
                                 hyperparameters=dict(meta.get("hyperparameters", {})),
                                 parameter_schema=dict(parameter_schema or {}),
                                 raw=meta,
@@ -549,7 +423,6 @@ class ConfigTree:
                             self.models[comp_id] = Model(
                                 name=existing.name,
                                 architecture=existing.architecture,
-                                compatible_paradigms=existing.compatible_paradigms or paradigms_tuple,
                                 parameters=existing.parameters,
                                 parameter_schema=existing.parameter_schema or dict(parameter_schema or {}),
                                 raw=existing.raw,
@@ -558,7 +431,6 @@ class ConfigTree:
                             self.models[comp_id] = Model(
                                 name=comp_id,
                                 architecture=str(meta.get("architecture") or comp_id),
-                                compatible_paradigms=paradigms_tuple,
                                 parameters=dict(meta.get("parameters", {})),
                                 parameter_schema=dict(parameter_schema or {}),
                                 raw=meta,
@@ -582,7 +454,6 @@ class ConfigTree:
                 self.agents[name] = Agent(
                     name=existing.name,
                     algorithm=existing.algorithm,
-                    compatible_paradigms=existing.compatible_paradigms,
                     hyperparameters=existing.hyperparameters,
                     parameter_schema=schema,
                     raw=existing.raw,
@@ -592,7 +463,6 @@ class ConfigTree:
                 self.models[name] = Model(
                     name=existing.name,
                     architecture=existing.architecture,
-                    compatible_paradigms=existing.compatible_paradigms,
                     parameters=existing.parameters,
                     parameter_schema=schema,
                     raw=existing.raw,
@@ -636,52 +506,51 @@ class ConfigTree:
         return {env.name: env for env in self.environments.values()
                 if env.name not in self._hidden_names["env"]}.values()
 
-    def agents_for(self, paradigm: str) -> list[Agent]:
-        if paradigm not in self.paradigms:
-            return []
-        rules = self.paradigms[paradigm]
+    def candidate_findings(self, key: str, candidate: str, draft: Mapping[str, Any] | None = None,
+                           method: Mapping[str, Any] | None = None) -> list:
+        """Declared compatibility findings if ``candidate`` became the ``key`` selection of ``method``.
+
+        Rules a candidate makes about its own settings are left out: those describe
+        how to configure it once selected, which its own form shows inline.
+        """
+        from src.app.core.requirements import candidate_findings
+        findings = candidate_findings(dict(draft or {}), dict(method or {}), key, candidate, paths=self.workspace)
+        own = key + "."
+        return [f for f in findings
+                if not (f.rule and f.capability.startswith(_SELECTION_KINDS[key] + ":")
+                        and str(f.rule.get("config", "")).startswith(own))]
+
+    def _compatible(self, key, items, hidden, draft, method):
         seen: set[str] = set()
-        result: list[Agent] = []
-        for a in self.agents.values():
-            if a.name in self._hidden_names["agent"]:
+        result = []
+        for item in items:
+            if item.name in hidden or item.name in seen:
                 continue
-            # Manifest schema association can replace canonical and alias
-            # entries independently, so object identity is not stable here.
-            if a.name not in seen:
-                seen.add(a.name)
-                if rules.permits_agent(a):
-                    result.append(a)
+            seen.add(item.name)
+            if not any(f.level == "block" for f in self.candidate_findings(key, item.name, draft, method)):
+                result.append(item)
         return result
 
-    def environments_for(self, paradigm: str) -> list[Environment]:
+    def agents_for(self, paradigm: str, draft: Mapping[str, Any] | None = None,
+                   method: Mapping[str, Any] | None = None) -> list[Agent]:
+        """Algorithms whose declared requirements do not block them in this draft."""
+        if paradigm not in self.paradigms:
+            return []
+        draft = {**(draft or {}), "paradigm": paradigm}
+        return self._compatible("agent", self.agents.values(), self._hidden_names["agent"], draft, method)
+
+    def environments_for(self, paradigm: str, draft: Mapping[str, Any] | None = None) -> list[Environment]:
         if paradigm not in self.paradigms:
             return []
         rules = self.paradigms[paradigm]
-        seen: set[int] = set()
-        result: list[Environment] = []
-        for e in self.environments.values():
-            if e.name in self._hidden_names["env"]:
-                continue
-            if id(e) not in seen:
-                seen.add(id(e))
-                if rules.permits_environment(e):
-                    result.append(e)
-        return result
+        draft = {**(draft or {}), "paradigm": paradigm}
+        candidates = [e for e in self.environments.values() if rules.permits_environment(e)]
+        return self._compatible("env", candidates, self._hidden_names["env"], draft, None)
 
-    def models_for(self, paradigm: str) -> list[Model]:
-        if paradigm not in self.paradigms:
-            return [m for m in self.models.values() if m.name not in self._hidden_names["model"]]
-        rules = self.paradigms[paradigm]
-        seen: set[int] = set()
-        result: list[Model] = []
-        for m in self.models.values():
-            if m.name in self._hidden_names["model"]:
-                continue
-            if id(m) not in seen:
-                seen.add(id(m))
-                if rules.permits_model(m):
-                    result.append(m)
-        return result
+    def models_for(self, paradigm: str, draft: Mapping[str, Any] | None = None,
+                   method: Mapping[str, Any] | None = None) -> list[Model]:
+        draft = {**(draft or {}), "paradigm": paradigm} if paradigm else dict(draft or {})
+        return self._compatible("model", self.models.values(), self._hidden_names["model"], draft, method)
 
     def field_enabled(self, paradigm: str, name: str) -> bool:
         if paradigm not in self.paradigms:
@@ -735,14 +604,10 @@ class ConfigTree:
             return {}
         return dict(self.models[model_name].parameters)
 
-    def ruleset_names(self, environment=None) -> list[str]:
-        """Use the runtime catalog; unscoped profiles get qualified selectors."""
-        from src.app.services.rulesets import available_rulesets, symbolic_environment
-
-        workspace = self.workspace.root
-        scoped = symbolic_environment(environment, workspace)
-        return [r.name if scoped else f"{r.environment}/{r.name}"
-                for r in available_rulesets(workspace, environment)]
+    def resource_entries(self, name: str) -> list[str]:
+        """Entry IDs of a workspace resource packages declare (``x-theta-resource``)."""
+        from src.app.core.workspace_resources import entries
+        return list(entries(name, self.workspace))
 
     def model_parameter_schema(self, model_name: str | None, path: tuple[str, ...] = ()) -> dict[str, Any]:
         """Return the JSON Schema node describing a model parameter or nested object."""

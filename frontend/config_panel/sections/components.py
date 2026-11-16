@@ -30,6 +30,8 @@ from ..controls import (
     _parameter_header,
     _parameter_row,
     _reveal_remove_on_row_hover,
+    compatibility_status,
+    mark_candidates,
 )
 
 
@@ -102,7 +104,7 @@ def _render_sweep_objective(self, form, data, resolved):
 
 
 def _render_loader_binding(self, form, caption, path, context, method=None):
-    from src.app.core.data_loaders import input_requirements, loader_metadata, loader_selection
+    from src.app.core.data_loaders import loader_selection
 
     slot = path[-1]
     selection, source = loader_selection(context, slot, method, paths=self._loader_paths())
@@ -111,9 +113,9 @@ def _render_loader_binding(self, form, caption, path, context, method=None):
         current = current.get(key) if isinstance(current, dict) else None
     explicit_name = self._component_name(current)
     choices = self._component_choices(slot)
-    needs = [
-        r["contract"] for r in input_requirements(context, method, paths=self._loader_paths()) if r["slot"] == slot
-    ]
+    tree = self.tree
+    def findings_for(name):
+        return tree.candidate_findings(slot, name, context, method) if tree is not None and method is not None else []
     combo = ComboBox()
     combo.setProperty("parameterPath", ".".join(path))
     inherited, _ = loader_selection(
@@ -121,19 +123,14 @@ def _render_loader_binding(self, form, caption, path, context, method=None):
     )
     inherited_name = inherited["name"] if inherited else "None"
     combo.addItem(f"Inherit ({inherited_name})", "")
-    for name, profile in sorted(choices.items()):
-        metadata = loader_metadata(
-            {"name": profile.get("data_module") or profile.get("name") or name}, paths=self._loader_paths()
-        )
-        if (
-            needs
-            and not all(contract in metadata.get("output_contracts", []) for contract in needs)
-            and name != explicit_name
-        ):
+    for name in sorted(choices):
+        # The method's selections may declare what they need from a data module.
+        if name != explicit_name and any(f.level == "block" for f in findings_for(name)):
             continue
         combo.addItem(name, name)
     if explicit_name and combo.findData(explicit_name) < 0:
         combo.addItem(explicit_name, explicit_name)
+    mark_candidates(combo, findings_for)
     combo.setCurrentIndex(max(0, combo.findData(explicit_name)))
     combo.currentIndexChanged.connect(lambda index, c=combo, p=path: self._set_loader_binding(p, c.itemData(index)))
     row = ParameterRow()
@@ -142,11 +139,11 @@ def _render_loader_binding(self, form, caption, path, context, method=None):
     defaults = selection["params"] if selection else {}
     if explicit_name:
         row.addWidget(self._dict_parameter_adder(path + ("params",), params, defaults))
-    remove = self._parameter_remove(path) if current is not None and (not needs or inherited) else None
+    remove = self._parameter_remove(path) if current is not None else None
     if remove:
         row.addWidget(remove)
         _reveal_remove_on_row_hover(row, remove)
-    effective_name = selection["name"] if selection else "Missing"
+    effective_name = selection["name"] if selection else "None"
     row.addWidget(label(f"{effective_name} · {source}", "muted"))
     row.addStretch()
     form.add_parameter(path, caption, row)
@@ -158,40 +155,40 @@ def _render_loader_binding(self, form, caption, path, context, method=None):
         form.add_children(path, block)
 
 
-def _render_loader_bindings(self, box, context, methods):
-    from src.app.core.data_loaders import LOADER_SLOTS, data_loader_errors
+def _data_module_findings(findings):
+    """Findings that concern a method's data module: its own rules and rules about data modules."""
+    from src.app.core.provider_catalog import kind_name
+    return [f for f in findings if f.capability.startswith("datamodule:")
+            or (f.rule and (kind_name(f.rule.get("kind", "")) == "datamodule"
+                            or str(f.rule.get("config", "")).split(".", 1)[0] == "data_module"))]
 
-    form = ParameterForm()
-    self._render_loader_binding(form, "Symbolic state default", ("symbolic_state_loader",), context)
-    box.add_layout(form)
+
+def _render_loader_bindings(self, box, context, methods):
+    from src.app.core.data_loaders import SLOT, data_loader_errors
+    from src.app.core.requirements import method_findings
+
     for name, method in methods.items():
         box.add_layout(_parameter_header(name, heading=False))
         block = IndentedHierarchyBlock()
-        for slot, caption in zip(LOADER_SLOTS, ("Training loader", "Symbolic state")):
-            self._render_loader_binding(block.form_layout, caption, ("methods", name, slot), context, method)
-        for message in data_loader_errors(context, method, paths=self._loader_paths()):
-            status = label(message, "muted")
+        self._render_loader_binding(block.form_layout, "Training loader", ("methods", name, SLOT), context, method)
+        paths = self._loader_paths()
+        for index, message in enumerate(data_loader_errors(context, method, paths=paths)):
+            status = label(message, "muted", wrap=True)
             status.setObjectName("dataLoaderStatus")
-            status.setWordWrap(True)
-            block.form_layout.add_parameter(("methods", name, "loader_error", message), None, status)
+            block.form_layout.add_parameter(("methods", name, "loader_error", str(index)), None, status)
+        findings = _data_module_findings(method_findings(context, name, method, paths=paths, preflight=False))
+        for index, line in enumerate(compatibility_status(findings)):
+            block.form_layout.add_parameter(("methods", name, "loader_compatibility", str(index)), None, line)
         box.add_widget(block)
 
 
 def _render_component_overrides(self, data: dict, resolved: dict) -> None:
     """Expose component selection and per-component YAML parameters in recipes."""
-    from src.app.core.data_loaders import input_requirements
     from src.app.pipeline.config import deep_merge, parse_methods_dict
 
     context = deep_merge(resolved, self.raw_data)
     methods = parse_methods_dict(context, paths=self._loader_paths())
-    if "data_module" not in data and (
-        context.get("symbolic_state_loader") is not None
-        or any(
-            any(slot in method for slot in ("data_module", "symbolic_state_loader"))
-            or input_requirements(context, method, paths=self._loader_paths())
-            for method in methods.values()
-        )
-    ):
+    if "data_module" not in data and any("data_module" in method for method in methods.values()):
         data = {**data, "data_module": None}
     for kind, title in (("data_module", "Data Loaders"), ("evaluator", "Evaluators")):
         if kind not in data:
