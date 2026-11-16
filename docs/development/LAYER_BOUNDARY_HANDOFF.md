@@ -6,6 +6,49 @@ Paste the prompt below into a new agent session in this repository to continue t
 
 You are continuing the layer boundary refactor of Theta-IDE on the branch `implement/layer-boundaries`. The branch exists on `origin` (ThetaIDE/ThetaIDE), but 5b, stabilized 5c and the UI refinement batch are local and unpushed. There is no PR. It is merged to `main` together with the v3 Hub publication, only when the user asks.
 
+## Returning the current work to the refactor agent
+
+The user is happy to hand this branch over as it stands. Preserve the combined
+history; splitting or replaying UI commits is not required. The code checkpoint
+before this handoff update is `9614fc8`. It includes refactor stabilization done
+**before** the UI batch, not just UI work:
+
+| Commit | Work to retain |
+| --- | --- |
+| `9129f8b` | 5b: all result paths derive from `WorkspacePaths.results`. |
+| `e0a09a2` | 5c stabilization: `src/usr/results`, SDK 2.4 read-only results API, source-scan exclusions, job/monitor fixes, repaired job-manager test harness, docs and full baseline comparison. |
+| `f88ee0d` | Shared config controls, scalar Blender schema, Monitor/Results consolidation, retired panels and terminal controls. |
+| `1ae2707` | Saved sweep range/list layout retained read-only when its tuner is unavailable. |
+| `a8a33ae`, `6628cb5` | Optuna 1.1.1 source metadata and evidence of its separately authorized production Hub release. |
+| `9614fc8` | Required Blender model picker via existing form support; active iteration remains in `blendrl-dev`. |
+
+In particular, 5c already excludes `src/usr/results` from remote source snapshots,
+config-compose fingerprints, workspace inventory and the editor's save-lock source
+scan. It fixes the desktop job manager's missing results root, Monitor visual
+resolution, job-store tooltip, and stale cwd-results assumptions. The repaired
+job-manager harness launches its fake pipeline instead of the real application.
+Do not redo or discard these changes when resuming 5d/5e.
+
+The 5c full per-file comparison passed 2,636 tests, skipped 52 and retained 126
+known failure IDs with **zero new IDs against 5b**; job-manager checks passed 19
+with two prerequisite skips. Evidence:
+`docs/reports/LAYER_BOUNDARY_PHASE5C_VERIFICATION_20261115.json`. Later UI/component
+checks are focused reruns, not a second full-suite comparison; see
+`docs/reports/UI_REFINEMENTS_VERIFICATION_20261115.json`.
+
+At handoff, three unrelated files are modified by separate user tasks:
+`frontend/components_panel.py` and `tests/test_startup_performance.py` (first-open
+Components visibility fix), and `frontend/config_tree.py` (copy full experiment
+name). Preserve these uncommitted changes; they are not part of the committed 5c
+or UI checkpoint. `results/` is the user's unmoved data, not disposable untracked
+output. No migration was approved or performed. Read current `git status` before
+editing because these other tasks may advance.
+
+Resume the architecture work from this combined checkpoint when requested. If
+running UI and refactor agents concurrently, give them separate worktrees rather
+than switching branches beneath a shared running task. Vega still awaits the
+user's design; BlendRL development stays local, without repeated Hub publication.
+
 **Read first, in this order:**
 1. `AGENTS.md` and `docs/README.md`.
 2. `docs/plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md`. Its "Confirmed decisions" win over anything else.
