@@ -122,14 +122,13 @@ keeps profile-specific keys and choices attached to the profile the editor opens
 The editor reads this metadata from the installed component manifest; plugin
 code is not imported to build the form.
 
-Data-module, state-loader, evaluator, and plotter dropdowns also read declarations
-without importing their implementations. Declare public names and aliases in
-`capabilities`, loader `role` and `output_contracts` on each data capability, and
-`paradigms` (or `compatible_paradigms`) for compatibility filtering. Capability
-compatibility overrides package compatibility; profile compatibility takes
-precedence for that profile. Missing compatibility metadata leaves a choice
-unrestricted. Class methods such as `get_supported_paradigms` are runtime hooks
-and are not executed to populate dropdowns. Packaged YAML defaults are available
+Agent, model, environment, data-module, evaluator and plotter dropdowns also read
+declarations without importing their implementations. Declare public names and
+aliases in `capabilities`, and what each capability needs from the rest of an
+experiment as [compatibility requirements](../reference/COMPATIBILITY_REQUIREMENTS.md)
+(`requires`, `provides`, `preflight`). Pickers omit candidates with block findings
+and mark candidates with warn findings; a capability without requirements is
+compatible with everything. Packaged YAML defaults are available
 before installation materializes workspace copies; workspace profiles take
 precedence. An existing explicit selector remains visible if its provider is
 missing or incompatible. Runtime still resolves and validates the selected code.

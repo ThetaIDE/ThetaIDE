@@ -93,10 +93,12 @@ or `resolve_resource`. `environment_resource` resolves an exact declared
 environment capability and its explicit `resource_root`; it never searches
 unrelated directories.
 
-Declare `rules_root` for package-owned rules. Authored rules remain under
-`src/usr/rules/<environment>/<name>`. The rules service preserves environment
-scoping, symbolic-name overrides and ruleset-owned valuation modules. The maintained NSFR package owns shared CartPole
-rules; NEUMANN depends on NSFR. MIMIC rules belong to the MIMIC experiment package.
+Authored files a package reads are [workspace resources](COMPATIBILITY_REQUIREMENTS.md#workspace-resources):
+`workspace_resources: {"rules": {"path": "resources/rules", "depth": 2}}` makes the
+entries under `src/usr/rules` and the package's own `resources/rules` one catalog.
+NSFR declares `rules`, owns the shared CartPole rules and exports `resolve_ruleset`
+(environment scoping, symbolic-name lookup and ruleset-owned valuation modules);
+NEUMANN and BlendRL use that export. MIMIC rules belong to the MIMIC experiment package.
 
 Runners own their Hydra/workspace configuration. The generic worker establishes
 workspace context, package-relative imports, leases and snapshot verification;

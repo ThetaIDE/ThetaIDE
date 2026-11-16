@@ -25,7 +25,7 @@ Packages import host code only from the versioned [Theta SDK](SDK.md) (`src.app.
 | Exception | Reason | Support/retirement policy |
 | --- | --- | --- |
 | Lightning execution and four base paradigms | Confirmed product scope | Supported core implementation; extraction deferred |
-| `hydra_plugins` discovery namespace | Hydra requires third-party discovery outside core namespace | Small adapters only; `theta_optuna_sweeper.py` loads the installed Optuna component's `hydra_sweeper` export, and implementations belong to their provider |
+| `hydra_plugins` discovery namespace | Hydra requires third-party discovery outside core namespace | Small adapters only; `theta_sweeper.py` (`ThetaSweeper(tuner=...)`) loads the selected tuner component's `hydra_sweeper` export, and implementations belong to their provider |
 | Root launchers `run_pipeline.py` and `frontend/__main__.py` | Modules of the installed `theta` and `theta-ide` entry points; workers and remote bundles start `run_pipeline.py` by path | Supported; they select a workspace and dispatch, nothing else |
 | Direct host imports in Hub package releases published before package format v3 | Written before the SDK covered model registration, objective results and execution | Same objects as the SDK exports. The v3 releases (prepared in unit 4g, not yet published) import only the SDK; the row is removed when they are published |
 

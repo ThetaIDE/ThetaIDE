@@ -96,7 +96,6 @@ validated by the manifest schema and at selection time:
 ```json
 {
   "execution_features": {
-    "input_types": ["dataset_path"],
     "evaluation": "provider",
     "resume_modes": ["inference"],
     "checkpoint_formats": ["example.native/v1"],
@@ -105,39 +104,34 @@ validated by the manifest schema and at selection time:
     "episode_outcomes": false,
     "intermediate_values": false
   },
-  "execution_preflight": "execution_hooks.py:validate",
   "resource_hints": {"base_memory_gib": 0.8, "cpu": 1, "accelerator": false},
   "resource_hint_hook": "execution_hooks.py:resources"
 }
 ```
 
-`input_types` advertises supported inputs; explicit `data_module` and
-`dataset_path` selections require the corresponding entry. `evaluation` is
-`provider` (native ownership), `configured` or `both`. Exact training recovery
+`evaluation` is `provider` (native ownership), `configured` or `both`. Exact training recovery
 requires the `training` resume mode; inference reload is separately advertised.
 Tuning requires both `tuning` and `winner_promotion`. Checkpoint formats describe
 native artifacts; the declaration does not add a converter or promotion adapter.
 Episode outcome consumers read the feature flag without executing provider code.
-The original top-level v1 `episode_outcomes` flag remains a compatibility reader.
 
-Absent features default conservatively: no explicit data module/dataset input,
-configured evaluator, training resume, tuning/promotion or episode outcomes.
+Which inputs an algorithm accepts (`data_module`, `dataset_path`, paradigms) is
+declared with [compatibility requirements](COMPATIBILITY_REQUIREMENTS.md), not
+execution features. Absent features default conservatively: configured evaluation,
+and no training resume, tuning/promotion or episode outcomes.
 Retained Lightning providers inherit the core Lightning features when no block
 is supplied. Other providers must declare supported operations explicitly;
 rejections identify the owning package and version. The editable SB3, d3rlpy and
 THEMES manifests now declare their existing behavior. Installed releases are not
 rewritten and may need an updated release for newly requested operations.
 
-Optional native-package hooks name a package-relative `file.py:callable` and
-receive `(cfg, *, paths)`. Include hook files in the declared implementation
+An optional `resource_hint_hook` names a package-relative `file.py:callable`
+and receives `(cfg, *, paths)`. Include hook files in the declared implementation
 payload; package validation checks containment and existence without importing
-them. `execution_preflight` raises an actionable error for
-constraints that declarations cannot express. It runs only for the selected
-algorithm, in both coordinator and worker execution validation; it may run
-multiple times and must be read-only and idempotent. Metadata/catalog browsing
-never runs it. Keep hook modules lightweight so preflight does not need to import
-a training backend. Python distribution entry-point providers do not currently
-support package-relative hooks.
+them. Checks that need code belong in the capability's
+[`preflight`](COMPATIBILITY_REQUIREMENTS.md#preflight) hook, which runs during
+validation. Python distribution entry-point providers do not currently support
+package-relative hooks.
 
 `resource_hint_hook` returns a mapping extending the static `resource_hints`.
 Only `base_memory_gib`, `cpu` (positive finite numbers) and `accelerator`

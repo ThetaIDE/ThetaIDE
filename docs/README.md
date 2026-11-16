@@ -16,9 +16,10 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Reference
 
-- [Theta SDK](reference/SDK.md) — SDK 2.0: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
+- [Theta SDK](reference/SDK.md) — SDK 3.1: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
 - [Layer ownership and configuration provenance](reference/LAYER_BOUNDARIES.md) — active architecture contract, source-aware resolution, the exception register and inventory command.
-- [Method execution contract v1](reference/EXECUTION_CONTRACT.md) — provider features, preflight hooks, resource hints and tuner objective/pruning compatibility.
+- [Method execution contract v1](reference/EXECUTION_CONTRACT.md) — provider features, resource hints and tuner objective/pruning compatibility.
+- [Compatibility requirements](reference/COMPATIBILITY_REQUIREMENTS.md) — capability `requires`/`provides`/`preflight`, component references, workspace resources and run logger result categories; how validation, forms and the run record use the findings.
 - [Extension contributions and readiness v1](reference/EXTENSION_CONTRIBUTIONS.md) — metadata-only discovery, enablement, lifecycle cleanup and tuner controls/monitor availability.
 - [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership and installing the optional Slurm component.
 - [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and receipts.
