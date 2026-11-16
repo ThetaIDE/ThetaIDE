@@ -19,7 +19,7 @@ Uncommitted files from separate user tasks may be present (`frontend/components_
 
 Older dated evidence is in `docs/reports/`; it is history.
 
-Vega awaits the user's design; do not infer one. BlendRL iteration stays local in `src/usr/models/blendrl-dev`, without repeated Hub publication.
+Vega awaits the user's design; do not infer one. BlendRL iteration happens in an editable copy of the installed `blendrl` package when the user starts one, without repeated Hub publication.
 
 ## How the user wants you to work
 
@@ -31,10 +31,9 @@ Vega awaits the user's design; do not infer one. BlendRL iteration stays local i
 
 ## Next work
 
-1. **Workspace reinstall (needs the user's yes):** thirteen installed copies from the earlier v3 preparation no longer validate, and the installer will not overwrite them. The dry run is in the status doc's Repositories section. After a direct yes: back up and hash-check each one, move it to `.thetaide/retained_packages`, then install the published releases (`venv/bin/python run_pipeline.py component install <archive>`), dependencies first, then BlendRL 1.4.0, NEUMANN 1.1.1 and the DL basics suite.
-2. **UI follow-ups when the user asks:** the deferred sync-button/tree-navigation notes, the UI-batch test failures listed in `docs/reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json`, and the unchecked desktop items in the status doc.
+1. **Failing tests and UI follow-ups when the user asks:** the deferred sync-button/tree-navigation notes, the UI-batch test failures listed in `docs/reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json`, and the unchecked desktop items in the status doc.
 
-Left alone (user): Vega, checkpoint ranking by `monitor_metric`/`checkpoint.monitor`, the deferred stale tests, `prepare_tabular.py`. The user's BlendRL and NewMonitors experiments still set `symbolic_state_loader` (now `model.symbolic_state`), and `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets flat `tuning.n_trials`/`n_jobs` (they know).
+Left alone (user): Vega, checkpoint ranking by `monitor_metric`/`checkpoint.monitor`, the deferred stale tests, `prepare_tabular.py`. The user's experiments that still fail validation are listed in the status doc.
 
 ## Hard constraints
 

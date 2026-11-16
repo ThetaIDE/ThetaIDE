@@ -21,7 +21,7 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 
 - **IDE:** `main` includes the whole refactor. `implement/layer-boundaries` is pushed and equal to it.
 - **Hub:** ThetaHub `main` is `570d30c` (34 listings, SDK 3.1). Package sources are theta-plugins `main` at `cf27f57`. The local `../theta-plugins-v3` and `../theta-hub-v3` worktrees (branch `v3-republish`) are the working copies; `../theta-plugins` and `../theta-hub` hold the user's own uncommitted work and are untouched.
-- **Repository workspace:** reinstall pending. Installed and current: DNN 1.2.0, Dueling ResNet 1.1.0, Gym classic control 1.2.0, NatureCNN 1.1.0, Optuna 1.2.0. Thirteen installed copies from the earlier v3 preparation (`atari-env`, `autoencoder`, `d3rlpy-suite`, `image-data`, `lstm`, `mlp`, `nsfr`, `replay-buffer`, `sb3-suite`, `standard-figures`, `tabular-data`, `thetalib`, `transformer`) no longer validate under the strict schema, so the installer refuses to overwrite them. They are read-only with no local edits. Replacing them (move each to `.thetaide/retained_packages`, then install the published release, then BlendRL 1.4.0, NEUMANN 1.1.1 and the DL basics suite, which depend on them) waits for the user's yes. Slurm is not installed (it collides with the authored `ncshare-site` package, which owns `site/ncshare/*`).
+- **Repository workspace:** runs the published releases, installed from the Hub feed: atari-env, autoencoder, blendrl 1.4.0, d3rlpy-suite 2.1.0, dl_basics_suite, dnn, dueling_resnet, gym_classic_control, image-data, lstm, mlp, nature_cnn, neumann, nsfr, optuna 1.2.0, replay-buffer, sb3-suite 2.1.0, slurm 2.0.0, standard-figures, tabular-data, thetalib, transformer. The earlier preparation's installed copies are in `.thetaide/retained_packages`. The dev forks (`sb3-dev`, `d3rlpy-dev`, `gym_classic_control_dev`, `blendrl-dev`) left `src/usr`: their work is in the published releases, and the test suite keeps them as fixtures. The user's own packages stay in `src/usr`: the three monitors, two objectives, three sites and `themes-dev`.
 
 ## Compatibility requirements
 
@@ -37,14 +37,20 @@ Tuning has one shape: `tuning.{component, metric, direction, options.<component>
 
 ## The user's files that are out of date
 
-- `src/usr/config/experiment/NewMonitors/onlineRL.yaml`, `BlendRL/Cartpole/LearnFast.yaml` and `BlendRL/Cartpole/sweep_sustainedSolve.yaml` set `symbolic_state_loader`; it moves to `model.symbolic_state` (for example `blendrl/cartpole_state`).
-- `BlendRL/Cartpole/sweep_sustainedSolve.yaml` also sets flat `tuning.n_trials`/`n_jobs` (user knows).
+Updated with the user's approval (originals in `.thetaide/backups/experiments-20261116`): `NewMonitors/onlineRL`, `BlendRL/Cartpole/LearnFast` and `BlendRL/Cartpole/sweep_sustainedSolve` select the published IDs, `model.symbolic_state` and `blender`/`blender_model`; the sweep's `n_trials`/`n_jobs` moved under `tuning.options.optuna`. All three validate. Still failing validation in `src/usr/config/experiment`:
+
+- `BlendRL/Cartpole/Offline Run` needs `model.symbolic_state` (for example `blendrl/cartpole_state`) for its default hybrid actor.
+- `BlendRL/MountainCar/single run` and `sweep` extend `experiment/Belndrl Bench/_base`, which no longer exists.
+- `Execution/supervised_smoke` and `unsupervised_smoke` select the CartPole env, which blocks outside online/offline RL; supervised and unsupervised runs take no env (`override /env: null`).
+- `AL/codex/themes_synthetic`, `themes_synthetic_smoke`, `themes_mimic_q10_120` and `themes_mimic_cleantrain_q10_116` select the stage-only `themes-dev/ticc`; THEMES's preflight requires a composite model such as `themes-dev/bundle` (THEMES's own shipped recipes do the same).
 
 ## Tests
 
-Full per-file run at `9d0e7d3` (226 files): **2,655 passed, 70 skipped, 112 failed**, no new failure IDs, 21 phase 7 IDs now pass ([evidence](../reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json)). The remaining failures are the deferred stale tests and the UI-batch IDs listed there. Package integration in `../theta-plugins-v3`: 70 passed. The installed-distribution probe passed against the release.
+Full per-file run (2026-11-16, 225 files): **2,655 passed, 112 failed, 61 skipped**; the failures are the IDs in the [verification evidence](../reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json), unchanged by the fixture move. Package integration in `../theta-plugins-v3`: 70 passed. The installed-distribution probe passed against the release.
 
-Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. Compare failures by ID against the evidence before calling one a regression. Fixtures: `tests/conftest.py`'s autouse `tracked_workspace`, `fixture_workspace`, `optuna_workspace`, `component_fixtures` (`install_optional`, `sweep_workspace`, `LocalHub` via `THETA_HUB_ROOT`), `tests/bundle_fixtures.py` for fake-project bundles. Deferred stale tests (user decision) include those reading `~/.config/thetaide/settings.toml` or QSettings.
+Tests never read the developer's workspace: the base test workspace is built from `tests/fixtures/base_usr` (`conftest.base_workspace`, selected at import), and `tests/test_layout_guard.py` rejects reads of the checkout's `src/usr`. Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. Fixtures: `tests/conftest.py`'s autouse `tracked_workspace`, `fixture_workspace`, `optuna_workspace`, `component_fixtures` (`install_optional`, `sweep_workspace`, `LocalHub` via `THETA_HUB_ROOT`), `tests/bundle_fixtures.py` for fake-project bundles.
+
+The 112 failures: about 85 test UI that the UI batch replaced (results, queue and monitor panels, layout, tray, launcher, file tree, experiment pane, splash); about 25 exercise behavior the refactor removed (bare `ppo` selections, script `theta_execution`, missing `tuning.component`, undeclared providers, a storage-v2 suite manifest, `MockSettings` without `get`).
 
 ## Desktop items not yet checked interactively
 

@@ -22,7 +22,7 @@ Or use a short integration run without changing the saved recipe:
 
 ```sh
 venv/bin/python run_pipeline.py newMonitors/onlineRL total_timesteps=256 no_plot=true \
-  '++methods.PPO.agent={name:sb3-dev/dqn,learning_starts:32,train_freq:4,gradient_steps:1,batch_size:16,buffer_size:1000}' \
+  '++methods.PPO.agent={name:sb3/dqn,learning_starts:32,train_freq:4,gradient_steps:1,batch_size:16,buffer_size:1000}' \
   ++monitors.activation-evolution.interval_updates=10 ++monitors.causal-circuit.interval_updates=10 \
   ++monitors.network.interval_updates=10 \
   ++experiment_id=monitor_example
@@ -97,7 +97,7 @@ trajectory states are not independent episode-level confidence intervals.
 
 ### BlendRL-owned reliance
 
-The `blendrl-dev` model package includes `blendrl-dev/reliance`, declares an
+The `blendrl` model package includes `blendrl/reliance`, declares an
 optional `blend_reliance` default, and implements `get_monitor_specs()` plus
 `monitoring_interventions(obs)`. It is disabled until explicitly enabled:
 
@@ -296,8 +296,8 @@ array references, snapshot following/history, and comparison identity checks.
 
 ## BlendRL method in newMonitors/onlineRL
 
-The `BlendRL` method selects `blendrl-dev` with a neural expert, an NSFR expert,
-a neural gate and the `sb3-dev/ppo` runner. It adds these saved rich diagnostics
+The `BlendRL` method selects `blendrl` with a neural expert, an NSFR expert,
+a neural gate and the `sb3/ppo` runner. It adds these saved rich diagnostics
 in both live **Diagnostics** and **Results → Diagnostics**:
 
 - `blend_reliance` / **Expert routing and action probabilities**: fixed-probe

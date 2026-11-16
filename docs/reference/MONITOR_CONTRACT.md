@@ -203,22 +203,13 @@ The editable SB3 development copy gates model observation diagnostics this way
 and checks recorded metrics before invoking them. Model sampling remains
 controlled by `monitoring_interval` and `monitoring_max_samples`.
 
-## Editable components in this workspace
+## Declarations in the published packages
 
-Installed sources are unchanged. Deep copies live at:
-
-- `src/usr/algorithms/sb3-dev` — agent profiles `sb3-dev/ppo`, `sb3-dev/dqn`,
-  `sb3-dev/a2c`, `sb3-dev/sac`; runner hook/output declarations and optional
-  model-collection gating.
-- `src/usr/models/blendrl-dev` — model profile `blendrl-dev`; routing/phase/
-  agreement monitor declarations, independent model and plotter identities.
-
-Select those profiles in an experiment to exercise the new declarations.
-Their manifests and config payloads are independent of Hub-managed storage,
-and can be exported/repackaged later. Existing experiments keep their selected
-components; no provider override redirects them to development copies. The
-`Belndrl Bench/Cartpole/singleSpecced` recipe explicitly selects the two dev
-profiles; all its other parameters are preserved.
+`sb3-suite` (agent profiles `sb3/ppo`, `sb3/dqn`, `sb3/a2c`, `sb3/sac`) declares its
+runner hooks, outputs and optional model-collection gating. `blendrl` declares its
+routing, phase and agreement monitors and the model-owned `blendrl/reliance`. The
+test suite exercises the same declarations through fixture copies in
+`tests/fixtures/base_usr`.
 
 Run targeted checks with:
 
