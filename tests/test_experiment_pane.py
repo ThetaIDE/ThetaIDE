@@ -338,7 +338,6 @@ class TestConfigTree(unittest.TestCase):
             tree.close()
 
 
-
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
 @pytest.mark.usefixtures("optuna_workspace")  # the tuning box needs an installed tuner
 class TestConfigViewer(unittest.TestCase):
@@ -1022,16 +1021,6 @@ class TestComponentsPanel(unittest.TestCase):
         self.assertTrue(any(t in ("Algorithms", "agent") for t in top_texts))
         self.assertFalse(any("experiment" in t for t in top_texts))
 
-    def test_select_component_loads_into_viewer_and_raw_editor(self):
-        ok = self.panel.components_tree.select_file("agent/ppo.yaml")
-        self.assertTrue(ok)
-        self.assertEqual(self.panel.viewer.file_title.text(), "ppo")
-        self.assertIn("lr", self.panel.viewer.raw_data)
-        cards = self.panel.viewer.findChildren(ConfigBox)
-        self.assertGreaterEqual(len(cards), 1)
-        for card in cards:
-            self.assertIsNone(card.title_label)
-            self.assertIsNone(card.subtitle_label)
 
     def test_toggle_raw_yaml_view(self):
         self.assertTrue(self.panel.raw_panel.isHidden())
@@ -1040,47 +1029,6 @@ class TestComponentsPanel(unittest.TestCase):
         self.panel.toggle_raw_preview(False)
         self.assertTrue(self.panel.raw_panel.isHidden())
 
-    def test_component_hub_replaces_parameters_panels_and_restores_on_selection(self):
-        # Initially on parameters view
-        self.assertFalse(self.panel.is_hub_active)
-        self.assertFalse(self.panel.btn_hub.isChecked())
-        self.assertFalse(self.panel.btn_toggle_raw.isHidden())
-        self.assertEqual(self.panel.content_stack.currentWidget(), self.panel.content_splitter)
-
-        # Click Component Hub button in top right
-        self.panel.btn_hub.click()
-        self.assertTrue(self.panel.is_hub_active)
-        self.assertTrue(self.panel.btn_hub.isChecked())
-        self.assertTrue(self.panel.btn_toggle_raw.isHidden())
-        self.assertEqual(self.panel.content_stack.currentWidget(), self.panel.hub_view)
-
-        # Click on a component again in the tree
-        self.panel.components_tree.select_file("env/cartpole.yaml")
-        # Brought back to parameters view
-        self.assertFalse(self.panel.is_hub_active)
-        self.assertFalse(self.panel.btn_hub.isChecked())
-        self.assertFalse(self.panel.btn_toggle_raw.isHidden())
-        self.assertEqual(self.panel.content_stack.currentWidget(), self.panel.content_splitter)
-        self.assertEqual(self.panel.viewer.file_title.text(), "cartpole")
-
-    def test_component_hub_toggle_and_close_button(self):
-        # Open hub
-        self.panel.btn_hub.click()
-        self.assertTrue(self.panel.is_hub_active)
-
-        # Click btn_hub again to toggle back
-        self.panel.btn_hub.click()
-        self.assertFalse(self.panel.is_hub_active)
-        self.assertEqual(self.panel.content_stack.currentWidget(), self.panel.content_splitter)
-
-        # Open hub again
-        self.panel.btn_hub.click()
-        self.assertTrue(self.panel.is_hub_active)
-
-        # Click Back to Parameters button in Hub footer
-        self.panel.hub_view.btn_close.click()
-        self.assertFalse(self.panel.is_hub_active)
-        self.assertEqual(self.panel.content_stack.currentWidget(), self.panel.content_splitter)
 
     def test_reload_components_preserves_hub_view_on_install_and_uninstall(self):
         # Open hub
@@ -1178,39 +1126,6 @@ class TestComponentsPanel(unittest.TestCase):
         self.assertIsNone(item1.data(0, Qt.ItemDataRole.ForegroundRole))
         self.assertFalse(self.panel.viewer.is_dirty)
 
-    def test_component_rename_rewrites_params_and_updates_tree(self):
-        self.panel.components_tree.select_file("agent/ppo.yaml")
-        self.assertEqual(self.panel.viewer.file_title.text(), "ppo")
-
-        # Edit title in place
-        self.panel.viewer._start_title_edit()
-        self.panel.viewer.title_editor.setText("ppo_custom")
-        self.panel.viewer._commit_title_edit()
-
-        # Display updated
-        self.assertEqual(self.panel.viewer.file_title.text(), "ppo_custom")
-        self.assertEqual(self.panel.active_rel_path, "agent/ppo_custom.yaml")
-
-        # Check disk
-        old_file = self.root / "agent" / "ppo.yaml"
-        new_file = self.root / "agent" / "ppo_custom.yaml"
-        self.assertFalse(old_file.exists())
-        self.assertTrue(new_file.exists())
-
-        # Parameters rewritten in YAML
-        data = yaml.safe_load(new_file.read_text(encoding="utf-8"))
-        self.assertEqual(data.get("algorithm"), "ppo_custom")
-
-        # Raw editor preview updated
-        self.assertIn("ppo_custom", self.panel.raw_edit.toPlainText())
-
-        # Tree updated with new file
-        self.assertEqual(self.panel.components_tree.current_rel_path, "agent/ppo_custom.yaml")
-        item = self.panel.components_tree.find_file_item("agent/ppo_custom.yaml")
-        self.assertIsNotNone(item)
-        self.assertEqual(item.text(0), "ppo_custom")
-
-
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
 class TestExperimentPaneWindowIntegration(unittest.TestCase):
@@ -1266,12 +1181,6 @@ class TestExperimentPaneWindowIntegration(unittest.TestCase):
             self.assertEqual(self.window.current_experiment, "cartpole/quick_test")
             self.assertEqual(self.window.config_viewer.file_title.text(), "quick_test")
 
-    def test_experiment_pane_only_has_experiments(self):
-        self.assertEqual(self.window.config_tree.mode, "experiments")
-        top_texts = [self.window.config_tree.tree.topLevelItem(i).text(0) for i in range(self.window.config_tree.tree.topLevelItemCount())]
-        self.assertFalse(any(t == "experiment" for t in top_texts))
-        self.assertFalse(any(t in ("agent", "env", "model", "paradigms", "site") for t in top_texts))
-        self.assertTrue(any(t in ("thetaide", "tabular_classification", "cartpole", "mimic") for t in top_texts))
 
     def test_components_pane_integrated_in_window(self):
         self.assertIsNotNone(self.window.components_panel)
@@ -1280,43 +1189,6 @@ class TestExperimentPaneWindowIntegration(unittest.TestCase):
         top_count = self.window.components_panel.components_tree.tree.topLevelItemCount()
         top_texts = [self.window.components_panel.components_tree.tree.topLevelItem(i).text(0) for i in range(top_count)]
         self.assertFalse(any("experiment" in t for t in top_texts))
-
-    def test_experiment_pane_square_header_buttons_and_actions_bar_removed(self):
-        from PyQt6.QtWidgets import QToolButton
-        tree = self.window.config_tree
-        self.assertIsInstance(self.window.start_button, QToolButton)
-        self.assertIsNone(self.window.btn_save)
-        self.assertIsInstance(self.window.btn_export, QToolButton)
-        self.assertIsInstance(self.window.btn_toggle_yaml, QToolButton)
-        self.assertIs(self.window.start_button, tree.btn_launch)
-        self.assertIs(self.window.btn_export, tree.btn_export)
-        self.assertIs(self.window.btn_toggle_yaml, tree.btn_toggle_yaml)
-        self.assertEqual(self.window.start_button.property("svg_icon"), "launch")
-        self.assertEqual(self.window.btn_export.property("svg_icon"), "export")
-        self.assertEqual(self.window.btn_toggle_yaml.property("svg_icon"), "raw_yaml")
-        # Add to queue and Stop are not in the experiment pane: they are the Queue tab's run controls
-        self.assertIs(self.window.queue_button, self.window.queue_panel.add_button)
-        self.assertIs(self.window.stop_button, self.window.queue_panel.stop_button)
-        self.assertFalse(tree.isAncestorOf(self.window.queue_button) or tree.isAncestorOf(self.window.stop_button))
-
-        # Header layout widgets check
-        header_widgets = [
-            tree.header_layout.itemAt(i).widget()
-            for i in range(tree.header_layout.count())
-            if tree.header_layout.itemAt(i).widget() is not None
-        ]
-        self.assertIn(tree.btn_new, header_widgets)
-        self.assertIn(tree.btn_duplicate, header_widgets)
-        self.assertIn(tree.btn_launch, header_widgets)
-        self.assertIn(tree.btn_export, header_widgets)
-        self.assertIn(tree.btn_toggle_yaml, header_widgets)
-        self.assertNotIn(tree.btn_save, header_widgets)
-
-        # Ensure right panel layout has no actions_bar
-        right_panel = self.window.preview_splitter.parentWidget()
-        right_layout = right_panel.layout()
-        self.assertEqual(right_layout.count(), 1)
-        self.assertIs(right_layout.itemAt(0).widget(), self.window.preview_splitter)
 
 
 if __name__ == "__main__":

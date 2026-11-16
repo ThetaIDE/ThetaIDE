@@ -1,8 +1,6 @@
 """Sidebar bins: drag tabs onto each other to group them; bins expand, collapse, rename and are saved."""
 
 import sys
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -260,25 +258,3 @@ def test_apply_tab_order_keeps_bins_together(tabs):
     assert tabs.tab_order == ["queue", "monitor", "console", "components", "config", "results"]
 
 
-def test_window_saves_and_restores_bins_and_reset_clears_them():
-    from frontend.app import Window
-
-    with tempfile.TemporaryDirectory() as temp:
-        data = Path(temp) / ".thetaide" / "runs"
-        window = Window(data)
-        try:
-            bin_id = window.tabs.group_tabs("monitor", "queue")
-            window.tabs.rename_bin(bin_id, "Training")
-            window.tabs.set_bin_expanded(bin_id, False)
-        finally:
-            window._quitting = True
-            window.close()
-        again = Window(data)
-        try:
-            assert again.tabs.bins_state() == [{"name": "Training", "members": ["monitor", "queue"], "expanded": False}]
-            assert again.settings_manager.theme  # the rest of settings.toml still parses
-            again.reset_sidebar_layout()
-            assert again.tabs.bins == {} and again.settings_manager.get("sidebar", "bins") == []
-        finally:
-            again._quitting = True
-            again.close()

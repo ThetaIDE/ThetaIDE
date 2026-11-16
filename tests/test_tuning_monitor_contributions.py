@@ -9,7 +9,6 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from frontend.monitor.panel import MonitorPanel
-from src.app.core.contributions import ContributionRegistry
 from src.app.workspace import WorkspacePaths
 
 
@@ -46,34 +45,6 @@ def test_monitor_has_no_unconditional_tuning_widget(application, tmp_path):
     assert panel.show_view('Sweep') is False
     assert panel.tuning_notice.isHidden()
     panel.close()
-
-
-def test_monitor_mount_disable_enable_and_close(application, tmp_path):
-    host, root, summary = fixture(tmp_path)
-    before = summary.read_bytes()
-    panel = MonitorPanel(host)
-    panel.focus_sweep('m:search')
-    original = panel.sweep_view
-    assert panel.views.currentWidget() is original
-    assert original.studies[0][1]['component'] == 'lattice'
-    panel.refresh_live()
-    assert panel.sweep_view is original
-    registry = ContributionRegistry(host.workspace_paths)
-    registry.set_enabled('tuner', 'lattice', False)
-    panel.refresh_live()
-    assert panel.sweep_view is None and panel.views.currentWidget() is panel.charts_view
-    assert panel._focused_sweep is None and original.parent() is None
-    assert original.studies == [] and original.lives == {}
-    assert 'disabled' in panel.tuning_notice.text()
-    registry.set_enabled('tuner', 'lattice', True)
-    panel.focus_sweep('m:search')
-    assert panel.sweep_view is not None and panel.sweep_view is not original
-    assert panel.tuning_notice.isHidden()
-    panel.close()
-    assert panel.sweep_view is None and not panel._tuning_monitors.scope.active
-    panel.refresh_live()  # Queued host notifications cannot remount a closed panel.
-    assert panel.sweep_view is None
-    assert before == summary.read_bytes()
 
 
 def test_readiness_removal_and_saved_recipe_are_preserved(application, tmp_path):

@@ -30,35 +30,6 @@ def test_tuning_presence_alone_enables_a_sweep():
     assert tuning_disabled({"tuning": None})
 
 
-def test_local_runner_uses_tuning_component_instead_of_context_flags(monkeypatch):
-    from omegaconf import OmegaConf
-    from src.app.pipeline import local_runner
-
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl", "tuning": {}})
-    methods = {
-        "ordinary": {"agent": "ppo", "model": "dnn"},
-        "tuned": {"agent": "ppo", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}},
-    }
-    plans = []
-    monkeypatch.setattr(local_runner, "run_experiment", lambda overrides, **kwargs: plans.append(overrides))
-    from component_fixtures import optional_module
-    _optuna_component = optional_module('optuna', 'component.py')
-    OptunaTuner = _optuna_component.OptunaTuner
-    monkeypatch.setattr(OptunaTuner, "prepare", lambda *args, **kwargs: None)
-    monkeypatch.setattr(OptunaTuner, "finalize", lambda *args, **kwargs: None)
-    context = {"methods": methods, "sanitized_extra_args": [], "storage_url": "sqlite:///test.db", "is_sweep": False}
-    local_runner._run_methods_sequential(cfg, context)
-    assert "--multirun" in plans[0]
-    assert "--multirun" in plans[1]
-
-    cfg.tuning = None
-    plans.clear()
-    from src.app.pipeline.exceptions import ConfigurationError
-    with pytest.raises(ConfigurationError, match="tuned.*Add tuning"):
-        local_runner._run_methods_sequential(cfg, {**context, "is_sweep": True})
-    assert not plans
-
-
 def test_method_preview_includes_the_search_space():
     from omegaconf import OmegaConf
     from src.app.pipeline.compose import ComposedExperiment, method_plans

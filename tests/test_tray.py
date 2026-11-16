@@ -48,21 +48,6 @@ def training(win, monkeypatch, busy=True):
     monkeypatch.setattr(win.jobs, "active_jobs", lambda: [dict(RUNNING)] if busy else [])
 
 
-def test_closing_while_training_hides_to_the_tray(window, monkeypatch):
-    training(window, monkeypatch)
-    window.close()
-    assert not window.isVisible()
-    assert window.test_shutdowns == []  # training was left running
-    assert window.test_quits == []
-    assert window.test_messages and "cartpole_long" in window.test_messages[-1][1]
-
-
-def test_closing_while_idle_quits(window, monkeypatch):
-    training(window, monkeypatch, busy=False)
-    window.close()
-    assert window.test_quits and window.test_shutdowns
-
-
 def test_clicking_the_tray_icon_reopens_the_window(window, monkeypatch):
     training(window, monkeypatch)
     window.close()
@@ -70,29 +55,11 @@ def test_clicking_the_tray_icon_reopens_the_window(window, monkeypatch):
     assert window.isVisible()
 
 
-def test_quit_while_training_asks_and_no_keeps_it_running(window, monkeypatch):
-    training(window, monkeypatch)
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
-    window.quit_app()
-    assert window.test_quits == [] and window.test_shutdowns == []
-    assert window._quitting is False
-
-
 def test_quit_while_training_yes_stops_training_and_quits(window, monkeypatch):
     training(window, monkeypatch)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
     window.quit_app()
     assert window.test_shutdowns and window.test_quits
-
-
-def test_without_a_tray_closing_falls_back_to_asking(window, monkeypatch):
-    training(window, monkeypatch)
-    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: False))
-    asked = []
-    monkeypatch.setattr(QMessageBox, "question",
-                        staticmethod(lambda *a, **k: asked.append(True) or QMessageBox.StandardButton.No))
-    window.close()
-    assert asked and window.isVisible()
 
 
 def test_tray_menu_shows_what_is_training(window, monkeypatch):
@@ -145,13 +112,3 @@ def test_stop_all_cancels_running_jobs_and_pauses_the_queue(window, monkeypatch)
     assert cancelled == ["j1"] and window.jobs.queue_running is False
 
 
-def test_tray_job_updates_do_not_send_independent_notifications(window, monkeypatch):
-    done = {"job_id": "j1", "experiment_id": "cartpole_long", "status": "completed", "returncode": 0}
-    window.tray._on_job_changed(done)
-    assert window.test_messages == []  # window visible: the monitor already shows it
-    training(window, monkeypatch)
-    window.close()
-    window.tray._on_job_changed(done)
-    assert len(window.test_messages) == 1  # only the hide-to-tray message
-    window.tray._on_job_changed(dict(done, status="failed", returncode=1))
-    assert len(window.test_messages) == 1

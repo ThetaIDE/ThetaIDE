@@ -1,8 +1,6 @@
 """Tests for manifest-driven Theta Hub conformance suites."""
 
 import json
-import hashlib
-from zipfile import ZipFile
 
 import pytest
 
@@ -13,8 +11,6 @@ from src.app.services.test_suite import (
     load_test_suite_manifest,
     parse_test_suite_manifest,
 )
-from src.app.components.installer import HubInstaller
-from src.app.components.models import HubComponent
 
 
 def _manifest():
@@ -105,49 +101,3 @@ def test_runnable_case_requires_real_execution_contract():
         parse_test_suite_manifest(manifest)
 
 
-def test_downloadable_suite_installs_components_and_experiment_group(tmp_path):
-    source = tmp_path / "suite-source"
-    source.mkdir()
-    manifest = _manifest()
-    manifest["dependencies"] = {"components": ["basic_suite"]}
-    manifest["config_paths"] = [
-        "src/usr/config/experiment/suite_fixture/_base.yaml",
-        "src/usr/config/experiment/suite_fixture/online_smoke.yaml",
-        "src/usr/config/experiment/suite_fixture/missing_method.yaml",
-    ]
-    (source / ".theta_component.json").write_text(json.dumps(manifest), encoding="utf-8")
-    experiment_dir = source / "src/usr/config/experiment/suite_fixture"
-    experiment_dir.mkdir(parents=True)
-    (experiment_dir / "_base.yaml").write_text("paradigm: online_rl\n", encoding="utf-8")
-    (experiment_dir / "online_smoke.yaml").write_text("methods: {}\n", encoding="utf-8")
-    (experiment_dir / "missing_method.yaml").write_text("methods: {}\n", encoding="utf-8")
-
-    archive = tmp_path / "suite-fixture.zip"
-    with ZipFile(archive, "w") as zf:
-        for path in source.rglob("*"):
-            if path.is_file():
-                zf.write(path, path.relative_to(source).as_posix())
-
-    component = HubComponent.from_dict({
-        **manifest,
-        "releases": {
-            "1.0.0": {
-                "tag": "v1.0.0",
-                "url": archive.as_uri(),
-                "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
-            }
-        },
-    })
-    workspace = tmp_path / "workspace"
-    installer = HubInstaller(workspace, tmp_path / "state")
-
-    assert installer.install(component) is True
-    installed_manifest = workspace / ".thetaide" / "suites" / component.id / ".theta_component.json"
-    installed_suite = load_test_suite_manifest(installed_manifest)
-    assert [case.experiment for case in installed_suite.cases] == [
-        "suite_fixture/online_smoke", "suite_fixture/missing_method",
-    ]
-    assert installed_suite.cases[0].execution == "run"
-    assert json.loads(installed_manifest.read_text(encoding="utf-8"))["dependencies"]["components"] == ["basic_suite"]
-    assert (workspace / "src/usr/config/experiment/suite_fixture/online_smoke.yaml").is_file()
-    assert (workspace / "src/usr/config/experiment/suite_fixture/missing_method.yaml").is_file()

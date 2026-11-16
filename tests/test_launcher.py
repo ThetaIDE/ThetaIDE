@@ -97,32 +97,6 @@ def test_shortcut_is_rebindable_and_toggles_the_overlay(window):
     assert action.shortcut().toString() == "Ctrl+Shift+P"
 
 
-def test_lists_panels_plugins_settings_and_commands(window):
-    launcher = open_launcher(window)
-    by_key = {i.key: i for i in launcher.items}
-    assert {"pane:components", "pane:monitor", "settings:hotkeys", "command:launch_training"} <= set(by_key)
-    assert by_key["pane:arxiv_papers"].category == "Plugin"  # a plugin's own panel
-    assert "Turn on Documentation" in {i.title for i in launcher.items}  # a plugin that is switched off
-    assert by_key["pane:monitor"].shortcut.endswith(" 3")  # its action-key digit
-    assert by_key["command:launch_training"].shortcut == "F5"
-    assert "hidden" in by_key["pane:queue"].detail  # Job queue is hidden by default
-    assert "command:open_launcher" not in by_key
-
-
-def test_typing_filters_and_enter_opens_the_pane_unhiding_it(window):
-    launcher = open_launcher(window)
-    launcher.input.setText("job q")
-    assert launcher.current_item().key == "pane:queue"
-    press(launcher.input, Qt.Key.Key_Return)
-    app.processEvents()
-    assert not launcher.isVisible()
-    assert window.tabs.currentWidget() is window.tabs.tabs["queue"]["widget"]
-    assert window.tabs.is_tab_visible("queue") and window.pane_sliders["queue"].isChecked()
-    assert launcher.recent()[0] == "pane:queue"
-    open_launcher(window)
-    assert launcher.current_item().key == "pane:queue"  # most recent first next time
-
-
 def test_keyboard_navigation_and_escape(window):
     launcher = open_launcher(window)
     first = launcher.list.currentRow()

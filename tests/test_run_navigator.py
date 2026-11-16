@@ -1,4 +1,3 @@
-import json
 import os
 import sys
 import tempfile
@@ -60,32 +59,6 @@ class TestRunNavigator(unittest.TestCase):
         """Hovering the run's name tells where its records are kept."""
         self.window.render_run()
         self.assertIn("jobs.db", self.window.run_title.toolTip())
-
-    def test_job_signals_update_monitor(self):
-        """Generic job signals (output, metrics, hardware) update the monitor."""
-        run = new_run(Config(name="tests_cartpole", seed=42), simulated=False)
-        run["backend"] = {
-            "job_id": "test-job-123",
-            "group": "tests",
-            "experiment_id": "cartpole_test",
-            "agents": ["test_method"],
-            "total_timesteps": 640,
-        }
-        self.window.runs.insert(0, run)
-        self.window.active = run
-        self.window.select_run(run)
-
-        rows = [
-            {"eval/reward": 78.5, "eval/reward_std": 12.0, "step": 0.0, "transitions": 0.0},
-            {"losses/total_loss": 32.1, "losses/entropy": 0.61, "step": 0.0, "transitions": 512.0},
-        ]
-        self.window.on_job_output("test-job-123", ["Training in progress..."])
-        self.window.on_job_metrics("test-job-123", "test_method", rows, False)
-        self.window.on_job_hardware("test-job-123", {"cpu_percent": 15.2, "memory_mb": 210.5})
-        self.assertIn("Training in progress...", self.window.console.toPlainText())
-        self.assertEqual(len(run["metrics"]), 2)
-        self.assertEqual(run["metrics"][0]["reward"], 78.5)
-        self.assertIn("15.2%", self.window.monitor.view_buttons["System"].toolTip())
 
 
 if __name__ == "__main__":

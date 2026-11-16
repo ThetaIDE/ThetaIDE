@@ -291,26 +291,6 @@ class TestMonitorPanel(unittest.TestCase):
         self.assertNotIn("eval", monitor.charts_view.grid.collapsed)
 
 
-def test_last_finished_run_opens_results_only_after_all_jobs_finish():
-    from unittest.mock import Mock
-
-    run = {"backend": {"group": "group", "experiment_id": "last"}}
-    host = SimpleNamespace(active_runs=[{}], jobs=SimpleNamespace(is_busy=Mock(return_value=False)),
-                           _quitting=False, _set_monitor_active=Mock(), results_view=SimpleNamespace(open_run=Mock()),
-                           tabs=SimpleNamespace(setCurrentWidget=Mock()), results_panel=object())
-    Window._open_last_run_results(host, run)
-    host.results_view.open_run.assert_not_called()
-    host.active_runs.clear()
-    host.jobs.is_busy.return_value = True
-    Window._open_last_run_results(host, run)
-    host.results_view.open_run.assert_not_called()
-    host.jobs.is_busy.return_value = False
-    Window._open_last_run_results(host, run)
-    host._set_monitor_active.assert_called_once_with(False)
-    host.results_view.open_run.assert_called_once_with("group", "last")
-    host.tabs.setCurrentWidget.assert_called_once_with(host.results_panel)
-
-
 def test_monitor_header_and_legend_follow_run_and_method_colors(monkeypatch):
     from frontend.live_run import LiveRun
     from frontend.monitor.live_view import PALETTE
@@ -556,34 +536,6 @@ def test_play_stays_enabled_when_training_capacity_is_full(monkeypatch):
     host.compose_valid = False
     Window.update_launch_state(host)
     assert not button.isEnabled()
-
-
-@pytest.mark.parametrize("capacity", [1, 2])
-def test_queued_experiments_wait_for_slots_and_start_in_order(tmp_path, monkeypatch, capacity):
-    from frontend.runner_manager import JobManager
-
-    manager = JobManager(store_path=tmp_path / "jobs.db", project_root=tmp_path,
-                         logs_dir=tmp_path / "logs")
-    started = []
-
-    def start(job):
-        job["status"] = "running"
-        started.append(job["experiment_id"])
-
-    monkeypatch.setattr(manager, "_start", start)
-    monkeypatch.setattr(manager, "_scan_metrics", lambda *_: None)
-    monkeypatch.setattr(manager, "_unwatch", lambda *_: None)
-    manager.max_parallel = capacity
-    jobs = []
-    for name in ("first", "second", "third"):
-        plan = {"experiment": f"g/{name}", "group": "g", "experiment_id": name,
-                "agents": [], "total_timesteps": 10, "effective_timesteps": 10, "run_in_parallel": False}
-        jobs.append(manager.launch(f"g/{name}", queue=True, _plan=plan))
-        manager.start_queue()
-    assert started == ["first", "second", "third"][:capacity]
-    assert len(manager.queue_order) == 3 - capacity
-    manager._finish(jobs[0]["job_id"], 0)
-    assert started == ["first", "second", "third"][:capacity + 1]
 
 
 @pytest.mark.parametrize("job_bucket", ["active", "queued"])

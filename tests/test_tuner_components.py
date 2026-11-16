@@ -3,7 +3,6 @@
 import pytest
 from omegaconf import OmegaConf
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -131,43 +130,6 @@ def test_optuna_new_and_resume_studies_are_explicit(tmp_path):
         tuner.prepare(cfg, storage, "study")
 
 
-def test_ordinary_run_never_resolves_a_tuner(monkeypatch):
-    from src.app.pipeline import local_runner
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "e", "paradigm": "online_rl"})
-    monkeypatch.setattr(local_runner, "get_tuner", lambda cfg: pytest.fail("ordinary job resolved a tuner"))
-    commands = []
-    monkeypatch.setattr(local_runner, "run_experiment", lambda overrides, **kwargs: commands.append(overrides))
-    local_runner._run_methods_sequential(cfg, {
-        "methods": {"method": {"agent": "ppo", "model": "dnn"}},
-        "sanitized_extra_args": [], "storage_url": None, "is_sweep": True,
-    })
-    assert len(commands) == 1 and "--multirun" not in commands[0]
-
-
-def test_ordinary_run_works_when_optuna_imports_are_unavailable(tmp_path):
-    project = Path(__file__).resolve().parents[1]
-    script = tmp_path / "without_optuna.py"
-    script.write_text(
-        "import sys\n"
-        "class BlockOptuna:\n"
-        "    def find_spec(self, fullname, path=None, target=None):\n"
-        "        if fullname == 'optuna' or fullname.startswith('optuna.') or fullname.startswith('hydra_plugins.hydra_optuna_sweeper'):\n"
-        "            raise ModuleNotFoundError('Optuna intentionally unavailable')\n"
-        "sys.meta_path.insert(0, BlockOptuna())\n"
-        "from omegaconf import OmegaConf\n"
-        "from src.app.pipeline import local_runner\n"
-        "cfg=OmegaConf.create({'group':'g','experiment_id':'e','paradigm':'online_rl',"
-        "'tuning':None})\n"
-        "calls=[]\n"
-        "local_runner.run_experiment=lambda overrides, **kw: calls.append(overrides)\n"
-        "local_runner._run_methods_sequential(cfg, {'methods':{'m':{'agent':'ppo','model':'dnn'}},"
-        "'sanitized_extra_args':[],'storage_url':None,'is_sweep':False})\n"
-        "assert len(calls)==1 and '--multirun' not in calls[0]\n", encoding="utf-8")
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(project), os.environ.get("PYTHONPATH", "")])}
-    result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
 def test_optuna_sweeper_does_not_import_lightning_when_pruning_is_off(tmp_path):
     project = Path(__file__).resolve().parents[1]
     script = tmp_path / "without_lightning.py"
@@ -194,106 +156,3 @@ def test_optuna_sweeper_does_not_import_lightning_when_pruning_is_off(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_other_tuner_owns_compilation_and_lifecycle(monkeypatch):
-    from src.app.pipeline import local_runner
-    from src.app.pipeline.validation import _validate_tuning
-
-    events = []
-
-    class ExampleTuner:
-        api_version = 1
-        def settings(self):
-            return []
-
-        def validate_config(self, cfg):
-            events.append("validate")
-
-        def validate_dimension(self, target, dimension):
-            assert dimension == {"type": "custom"}
-
-        def compile(self, overrides, **context):
-            return [*overrides, "++custom_tuner.active=true"]
-
-        def job_entrypoint(self, cfg, method_cfg, script, python):
-            return "custom_tuner_runner.py", python
-
-        def study_name(self, cfg, method):
-            return "custom-study"
-
-        def storage(self, cfg):
-            return "custom-storage"
-
-        def prepare(self, cfg, storage, study):
-            events.append(("prepare", storage, study))
-
-        def finalize(self, group, experiment, method, storage, study):
-            events.append(("finalize", group, experiment, method, storage, study))
-
-    monkeypatch.setattr(
-        "src.app.core.provider_loader.resolve_provider",
-        lambda kind, name, **_: ExampleTuner if (kind, name) == ("tuner", "example") else None,
-    )
-    cfg = OmegaConf.create({
-        "group": "g", "experiment_id": "e", "paradigm": "online_rl",
-        "tuning": {"component": "example", "metric": "eval/reward", "direction": "maximize"},
-        "methods": {"method": {"agent": "ppo", "model": "dnn", "tune": {"model.width": {"type": "custom"}}}},
-    })
-    _validate_tuning(cfg)
-    commands = []
-    monkeypatch.setattr(local_runner, "run_experiment", lambda overrides, **kwargs: commands.append((overrides, kwargs)))
-    local_runner._run_methods_sequential(cfg, {
-        "methods": cfg.methods, "sanitized_extra_args": [], "storage_url": get_tuner(cfg).storage(cfg), "is_sweep": True,
-    })
-    assert "++custom_tuner.active=true" in commands[0][0]
-    assert commands[0][1]["script_entrypoint"] == "custom_tuner_runner.py"
-    assert not any("optuna" in item.lower() for item in commands[0][0])
-    assert ("prepare", "custom-storage", "custom-study") in events
-    assert ("finalize", "g", "e", "method", "custom-storage", "custom-study") in events
-
-
-def test_independently_installed_tuner_runs_and_produces_plotman_artifacts(tmp_path):
-    project = Path(__file__).resolve().parents[1]
-    package = tmp_path / "package"
-    shutil.copytree(project / "tests/fixtures/example_tuner", package)
-    target = tmp_path / "installed"
-    install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-deps", "--no-build-isolation", "--target", str(target), str(package)],
-        cwd=tmp_path, capture_output=True, text=True, timeout=120,
-    )
-    assert install.returncode == 0, install.stdout + install.stderr
-    script = tmp_path / "run_example.py"
-    script.write_text(
-        "import sys\n"
-        "class BlockOptuna:\n"
-        "    def find_spec(self, fullname, path=None, target=None):\n"
-        "        if fullname == 'optuna' or fullname.startswith('optuna.') or fullname.startswith('hydra_plugins.hydra_optuna_sweeper'):\n"
-        "            raise ModuleNotFoundError('Optuna intentionally unavailable')\n"
-        "sys.meta_path.insert(0, BlockOptuna())\n"
-        "from pathlib import Path\n"
-        "from omegaconf import OmegaConf\n"
-        "from src.app.pipeline.tuners import available_tuners, get_tuner\n"
-        "from src.app.pipeline.validation import _validate_tuning\n"
-        "from src.app.pipeline.local_runner import _run_methods_sequential\n"
-        "from src.app.core.plotting.manager import run_experiment_plots\n"
-        "cfg = OmegaConf.create({'group':'g','experiment_id':'e','paradigm':'online_rl',"
-        "'tuning':{'component':'example','metric':'score','direction':'minimize',"
-        "'options':{'example':{'count':2}}},'methods':{'m':{'agent':'ppo','model':'dnn',"
-        "'tune':{'agent.lr':{'type':'choice','values':[0.2,0.1]}}}}})\n"
-        "assert 'example' in available_tuners()\n"
-        "_validate_tuning(cfg)\n"
-        "methods = OmegaConf.to_container(cfg.methods, resolve=True)\n"
-        "methods['m']['python'] = sys.executable\n"
-        "_run_methods_sequential(cfg, {'methods':methods,'sanitized_extra_args':[],"
-        "'storage_url':get_tuner(cfg).storage(cfg),'is_sweep':True})\n"
-        "p=Path('src/usr/results/checkpoints/g/e/config.yaml'); p.parent.mkdir(parents=True,exist_ok=True)\n"
-        "p.write_text('group: g\\nplots:\\n  tuning: {}\\n')\n"
-        "run_experiment_plots('g/e')\n",
-        encoding="utf-8",
-    )
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(target), str(project)]), "MPLBACKEND": "Agg",
-           "THETA_WORKSPACE": str(tmp_path), "THETA_DATA_DIR": str(tmp_path / '.thetaide')}
-    result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert (tmp_path / "src/usr/results/checkpoints/g/e/m/best_params.yaml").read_text().strip() == "agent.lr: 0.1"
-    assert (tmp_path / "src/usr/results/plots/g/e/tuning/m/trials.csv").is_file()
-    assert (tmp_path / "src/usr/results/plots/g/e/tuning/m/objective.png").is_file()

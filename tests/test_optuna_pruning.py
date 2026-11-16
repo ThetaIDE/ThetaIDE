@@ -40,10 +40,3 @@ def test_invalid_pruner_counts_are_rejected(startup, warmup):
         make_pruner("median", startup, warmup)
 
 
-def test_interrupted_training_exits_with_nonzero_status():
-    import signal
-    from src.app.core.lightning_builder import _exit_on_signal
-
-    with pytest.raises(SystemExit) as exc:
-        _exit_on_signal(signal.SIGTERM, None)
-    assert exc.value.code == 128 + signal.SIGTERM

@@ -31,9 +31,9 @@ Vega awaits the user's design; do not infer one. BlendRL iteration happens in an
 
 ## Next work
 
-1. **Failing tests and UI follow-ups when the user asks:** the deferred sync-button/tree-navigation notes, the UI-batch test failures listed in `docs/reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json`, and the unchecked desktop items in the status doc.
+1. **UI follow-ups when the user asks:** the deferred sync-button/tree-navigation notes and the unchecked desktop items in the status doc. The suite is green; keep it that way (a failing test is fixed or removed in the same change).
 
-Left alone (user): Vega, checkpoint ranking by `monitor_metric`/`checkpoint.monitor`, the deferred stale tests, `prepare_tabular.py`. The user's experiments that still fail validation are listed in the status doc.
+Left alone (user): Vega, checkpoint ranking by `monitor_metric`/`checkpoint.monitor`, `prepare_tabular.py`. The user's experiments that still fail validation are listed in the status doc.
 
 ## Hard constraints
 

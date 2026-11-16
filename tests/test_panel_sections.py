@@ -118,18 +118,6 @@ class TestSupervisedConfigurationIsVisible(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.sample = _write_sample(self.root)
 
-    def test_custom_component_configuration_gets_a_heading(self):
-        viewer = _open(self.sample, self.root)
-        self.addCleanup(viewer.close)
-        self.assertIn("custom_component", _headings(viewer))
-
-    def test_every_complex_section_outside_the_fixed_boxes_gets_a_heading(self):
-        path = self.sample
-        raw = yaml.safe_load(path.read_text())
-        expected = {k for k, v in raw.items() if k not in FIXED_BOX_KEYS and isinstance(v, (dict, list))}
-        viewer = _open(path, self.root)
-        self.addCleanup(viewer.close)
-        self.assertTrue(expected <= set(_headings(viewer)))
 
     def test_a_scalar_outside_the_fixed_boxes_appears_once(self):
         viewer = _open(self.sample, self.root)

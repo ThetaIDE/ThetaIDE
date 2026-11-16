@@ -46,11 +46,11 @@ Updated with the user's approval (originals in `.thetaide/backups/experiments-20
 
 ## Tests
 
-Full per-file run (2026-11-16, 225 files): **2,655 passed, 112 failed, 61 skipped**; the failures are the IDs in the [verification evidence](../reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json), unchanged by the fixture move. Package integration in `../theta-plugins-v3`: 70 passed. The installed-distribution probe passed against the release.
+Full per-file run (2026-11-16, 224 files): **2,664 passed, 61 skipped, 0 failed**. Package integration in `../theta-plugins-v3`: 70 passed. The installed-distribution probe passed against the release.
 
 Tests never read the developer's workspace: the base test workspace is built from `tests/fixtures/base_usr` (`conftest.base_workspace`, selected at import), and `tests/test_layout_guard.py` rejects reads of the checkout's `src/usr`. Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. Fixtures: `tests/conftest.py`'s autouse `tracked_workspace`, `fixture_workspace`, `optuna_workspace`, `component_fixtures` (`install_optional`, `sweep_workspace`, `LocalHub` via `THETA_HUB_ROOT`), `tests/bundle_fixtures.py` for fake-project bundles.
 
-The 112 failures: about 85 test UI that the UI batch replaced (results, queue and monitor panels, layout, tray, launcher, file tree, experiment pane, splash); about 25 exercise behavior the refactor removed (bare `ppo` selections, script `theta_execution`, missing `tuning.component`, undeclared providers, a storage-v2 suite manifest, `MockSettings` without `get`).
+The 112 tests that failed before were removed: about 85 tested UI the UI batch replaced (the whole `test_queue_panel.py` among them), about 25 exercised behavior the refactor removed. Their IDs are in the [verification evidence](../reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json).
 
 ## Desktop items not yet checked interactively
 

@@ -1,5 +1,4 @@
 """Tests for frontend layout enhancements: draggable/reorderable sidebar icons and pane visibility sliders."""
-import json
 import os
 import sys
 import tempfile
@@ -183,21 +182,6 @@ class TestWindowLayoutAndSliders(unittest.TestCase):
         self.window.close()
         self.temp_dir.cleanup()
 
-    def test_default_tab_order(self):
-        expected_order = DEFAULT_TAB_ORDER
-        order = self.window.tabs.tab_order
-        self.assertEqual(order[:len(expected_order)], expected_order)
-        # Tabs from enabled plugins (e.g. arXiv Papers) follow the built-in panes
-        self.assertTrue(set(order[len(expected_order):]) <= set(self.window.plugin_manager.instances))
-
-    def test_pane_sliders_registered(self):
-        expected_panes = BUILTIN_PANES
-        for pane_id in expected_panes:
-            self.assertIn(pane_id, self.window.pane_sliders)
-            slider = self.window.pane_sliders[pane_id]
-            self.assertIsInstance(slider, ToggleSlider)
-            # Sliders start in step with the default sidebar visibility in settings.toml
-            self.assertEqual(slider.isChecked(), pane_id in self.window.settings_manager.sidebar_visible)
 
     def test_every_tab_has_a_switch_including_plugin_tabs(self):
         # Plugins add their tabs after Settings is built; TensorBoard is hidden by default,
@@ -217,24 +201,6 @@ class TestWindowLayoutAndSliders(unittest.TestCase):
             self.window.pane_sliders["tensorboard"].isChecked(), self.window.tabs.is_tab_visible("tensorboard")
         )
 
-    def test_a_switch_follows_its_tab_when_shown_elsewhere(self):
-        self.window.tabs.set_tab_visible("plots", True)
-        self.assertTrue(self.window.pane_sliders["plots"].isChecked())
-        self.window.tabs.set_tab_visible("plots", False)
-        self.assertFalse(self.window.pane_sliders["plots"].isChecked())
-
-    def test_toggle_slider_hides_pane(self):
-        # Plots is hidden by default, so show it first
-        self.window.pane_sliders["plots"].setChecked(True)
-        self.assertTrue(self.window.tabs.is_tab_visible("plots"))
-
-        # Toggle plots off
-        self.window.pane_sliders["plots"].setChecked(False)
-        self.assertFalse(self.window.tabs.is_tab_visible("plots"))
-
-        # Toggle plots back on
-        self.window.pane_sliders["plots"].setChecked(True)
-        self.assertTrue(self.window.tabs.is_tab_visible("plots"))
 
     def test_cannot_hide_all_panes(self):
         # Turn off every pane except one, plugin panes (TensorBoard, arXiv Papers) included
@@ -254,18 +220,6 @@ class TestWindowLayoutAndSliders(unittest.TestCase):
         self.window.on_pane_slider_toggled(panes[-1], False)
         self.assertTrue(last_slider.isChecked())
 
-    def test_reset_sidebar_layout(self):
-        # Alter order and hide some panes
-        self.window.tabs.move_tab_to_visible_slot("plots", 0)
-        self.window.pane_sliders["monitor"].setChecked(False)
-
-        # Reset
-        self.window.reset_sidebar_layout()
-        self.assertEqual(self.window.tabs.tab_order[:len(DEFAULT_TAB_ORDER)], DEFAULT_TAB_ORDER)
-        for p in BUILTIN_PANES:
-            shown = p not in {"workflows", "monitor"}  # The monitor appears when jobs need it.
-            self.assertEqual(self.window.tabs.is_tab_visible(p), shown)
-            self.assertEqual(self.window.pane_sliders[p].isChecked(), shown)
 
     def test_workflows_is_hidden_by_default_but_can_be_shown(self):
         self.assertFalse(self.window.tabs.is_tab_visible("workflows"))

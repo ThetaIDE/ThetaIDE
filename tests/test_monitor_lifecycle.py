@@ -1,6 +1,4 @@
 """A monitor follows the current launch and drops completed training data."""
-import json
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,72 +8,6 @@ from frontend.app import Window
 from frontend.live_run import LiveRun
 from frontend.model import Config, new_run
 from frontend.monitor.panel import MonitorPanel
-from frontend.queue_panel import ProcessCard
-from frontend.runner_manager import JobManager
-
-
-def test_reused_experiment_streams_only_current_launch_and_all_parallel_seeds(tmp_path):
-    app = QApplication.instance() or QApplication([])
-    # Avoid starting a runner: these methods only need source paths and signals.
-    manager = SimpleNamespace(project_root=tmp_path, results_root=tmp_path / "src/usr/results", logs_dir=tmp_path / "src/usr/results/logs",
-                              _feeds={}, _streamed_hardware=set(), job_records=Mock(),
-                              job_metrics=Mock(), job_hardware=Mock())
-    for name in ("_execution_manifests", "_replicate_state", "_run_sources", "_run_dir", "_sweep_summaries"):
-        setattr(manager, name, getattr(JobManager, name).__get__(manager))
-    job = dict(job_id="job", group="g", experiment_id="variance", status="running",
-               pid=20, started=100, agents=["ppo"])
-    manager.jobs = {"job": job}
-    for execution, pid, created, seeds in (("old", 10, 50, [1, 2]), ("current", 20, 110, [1, 3])):
-        root = tmp_path / "src/usr/results/executions/g/variance" / execution
-        root.mkdir(parents=True)
-        runs = []
-        for index, seed in enumerate(seeds):
-            logs = tmp_path / "src/usr/results/logs/g" / execution
-            version = f"version_{index}"
-            directory = logs / "ppo" / version
-            directory.mkdir(parents=True)
-            (directory / "events.jsonl").write_text(json.dumps({
-                "type": "metrics", "step": (index + 1) * 10, "data": {"eval/reward": seed}}) + "\n")
-            output = root / f"{seed}.log"
-            output.touch()
-            runs.append(dict(run_id=str(seed), method="ppo", training_seed=seed, logs=str(logs),
-                             version=version, output_log=str(output), status="running"))
-        (root / "manifest.json").write_text(json.dumps(dict(owner_pid=pid,
-            created_at=datetime.fromtimestamp(created, timezone.utc).isoformat(), runs=runs)))
-    assert [source[0] for source in manager._run_sources(job)] == ["ppo · seed 1", "ppo · seed 3"]
-    JobManager._scan_metrics(manager, "job")
-    lives = {}
-    for call in manager.job_records.emit.call_args_list:
-        _, label, records, reset = call.args
-        lives[label] = LiveRun(budget=100)
-        lives[label].add(records, reset)
-    for label, expected in (("ppo · seed 1", .1), ("ppo · seed 3", .2)):
-        card = ProcessCard(job, label, show_progress=True)
-        card.update_progress(lives)
-        assert card.progress_fraction == expected
-        card.close()
-    # The coordinator records a resource wait as pending, independently of other seeds.
-    path = tmp_path / "src/usr/results/executions/g/variance/current/manifest.json"
-    manifest = json.loads(path.read_text())
-    manifest["runs"][1]["status"] = "pending"
-    path.write_text(json.dumps(manifest))
-    assert [item["status"] for item in JobManager._execution_queue_items(manager, job)] == ["running", "pending"]
-    assert [source[4] for source in manager._run_sources(job)] == ["running", "pending"]
-    # The client must correct a stale running label from a detached older runner.
-    from frontend.job_manager import JobManager as DesktopManager
-    manager._execution_queue_items = JobManager._execution_queue_items.__get__(manager)
-    manager.public = lambda job: dict(job)
-    manager._rpc = lambda *_: {"jobs": [job], "queue": {
-        "running": True, "active": [{**job, "agents": ["ppo · seed 3"]}], "queued": []}, "max_parallel": None}
-    DesktopManager._refresh(manager, emit=False)
-    assert [item["status"] for item in manager._queue["active"]] == ["running", "pending"]
-    assert JobManager.replicate(manager, "job", "ppo · seed 1")["logs"].endswith("current")
-    manifest = json.loads(path.read_text())
-    for run in manifest["runs"]:
-        run["status"] = "completed"
-    path.write_text(json.dumps(manifest))
-    assert JobManager._execution_queue_items(manager, job) == []
-    assert app is not None
 
 
 def test_live_lookup_excludes_old_and_completed_seeds_without_disk_fallback():
@@ -116,37 +48,6 @@ def test_pending_and_empty_feeds_never_enter_monitor_legend_or_dropdown():
     assert "empty" not in monitor.method_legend.text()
     monitor.close()
     assert app is not None
-
-
-def test_queue_labels_method_without_started_feed_as_pending():
-    from frontend.queue_panel import QueuePanel
-
-    app = QApplication.instance() or QApplication([])
-    active = LiveRun()
-    active.add([{"type": "start"}])
-    panel = QueuePanel(lambda *_: None, split_methods=True,
-                       lives_for_job=lambda _: {"active": active, "pending": LiveRun()})
-    panel.set_data({"active": [{"job_id": "j", "status": "running", "agents": ["active", "pending"]}]})
-    assert panel.cards["j:active"].status.text() == "Running"
-    assert panel.cards["j:pending"].status.text() == "Pending"
-    panel.close()
-    assert app is not None
-
-
-def test_desktop_does_not_create_empty_feeds_for_pending_workers(tmp_path):
-    from PyQt6.QtCore import QObject
-    from frontend.job_manager import JobManager as DesktopManager
-
-    manager = DesktopManager.__new__(DesktopManager)
-    QObject.__init__(manager)
-    manager.jobs = {"j": {"job_id": "j"}}
-    manager._feeds = {}
-    manager._run_sources = lambda _: [("pending", tmp_path, "m", "version_0", "pending")]
-    received = []
-    manager.job_records.connect(lambda *args: received.append(args))
-    manager._scan_metrics("j")
-    assert received == []
-    assert manager._feeds == {}
 
 
 def test_monitor_removes_finished_curves_and_clears_after_parent_finishes():

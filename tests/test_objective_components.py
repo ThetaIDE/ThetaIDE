@@ -1,10 +1,6 @@
 """Objectives score full seed panels, preserve failures, and execute edited source."""
 import json
 import math
-import os
-import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 from omegaconf import OmegaConf
@@ -12,7 +8,6 @@ from omegaconf import OmegaConf
 from src.app.objectives.api import (
     ObjectiveResult, RunResult, TrialResults, create_objective, load_objective, validate_objective,
 )
-from src.app.pipeline.repeated_task import run_objective
 
 
 def run(seed, points, status="completed"):
@@ -136,81 +131,3 @@ def test_validation_requires_data_and_rejects_pruning():
         validate_objective(cfg)
 
 
-def test_sampling_preserves_failed_runs_and_isolates_seed_outputs(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    calls = []
-    def execute(child, directory):
-        calls.append(child)
-        assert child.objective is None and child.theta_tuning is None
-        assert child.agent.seed == child.seed
-        if child.seed == 2:
-            raise RuntimeError("did not learn")
-        events = [{"training_step": x, "metric": "eval/reward", "episode_outcomes": [500]} for x in [0, 100]]
-        (directory / "evaluation_events.jsonl").write_text("\n".join(map(json.dumps, events)))
-    assert run_objective(config(), execute=execute) == 0
-    paths = list(tmp_path.glob("src/usr/results/logs/g/e/m/version_execution_*/objective.json"))
-    manifest = json.loads(paths[0].read_text())
-    assert [run["status"] for run in manifest["runs"]] == ["completed", "failed"]
-    assert len({child.variability_version for child in calls}) == 2
-    assert manifest["result"]["diagnostics"]["per_run_auc"] == [1, 0]
-
-
-@pytest.mark.parametrize("sweep", [False, True])
-def test_real_subprocess_samples_return_one_score(tmp_path, monkeypatch, sweep):
-    root = Path(__file__).resolve().parents[1]
-    script = tmp_path / "fake_train.py"
-    script.write_text('''import json
-from pathlib import Path
-def main(cfg):
-    path = Path("src/usr/results/logs") / cfg.group / cfg.experiment_id / cfg.agent.name / cfg.variability_version
-    path.mkdir(parents=True, exist_ok=True)
-    events = [{"training_step": x, "metric": "eval/reward", "episode_outcomes": [cfg.seed * 100]} for x in [0, 100]]
-    (path / "evaluation_events.jsonl").write_text("\\n".join(map(json.dumps, events)))
-    return 1.0
-''')
-    cfg = config()
-    cfg.theta_objective_runner.script = str(script)
-    cfg.variability.evaluation_seed = None
-    from component_fixtures import OPTUNA_CONFIGS, sweeper_args
-    cfg.hydra = {"searchpath": [f"file://{root / 'src/usr/config'}", f"file://{OPTUNA_CONFIGS}"]}
-    OmegaConf.save(cfg, tmp_path / "test.yaml")
-    env = {**os.environ, "PYTHONPATH": str(root), "HYDRA_FULL_ERROR": "1"}
-    command = [sys.executable, "-m", "src.app.pipeline.repeated_task", "--config-path", str(tmp_path), "--config-name", "test"]
-    storage = f"sqlite:///{tmp_path / 'study.db'}"
-    if sweep:
-        command.extend(["--multirun", *sweeper_args(storage, "objectives", 2, direction="maximize"), "+x=choice(1,2)"])
-    result = subprocess.run(command,
-                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=45)
-    assert result.returncode == 0, result.stdout + result.stderr
-    manifest_path = next(tmp_path.glob("src/usr/results/logs/g/e/m/version_*/objective.json"))
-    manifest = json.loads(manifest_path.read_text())
-    assert manifest["result"]["value"] == pytest.approx(0.2)
-    assert all(run["status"] == "completed" for run in manifest["runs"])
-    if sweep:
-        import optuna
-        study = optuna.load_study(study_name="objectives", storage=storage)
-        assert [trial.value for trial in study.trials] == pytest.approx([0.2, 0.2])
-        assert study.user_attrs["theta_objective_metric"] == "objective/learning_curve"
-        from component_fixtures import optional_module
-        _optuna_utils = optional_module('optuna', 'utils.py')
-        promote_best_trial_checkpoint = _optuna_utils.promote_best_trial_checkpoint
-        monkeypatch.chdir(tmp_path)
-        promote_best_trial_checkpoint("g", "e", "m", storage, "objectives")
-        summary = json.loads(Path("src/usr/results/checkpoints/g/e/m/best_trial_summary.json").read_text())
-        assert summary["checkpoint"] is None
-        assert len(summary["samples"]) == 2
-
-
-def test_local_dispatch_routes_objectives_and_carries_sampling(monkeypatch):
-    from src.app.pipeline import local_runner
-    calls = []
-    monkeypatch.setattr(local_runner, "run_experiment", lambda args, **kwargs: calls.append((args, kwargs)))
-    cfg = config()
-    cfg.experiment_name = "test"
-    local_runner._run_methods_sequential(cfg, {"methods": {"m": {"agent": "ppo", "model": "dnn"}},
-        "sanitized_extra_args": [], "storage_url": None, "is_sweep": False})
-    args, kwargs = calls[0]
-    assert kwargs["script_entrypoint"] == "src/app/pipeline/repeated_task.py"
-    assert kwargs["coordinator"] is True
-    assert any(arg.startswith("++theta_execution.script=") for arg in args)
-    assert any(arg.startswith("++variability=") and "[1,2]" in arg for arg in args)

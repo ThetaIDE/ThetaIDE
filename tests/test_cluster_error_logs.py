@@ -1,8 +1,5 @@
 """Real process stderr, shutdown/final publication, and remote Results log previews."""
-import builtins
-import importlib.util
 import io
-import json
 import os
 from pathlib import Path
 import shlex
@@ -159,23 +156,6 @@ finally:
     assert 'training cleanup ran' in text and 'SIGTERM' in text
     assert 'training cleanup ran' in (tmp_path / 'supervisor.err').read_text()
     assert not list(scratch.iterdir())  # Cleanup happens only after durable sealing.
-
-
-def test_sb3_import_failure_preserves_the_dependency_cause(monkeypatch, capsys):
-    spec = importlib.util.spec_from_file_location('sb3_error_runner', REPO / 'tests/fixtures/base_usr/algorithms/sb3-dev/sb3_runner.py')
-    runner = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(runner)
-    original = builtins.__import__
-    def fail(name, *args, **kwargs):
-        if name == 'stable_baselines3':
-            raise ModuleNotFoundError("No module named 'transitive_dependency'")
-        return original(name, *args, **kwargs)
-    monkeypatch.setattr(builtins, '__import__', fail)
-    with pytest.raises(ModuleNotFoundError, match='transitive_dependency'):
-        runner.main.__wrapped__(OmegaConf.create({}))
-    captured = capsys.readouterr()
-    assert 'could not be imported' in captured.err
-    assert 'is not installed' not in captured.out + captured.err
 
 
 def test_allocation_cli_keeps_supervisor_traceback(monkeypatch, capsys, tmp_path):

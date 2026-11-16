@@ -181,26 +181,6 @@ def test_a_followed_job_fills_the_live_views_as_records_arrive(window):
     assert not window.monitor.view_buttons
 
 
-
-def test_a_finished_run_is_read_from_disk_when_a_live_view_opens(window):
-    version_dir = window.jobs.logs_dir / "g" / "old" / "ppo" / "version_0"
-    run_log = telemetry.Run(version_dir, ["csv", "stream"], system_interval=0)
-    for i in range(3):
-        run_log.log({"eval/reward": 10.0 * i}, step=i, transitions=100 * i)
-    run_log.system({"cpu_percent": 50.0, "rss_mb": 200.0})
-    run_log.finish()
-    run = disk_run({"group": "g", "experiment_id": "old", "agents": [{"name": "ppo"}], "config": {}, "metadata": {}})
-    window.runs.insert(0, run)
-    window.select_run(run)
-    open_view(window, "Overview")
-    assert list(window.monitor.system_view.grid.cards) == ["system/cpu_percent", "system/rss_mb"]
-    open_view(window, "Overview")
-    assert list(window.monitor.charts_view.points["ppo"]) == ["eval/reward"]
-    assert [(s.agent, s.state) for s in window.monitor.pipeline_strip.segments] == [("ppo", "done")]
-    assert window.monitor.open_log.isHidden()  # no warnings: the bar only says it has no recorded end
-    assert window.monitor.status_strip.badge.text() == run["status"].upper()
-
-
 def test_the_disk_cache_rereads_only_changed_runs(tmp_path):
     version_dir = tmp_path / "g" / "e" / "ppo" / "version_0"
     run_log = telemetry.Run(version_dir, ["stream"], system_interval=0)
@@ -213,7 +193,6 @@ def test_the_disk_cache_rereads_only_changed_runs(tmp_path):
     again = cache.load(tmp_path, "g", "e", ["ppo"])["ppo"]
     assert again is first and again.latest("eval/reward") == 2.0 and again.is_finished()
     assert cache.cached(tmp_path, "g", "e", ["ppo", "missing"]) == {"ppo": again}
-
 
 
 # ── Runs sidebar ─────────────────────────────────────────────────────────────
@@ -270,27 +249,6 @@ def test_ticking_runs_compares_them_and_survives_a_refresh():
     assert sidebar.items[c["id"]].checkState(0) == Qt.CheckState.Checked
     sidebar.clear_comparison()
     assert sidebar.compared == [] and signals[-1] == []
-
-
-def test_ticking_a_run_plots_it_without_touching_the_monitor(window):
-    shown = make_run("shown", "running", [1.0], job_id="job_s")
-    other = make_run("other", "completed", [2.0], job_id="job_o")
-    window.runs[:0] = [shown, other]
-    window.refresh_runs()
-    window.select_run(shown)
-    window.live_runs[("job_s", "ppo")] = sample_live()
-    window.live_runs[("job_o", "ppo")] = sample_live()
-    open_view(window, "Overview")
-    sidebar = window.monitor.sidebar
-    sidebar.items[other["id"]].setCheckState(0, Qt.CheckState.Checked)
-    window.monitor.refresh_live()
-    assert "eval/reward" not in window.monitor.charts_view.grid.cards  # the monitor still shows one run
-    loss = window.monitor.charts_view.grid.cards["losses/total_loss"].chart
-    assert [name for name, _, _ in loss.series] == ["ppo"]
-    open_view(window, "Overview")
-    assert [name for name, _, _ in window.monitor.system_view.grid.cards["system/cpu_percent"].chart.series] == ["ppo"]
-    assert not hasattr(window, "plot_viewer")
-    assert window.selected is shown
 
 
 # ── Point inspector ──────────────────────────────────────────────────────────
@@ -371,29 +329,6 @@ def test_the_pipeline_strip_shows_each_method_in_order_with_its_marks():
     assert b.fraction == 0.25 and b.weight == 160  # 40 s for a quarter of the budget
     assert b.marks == [(10 / 160, "warning")]
     assert c.weight == (60 + 160) / 2  # nothing known yet: as long as the others on average
-
-
-def test_clicking_a_method_shows_only_its_curves_until_another_run_is_shown(window):
-    shown = make_run("shown", "running", job_id="job_s")
-    shown["backend"]["agents"] = ["a", "b"]
-    other = make_run("other", "completed", job_id="job_o")
-    window.runs[:0] = [shown, other]
-    window.refresh_runs()
-    window.select_run(shown)
-    window.live_runs[("job_s", "a")] = sample_live()
-    window.live_runs[("job_s", "b")] = sample_live()
-    window.live_runs[("job_o", "ppo")] = sample_live()
-    monitor = window.monitor
-    open_view(window, "Overview")
-    assert list(monitor.charts_view.points) == ["a", "b"]
-    monitor.pipeline_strip.segment_clicked.emit("b")
-    assert list(monitor.charts_view.points) == ["b"]
-    monitor.pipeline_strip.segment_clicked.emit("")
-    assert list(monitor.charts_view.points) == ["a", "b"]
-    monitor.focus_agent("a")
-    window.select_run(other)
-    monitor.refresh_live()
-    assert monitor.focused_agent is None and list(monitor.charts_view.points) == ["ppo"]
 
 
 def test_a_live_run_is_charted_across_its_whole_budget():

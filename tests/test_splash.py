@@ -110,19 +110,3 @@ def test_splash_theme_follows_saved_settings(monkeypatch):
         assert splash_theme(data_dir) == DEFAULT
 
 
-def test_window_reports_startup_steps_in_order():
-    from frontend.app import Window
-
-    steps = []
-    with tempfile.TemporaryDirectory() as temp:
-        window = Window(Path(temp) / "runs", progress=lambda message, fraction: steps.append((message, fraction)))
-        try:
-            fractions = [fraction for _, fraction in steps]
-            assert len(steps) >= 5 and fractions == sorted(fractions) and fractions[-1] < 1
-            assert steps[0][0] == "Loading settings…"
-            # every step has a circle, in order (main() reports the last one, "Opening window…")
-            messages = [message for message, _ in steps]
-            assert messages == list(PHASES[:len(messages)]) and PHASES[len(messages):] == ("Opening window…",)
-        finally:
-            window._quitting = True
-            window.close()

@@ -8,10 +8,8 @@ Verifies:
 - Settings integration (visual_layer_editor toggle)
 """
 import pytest
-from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QLineEdit, QComboBox, QWidget
 from frontend.widgets import TagCloudWidget, LayerStackWidget, ComboBox
-from frontend.config_viewer import ConfigViewer
 from frontend.config_panel.controls import CATEGORICAL_CHOICES
 from frontend.config_panel.catalogs import _get_component_kind, _get_available_paradigms
 from frontend.settings import SettingsManager
@@ -104,55 +102,4 @@ def test_visual_layer_editor_setting(tmp_path):
     sm.visual_layer_editor = True
     assert sm.visual_layer_editor is True
 
-
-def test_config_viewer_renders_enhanced_widgets(qapp, tmp_path):
-    """Test ConfigViewer rendering with TagCloudWidget, LayerStackWidget, ComboBox, and Overview Card."""
-    cv = ConfigViewer(parent=None)
-
-    yaml_file = tmp_path / "custom_model.yaml"
-    yaml_file.write_text(
-        """\
-description: "A test model architecture"
-hidden_sizes:
-  - 128
-  - 64
-activation: relu
-optimizer: adam
-learning_rate: 0.001
-use_layernorm: true
-""",
-        encoding="utf-8",
-    )
-
-    cv.load_file(yaml_file, rel_path="model/custom_model.yaml")
-
-    widgets = cv.findChildren(QWidget)
-
-    # 1. Overview Card verification
-    overview_texts = [w.text() for w in widgets if isinstance(w, QLineEdit)]
-    assert any("A test model architecture" in t for t in overview_texts)
-
-    # 3. LayerStackWidget verification
-    layer_stacks = [w for w in widgets if isinstance(w, LayerStackWidget)]
-    assert len(layer_stacks) == 1
-    assert layer_stacks[0].get_layers() == [128, 64]
-
-    # 4. Typed ComboBox verification
-    combos = [w for w in widgets if isinstance(w, QComboBox)]
-    combo_texts = [c.currentText() for c in combos]
-    assert "relu" in combo_texts
-    assert "adam" in combo_texts
-
-    # 5. Disable visual_layer_editor and verify fallback
-    class MockSettings:
-        visual_layer_editor = False
-        show_resolved_defaults = False
-
-    cv.settings_manager = MockSettings()
-    cv.load_file(yaml_file, rel_path="model/custom_model.yaml")
-
-    widgets_disabled = cv.findChildren(QWidget)
-    assert len([w for w in widgets_disabled if isinstance(w, LayerStackWidget)]) == 0
-    # TagCloud should still render
-    assert len([w for w in widgets_disabled if isinstance(w, TagCloudWidget)]) == 1
 
