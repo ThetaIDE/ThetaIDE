@@ -39,8 +39,12 @@ When adding or changing a box, update the cross-box tests in `tests/test_paramet
 
 Tuner control availability follows [extension contributions/readiness v1](EXTENSION_CONTRIBUTIONS.md).
 Offer a new tuning block only when an enabled compatible provider contributes setup;
-offer parameter sweep editors only for the selected ready provider. Keep unavailable
-saved search spaces as read-only values with an actionable provider diagnostic.
+enable parameter sweep editors only for the selected ready provider. Keep unavailable
+saved search spaces in their usual range/list layout, with disabled controls and
+an actionable provider diagnostic. Keep their type subtitles, bounds, steps and
+list entries visible, including targets without an ordinary parameter row; never
+replace these with raw mapping text because a provider is unavailable. Disable
+floating actions explicitly, since they leave the disabled row's widget tree.
 Availability never deletes or deactivates the saved `tuning` block. New blocks record
 an explicit provider and its required defaults in namespaced options. Providers own
 `required_when` field requirements; generic host controls must

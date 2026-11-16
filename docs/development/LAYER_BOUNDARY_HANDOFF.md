@@ -18,6 +18,8 @@ Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It
 
 5c was stabilized (`e0a09a2`), then the user supplied specific config and downstream UI requirements. That batch is implemented locally; read `docs/plans/UI_REFINEMENTS_20261115.md` and its linked verification evidence. Only the unclear sync-button/tree-navigation notes are deferred. Vega is for later: the user has a specific design and has not provided it. Do not infer or implement a Vega design. The results move remains unapproved.
 
+The sweep-rendering follow-up keeps saved range/list controls visible but read-only when a tuner is unavailable; provider readiness still gates edits and new sweeps. Optuna is not installed in the repository workspace, so its saved controls remain read-only until it is installed and ready.
+
 ## How the user wants you to work
 
 - Follow the current session priority above; when resuming the remaining architecture work, work through the authorized items without stopping for routine confirmation. Do not ask about commits, pushes or other git steps mid-work; commit each unit, push `implement/layer-boundaries`, and report at the end.

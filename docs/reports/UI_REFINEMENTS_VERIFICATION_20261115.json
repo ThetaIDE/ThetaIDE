@@ -135,6 +135,19 @@
     ],
     "terminal_close_button": "Clicked in isolated preview; selected shell removed and trailing New Shell entry retained."
   },
+  "sweep_rendering_followup": {
+    "cause": "The repository workspace has no installed Optuna component; tuner readiness also gated saved range/list layout, leaving raw mapping text instead of structured controls.",
+    "behavior": "Saved ranges/lists retain their normal layout when the selected provider is missing, disabled, unconfigured or unselected. Controls and floating actions are disabled until readiness returns. Targets without ordinary parameter rows are also rendered. No recipe or installed component was changed.",
+    "tests": {
+      "test_parameter_forms.py": {"passed": 125},
+      "test_sweep_visibility.py": {"passed": 4},
+      "test_config_viewer_composite.py": {"passed": 18}
+    },
+    "total_passed": 147,
+    "scope": "Focused rerun in separate pytest processes; counts overlap the original UI batch above, not an additional full-suite run.",
+    "visual_review": ["sweep-unavailable.png", "sweep-unavailable-narrow.png"],
+    "diff_check": "passed"
+  },
   "deferred": [
     "Unclear sync-button and directory-navigation notes",
     "Vega design",

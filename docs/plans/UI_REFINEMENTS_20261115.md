@@ -11,6 +11,9 @@ Status: implemented locally on `implement/layer-boundaries`, with the two unclea
 - Reveal the sweep's top-level parameter adder on hover; child-parameter adders stay visible.
 - Transparent edit-action wrappers; edit buttons occupy space only when visible.
 - Square, aligned section move buttons.
+- Preserve structured saved range/list rendering when the tuner is missing,
+  disabled or unconfigured. Disable editing and floating actions until a provider
+  is ready; show the provider diagnostic instead of flattening ranges into text.
 
 ## Monitor
 

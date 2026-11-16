@@ -95,11 +95,13 @@ cutover remains part of the remote bundle plan.
 
 The configuration editor consumes `configuration.tuning` and
 `configuration.parameter_sweeps` for tuner capabilities. It offers setup only when
-an enabled compatible tuner contributes it, and offers range controls only for the
+an enabled compatible tuner contributes it, and enables range controls only for the
 selected ready tuner. Newly authored tuning blocks record an explicit provider and
 its required field defaults under `tuning.options.<provider>`. Missing/disabled or
 unconfigured providers in saved recipes show diagnostics; saved tuning and search
-spaces are preserved. Unavailable ranges remain visible as read-only values.
+spaces are preserved. Unavailable ranges keep their normal type, bounds, step and
+list controls in a disabled, read-only state, including targets without ordinary
+parameter rows. Readiness gates editing and creation, not saved-range rendering.
 Core objective scoring remains available when no tuner is installed.
 
 A saved tuning block without a valid `component` shows **Select a tuner** and an

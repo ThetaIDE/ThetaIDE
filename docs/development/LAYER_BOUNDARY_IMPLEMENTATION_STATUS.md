@@ -86,6 +86,8 @@ The requested config and downstream UI batch is implemented: measured label widt
 
 The unclear sync-button/tree-navigation notes are deferred, as is Vega pending the user's specific design. [Scope](../plans/UI_REFINEMENTS_20261115.md) and [focused verification](../reports/UI_REFINEMENTS_VERIFICATION_20261115.json). The results move still needs approval.
 
+Saved sweep ranges and lists retain their structured layout even without a ready tuner; their editing controls and floating actions stay disabled until readiness is restored. This also covers targets without ordinary parameter rows. The repository workspace still has no Optuna component installed.
+
 
 ## Tests
 

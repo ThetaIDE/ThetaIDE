@@ -1860,12 +1860,14 @@ class ConfigViewer(QWidget):
         from .config_panel.domain import _tuner_ready
         return _tuner_ready(self)
 
-    def _add_sweep_toggle(self, row, method, target, value):
-        if not self._tuner_ready():
+    def _add_sweep_toggle(self, row, method, target, value, *, dimension=None):
+        if dimension is None:
+            dimensions = self.raw_data.get("methods", {}).get(method, {}).get("tune", {})
+            dimension = dimensions.get(target) if isinstance(dimensions, dict) else None
+        ready = self._tuner_ready()
+        if not ready and not isinstance(dimension, dict):
             return
-        dimensions = self.raw_data.get("methods", {}).get(method, {}).get("tune", {})
-        dimension = dimensions.get(target) if isinstance(dimensions, dict) else None
-        pending = getattr(self, "_pending_sweep", None) == (method, target)
+        pending = ready and getattr(self, "_pending_sweep", None) == (method, target)
         if not pending and not isinstance(dimension, dict):
             button = _make_subtle_tool_button("sweep", f"Configure sweep for {target}", size=20, icon_size=14)
             button.setObjectName("sweepToggle_" + method + "_" + target)
@@ -1883,8 +1885,9 @@ class ConfigViewer(QWidget):
         # its normal parameter-removal action.
         delete = None
         for i in range(row.count()):
-            delete = row.itemAt(i).widget()
-            if isinstance(delete, QToolButton) and delete.toolTip().startswith("Remove"):
+            candidate = row.itemAt(i).widget()
+            if isinstance(candidate, QToolButton) and candidate.toolTip().startswith("Remove"):
+                delete = candidate
                 delete.clicked.disconnect()
                 delete.setToolTip("Remove sweep")
                 delete.setObjectName(f"sweepRemove_{method}_{target}")
@@ -2008,6 +2011,20 @@ class ConfigViewer(QWidget):
                     add_step.setObjectName(f"sweepAddStep_{method}_{target}")
                     add_step.clicked.connect(lambda _, m=method, t=target: self._add_sweep_dimension(m, t, "step"))
                     flow.addWidget(add_step)
+        if not ready:
+            notice = ("Saved sweep is read-only. Select an installed, enabled tuner and "
+                      "complete its setup in Hyperparameter Sweep to edit it.")
+            combo.setEnabled(False)
+            combo.setToolTip(notice)
+            content.setEnabled(False)
+            content.setToolTip(notice)
+            # Floating actions are reparented outside this content widget by
+            # the hover controller; disable them explicitly before that move.
+            for button in content.findChildren(QToolButton):
+                button.setEnabled(False)
+            if delete is not None:
+                delete.setEnabled(False)
+                delete.setToolTip(notice)
         row.insertWidget(index, content)
         if delete is not None:
             for hover in delete.findChildren(_RowHoverReveal):
@@ -2108,7 +2125,7 @@ class ConfigViewer(QWidget):
                 continue
             if isinstance(dimension, dict) and (method, target) in self._rendered_sweeps:
                 continue
-            if not isinstance(dimension, dict) or not self._tuner_ready():
+            if not isinstance(dimension, dict):
                 form.add_parameter(("methods", method, "tune", target), "Sweep", label(f"{target}: {dimension}", "muted"))
             else:
                 row = QHBoxLayout()
@@ -2116,7 +2133,7 @@ class ConfigViewer(QWidget):
                 delete = _make_subtle_tool_button("close", "Remove sweep", size=20, icon_size=12)
                 delete.clicked.connect(lambda: None)  # replaced by _add_sweep_toggle
                 row.addWidget(delete)
-                self._add_sweep_toggle(row, method, target, None)
+                self._add_sweep_toggle(row, method, target, None, dimension=dimension)
                 form.add_parameter(("methods", method, "tune", target), target, row,
                     children=getattr(row, "_sweep_block", None))
 

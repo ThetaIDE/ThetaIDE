@@ -2296,6 +2296,7 @@ def test_sweep_hover_only_reveals_actions_for_the_live_row(viewer):
 
 def test_absent_tuner_hides_new_controls_and_preserves_saved_recipe(viewer):
     import copy
+    from PyQt6.QtTest import QTest
     from src.app.workspace import WorkspacePaths
     widget, _, root = viewer
     widget._loader_paths = lambda: WorkspacePaths(root / 'absent-workspace', application=root / 'empty-application')
@@ -2304,12 +2305,44 @@ def test_absent_tuner_hides_new_controls_and_preserves_saved_recipe(viewer):
     widget.add_block('tuning')
     assert 'tuning' not in widget.raw_data
     data = {'tuning': {'component': 'missing-tuner'}, 'methods': {'params': {
-        'batch_size': 32, 'tune': {'agent.batch_size': {'type': 'int', 'low': 1, 'high': 4}}}}}
+        'batch_size': 32, 'tune': {
+            'agent.batch_size': {'type': 'int', 'low': 1, 'high': 4, 'step': 1},
+            'agent.custom': {'type': 'choice', 'values': ['first', 'second']},
+            'agent.lr': {'type': 'log_float', 'low': 0.0001, 'high': 0.1},
+        }}}}
     widget = load(viewer, copy.deepcopy(data))
     assert widget.raw_data == data
     notice = widget.findChild(QLabel, 'tunerReadinessNotice')
     assert notice is not None and 'install a compatible provider' in notice.text()
     assert not any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+    # Existing parameters and targets without ordinary rows retain the same
+    # range/list layout. No unavailable provider can mutate their saved values.
+    for target, dimension in data['methods']['params']['tune'].items():
+        picker = widget.findChild(QComboBox, f'sweepType_params_{target}')
+        inline = widget.findChild(QWidget, f'sweepInline_params_{target}')
+        assert picker is not None and picker.currentData() == dimension['type']
+        assert inline is not None and not inline.isHidden()
+        assert not picker.isEnabled() and not inline.isEnabled()
+        assert 'read-only' in picker.toolTip()
+        remove = widget.findChild(QToolButton, f'sweepRemove_params_{target}')
+        assert remove is not None and not remove.isEnabled()
+        remove.click()
+    low = widget.findChild(QAbstractSpinBox, 'sweep_low_params_agent.batch_size')
+    high = widget.findChild(QAbstractSpinBox, 'sweep_high_params_agent.batch_size')
+    step = widget.findChild(QAbstractSpinBox, 'sweep_step_params_agent.batch_size')
+    assert (low.value(), high.value(), step.value()) == (1, 4, 1)
+    choice = widget.findChild(QLineEdit, 'sweep_choice_params_agent.custom_0')
+    assert choice.text() == 'first' and not choice.isEnabled()
+    QTest.keyClicks(choice, 'changed')
+    add = widget.findChild(QToolButton, 'sweepAddChoice_params_agent.custom')
+    assert not add.isEnabled()
+    add.click()
+    # Hover actions have already moved outside the disabled content widget.
+    entry_remove = next(button for button in widget.findChildren(QToolButton)
+                        if button.toolTip() == 'Remove value')
+    assert entry_remove.parentWidget() is widget.window() and not entry_remove.isEnabled()
+    entry_remove.click()
+    assert widget.raw_data == data and not widget.is_dirty
 
 
 @pytest.mark.parametrize('selector', [None, '', 3])
@@ -2332,6 +2365,8 @@ def test_unselected_saved_tuner_requires_explicit_choice_and_preserves_ranges(vi
     assert widget.raw_data == before and not widget.is_dirty
     assert not widget._tuner_ready()
     assert not any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+    assert not widget.findChild(QComboBox, 'sweepType_params_agent.batch_size').isEnabled()
+    assert not widget.findChild(QAbstractSpinBox, 'sweep_low_params_agent.batch_size').isEnabled()
     notice = widget.findChild(QLabel, 'tunerReadinessNotice')
     assert 'tuning.component' in notice.text()
     combo = widget.findChild(QComboBox, 'sweepComponent')
@@ -2341,7 +2376,11 @@ def test_unselected_saved_tuner_requires_explicit_choice_and_preserves_ranges(vi
     assert widget.raw_data['tuning']['component'] == 'lattice' and widget.is_dirty
     assert widget.raw_data['tuning']['options'] == before['tuning']['options']
     assert widget.raw_data['methods'] == before['methods'] and widget._tuner_ready()
-    assert widget.findChild(QComboBox, 'sweepType_params_agent.batch_size') is not None
+    assert widget.findChild(QComboBox, 'sweepType_params_agent.batch_size').isEnabled()
+    low = widget.findChild(QAbstractSpinBox, 'sweep_low_params_agent.batch_size')
+    assert low.isEnabled() and low.value() == 16
+    low.setValue(17)
+    assert widget.raw_data['methods']['params']['tune']['agent.batch_size']['low'] == 17
     assert not any(w.objectName() == 'tunerReadinessNotice' and w.isVisible() for w in widget.findChildren(QLabel))
     widget.save_to_disk()
     assert yaml.safe_load(widget.current_path.read_text())['tuning']['component'] == 'lattice'
@@ -2362,7 +2401,9 @@ def test_independent_tuner_setup_readiness_defaults_and_required_children(viewer
     assert HubInstaller(paths.root, paths.data_dir).uninstall(HubComponent.from_dict(installed.manifest))
     shutil.copytree(Path(__file__).parent / 'fixtures/contribution_tuner', root / 'src/usr/tuners/lattice')
     widget._loader_paths = lambda: paths
-    widget = load(viewer, {'methods': {'params': {'batch_size': 32}}})
+    dimension = {'type': 'int', 'low': 16, 'high': 64}
+    widget = load(viewer, {'methods': {'params': {'batch_size': 32,
+                          'tune': {'agent.batch_size': dimension.copy()}}}})
     action = next(a for a in widget.btn_add_block.menu().actions() if a.text() == 'Hyperparameter Sweep')
     action.trigger()
     assert widget.raw_data['tuning']['component'] == 'lattice'
@@ -2370,11 +2411,12 @@ def test_independent_tuner_setup_readiness_defaults_and_required_children(viewer
     assert 'n_trials' not in widget.raw_data['tuning']
     assert widget.findChild(QLabel, 'tunerReadinessNotice') is not None
     assert not widget._tuner_ready()
+    assert not widget.findChild(QComboBox, 'sweepType_params_agent.batch_size').isEnabled()
     widget.findChild(QLineEdit, 'sweep_token').setText('configured')
     app.processEvents()
     assert widget._tuner_ready()
     assert widget.findChild(QLabel, 'tunerReadinessNotice') is None
-    assert any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+    assert widget.findChild(QComboBox, 'sweepType_params_agent.batch_size').isEnabled()
     widget.findChild(QComboBox, 'sweep_mode').setCurrentText('resume')
     app.processEvents()
     assert widget.findChild(QLineEdit, 'sweep_reference') is not None
@@ -2388,3 +2430,6 @@ def test_independent_tuner_setup_readiness_defaults_and_required_children(viewer
     assert widget.raw_data['tuning'] == before
     assert 'disabled' in widget.findChild(QLabel, 'tunerReadinessNotice').text()
     assert not any(b.objectName().startswith('sweepToggle_') for b in widget.findChildren(QToolButton))
+    assert not widget.findChild(QComboBox, 'sweepType_params_agent.batch_size').isEnabled()
+    assert not widget.findChild(QAbstractSpinBox, 'sweep_low_params_agent.batch_size').isEnabled()
+    assert widget.raw_data['methods']['params']['tune']['agent.batch_size'] == dimension
