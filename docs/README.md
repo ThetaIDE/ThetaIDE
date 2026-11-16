@@ -51,7 +51,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 - [Phase 5 plan: results in `src/usr/results` and explicit bundles](plans/LAYER_BOUNDARY_PHASE5_PLAN.md) — bundle manifest `theta.bundle/v1`, application/workspace resolution, bundle inclusions and exclusions, units 5a–5e.
 - [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — units 4a–4g implemented; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
-- [Compatibility requirements plan](plans/COMPATIBILITY_REQUIREMENTS_PLAN.md) — next: components declare compatibility (`requires` at `block` or `warn` level, `provides`, `preflight`), paradigms describe only themselves, and core, the SDK and the desktop do nothing extra for any component.
+- [Compatibility requirements plan](plans/COMPATIBILITY_REQUIREMENTS_PLAN.md) — done: components declare compatibility (`requires` at `block` or `warn` level, `provides`, `preflight`), paradigms describe only themselves, and core, the SDK and the desktop do nothing extra for any component.
 - [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active; confirmed decisions (no legacy support, generic rejection, results in `src/usr/results`), phase 4 close-out, remote bundles, `src/ide` consolidation and enforcement.
 
 - [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.
@@ -64,6 +64,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 ## Reports
 
+- [Package format v3 Hub release](reports/V3_HUB_RELEASE_20261116.md) — the published 34-package batch (SDK 3.1): commits, feeds, archive hashes, Pages deployment and what was verified before publishing.
 - [Optuna 1.1.1 Hub release](reports/OPTUNA_HUB_RELEASE_20261116.md) — production feeds, archive hash, successful deployment and real Hub-card installation verification.
 
 - [UI refinement verification](reports/UI_REFINEMENTS_VERIFICATION_20261115.json) — focused form, Monitor/Results, terminal/navigation and native BlendRL checks; visual review and known failures.
@@ -73,6 +74,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 - [Layer boundary implementation history](reports/LAYER_BOUNDARY_HISTORY_20261115.md) — dated evidence for phases 0–4 (2026-11-13 to 11-15): commits, test counts and reasoning; superseded where later decisions differ.
 - [Installed layer-boundary distribution evidence](reports/LAYER_BOUNDARY_DISTRIBUTION_20261113.json) — artifact hashes, bundled inventory, dependency versions, external-workspace/worker agreement and relocated checkpoint reload.
 - [Phase 6 installed distribution evidence](reports/LAYER_BOUNDARY_PHASE6_DISTRIBUTION_20261116.json) — installed `theta`/`theta-ide` entry points, SB3 installed and trained from an external workspace by the CLI and by the desktop's job manager.
+- [Compatibility requirements verification](reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json) — full per-file run after the compatibility change (no new failure IDs), package integration and the installed-distribution probe against the release.
 - [Phase 7 verification](reports/LAYER_BOUNDARY_PHASE7_VERIFICATION_20261116.json) — full per-file run after phases 5d–7: totals, failure IDs, the eight UI-batch failures confirmed at `9a3870e`, and earlier IDs now passing.
 
 - [IDE, plugin, and user layer boundary audit](reports/LAYER_BOUNDARY_AUDIT_20261113.md) — ownership gaps in `in/`, execution, desktop extensions, package APIs, distribution, and remote snapshots.

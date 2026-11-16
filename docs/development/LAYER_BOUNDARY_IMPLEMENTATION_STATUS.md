@@ -1,59 +1,48 @@
 # Layer boundary implementation status
 
-Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) on branch `implement/layer-boundaries`, as of 2026-11-16. This page describes only what is true now and what is left; replace its contents as work lands. Dated evidence for phases 0–4 is in the [implementation history](../reports/LAYER_BOUNDARY_HISTORY_20261115.md). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the next work in order.
+Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) as of 2026-11-16. This page describes only what is true now and what is left; replace its contents as work lands. Dated evidence for phases 0–4 is in the [implementation history](../reports/LAYER_BOUNDARY_HISTORY_20261115.md). The [handoff prompt](LAYER_BOUNDARY_HANDOFF.md) lists the next work.
 
 ## Progress
 
-| Phase (delivery) | State | What is left |
-| --- | --- | --- |
-| 0 — Contract and baseline (A) | Done | — |
-| 1 — Workspace and config ownership (B) | Done | — |
-| 2 — Runner features, site/tuner extraction (C, D) | Done | — |
-| 3 — App-plugin SDK (E) | Done | — |
-| 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | Publication |
-| 5 — Results in `src/usr/results`, remote bundles (G) | Done (`4d95ad5`); the user's results live in `src/usr/results` | — |
-| 6 — Installed distribution (H) | Done (`8da3c4c`) | — |
-| 7 — Enforcement (I) | Done (`252d3dc`) | Compatibility requirements plan, then publication |
+All phases (0–7) and the [compatibility requirements plan](../plans/COMPATIBILITY_REQUIREMENTS_PLAN.md) are done, and the v3 batch is published. `implement/layer-boundaries` is merged into `main` together with the publication.
+
+| Phase (delivery) | State |
+| --- | --- |
+| 0–3 — Contract, workspace/config ownership, runner features, site/tuner extraction, app-plugin SDK (A–E) | Done |
+| 4 — Retire `in/` and every adapter (F) | Done; v3 batch published ([release](../reports/V3_HUB_RELEASE_20261116.md)) |
+| 5 — Results in `src/usr/results`, remote bundles (G) | Done (`4d95ad5`) |
+| 6 — Installed distribution (H) | Done (`8da3c4c`) |
+| 7 — Enforcement (I) | Done (`252d3dc`) |
+| Compatibility requirements | Done (`1fa0d57`–`9d0e7d3`) |
 
 Gates: the real cluster smoke run is not a gate and is not run (user decision, 2026-11-15). The desktop is accepted as working; the interactive items at the end are unchecked.
 
 ## Repositories
 
-- **IDE:** `implement/layer-boundaries` is pushed to `origin` (ThetaIDE/ThetaIDE). No PR. It merges to `main` only together with the Hub publication, and only when the user asks.
-- **Hub releases:** Optuna 1.1.1 is published ([release verification](../reports/OPTUNA_HUB_RELEASE_20261116.md)). The rest of the v3 batch in `../theta-plugins-v3` and `../theta-hub-v3` (branch `v3-republish`) is local and unpushed. Since the last preparation: Slurm is 2.0.0 (scheduler contract v2, declares `packaging`), the app plugins `antigravity`, `doom-sim` and `obsidian` are 1.2.0 (SDK `>=3.0,<4`), `cew` 1.1.1 declares `igraph`, `neumann` 1.1.1 drops an unused perception chain. The Hub-v3 archives and registry entries must be rebuilt for these before publication. At publication, `ai_assistant`, `theta_mcp` and the five MIMIC packages leave the feed; reconcile the stale Optuna 1.1.0 listing.
-- **Repository workspace:** runs the prepared v3 releases. Optuna 1.1.1 is installed there; Slurm is not (it collides with the authored `ncshare-site` package, which owns `site/ncshare/*`).
+- **IDE:** `main` includes the whole refactor. `implement/layer-boundaries` is pushed and equal to it.
+- **Hub:** ThetaHub `main` is `570d30c` (34 listings, SDK 3.1). Package sources are theta-plugins `main` at `cf27f57`. The local `../theta-plugins-v3` and `../theta-hub-v3` worktrees (branch `v3-republish`) are the working copies; `../theta-plugins` and `../theta-hub` hold the user's own uncommitted work and are untouched.
+- **Repository workspace:** reinstall pending. Installed and current: DNN 1.2.0, Dueling ResNet 1.1.0, Gym classic control 1.2.0, NatureCNN 1.1.0, Optuna 1.2.0. Thirteen installed copies from the earlier v3 preparation (`atari-env`, `autoencoder`, `d3rlpy-suite`, `image-data`, `lstm`, `mlp`, `nsfr`, `replay-buffer`, `sb3-suite`, `standard-figures`, `tabular-data`, `thetalib`, `transformer`) no longer validate under the strict schema, so the installer refuses to overwrite them. They are read-only with no local edits. Replacing them (move each to `.thetaide/retained_packages`, then install the published release, then BlendRL 1.4.0, NEUMANN 1.1.1 and the DL basics suite, which depend on them) waits for the user's yes. Slurm is not installed (it collides with the authored `ncshare-site` package, which owns `site/ncshare/*`).
 
-## Phase 5 — results and bundles
+## Compatibility requirements
 
-- Every results path comes from `WorkspacePaths.results` (`src/usr/results`); `tests/test_layout_guard.py` rejects literal results paths. The user's old `results/` was merged into `src/usr/results`. Four superseded 2026-11-14 files that could not merge (macOS treats `newMonitors` and `NewMonitors` as one directory) were deleted at the user's request.
-- A remote job runs from a bundle (`src/app/sites/bundle.py`, `theta.bundle/v1`) built from one composed experiment: the application without the desktop, the selected packages and their component dependencies, the workspace configuration outside `experiment/` plus the experiment files it reads, authored rules and the workspace identity. It composes its experiment on its own before upload. `.thetaide/requirements.txt` lists the application's and the selected providers' requirements; remote setup is `pip install -r`. Contract: [scheduler contract v2](../reference/SCHEDULER_CONTRACT.md#bundles). SDK 3.0 replaced `freeze`/`extract` with the bundle exports.
-- `site push SITE EXPERIMENT [OVERRIDES…]`; the remote workspace holds the last pushed bundle, and submission requires that bundle to be for the submitted experiment. Continuation requires the parent's bundle digest.
-
-## Phase 6 — installed distribution
-
-`theta` (`run_pipeline:cli`) and `theta-ide` (`frontend.__main__:launch`) are installed entry points. An installed application is never a workspace: it uses the working directory or `THETA_WORKSPACE`. [Distribution evidence](../reports/LAYER_BOUNDARY_PHASE6_DISTRIBUTION_20261116.json): a fresh wheel installed in a clean environment installed SB3 with `theta component install`, trained CartPole with `theta` from an external workspace, opened `theta-ide` on it and launched the experiment through the desktop's job manager.
-
-## Phase 7 — enforcement
-
-- `tests/test_sdk_boundary.py` checks every tracked package (optional, bundled, authored `src/usr`, fixtures) with `package_errors` (SDK-only host imports, no other package's modules by path, no window access) and `undeclared_imports` (third-party imports come from the application's requirements or `dependencies.pip`), and checks that core and the desktop import no package by path and name no optional or authored package ID. See [SDK enforcement](../reference/SDK.md#enforcement).
-- The installer refuses, and the exporter will not export, package code that fails `package_errors`. The v3 package builder runs both checks.
-- Behavior tests use differently named providers: scheduler `lattice-batch`, tuners `lattice` and `fixture-grid` (dispatch, forms, bundle selection and requirements).
-- The scaffolder generates SDK-only code; a test scaffolds every kind and checks and imports the result.
-- Removed: the orphaned Model Builder modules and their test (its panel was withdrawn in the UI batch). Archived: the project organization proposal, the pre-v3 component development status, the execution refactor status and the first Slurm hardening handoff.
-
-## Still more than one home
-
-Paradigm compatibility (profile `compatible_paradigms`, capability and package `paradigms`, paradigm `allowed_agents`), the data slot `role` (profile, then capability) and input contracts (capability, then package) overlap. The [compatibility requirements plan](../plans/COMPATIBILITY_REQUIREMENTS_PLAN.md) replaces them with one capability-level `requires`; it is the next work, before publication.
+- A capability declares `requires` rules (`block` or `warn`, a `config` path or a `kind` subject, optional `when` and `message`), `provides` contracts and an optional validation-time `preflight` hook. `src/app/core/requirements.py` is the only evaluator. Validation, forms (`mark_candidates`, `compatibility_status`), the run record (`compatibility_warnings`) and SDK 3.1 (`src.app.api.config.compatibility`) read its findings. Reference: [compatibility requirements](../reference/COMPATIBILITY_REQUIREMENTS.md).
+- Paradigms describe only themselves. Package/profile `paradigms`, `compatible_paradigms`, `allowed_agents`, paradigm `constraints`, the data slot `role`, `output_contracts`, `input_types`, `execution_preflight` and the `symbolic_state_loader` slot are gone; the manifest schema is strict at the top and capability level.
+- Components own their sub-components through `x-theta-domain` parameters (narrowed with `x-theta-contract`); package code loads them with `load_selected`. BlendRL's symbolic state builder is the model parameter `symbolic_state`.
+- Core, the SDK and the desktop do nothing extra for any component: rulesets are NSFR's `rules` workspace resource (`x-theta-resource` pickers; `resource_entries`), Slurm's shell helpers live in the Slurm package, run loggers declare their result categories, and the sweeper adapter is the generic `hydra_plugins/theta_sweeper`.
+- Validation names selections that resolve to no component before evaluating compatibility. Pickers ignore a candidate's rules about a component kind the method has not selected yet.
 
 ## Kept as current behavior
 
-Tuning has one shape: `tuning.{component, metric, direction, options.<component>}` plus each method's `tune`; validation rejects any other key. Checkpoint ranking by paradigm/environment `monitor_metric` and `checkpoint.monitor` stays (user). A run logger's only switch is `logging.backends.<id>.enabled`. The resource pool's SQLite column upgrade stays (the running desktop may hold that database). `requires-python` says 3.10, but core already imports `tomllib` (3.11).
+Tuning has one shape: `tuning.{component, metric, direction, options.<component>}` plus each method's `tune`. Checkpoint ranking by paradigm/environment `monitor_metric` and `checkpoint.monitor` stays (user). A run logger's only switch is `logging.backends.<id>.enabled`. The resource pool's SQLite column upgrade stays. `requires-python` says 3.10, but core already imports `tomllib` (3.11).
 
-The user's `BlendRL/Cartpole/sweep_sustainedSolve.yaml` sets `tuning.n_trials`/`n_jobs` at the flat level and fails validation until they move under `tuning.options.optuna` (user knows).
+## The user's files that are out of date
+
+- `src/usr/config/experiment/NewMonitors/onlineRL.yaml`, `BlendRL/Cartpole/LearnFast.yaml` and `BlendRL/Cartpole/sweep_sustainedSolve.yaml` set `symbolic_state_loader`; it moves to `model.symbolic_state` (for example `blendrl/cartpole_state`).
+- `BlendRL/Cartpole/sweep_sustainedSolve.yaml` also sets flat `tuning.n_trials`/`n_jobs` (user knows).
 
 ## Tests
 
-Full per-file run (2026-11-16, all 225 files): **2,637 passed, 52 skipped, 133 failed**, no aborted files. No failure is new from this session: eight IDs absent from the 5c list fail identically at `9a3870e` (left by the UI/BlendRL batch: removed Plots panel in `test_frontend_layout`, required `blender_model` in `test_config_model`, Monitor consolidation in `test_tuning_monitor_contributions`, a capitalized label in `test_remote_partial_results`). Fifteen earlier IDs now pass or were removed. [Evidence and IDs](../reports/LAYER_BOUNDARY_PHASE7_VERIFICATION_20261116.json). Package integration in `../theta-plugins-v3`: 70 passed. Real SB3 CPU bundle runs (`test_ncshare_hardening` with `THETA_HUB_ROOT=../theta-hub-v3`) pass.
+Full per-file run at `9d0e7d3` (226 files): **2,655 passed, 70 skipped, 112 failed**, no new failure IDs, 21 phase 7 IDs now pass ([evidence](../reports/COMPATIBILITY_REQUIREMENTS_VERIFICATION_20261116.json)). The remaining failures are the deferred stale tests and the UI-batch IDs listed there. Package integration in `../theta-plugins-v3`: 70 passed. The installed-distribution probe passed against the release.
 
 Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cacheprovider tests/<file>.py`. Compare failures by ID against the evidence before calling one a regression. Fixtures: `tests/conftest.py`'s autouse `tracked_workspace`, `fixture_workspace`, `optuna_workspace`, `component_fixtures` (`install_optional`, `sweep_workspace`, `LocalHub` via `THETA_HUB_ROOT`), `tests/bundle_fixtures.py` for fake-project bundles. Deferred stale tests (user decision) include those reading `~/.config/thetaide/settings.toml` or QSettings.
 
@@ -63,3 +52,4 @@ Run per file: `QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q -p no:cach
 2. The text editor, TensorBoard, documentation, arXiv and antigravity panels load, and survive disable and re-enable.
 3. Results previews generated figures for a finished run in a populated workspace.
 4. Settings → Terminal → Cluster sites: the experiment picker and the generated setup (`pip install -r .thetaide/requirements.txt`).
+5. The NSFR `rules` picker and its open-in-editor action; compatibility markers in the agent and model pickers.
