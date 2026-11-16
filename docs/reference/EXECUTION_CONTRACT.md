@@ -22,8 +22,8 @@ The paradigm chooses the lifecycle runner. The selected algorithm capability own
 `backend` and integer `execution_contract` metadata. Metadata decides the backend;
 an explicit config `backend`, where supplied, must agree. Backend labels are provider-defined; core does not maintain an adapter allowlist.
 Lightning is the retained core executor. All other labels invoke the selected
-algorithm adapter. Current adapters are the Hub packages `sb3-suite` 2.0 (`sb3/*`) and
-`d3rlpy-suite` 2.0 (`d3rlpy/*`, encoder model `d3rlpy/vector`), their editable
+algorithm adapter. Current adapters are the Hub packages `sb3-suite` 2.1 (`sb3/*`) and
+`d3rlpy-suite` 2.1 (`d3rlpy/*`, encoder model `d3rlpy/vector`), their editable
 sources `sb3-dev` and `d3rlpy-dev`, and the numerical THEMES adapter in `themes-dev`. Algorithm-free neural paradigms
 use Lightning. Unknown algorithms, unresolved runners and incompatible selected
 algorithm capabilities fail before fitting. Unselected historical packages remain
