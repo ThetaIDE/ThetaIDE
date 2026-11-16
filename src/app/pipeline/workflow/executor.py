@@ -143,7 +143,9 @@ def _run_experiment_node(node, cfg, context, is_interactive: bool) -> None:
         and not a.startswith("++group=")
     ]
 
-    cmd = [python_exe, "-u", "run_pipeline.py", experiment_ref] + overrides + forwarded_args
+    # The child inherits this process's workspace; the launcher comes from the application.
+    launcher = WorkspacePaths.for_process().application / "run_pipeline.py"
+    cmd = [python_exe, "-u", str(launcher), experiment_ref] + overrides + forwarded_args
     print(f"    CMD: {' '.join(cmd)}")
 
     if is_interactive:

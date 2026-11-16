@@ -116,8 +116,8 @@ def launch_buttons(window):
 
 def configure_macos_application():
     """Give an unbundled Python process a normal macOS app policy and Dock icon."""
-    if sys.platform != "darwin":
-        return
+    if sys.platform != "darwin" or QApplication.platformName() != "cocoa":
+        return  # other Qt platforms (offscreen) create no NSApplication
     try:
         from AppKit import NSApp, NSApplicationActivationPolicyRegular, NSImage
     except ImportError as exc:

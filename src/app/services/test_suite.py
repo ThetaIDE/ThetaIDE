@@ -8,6 +8,7 @@ unsafe or underspecified launch before the runner starts.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -256,9 +257,11 @@ def run_pipeline_case(
     case: TestCase, workspace_dir: str | Path, python: str | None = None, timeout: int = 120
 ) -> dict[str, Any]:
     """Run one suite recipe using the same CLI path as a user launch."""
-    root = Path(workspace_dir)
-    command = [python or sys.executable, "run_pipeline.py", case.experiment, *case.overrides]
-    completed = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=timeout)
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths(workspace_dir)
+    command = [python or sys.executable, str(paths.application / "run_pipeline.py"), case.experiment, *case.overrides]
+    completed = subprocess.run(command, cwd=paths.root, env={**os.environ, **paths.process_environment()},
+                               capture_output=True, text=True, timeout=timeout)
     return {
         "success": completed.returncode == 0,
         "returncode": completed.returncode,

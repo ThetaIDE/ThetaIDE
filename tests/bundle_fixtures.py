@@ -8,8 +8,15 @@ configuration. Real composition and selection are covered in ``test_bundles``.
 import tempfile
 
 
+PYPROJECT = '[project]\nname = "fake-application"\nversion = "0.0.0"\ndependencies = []\n'
+
+
 def fake_selection(root, experiment, cfg, overrides=()):
+    from pathlib import Path
     from src.app.core.provider_catalog import get_catalog
+    # The fake project is a source tree: its packaging metadata names the application.
+    if not (Path(root) / 'pyproject.toml').is_file():
+        (Path(root) / 'pyproject.toml').write_text(PYPROJECT)
     from src.app.sites.bundle import Selection
     from src.app.workspace import WorkspacePaths
     paths = WorkspacePaths(root, application=root)

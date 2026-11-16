@@ -58,11 +58,11 @@ Install dependencies in the cluster's home environment after upload:
 
 ```bash
 cd /hpc/home/cegbert1/ThetaIDE
-venv/bin/python -m pip install -e . -r .thetaide/requirements.txt
+venv/bin/python -m pip install -r .thetaide/requirements.txt
 venv/bin/python -m pip check
 ```
 
-`.thetaide/requirements.txt` comes with the pushed bundle and lists the Python requirements of the providers that experiment selects (a tuner's only when it tunes). Settings → Terminal → Cluster sites generates this setup for a chosen experiment; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop. Submission checks the running interpreter against the bundle's requirements and names any that are missing.
+`.thetaide/requirements.txt` comes with the pushed bundle and lists the application's Python requirements and those of the providers that experiment selects (a tuner's only when it tunes). Settings → Terminal → Cluster sites generates this setup for a chosen experiment; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop. Submission checks the running interpreter against the bundle's requirements and names any that are missing.
 
 ### Bundles
 

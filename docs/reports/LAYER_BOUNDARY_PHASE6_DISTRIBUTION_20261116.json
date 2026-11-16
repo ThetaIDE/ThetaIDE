@@ -1,0 +1,120 @@
+{
+  "date": "2026-11-16",
+  "phase": 6,
+  "build": "python -m build --no-isolation with a fresh build base; installed with python -I -m pip into a new venv (Python 3.11.13), then the gui extra",
+  "artifacts": {
+    "theta_ide-0.1.0-py3-none-any.whl": "5d5682bcc65b4ea82d82f1f3a0cdd299d8312de7350b9fd125758cc4bef6d59e",
+    "theta_ide-0.1.0.tar.gz": "fd2fc12894da50badb3fa53006fc8ddf11ea58116398a8d1de949a7838e6787c"
+  },
+  "wheel_entry_points": {
+    "console_scripts": {
+      "theta": "run_pipeline:cli"
+    },
+    "gui_scripts": {
+      "theta-ide": "frontend.__main__:launch"
+    }
+  },
+  "wheel_files": 434,
+  "sdist_files": 784,
+  "bundled_packages": [
+    {
+      "id": "arxiv_papers",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "documentation",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "tensorboard",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "text_editor",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "final_metric",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "learning_curve",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "sequential_spec",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "standard_figures",
+      "origin": "bundled",
+      "version": "1.0.0"
+    },
+    {
+      "id": "tensorboard_logger",
+      "origin": "bundled",
+      "version": "1.0.0"
+    }
+  ],
+  "key_dependencies": {
+    "theta-ide": "0.1.0",
+    "torch": "2.15.0",
+    "lightning": "2.6.6",
+    "hydra-core": "1.3.8",
+    "PyQt6": "6.12.1",
+    "stable_baselines3": "2.9.2",
+    "gymnasium": "1.4.0"
+  },
+  "headless_imports": true,
+  "clean_workspace_unchanged": true,
+  "two_workspace_agreement": [
+    {
+      "workspace": "one",
+      "owner": "distribution-probe",
+      "width": 31,
+      "worker_exit": 0
+    },
+    {
+      "workspace": "two",
+      "owner": "distribution-probe",
+      "width": 32,
+      "worker_exit": 0
+    }
+  ],
+  "relocated_checkpoint_reload": true,
+  "installed_launch": {
+    "entry_points": [
+      "theta",
+      "theta-ide"
+    ],
+    "components": [
+      "dnn",
+      "gym_classic_control",
+      "sb3-suite"
+    ],
+    "cli_run": {
+      "metrics": [
+        "src/usr/results/logs/installed/cli_smoke/cpu/version_0/metrics.csv"
+      ],
+      "seconds": 10.1
+    },
+    "desktop_opened": true,
+    "desktop_launch": {
+      "status": "completed",
+      "experiment": "installed/smoke",
+      "group": "installed",
+      "experiment_id": "desktop_smoke",
+      "metrics": [
+        "src/usr/results/logs/installed/desktop_smoke/cpu/version_0/metrics.csv"
+      ]
+    },
+    "hub": "../theta-hub-v3 (local checkout)"
+  }
+}

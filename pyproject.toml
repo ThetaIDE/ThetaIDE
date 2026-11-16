@@ -68,6 +68,12 @@ all = [
 ]
 
 # ── Package discovery ────────────────────────────────────────
+[project.scripts]
+theta = "run_pipeline:cli"
+
+[project.gui-scripts]
+theta-ide = "frontend.__main__:launch"
+
 [tool.setuptools]
 py-modules = ["run_pipeline"]
 
@@ -85,7 +91,7 @@ exclude = ["*.installed", "*.installed.*", "*.node_modules", "*.node_modules.*"]
 "src.app" = ["config_defaults/**/*.yaml"]
 "src.plugins.components.bundled" = ["*/.theta_component.json", "**/*.json", "**/*.yaml"]
 "src.plugins.app.bundled" = ["**/*.json", "**/*.svg", "**/*.html", "**/*.js", "**/*.css", "**/*.png", "**/*.md", "**/*.txt", "**/*.mjs"]
-"frontend" = ["icons/*.svg", "icons/*.png", "*.qss", "themes/*.qss"]
+"frontend" = ["icons/*.svg", "icons/*.png"]
 
 # ── Ruff (linting + formatting) ─────────────────────────────
 [tool.ruff]

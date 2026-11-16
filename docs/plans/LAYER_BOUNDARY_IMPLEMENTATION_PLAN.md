@@ -130,6 +130,8 @@ Core stays at `src/app` and `frontend` (user decision, 2026-11-15); nothing move
 
 Exit gate: installed entry points do not need the repository as working directory; the installed desktop opens and launches an experiment against an external workspace.
 
+Done 2026-11-16: `theta = run_pipeline:cli` and `theta-ide = frontend.__main__:launch`; an installed application uses the working directory (or `THETA_WORKSPACE`) as its workspace; launchers that started `run_pipeline.py` relative to the working directory start the application's copy. Bundles take the application's identity and requirements from the installed distribution when there is no source tree. Evidence: [phase 6 distribution report](../reports/LAYER_BOUNDARY_PHASE6_DISTRIBUTION_20261116.json).
+
 ## Phase 7 — Enforcement
 
 - Extend `tests/test_sdk_boundary.py` from the optional components and bundled packages to installed and authored packages and the whole desktop and core tree. Cover `import`, `from` and dynamic imports. Check package imports against the SDK and the package's declared dependencies; a broad `src.ide` prefix is not permission.

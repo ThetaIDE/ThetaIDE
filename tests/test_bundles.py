@@ -79,7 +79,9 @@ def test_bundle_holds_what_the_experiment_selects(selected, tmp_path):
                for item in manifest['configs'])
     # Requirements are those of the selected providers; this experiment has no tuner (5e).
     assert not any(line.startswith(('optuna', 'sqlalchemy')) for line in manifest['requirements']['providers'])
-    assert (tmp_path / 'bundle' / bundle.REQUIREMENTS).read_text().splitlines() == manifest['requirements']['providers']
+    requirements = manifest['requirements']
+    assert 'hydra-core>=1.3,<2' in requirements['application']
+    assert (tmp_path / 'bundle' / bundle.REQUIREMENTS).read_text().splitlines() == [*requirements['application'], *requirements['providers']]
     assert manifest['application']['name'] == 'theta-ide'
     assert bundle.verify(tmp_path / 'bundle')['bundle_sha256'] == manifest['bundle_sha256']
 

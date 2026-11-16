@@ -205,4 +205,7 @@ class WorkspacePaths:
                     return cls(Path(hydra.HydraConfig.get().runtime.cwd))
             except (AttributeError, ValueError, TypeError): pass
         current = Path.cwd()
-        return cls(current) if (current / "src/usr").is_dir() or (current / ".thetaide/workspace.json").is_file() else cls()
+        # A source checkout is also its own workspace; an installed application never is, so
+        # its working directory is the workspace.
+        def workspace(path): return (path / "src/usr").is_dir() or (path / ".thetaide/workspace.json").is_file()
+        return cls(current) if workspace(current) or not workspace(PROJECT_ROOT) else cls()

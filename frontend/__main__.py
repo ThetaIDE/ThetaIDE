@@ -5,21 +5,13 @@ import time
 from pathlib import Path
 
 
-os.environ["THETAIDE_STARTUP_EPOCH"] = str(time.perf_counter())
-if not __package__:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-if "--startup-diagnostics" in sys.argv:
-    index = sys.argv.index("--startup-diagnostics")
-    if index + 1 < len(sys.argv):
-        from frontend.startup_diagnostics import begin
-        begin(sys.argv[index + 1], profile="--startup-latency-only" not in sys.argv)
-from frontend.startup import mark
-mark("process_entry")
-
 def _relaunch_through_macos_app_bundle() -> bool:
-    """Open the local .app bundle so macOS gives the GUI a real ThetaIDE identity."""
+    """From a source checkout, open its local .app bundle so macOS gives the GUI a real ThetaIDE identity."""
+    repo_root = Path(__file__).resolve().parent.parent
+    bundle_builder = repo_root / "scripts" / "create_macos_app.py"
     if (
         sys.platform != "darwin"
+        or not bundle_builder.is_file()
         or os.environ.get("THETAIDE_APP_BUNDLE") == "1"
         or os.environ.get("THETAIDE_DIRECT") == "1"
         or os.environ.get("QT_QPA_PLATFORM") == "offscreen"
@@ -27,8 +19,6 @@ def _relaunch_through_macos_app_bundle() -> bool:
     ):
         return False
 
-    repo_root = Path(__file__).resolve().parent.parent
-    bundle_builder = repo_root / "scripts" / "create_macos_app.py"
     bundle_path = repo_root / ".thetaide" / "ThetaIDE.app"
     launcher = bundle_path / "Contents" / "MacOS" / "ThetaIDE"
     try:
@@ -45,15 +35,23 @@ def _relaunch_through_macos_app_bundle() -> bool:
     return True
 
 
-if _relaunch_through_macos_app_bundle():
-    raise SystemExit(0)
-
-if __package__:
-    from .app import main
-else:
-    repo_root = Path(__file__).resolve().parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+def launch() -> int:
+    """The ``theta-ide`` command and ``python -m frontend``."""
+    os.environ["THETAIDE_STARTUP_EPOCH"] = str(time.perf_counter())
+    if "--startup-diagnostics" in sys.argv:
+        index = sys.argv.index("--startup-diagnostics")
+        if index + 1 < len(sys.argv):
+            from frontend.startup_diagnostics import begin
+            begin(sys.argv[index + 1], profile="--startup-latency-only" not in sys.argv)
+    from frontend.startup import mark
+    mark("process_entry")
+    if _relaunch_through_macos_app_bundle():
+        return 0
     from frontend.app import main
+    return main()
 
-raise SystemExit(main())
+
+if __name__ == "__main__":
+    if not __package__:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    raise SystemExit(launch())

@@ -17,7 +17,7 @@ def test_user_configuration_and_setup_are_offline(tmp_path, monkeypatch):
     script = bootstrap_command(tmp_path, 'cluster', 'g/test')
     assert 'site push cluster g/test' in script
     # Setup installs the requirements the pushed bundle lists, not those of every installed package.
-    assert 'pip install -e . -r .thetaide/requirements.txt' in script
+    assert 'pip install -r .thetaide/requirements.txt' in script
     assert 'python3 -m venv' in script
     paths = shortcuts(tmp_path, 'cluster')
     assert len(paths) == 3

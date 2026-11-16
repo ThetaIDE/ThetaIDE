@@ -74,6 +74,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 - [Layer boundary implementation history](reports/LAYER_BOUNDARY_HISTORY_20261115.md) — dated evidence for phases 0–4 (2026-11-13 to 11-15): commits, test counts and reasoning; superseded where later decisions differ.
 - [Installed layer-boundary distribution evidence](reports/LAYER_BOUNDARY_DISTRIBUTION_20261113.json) — artifact hashes, bundled inventory, dependency versions, external-workspace/worker agreement and relocated checkpoint reload.
+- [Phase 6 installed distribution evidence](reports/LAYER_BOUNDARY_PHASE6_DISTRIBUTION_20261116.json) — installed `theta`/`theta-ide` entry points, SB3 installed and trained from an external workspace by the CLI and by the desktop's job manager.
 
 - [IDE, plugin, and user layer boundary audit](reports/LAYER_BOUNDARY_AUDIT_20261113.md) — ownership gaps in `in/`, execution, desktop extensions, package APIs, distribution, and remote snapshots.
 

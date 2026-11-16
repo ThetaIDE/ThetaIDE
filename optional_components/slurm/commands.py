@@ -2,6 +2,7 @@
 from pathlib import Path
 import os, shlex, subprocess, sys
 from src.app.api.sites import BUNDLE_REQUIREMENTS, rsync_shell, safe_path, ssh_arguments
+from src.app.api.workspace import WorkspacePaths
 
 def submission_command(config, experiment, site):
     """The saved experiment owns its site/options; the shell is already at project root."""
@@ -49,10 +50,10 @@ def bootstrap_command(root, site, experiment):
              ' && python3 -m venv ' + shlex.quote(environment_dir))
     # The pushed bundle lists the requirements of the providers this experiment selects.
     install = ('cd ' + shlex.quote(config['remote_root']) + ' && ' +
-               shlex.join([config['python'], '-m', 'pip', 'install', '-e', '.', '-r', BUNDLE_REQUIREMENTS]))
+               shlex.join([config['python'], '-m', 'pip', 'install', '-r', BUNDLE_REQUIREMENTS]))
     # Only emit text: the user chooses when to execute SSH, upload and package installation.
     return '\n'.join(['set -e', shlex.join([*ssh_arguments(root, config, True), '--', config['host'], setup]),
-        shlex.join([sys.executable, str(root / 'run_pipeline.py'), 'site', 'push', site, experiment, '--root', str(root)]),
+        shlex.join([sys.executable, str(WorkspacePaths(root).application / 'run_pipeline.py'), 'site', 'push', site, experiment, '--root', str(root)]),
         shlex.join([*ssh_arguments(root, config, True), '--', config['host'], install])])
 
 
@@ -64,10 +65,12 @@ def shortcuts(root, site):
     paths = []
     import hashlib
     tag = hashlib.sha256(site.encode()).hexdigest()[:12]
+    # The launcher belongs to the application, which need not be the workspace.
+    launcher = str(WorkspacePaths(root).application / 'run_pipeline.py')
     commands = {
-        'ssh': shlex.join([sys.executable, str(Path(root) / 'run_pipeline.py'), 'site', 'ssh', site, '--root', str(root)]),
-        'push': shlex.join([sys.executable, str(Path(root) / 'run_pipeline.py'), 'site', 'push', '--root', str(root), site]) + ' "$@"',
-        'sync': shlex.join([sys.executable, str(Path(root) / 'run_pipeline.py'), 'site', 'sync', site, '--root', str(root)]),
+        'ssh': shlex.join([sys.executable, launcher, 'site', 'ssh', site, '--root', str(root)]),
+        'push': shlex.join([sys.executable, launcher, 'site', 'push', '--root', str(root), site]) + ' "$@"',
+        'sync': shlex.join([sys.executable, launcher, 'site', 'sync', site, '--root', str(root)]),
     }
     for action, command in commands.items():
         path = directory / f'theta-{action}-{tag}'
@@ -78,17 +81,17 @@ def shortcuts(root, site):
 
 
 def verify_environment(bundle):
-    """The running interpreter satisfies the requirements of the bundle's providers."""
+    """The running interpreter satisfies the requirements of the bundle's application and providers."""
     from importlib.metadata import version, PackageNotFoundError
     from packaging.requirements import Requirement
-    for value in bundle['requirements']['providers']:
+    for value in [*bundle['requirements']['application'], *bundle['requirements']['providers']]:
         requirement = Requirement(value)
         if requirement.marker and not requirement.marker.evaluate(): continue
         try: installed = version(requirement.name)
         except PackageNotFoundError as exc:
-            raise ValueError(f'Missing provider dependency {value}; install the bundle requirements: '
+            raise ValueError(f'Missing dependency {value}; install the bundle requirements: '
                              f'python -m pip install -r {BUNDLE_REQUIREMENTS}') from exc
         if requirement.specifier and installed not in requirement.specifier:
-            raise ValueError(f'Provider dependency {value} conflicts with installed {installed}')
+            raise ValueError(f'Dependency {value} conflicts with installed {installed}')
 
 

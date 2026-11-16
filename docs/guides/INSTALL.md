@@ -99,6 +99,26 @@ venv/bin/python -m frontend
 python -m frontend
 ```
 
+Installing the package also adds two commands: `theta-ide` opens the desktop, and `theta` is
+`run_pipeline.py` (experiments, `theta component …` and `theta site …`). Neither needs the repository as its
+working directory.
+
+### Installed, with a separate workspace
+
+A workspace is the directory that holds your research (`src/usr`: configuration, authored packages, datasets
+and results) and its `.thetaide/` state. In a source checkout the checkout is its own workspace. An installed
+application (`pip install "theta-ide[gui]"` from a built wheel) is never a workspace; the commands use the
+working directory, or the directory `THETA_WORKSPACE` names:
+
+```bash
+mkdir ~/research && cd ~/research
+theta component install sb3-suite-2.0.0.zip   # Hub archives, dependencies first
+theta mygroup/myexperiment
+theta-ide --workspace ~/research
+```
+
+`scripts/verify_installed_distribution.py` builds this case end to end; see its docstring.
+
 There is no server to start first. The status bar shows **Pipeline ready** once the training pipeline has
 loaded. On macOS, the command automatically launches the local app bundle so the Dock and Mission Control
 associate the window with ThetaIDE instead of the Python interpreter.

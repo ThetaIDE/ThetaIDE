@@ -108,6 +108,8 @@ def test_slurm_nested_results_use_valid_script_names(tmp_path, tmp_path_factory,
     cfg = OmegaConf.create({"group": "group", "experiment_id": "path/dir/run",
                             "site": {"name": "cluster", "scheduler": "slurm", "python_executable": sys.executable},
                             "paradigm": "online_rl", "consolidate": consolidate, "plots": ["losses"]})
+    from bundle_fixtures import fake_bundles
+    fake_bundles(monkeypatch, cfg)
     record = submit(tmp_path, "group/path/dir/run", [], cfg)
     directory = tmp_path / "src/usr/results/sites" / record["execution_id"]
     assert (directory / "job.sbatch").is_file()

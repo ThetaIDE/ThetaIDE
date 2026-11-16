@@ -3,38 +3,46 @@
 Coordinates experiment methods, parameter sweeps, plotting, and cluster submissions.
 """
 
-import argparse
 import os
 import sys
 import time
-from pathlib import Path
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-from src.app.workspace import WorkspacePaths
-_process_paths = WorkspacePaths.for_process()
-os.environ.update(_process_paths.process_environment())
-
-# Dispatch component tooling before importing training/configuration backends.
-if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "component":
-    from src.app.components.__main__ import main as component_main
-    raise SystemExit(component_main(sys.argv[2:]))
-
-# Site tooling stays headless and does not import training engines.
-if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "site":
-    from src.app.sites.__main__ import main as site_main
-    raise SystemExit(site_main(sys.argv[2:]))
-
-from omegaconf import OmegaConf
-
-from src.app.pipeline.compose import compose_experiment, validate_composed
-from src.app.pipeline.config import normalize_agent_name, parse_methods_dict, resolve_experiment_config_name
-from src.app.pipeline.datasets import run_plotting
-from src.app.pipeline.exceptions import ConfigurationError
+if __name__ == "__main__":
+    # Workers start this file with ``python -I``, which leaves the script's directory off sys.path.
+    _APPLICATION = os.path.dirname(os.path.abspath(__file__))
+    if _APPLICATION not in sys.path:
+        sys.path.insert(0, _APPLICATION)
 
 
-def main():
+def cli():
+    """The ``theta`` command: experiments, plus the headless ``component`` and ``site`` tooling."""
+    command = sys.argv[1] if len(sys.argv) > 1 else None
+    # Dispatch component and site tooling before importing training/configuration backends.
+    if command == "component":
+        from src.app.components.__main__ import main as component_main
+        return component_main(sys.argv[2:])
+    if command == "site":
+        from src.app.sites.__main__ import main as site_main
+        return site_main(sys.argv[2:])
+    from src.app.workspace import WorkspacePaths
+    paths = WorkspacePaths.for_process()
+    os.environ.update(paths.process_environment())
+    if command not in (None, "-h", "--help"):
+        print(f"Initializing Theta pipeline for: {command} ...", flush=True)
+    from src.app.components.transactions import provider_lease
+    with provider_lease(paths):
+        main(paths)
+    return 0
+
+
+def main(paths):
+    from omegaconf import OmegaConf
+
+    from src.app.pipeline.compose import compose_experiment, validate_composed
+    from src.app.pipeline.config import parse_methods_dict, resolve_experiment_config_name
+    from src.app.pipeline.datasets import run_plotting
+    from src.app.pipeline.exceptions import ConfigurationError
+
     os.environ["THETA_PIPELINE_PID"] = str(os.getpid())
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("Usage: python run_pipeline.py <group>/<experiment_id> [Hydra Overrides]")
@@ -82,7 +90,7 @@ def main():
 
         from src.app.services.plugin_scaffolder import PluginScaffolder, ScaffoldOptions
 
-        scaffolder = PluginScaffolder(workspace_root=Path(PROJECT_ROOT))
+        scaffolder = PluginScaffolder(workspace_root=paths.root)
         opts = ScaffoldOptions(name=name, kind=kind, author=author, description=desc)
         res = scaffolder.scaffold(opts)
         if res.success:
@@ -246,8 +254,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] not in ("-h", "--help"):
-        print(f"Initializing Theta pipeline for: {sys.argv[1]} ...", flush=True)
-    from src.app.components.transactions import provider_lease
-    with provider_lease(_process_paths):
-        main()
+    raise SystemExit(cli())

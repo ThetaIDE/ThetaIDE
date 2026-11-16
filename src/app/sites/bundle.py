@@ -142,19 +142,21 @@ def _within(path, root, what):
     return path.relative_to(Path(root).resolve()).as_posix()
 
 
-def _application_requirements(application):
+def _application_project(application):
+    """Name, version and requirements of the application: its source tree's ``pyproject.toml``,
+    or the installed distribution's metadata when the application is installed."""
     pyproject = Path(application) / 'pyproject.toml'
-    if not pyproject.is_file(): return []
-    import tomllib
-    return list(tomllib.loads(pyproject.read_text()).get('project', {}).get('dependencies', []))
-
-
-def _application_version(application):
-    pyproject = Path(application) / 'pyproject.toml'
-    if not pyproject.is_file(): return {'name': None, 'version': None}
-    import tomllib
-    project = tomllib.loads(pyproject.read_text()).get('project', {})
-    return {'name': project.get('name'), 'version': project.get('version')}
+    if pyproject.is_file():
+        import tomllib
+        project = tomllib.loads(pyproject.read_text()).get('project', {})
+        return {'name': project.get('name'), 'version': project.get('version')}, list(project.get('dependencies', []))
+    from importlib import metadata
+    names = metadata.packages_distributions().get('run_pipeline') or []
+    if len(names) != 1:
+        raise ValueError(f'The application at {application} is neither a source tree nor one installed distribution')
+    distribution = metadata.distribution(names[0])
+    requirements = [value for value in distribution.requires or [] if 'extra ==' not in value]
+    return {'name': distribution.metadata['Name'], 'version': distribution.version}, requirements
 
 
 def _set_digest(hashes):
@@ -224,9 +226,11 @@ def build(selection, destination):
         shutil.copy2(source, target)
         hashes[relative] = digest(target)
     listed = sorted(requirements)
+    identity, application_requirements = _application_project(paths.application)
+    # One file sets up a remote environment: the application's requirements, then the providers'.
     requirement_file = safe_path(destination, REQUIREMENTS)
     requirement_file.parent.mkdir(parents=True, exist_ok=True)
-    requirement_file.write_text(''.join(line + '\n' for line in listed))
+    requirement_file.write_text(''.join(line + '\n' for line in [*application_requirements, *listed]))
     hashes[REQUIREMENTS] = digest(requirement_file)
     from . import site_name
     site = selection.cfg.get('site') or {}
@@ -240,12 +244,12 @@ def build(selection, destination):
         'created_at': datetime.now(timezone.utc).isoformat(),
         'experiment': {'selector': selection.experiment, 'overrides': list(selection.overrides),
                        'site': site_name(selection.cfg)},
-        'application': {**_application_version(paths.application),
+        'application': {**identity,
                         'sha256': _set_digest({name: hashes[name] for name in application})},
         'providers': providers,
         'configs': configs,
         'inputs': [{'source': str(item['source']), 'target': str(item['target'])} for item in inputs],
-        'requirements': {'application': _application_requirements(paths.application), 'providers': listed},
+        'requirements': {'application': application_requirements, 'providers': listed},
         'files': hashes,
     }
     write_json(destination / MANIFEST, manifest)

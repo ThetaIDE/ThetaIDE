@@ -1,18 +1,14 @@
 include AGENTS.md
 include src/plugins/inventory.json
 recursive-include docs *.md
-recursive-include src/plugins/components/bundled *.py *.json *.yaml *.yml *.svg *.png *.md
-recursive-include src/plugins/app/bundled *.py *.json *.html *.css *.js *.svg *.png *.md *.txt *.mjs *.yaml
+recursive-include src/plugins/components/bundled *.py *.json
+recursive-include src/plugins/app/bundled *.py *.json *.html *.js *.svg *.md *.txt *.mjs
 recursive-include src/app/config_defaults *.yaml
 recursive-include frontend/icons *.svg *.png
-include frontend/*.qss frontend/themes/*.qss
 recursive-exclude src/plugins/components/installed *
 recursive-exclude src/plugins/app/installed *
-recursive-exclude src/usr *
-include src/usr/__init__.py src/usr/algorithms/__init__.py src/usr/algorithms/agent_registry.py src/usr/algorithms/base_agent.py
-include src/usr/models/__init__.py src/usr/models/sequential_spec/__init__.py src/usr/models/sequential_spec/sequential_spec.py
 prune .thetaide
-prune src/usr/results
+prune src/usr
 prune scratch
 global-exclude __pycache__ *.pyc .DS_Store
 
