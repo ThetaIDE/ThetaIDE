@@ -148,6 +148,26 @@
     "visual_review": ["sweep-unavailable.png", "sweep-unavailable-narrow.png"],
     "diff_check": "passed"
   },
+  "required_blender_model_followup": {
+    "date": "2026-11-16",
+    "active_source": "src/usr/models/blendrl-dev",
+    "behavior": "Declare blender_model required using the existing model picker and child adder; its mapping requires a nonempty name. No renderer or conditional enum-child implementation was added. The profile explicitly selects the same 64x64 DNN as the previous implicit neural blender. Loading a recipe does not create overrides.",
+    "tests": {
+      "test_parameter_forms.py required model selector": {"passed": 2},
+      "test_config_viewer_composite.py": {"passed": 18}
+    },
+    "schema_both_modes_and_empty_model_rejection": "passed",
+    "actual_LearnFast_GUI_preview": "passed; required picker and its model parameters visible; recipe bytes unchanged",
+    "preview": "/private/tmp/theta-required-blender/learnfast-required-model.png",
+    "prepared_managed_copy": {
+      "version": "1.3.2",
+      "source_commit": "7af130a",
+      "sha256": "f3ab129ad1bccb4b9e526bc7bebb0a95ee9913fe01c9ce3fbf4844b975f6d307",
+      "isolated_and_workspace_install": "passed",
+      "published": false
+    },
+    "iteration_policy": "User requested local blendrl-dev iteration; no continued publishing or pushing for these changes."
+  },
   "deferred": [
     "Unclear sync-button and directory-navigation notes",
     "Vega design",

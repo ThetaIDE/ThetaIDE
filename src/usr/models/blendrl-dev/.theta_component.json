@@ -41,6 +41,7 @@
   },
   "parameter_schema": {
     "type": "object",
+    "required": ["blender_model"],
     "properties": {
       "actor_mode": {
         "type": "string",
@@ -121,6 +122,10 @@
       },
       "blender_model": {
         "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1}
+        },
         "x-theta-domain": "model",
         "description": "Model used to produce blender weights."
       }

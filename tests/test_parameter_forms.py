@@ -341,6 +341,52 @@ def test_model_schema_fixture_uses_shared_groups_and_preserves_child_identity(vi
     assert yaml.safe_dump(widget.raw_data) == before
 
 
+@pytest.mark.parametrize("mode", ["neural", "symbolic"])
+def test_required_model_selector_is_visible_without_an_explicit_override(viewer, mode):
+    import copy
+    from frontend.config_model import Model
+
+    widget, tree, _ = viewer
+    tree.models["router"] = Model("router", "router", parameters={"blender_model": {}}, parameter_schema={
+        "type": "object", "required": ["blender_model"], "properties": {
+            "blender": {"type": "string", "enum": ["neural", "symbolic"]},
+            "blender_model": {"type": "object", "x-theta-domain": "model", "required": ["name"],
+                              "properties": {"name": {"type": "string", "minLength": 1}}}}})
+    tree.models["leaf"] = Model("leaf", "leaf", parameters={"depth": 2}, parameter_schema={
+        "type": "object", "properties": {"depth": {"type": "integer", "minimum": 1}}})
+    tree.model_names = sorted(tree.models)
+    data = {"methods": {"m": {"model": {"name": "router", "blender": mode}}}}
+    before = copy.deepcopy(data)
+    widget = load(viewer, data)
+    assert widget.raw_data == before and not widget.is_dirty
+
+    def model_picker():
+        return next(field for field in widget.findChildren(QComboBox)
+                    if field.objectName() != "methodModel_m" and field.findData("leaf") >= 0)
+
+    picker = model_picker()
+    assert picker.isVisible() and picker.findData("leaf") >= 0
+    assert not any(button.property("parameterPath") == "methods.m.model.blender_model"
+                   for button in widget.findChildren(QToolButton))
+    picker.setCurrentIndex(picker.findData("leaf"))
+    app.processEvents()
+    assert widget.raw_data["methods"]["m"]["model"]["blender_model"] == {"name": "leaf"}
+    widget._remove_method_model_parameter("m", "router", ("blender_model",))
+    assert widget.raw_data["methods"]["m"]["model"]["blender_model"] == {"name": "leaf"}
+    add = next(button for button in widget.findChildren(QToolButton)
+               if button.toolTip() == "Add leaf parameter")
+    next(action for action in add.menu().actions() if action.text() == "depth").trigger()
+    app.processEvents()
+    depth = next(field for field in widget.findChildren(QAbstractSpinBox)
+                 if field.property("parameterPath") == "methods.m.model.blender_model.depth")
+    depth.setValue(4)
+    model_picker().setCurrentIndex(0)  # An invalid empty selection cannot clear the model.
+    assert widget.raw_data["methods"]["m"]["model"]["blender_model"] == {"name": "leaf", "depth": 4}
+    assert widget.save_to_disk()
+    saved = yaml.safe_load(widget.current_path.read_text())["methods"]["m"]["model"]
+    assert saved == {"name": "router", "blender": mode, "blender_model": {"name": "leaf", "depth": 4}}
+
+
 @pytest.fixture
 def viewer(tmp_path, optional_tuner_metadata):
     root = tmp_path / "src/usr/config"

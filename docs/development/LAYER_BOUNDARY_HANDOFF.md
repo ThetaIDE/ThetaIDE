@@ -20,6 +20,8 @@ Older dated evidence is in `docs/reports/LAYER_BOUNDARY_HISTORY_20261115.md`. It
 
 The sweep-rendering follow-up keeps saved range/list controls visible but read-only when a tuner is unavailable; provider readiness still gates edits and new sweeps. At the user's request, Optuna 1.1.1 is now published and verified through the production Hub; see `docs/reports/OPTUNA_HUB_RELEASE_20261116.md`. It is available through Hub → Refresh → All Components. It was tested in disposable workspaces; the repository workspace still has no Optuna installed. No other v3 release or IDE-main merge was published.
 
+Active BlendRL iteration uses `src/usr/models/blendrl-dev`; the user explicitly prefers getting it working locally without repeated publication. Its `blender_model` is now required in the manifest, using the existing model picker/child adder with no renderer changes. The profile explicitly selects the prior implicit 64×64 DNN. Twenty required-selector/composite checks and an actual LearnFast GUI preview pass. The prepared managed copy was synchronized locally as 1.3.2, but further development should target the dev copy; no Hub release or push was made for this follow-up.
+
 ## How the user wants you to work
 
 - Follow the current session priority above; when resuming the remaining architecture work, work through the authorized items without stopping for routine confirmation. Do not ask about commits, pushes or other git steps mid-work; commit each unit, push `implement/layer-boundaries`, and report at the end.
@@ -45,7 +47,7 @@ The sweep-rendering follow-up keeps saved range/list controls visible but read-o
 3. **Resume 5d/5e when requested:** explicit `theta.bundle/v1` bundles and declared requirements, following the phase 5 plan. No cluster run.
 4. **Phase 6:** installed CLI entry points and wheel/sdist verification. Core stays at `src/app` and `frontend`.
 5. **Phase 7:** boundary enforcement against the combined implementation.
-6. **Publication, only when requested:** follow `THETA_HUB_RELEASE_WORKFLOW.md`. Known prerequisites: publish the locally prepared BlendRL 1.3.1 archive/feed after its source and local installation checks, fix reward-shaping's cwd-relative checkpoint default/config-environment fallback, the native SB3 Optuna test bypassing pipeline tuner setup, and reinstall the corrected SB3 package in this workspace. The earlier package fix is `7b7a3ef` in `../theta-plugins-v3`, unpushed. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, verify the clean client feed, set `published_at`, and merge with the Hub changes only when asked.
+6. **Publication, only when requested:** follow `THETA_HUB_RELEASE_WORKFLOW.md`. Known prerequisites: reconcile the prepared BlendRL release with the current dev copy (latest local preparation is 1.3.2, source `7af130a`), fix reward-shaping's cwd-relative checkpoint default/config-environment fallback, the native SB3 Optuna test bypassing pipeline tuner setup, and reinstall the corrected SB3 package in this workspace. The earlier package fix is `7b7a3ef` in `../theta-plugins-v3`, unpushed. Remove `ai_assistant`, `theta_mcp` and the five MIMIC packages from the v3 feed, verify the clean client feed, set `published_at`, and merge with the Hub changes only when asked.
 
 Left alone for now (user): checkpoint ranking by `monitor_metric`/`checkpoint.monitor` (`src/app/core/lightning_builder.py:376`–`:416`), the deferred stale tests, `prepare_tabular.py`.
 

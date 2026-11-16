@@ -2,11 +2,12 @@
 
 Requested 2026-11-15, after 5c stabilization (`e0a09a2`). Integrate before phase 7. Vega is deferred pending the user's specific design. This work includes both the config changes and the downstream changes below; only the unclear sync-button/tree-navigation notes await clarification. Results migration is still unapproved.
 
-Status: implemented locally on `implement/layer-boundaries`, with the two unclear notes deferred. BlendRL 1.3.1 is prepared in `../theta-plugins-v3` and installed locally after an isolated installation check; nothing was published. [Verification evidence](../reports/UI_REFINEMENTS_VERIFICATION_20261115.json).
+Status: implemented locally on `implement/layer-boundaries`, with the two unclear notes deferred. BlendRL 1.3.2 is prepared in `../theta-plugins-v3` and installed locally after an isolated installation check; BlendRL remains unpublished. Its required `blender_model` selector uses existing form support without new renderer code. [Verification evidence](../reports/UI_REFINEMENTS_VERIFICATION_20261115.json).
 
 ## Configuration
 
 - Change BlendRL's saved schema to `blender: neural|symbolic`, with `blender_model` retaining model configuration. Update provider implementation, schema, defaults and tests; no core branches on the provider ID.
+- Declare `blender_model` as required, with a required nonempty `name`, so its standard model selector is always available for either routing mode. Its parameter adder uses the existing nested-model support. Conditional nesting below a scalar enum is not added; the user prefers existing conventions over a special Blender form.
 - Pad overflowing label reveals and measure label columns so Variability and other long-label forms remain legible.
 - Reveal the sweep's top-level parameter adder on hover; child-parameter adders stay visible.
 - Transparent edit-action wrappers; edit buttons occupy space only when visible.

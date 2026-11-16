@@ -63,7 +63,7 @@ Two settings still have two homes, and fixing them needs v3 package changes and 
 
 - The resource pool's SQLite `ALTER TABLE ADD COLUMN` upgrade (`src/app/services/resource_budget.py`) stays: the running desktop may hold that database.
 - Deferred tests (user decision): tests that read `~/.config/thetaide/settings.toml` (`frontend/runner_manager.py` `_load_resource_settings`) or QSettings, and `test_ncshare_hardening` loading Slurm from source instead of the installed component.
-- BlendRL 1.3.1 is prepared in `theta-plugins-v3` and installed locally: `blender` is the neural/symbolic selector, with `blender_model` holding its model settings. Its structured neural/symbolic and nullable learning-rate schemas are corrected. Sixteen native integration checks pass. The Hub feed/archive publication remains separate and unperformed.
+- BlendRL 1.3.2 is prepared in `theta-plugins-v3` and installed locally: `blender` is the neural/symbolic selector, with required `blender_model` holding its model settings. It uses the existing required model picker and child adder, with no renderer changes. Its profile explicitly selects the prior implicit 64×64 DNN. The earlier 1.3.1 runtime batch passed sixteen native integration checks; the 1.3.2 metadata follow-up passes schema/isolated-install checks and twenty form/composite checks. BlendRL Hub publication remains separate and unperformed.
 
 ## Phase 5
 
