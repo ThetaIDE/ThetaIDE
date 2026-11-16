@@ -13,7 +13,7 @@ Current state of the [layer boundary plan](../plans/LAYER_BOUNDARY_IMPLEMENTATIO
 | 4 — Retire `in/` and every adapter (F) | Done; Hub releases prepared, not published | Publication |
 | 5 — Results in `src/usr/results`, remote bundles (G) | Done (`4d95ad5`); the user's results live in `src/usr/results` | — |
 | 6 — Installed distribution (H) | Done (`8da3c4c`) | — |
-| 7 — Enforcement (I) | Done (this commit series) | Paradigm compatibility and data-module `role` still have more than one home (below) |
+| 7 — Enforcement (I) | Done (`252d3dc`) | Compatibility requirements plan, then publication |
 
 Gates: the real cluster smoke run is not a gate and is not run (user decision, 2026-11-15). The desktop is accepted as working; the interactive items at the end are unchecked.
 
@@ -25,7 +25,7 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 
 ## Phase 5 — results and bundles
 
-- Every results path comes from `WorkspacePaths.results` (`src/usr/results`); `tests/test_layout_guard.py` rejects literal results paths. The user's old `results/` was merged into `src/usr/results`. Four 2026-11-14 files remain at `src/usr/results/results/logs/newMonitors/onlineRL/` because macOS treats `newMonitors` and the newer `NewMonitors` as one directory; nothing reads them.
+- Every results path comes from `WorkspacePaths.results` (`src/usr/results`); `tests/test_layout_guard.py` rejects literal results paths. The user's old `results/` was merged into `src/usr/results`. Four superseded 2026-11-14 files that could not merge (macOS treats `newMonitors` and `NewMonitors` as one directory) were deleted at the user's request.
 - A remote job runs from a bundle (`src/app/sites/bundle.py`, `theta.bundle/v1`) built from one composed experiment: the application without the desktop, the selected packages and their component dependencies, the workspace configuration outside `experiment/` plus the experiment files it reads, authored rules and the workspace identity. It composes its experiment on its own before upload. `.thetaide/requirements.txt` lists the application's and the selected providers' requirements; remote setup is `pip install -r`. Contract: [scheduler contract v2](../reference/SCHEDULER_CONTRACT.md#bundles). SDK 3.0 replaced `freeze`/`extract` with the bundle exports.
 - `site push SITE EXPERIMENT [OVERRIDES…]`; the remote workspace holds the last pushed bundle, and submission requires that bundle to be for the submitted experiment. Continuation requires the parent's bundle digest.
 
@@ -43,8 +43,7 @@ Gates: the real cluster smoke run is not a gate and is not run (user decision, 2
 
 ## Still more than one home
 
-- **Paradigm compatibility** has three: a profile's `compatible_paradigms` (preferred by the form, `frontend/config_viewer.py`), the capability's `paradigms`, and the package manifest's `paradigms` (`src/app/core/provider_metadata.py`, `src/app/pipeline/validation.py`). Collapsing them changes about 25 v3 packages and the forms, and the user's installed packages would lose filtering until republished; do it together with the Hub publication.
-- **Data-module `role`:** profile first, then capability metadata (`frontend/config_viewer.py`). Same timing.
+Paradigm compatibility (profile `compatible_paradigms`, capability and package `paradigms`, paradigm `allowed_agents`), the data slot `role` (profile, then capability) and input contracts (capability, then package) overlap. The [compatibility requirements plan](../plans/COMPATIBILITY_REQUIREMENTS_PLAN.md) replaces them with one capability-level `requires`; it is the next work, before publication.
 
 ## Kept as current behavior
 

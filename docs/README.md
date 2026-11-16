@@ -50,6 +50,7 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 
 - [Phase 5 plan: results in `src/usr/results` and explicit bundles](plans/LAYER_BOUNDARY_PHASE5_PLAN.md) — bundle manifest `theta.bundle/v1`, application/workspace resolution, bundle inclusions and exclusions, units 5a–5e.
 - [Phase 4 plan: retire `in/`](plans/LAYER_BOUNDARY_PHASE4_PLAN.md) — units 4a–4g implemented; package format v3 only, `src/usr` cutover, retirement of every compatibility adapter, complete move of the user's workspace, Hub republish preparation.
+- [Compatibility requirements plan](plans/COMPATIBILITY_REQUIREMENTS_PLAN.md) — next: one capability-level `requires`/`provides`/`preflight` replaces paradigms, roles, input contracts and `allowed_agents`, enforced in forms, validation, execution and bundles.
 - [IDE, plugin, and user layer implementation plan](plans/LAYER_BOUNDARY_IMPLEMENTATION_PLAN.md) — active; confirmed decisions (no legacy support, generic rejection, results in `src/usr/results`), phase 4 close-out, remote bundles, `src/ide` consolidation and enforcement.
 
 - [Config panel refactor plan](plans/CONFIG_PANEL_REFACTOR_PLAN.md) — shared parameter rows, explicit layout regions, typed document edits, and staged section migration.
