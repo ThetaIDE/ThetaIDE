@@ -8,9 +8,9 @@ import shutil
 import sys
 from pathlib import Path
 
-from conftest import checkout_workspace
+from conftest import base_workspace
 
-PACKAGE = checkout_workspace() / 'src/usr/packages/themes-dev'
+PACKAGE = base_workspace() / 'src/usr/packages/themes-dev'
 FIXTURES = Path(__file__).parent / 'fixtures'
 
 if str(PACKAGE) not in sys.path:
