@@ -282,7 +282,6 @@ def test_package_owned_assets_are_copied_independently(model_workspace):
     asset=source/'resources/rules/logic.txt';asset.parent.mkdir(parents=True);asset.write_text('parent rules')
     manifest=source/'.theta_component.json';meta=json.loads(manifest.read_text())
     meta['payload']['resources'].append('resources/rules')
-    meta['editor_actions']=[{'label':'Rules','path':'package://parent/resources/rules/logic.txt'}]
     manifest.write_text(json.dumps(meta))
     config.write_text(config.read_text()+'rules: package://parent/resources/rules/logic.txt\n')
     implementation=source/'model.py';implementation.write_text(implementation.read_text()+"\nRULES = 'package://parent/resources/rules/logic.txt'\n")
@@ -291,8 +290,6 @@ def test_package_owned_assets_are_copied_independently(model_workspace):
     assert fork_asset.read_text()=='parent rules'
     assert yaml.safe_load(copied.read_text())['rules']=='package://fork/resources/rules/logic.txt'
     assert "RULES = 'package://fork/resources/rules/logic.txt'" in (ws/'src/usr/models/fork/model.py').read_text()
-    meta=json.loads((ws/'src/usr/models/fork/.theta_component.json').read_text())
-    assert meta['editor_actions'][0]['path']=='package://fork/resources/rules/logic.txt'
     fork_asset.write_text('fork rules');assert asset.read_text()=='parent rules'
     component=local.entries()[0];installer=HubInstaller(ws,ws/'.thetaide')
     local.archive_authored(component,installer);assert not fork_asset.exists()

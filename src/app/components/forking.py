@@ -154,9 +154,11 @@ def fork_package(paths, reference, new_id, name=None):
                             if isinstance(domain.get(field),str): domain[field] = selectors.get(domain[field],domain[field])
                         if isinstance(domain.get('enum'),list): domain['enum'] = [selectors.get(v,v) if isinstance(v,str) else v for v in domain['enum']]
             metadata = remap(metadata) if config_map else metadata
+            declared = {c.get('id'): c for c in metadata.get('capabilities', []) if isinstance(c, dict)}
             metadata.update(id=new_id, name=name or new_id, version='0.1.0', origin='user',
                 parent={'id':owner.id,'version':owner.version,'origin':owner.origin}, storage_version=3, api_version=1,
-                capabilities=[{**c.metadata,'id':identities[c.id],'kind':c.kind,'entry_point':c.entry_point,'aliases':[]} for c in owner.capabilities],
+                # The package's own declarations; the catalog merges plugin.json into app plugin metadata.
+                capabilities=[{**declared.get(c.id,{}),'id':identities[c.id],'kind':c.kind,'entry_point':c.entry_point,'aliases':[]} for c in owner.capabilities],
                 config_paths=list(profiles), config_path=next(iter(profiles), None),
                 payload={**metadata.get('payload',{}),'configs':profiles})
             # Profile names are explicit capability selectors in the authored manifest.

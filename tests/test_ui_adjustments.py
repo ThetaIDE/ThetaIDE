@@ -51,7 +51,7 @@ class TestUIAdjustments(unittest.TestCase):
 
         paradigm_dir = config_dir / "paradigms"
         paradigm_dir.mkdir(parents=True, exist_ok=True)
-        (paradigm_dir / "online_rl.yaml").write_text("allowed_agents: [ppo]\n", encoding="utf-8")
+        (paradigm_dir / "online_rl.yaml").write_text("description: online\n", encoding="utf-8")
 
         self.mock_tree = ConfigTree(config_dir)
         set_config_tree(self.mock_tree)

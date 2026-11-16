@@ -245,7 +245,7 @@ def test_cancel_stops_a_running_job(jobs):
 def test_launch_rejects_an_invalid_config(jobs):
     with pytest.raises(LaunchError) as error:
         jobs.manager.launch(BASE_EXPERIMENT, Config(method_name="ppo", agent="d3rlpy-dev/cql", model="dnn").overrides())
-    assert "forbidden" in str(error.value) or "not allowed" in str(error.value)
+    assert "Incompatible selection" in str(error.value) and "requires paradigm" in str(error.value)
     assert not error.value.conflict
 
 

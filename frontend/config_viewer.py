@@ -1079,9 +1079,9 @@ class ConfigViewer(QWidget):
                 capability_metadata(capability_kind, str(values.get(selector) or values.get("name") or name), paths)
             except DuplicateProvider:
                 continue
-            # A data module's own requirements decide where it may be selected.
-            if kind == "data_module" and any(f.level == "block" for f in
-                                             candidate_findings(draft, {}, "data_module", name, paths=paths)):
+            # A data module's or evaluator's own requirements decide where it may be selected.
+            if kind in ("data_module", "evaluator") and any(
+                    f.level == "block" for f in candidate_findings(draft, {}, kind, name, paths=paths)):
                 continue
             allowed[name] = values
         return allowed

@@ -1,8 +1,8 @@
-"""Tests for paradigm constraints driving the ConfigViewer form.
+"""Tests for paradigm settings and compatibility requirements driving the ConfigViewer form.
 
 Covers the wiring between frontend/config_model.py and the experiment pane:
-selecting a paradigm should restrict the environment and agent choices and
-disable the fields that paradigm forbids, so an invalid experiment cannot be
+a paradigm enables or disables its own fields, and agent choices follow the
+algorithms' declared requirements, so an invalid experiment cannot be
 constructed in the UI at all.
 """
 
@@ -42,39 +42,27 @@ def setUpModule():
 
     # Paradigms
     (root / "paradigms").mkdir(parents=True, exist_ok=True)
-    (root / "paradigms" / "online_rl.yaml").write_text(
-        "allows_eval_episodes: true\n"
-        "allowed_agents: [ppo]\n"
-        "forbidden_agents: [cql, iql, cew]\n",
-        encoding="utf-8",
-    )
-    (root / "paradigms" / "offline_rl.yaml").write_text(
-        "allowed_agents: [cql, iql, cew]\n"
-        "forbidden_agents: [ppo]\n"
-        "constraints:\n"
-        "  forbids:\n"
-        "    eval_episodes: 'offline rl has no simulator'\n",
-        encoding="utf-8",
-    )
+    (root / "paradigms" / "online_rl.yaml").write_text("allows_eval_episodes: true\n", encoding="utf-8")
+    (root / "paradigms" / "offline_rl.yaml").write_text("description: offline\n", encoding="utf-8")
 
-    # Agents
-    (root / "agent").mkdir(parents=True, exist_ok=True)
-    (root / "agent" / "ppo.yaml").write_text(
-        "algorithm: ppo\ncompatible_paradigms: [online_rl]\nlr: 0.0003\n",
-        encoding="utf-8",
-    )
-    (root / "agent" / "cql.yaml").write_text(
-        "algorithm: cql\ncompatible_paradigms: [offline_rl]\ncql_alpha: 5.0\n",
-        encoding="utf-8",
-    )
-    (root / "agent" / "iql.yaml").write_text(
-        "algorithm: iql\ncompatible_paradigms: [offline_rl]\n",
-        encoding="utf-8",
-    )
-    (root / "agent" / "cew.yaml").write_text(
-        "algorithm: cew\ncompatible_paradigms: [offline_rl]\n",
-        encoding="utf-8",
-    )
+    # Agents: a package whose algorithms declare the paradigms they run in.
+    import json
+    from src.app.workspace import WorkspacePaths
+    package = WorkspacePaths(Path(_SHARED_TMP.name)).user("algorithm") / "fixture-agents"
+    (package / "configs/agent").mkdir(parents=True)
+    (package / "agents.py").write_text("class Agent:\n    pass\n", encoding="utf-8")
+    agents = {"ppo": "online_rl", "cql": "offline_rl", "iql": "offline_rl", "cew": "offline_rl"}
+    for name in agents:
+        (package / f"configs/agent/{name}.yaml").write_text(f"algorithm: {name}\n", encoding="utf-8")
+    (package / ".theta_component.json").write_text(json.dumps({
+        "id": "fixture-agents", "name": "Fixture agents", "kind": "method", "version": "1.0.0",
+        "storage_version": 3, "api_version": 1,
+        "capabilities": [{"id": name, "kind": "algorithm", "entry_point": "agents.py:Agent",
+                          "requires": [{"level": "block", "config": "paradigm", "in": [paradigm]}]}
+                         for name, paradigm in agents.items()],
+        "payload": {"implementations": ["agents.py"], "resources": [],
+                    "configs": {f"agent/{name}.yaml": f"configs/agent/{name}.yaml" for name in agents}}}),
+        encoding="utf-8")
 
     # Models
     (root / "model").mkdir(parents=True, exist_ok=True)
@@ -89,14 +77,8 @@ def setUpModule():
         "description: cartpole\n",
         encoding="utf-8",
     )
-    (root / "env" / "mimic.yaml").write_text(
-        "compatible_paradigms: [offline_rl]\n",
-        encoding="utf-8",
-    )
-    (root / "env" / "pyrenees.yaml").write_text(
-        "compatible_paradigms: [offline_rl]\n",
-        encoding="utf-8",
-    )
+    (root / "env" / "mimic.yaml").write_text("description: mimic\n", encoding="utf-8")
+    (root / "env" / "pyrenees.yaml").write_text("description: pyrenees\n", encoding="utf-8")
 
     # Experiments and groups
     exp_dir = root / "experiment"
@@ -187,7 +169,7 @@ class ConfigViewerConstraintTest(unittest.TestCase):
 
     def agent_widget(self, viewer):
         for row in viewer.findChildren(QComboBox):
-            if row.toolTip().startswith(("Agents permitted", "'")):
+            if row.objectName().startswith("methodAgent_"):
                 return row
         return None
 
@@ -302,8 +284,11 @@ class TestAgentFiltering(ConfigViewerConstraintTest):
         self.assertEqual(viewer.raw_data["methods"]["ppo"]["agent"], "cql")
 
     def test_off_list_agent_explains_itself(self):
+        from PyQt6.QtWidgets import QLabel
         viewer = self.load(ONLINE_EXPERIMENT.replace("agent: ppo", "agent: cql"))
-        self.assertIn("not permitted", self.agent_widget(viewer).toolTip())
+        status = [label.text() for label in viewer.findChildren(QLabel)
+                  if label.objectName() == "compatibilityStatus"]
+        self.assertTrue(any("Incompatible" in text and "paradigm" in text for text in status), status)
 
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")

@@ -510,15 +510,25 @@ class ConfigTree:
                            method: Mapping[str, Any] | None = None) -> list:
         """Declared compatibility findings if ``candidate`` became the ``key`` selection of ``method``.
 
-        Rules a candidate makes about its own settings are left out: those describe
-        how to configure it once selected, which its own form shows inline.
+        Left out are a candidate's rules about its own settings (its form shows them once
+        it is selected) and its rules about a component kind the method has not selected
+        yet: picking that component next satisfies them, and that picker offers only
+        compatible candidates. Validation still reports both.
         """
         from src.app.core.requirements import candidate_findings
+        from src.app.core.provider_catalog import kind_name
         findings = candidate_findings(dict(draft or {}), dict(method or {}), key, candidate, paths=self.workspace)
+        selected = {**dict(draft or {}), **dict(method or {})}
+        keys = {kind: name for name, kind in _SELECTION_KINDS.items()}
+
+        def pending(rule):
+            other = keys.get(kind_name(rule["kind"])) if rule.get("kind") else None
+            return other is not None and not selected.get(other)
+
         own = key + "."
         return [f for f in findings
                 if not (f.rule and f.capability.startswith(_SELECTION_KINDS[key] + ":")
-                        and str(f.rule.get("config", "")).startswith(own))]
+                        and (str(f.rule.get("config", "")).startswith(own) or pending(f.rule)))]
 
     def _compatible(self, key, items, hidden, draft, method):
         seen: set[str] = set()

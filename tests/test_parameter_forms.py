@@ -396,9 +396,9 @@ def viewer(tmp_path, optional_tuner_metadata):
     from component_fixtures import cluster_site
     cluster_site(tmp_path)
     (root / "paradigms").mkdir(parents=True)
-    (root / "paradigms" / "online_rl.yaml").write_text("budget_unit: timesteps\nallowed_agents: [ppo]\n")
+    (root / "paradigms" / "online_rl.yaml").write_text("budget_unit: timesteps\n")
     (root / "env").mkdir()
-    (root / "env" / "demo.yaml").write_text("env_id: Demo-v0\ncompatible_paradigms: [online_rl]\n")
+    (root / "env" / "demo.yaml").write_text("env_id: Demo-v0\n")
     tree = ConfigTree(root)
     set_config_tree(tree)
     previous_style = app.styleSheet()

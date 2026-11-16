@@ -173,7 +173,8 @@ def test_selected_stage_model_substitution_changes_execution(workspace):
     manifest_path = provider / '.theta_component.json'
     manifest = json.loads(manifest_path.read_text())
     manifest['capabilities'].append({'id': 'themes-dev/single', 'kind': 'model',
-        'entry_point': 'alternate.py:SingleStage', 'backend': 'numerical', 'paradigms': ['apprenticeship']})
+        'entry_point': 'alternate.py:SingleStage', 'backend': 'numerical',
+        'requires': [{'level': 'block', 'config': 'paradigm', 'in': ['apprenticeship']}]})
     manifest['payload']['implementations'].append('alternate.py')
     manifest_path.write_text(json.dumps(manifest))
     profile = workspace.config / 'model/themes-dev/single.yaml'

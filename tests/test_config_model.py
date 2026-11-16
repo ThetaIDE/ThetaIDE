@@ -265,7 +265,7 @@ def test_command_line_quotes_arguments_with_spaces():
     assert "++description=hello world" in split
 
 
-def test_compatible_paradigms_filter_environments(tree):
+def test_environments_for_every_paradigm_is_a_list(tree):
     if not tree.environments:
         pytest.skip("No environment plugins installed")
     for name in ("online_rl", "offline_rl", "supervised"):

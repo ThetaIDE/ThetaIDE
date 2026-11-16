@@ -260,9 +260,8 @@ class TestMethodEditing(unittest.TestCase):
 
 
 class TestAgentlessParadigms(unittest.TestCase):
-    """supervised declares `allowed_agents: []` and still requires methods to be
-    non-empty, which it satisfies with model-only methods (ep_lstm, ep_transformer).
-    Nothing in the panel may assume a method has an agent."""
+    """supervised forbids an algorithm in its methods and is satisfied by model-only
+    methods (ep_lstm, ep_transformer). Nothing in the panel may assume a method has an agent."""
 
     def setUp(self):
         self.tree = ConfigTree.discover()
@@ -325,8 +324,7 @@ class TestAgentlessParadigms(unittest.TestCase):
         self.assertEqual(default_method_model(None, {"transformer"}, fallback="transformer"), "transformer")
 
     def test_a_generated_supervised_experiment_satisfies_non_empty_methods(self):
-        """The constraint the paradigm declares is the one this must not break."""
-        self.assertEqual(self.supervised.requires.get("methods"), "non_empty")
+        self.assertFalse(self.supervised.allows_algorithm)
         data = parse(experiment_yaml("early_prediction", "demo", self.supervised, model="lstm"))
         self.assertTrue(data["methods"])
 
@@ -341,7 +339,7 @@ class TestEveryAgentlessParadigm(unittest.TestCase):
         self.agentless = {
             name: paradigm
             for name, paradigm in self.tree.paradigms.items()
-            if "allowed_agents" in paradigm.raw and not paradigm.allowed_agents
+            if not paradigm.allows_algorithm
         }
 
     def test_there_is_more_than_one(self):
@@ -368,12 +366,6 @@ class TestEveryAgentlessParadigm(unittest.TestCase):
                 for field_name in ("eval_episodes",):
                     if not paradigm.field_enabled(field_name):
                         self.assertNotIn(field_name, data)
-
-    def test_each_requires_non_empty_methods(self):
-        """Which is why a model-only method had to become possible at all."""
-        for name, paradigm in self.agentless.items():
-            with self.subTest(paradigm=name):
-                self.assertEqual(paradigm.requires.get("methods"), "non_empty")
 
     def test_a_generated_base_pins_what_the_root_defaults_would_break(self):
         for name, paradigm in self.agentless.items():

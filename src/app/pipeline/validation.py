@@ -264,20 +264,22 @@ def validate_experiment_config(
         if errors:
             raise ConfigurationError(f"Method '{method_name}': " + " ".join(errors))
 
+    # --- Missing Components Validation ---
+    # Selections that resolve to no component come first: compatibility rules about
+    # them would only describe a component that is not there.
+    missing_comps = find_missing_components(cfg, paths=paths)
+    selections = [entry for entry in missing_comps if not entry.startswith("dataset:")]
+    if selections:
+        raise _missing_components(experiment_name, selections)
+
     # --- Compatibility: what the selected components declare they need ---
     notices.extend(compatibility_notices(cfg, paths=paths))
 
     # External files are not installable components. Report dataset errors before
     # the component inventory can turn them into misleading Hub guidance.
     _validate_offline_dataset_paths(cfg, notices, paths=paths)
-
-    # --- Missing Components Validation ---
-    missing_comps = find_missing_components(cfg, paths=paths)
     if missing_comps:
-        raise ConfigurationError(
-            f"[ConfigurationError] Experiment '{experiment_name}' references missing component(s): "
-            f"{', '.join(missing_comps)}. Install them via the Component Hub."
-        )
+        raise _missing_components(experiment_name, missing_comps)
 
     # New-style sweep settings are validated before either launcher starts work.
     from src.app.pipeline.tuning_config import tuning_enabled
@@ -286,6 +288,13 @@ def validate_experiment_config(
         _validate_tuning(cfg, paths=paths)
 
     return notices
+
+
+def _missing_components(experiment_name, entries):
+    return ConfigurationError(
+        f"[ConfigurationError] Experiment '{experiment_name}' references missing component(s): "
+        f"{', '.join(entries)}. Install them via the Component Hub."
+    )
 
 
 TUNING_KEYS = ("component", "metric", "direction", "options")

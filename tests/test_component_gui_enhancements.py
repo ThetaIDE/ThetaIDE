@@ -113,9 +113,6 @@ def test_config_viewer_renders_enhanced_widgets(qapp, tmp_path):
     yaml_file.write_text(
         """\
 description: "A test model architecture"
-compatible_paradigms:
-  - online_rl
-  - offline_rl
 hidden_sizes:
   - 128
   - 64
@@ -134,11 +131,6 @@ use_layernorm: true
     # 1. Overview Card verification
     overview_texts = [w.text() for w in widgets if isinstance(w, QLineEdit)]
     assert any("A test model architecture" in t for t in overview_texts)
-
-    # 2. TagCloudWidget verification
-    tag_clouds = [w for w in widgets if isinstance(w, TagCloudWidget)]
-    assert len(tag_clouds) == 1
-    assert tag_clouds[0].get_tags() == ["online_rl", "offline_rl"]
 
     # 3. LayerStackWidget verification
     layer_stacks = [w for w in widgets if isinstance(w, LayerStackWidget)]

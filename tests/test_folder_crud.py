@@ -302,7 +302,7 @@ class TestFolderCRUD(unittest.TestCase):
         env_dir = self.root / "env"
         env_dir.mkdir()
         (env_dir / "cartpole.yaml").write_text(
-            "compatible_paradigms: [online_rl]\nenv_id: CartPole-v1\n", encoding="utf-8"
+            "env_id: CartPole-v1\n", encoding="utf-8"
         )
         tree = ConfigTree(self.root)
         with patch("frontend.config_viewer.config_tree", return_value=tree):

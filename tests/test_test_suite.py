@@ -75,12 +75,12 @@ def test_component_contracts_verify_nested_and_list_capabilities(tmp_path):
     manifest["test_suite"]["components"] = [{
         "id": "ppo", "title": "PPO", "description": "Online algorithm.",
         "config_path": "agent/sb3/ppo.yaml",
-        "required": {"entrypoint": "src/usr/algorithms/example/runner.py", "compatible_paradigms": ["online_rl"]},
+        "required": {"entrypoint": "src/usr/algorithms/example/runner.py", "learning_rate": 0.0003},
     }]
     from src.app.workspace import WorkspacePaths
     target = WorkspacePaths(tmp_path).config / "agent/sb3"
     target.mkdir(parents=True)
-    (target / "ppo.yaml").write_text("entrypoint: src/usr/algorithms/example/runner.py\ncompatible_paradigms: [online_rl]\n", encoding="utf-8")
+    (target / "ppo.yaml").write_text("entrypoint: src/usr/algorithms/example/runner.py\nlearning_rate: 0.0003\n", encoding="utf-8")
 
     results = evaluate_component_contracts(parse_test_suite_manifest(manifest), tmp_path)
     assert results[0].passed is True
@@ -88,7 +88,7 @@ def test_component_contracts_verify_nested_and_list_capabilities(tmp_path):
     (target / "ppo.yaml").write_text("entrypoint: src/usr/algorithms/example/runner.py\n", encoding="utf-8")
     results = evaluate_component_contracts(parse_test_suite_manifest(manifest), tmp_path)
     assert results[0].passed is False
-    assert "compatible_paradigms" in results[0].message
+    assert "learning_rate" in results[0].message
 
 
 def test_blocked_case_requires_reason():

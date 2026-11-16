@@ -15,6 +15,10 @@ from src.app.core.provider_metadata import selector_metadata
 from src.app.workspace import WorkspacePaths
 
 
+SUPERVISED = {"level": "block", "config": "paradigm", "in": ["supervised"]}
+ONLINE = {"level": "block", "config": "paradigm", "in": ["online_rl"]}
+
+
 @pytest.fixture
 def selector_workspace(tmp_path, monkeypatch):
     paths = WorkspacePaths(tmp_path)
@@ -29,19 +33,17 @@ def selector_workspace(tmp_path, monkeypatch):
     state_profile.write_text("name: selector/state\nfeature_count: 4\n")
     meta = {
         "id": "selector-package", "name": "Selectors", "kind": "suite", "version": "1.0.0",
-        "storage_version": 3, "api_version": 1, "paradigms": ["supervised"],
+        "storage_version": 3, "api_version": 1,
         "capabilities": [
             {"id": "selector/train", "kind": "datamodule", "aliases": ["TrainAlias"],
-             "entry_point": "provider.py:Train", "role": "training",
-             "output_contracts": ["batches/v1"],
+             "entry_point": "provider.py:Train", "requires": [SUPERVISED], "provides": ["batches/v1"],
              "parameter_schema": {"type": "object", "properties": {"batch_size": {"type": "integer"}}}},
             {"id": "selector/state", "kind": "datamodule", "aliases": ["StateAlias"],
-             "entry_point": "provider.py:State", "role": "symbolic_state",
-             "paradigms": ["online_rl"]},
+             "entry_point": "provider.py:State", "requires": [ONLINE]},
             {"id": "selector/eval", "kind": "evaluator", "aliases": ["EvalAlias"],
-             "entry_point": "provider.py:Evaluator"},
+             "entry_point": "provider.py:Evaluator", "requires": [SUPERVISED]},
             {"id": "selector/plot", "kind": "plotter", "aliases": ["PlotAlias"],
-             "entry_point": "provider.py:Plotter", "paradigms": ["online_rl"]},
+             "entry_point": "provider.py:Plotter"},
         ],
         "payload": {"implementations": ["provider.py"], "resources": [], "configs": {
             "data/selector_train.yaml": "configs/data/selector_train.yaml",
@@ -78,13 +80,12 @@ def test_choices_use_capability_metadata_profiles_aliases_and_builtins(selector_
             assert train["selector/train"]["batch_size"] == 17
             assert "selector/state" not in train and "StateAlias" not in train
             assert {"selector/eval", "EvalAlias", "ClassificationEvalProtocol"} <= viewer._component_choices("evaluator").keys()
-            assert "selector/plot" not in viewer._component_choices("plots")
-            assert "StateAlias" not in viewer._component_choices("symbolic_state_loader")
-            viewer.raw_data["paradigm"] = "online_rl"
-            assert "TrainAlias" not in viewer._component_choices("data_module")
-            assert "EvalAlias" not in viewer._component_choices("evaluator")
             assert {"selector/plot", "PlotAlias"} <= viewer._component_choices("plots").keys()
-            assert {"selector/state", "StateAlias", "selector_state"} <= viewer._component_choices("symbolic_state_loader").keys()
+            viewer.raw_data["paradigm"] = "online_rl"
+            online = viewer._component_choices("data_module")
+            assert "TrainAlias" not in online
+            assert {"selector/state", "StateAlias", "selector_state"} <= online.keys()
+            assert "EvalAlias" not in viewer._component_choices("evaluator")
         load.assert_not_called()
 
 
@@ -111,14 +112,16 @@ def test_build_reuses_choices_profiles_and_loader_metadata(selector_viewer, sele
     selector_metadata("datamodule", paths)
     with patch.object(Path, "read_text", read), patch.object(ProviderCatalog, "resolve", resolve):
         with provider_discovery_snapshot():
-            for _ in range(5):
+            for build in range(5):
                 choices = selector_viewer._component_choices("data_module")
+                if build == 0:
+                    first = list(resolves)
                 assert choices["selector/train"]["batch_size"] == 17
                 choices["selector/train"]["batch_size"] = 99
-                loader_metadata({"name": "selector/train"}, paths=paths)["output_contracts"].clear()
-            assert loader_metadata({"name": "selector/train"}, paths=paths)["output_contracts"] == ["batches/v1"]
+                loader_metadata({"name": "selector/train"}, paths=paths)["provides"].clear()
+            assert loader_metadata({"name": "selector/train"}, paths=paths)["provides"] == ["batches/v1"]
             assert reads == [root / "configs/data/selector_train.yaml"]
-            assert resolves.count(("datamodule", "selector/train")) == 1
+            assert resolves == first  # later builds reuse the first build's resolution
     # Profile edits and lifecycle invalidation reset the per-build memo too.
     with provider_discovery_snapshot():
         assert selector_viewer._component_choices("data_module")["selector/train"]["batch_size"] == 17
@@ -151,7 +154,8 @@ def test_duplicate_selectors_respect_explicit_overrides(selector_workspace):
     other.mkdir()
     (other / "provider.py").write_text("raise AssertionError('executed')")
     meta = json.loads((root / ".theta_component.json").read_text())
-    meta.update(id="duplicate", paradigms=["online_rl"])
+    meta.update(id="duplicate")
+    meta["capabilities"][0]["requires"] = [ONLINE]
     meta["payload"] = {"implementations": ["provider.py"], "resources": [], "configs": {}}
     (other / ".theta_component.json").write_text(json.dumps(meta))
     with provider_discovery_snapshot():
@@ -159,7 +163,7 @@ def test_duplicate_selectors_respect_explicit_overrides(selector_workspace):
     paths.data_dir.mkdir(exist_ok=True)
     (paths.data_dir / "provider_overrides.json").write_text('{"datamodule:trainalias": "duplicate"}')
     with provider_discovery_snapshot():
-        assert selector_metadata("datamodule", paths)["TrainAlias"]["paradigms"] == ["online_rl"]
+        assert selector_metadata("datamodule", paths)["TrainAlias"]["requires"] == [ONLINE]
 
 
 def test_cold_themes_form_never_attempts_training_or_plot_imports(tmp_path):
@@ -182,7 +186,7 @@ widget.load_file(Path(sys.argv[1]) / 'src/usr/packages/themes-dev/configs/experi
 assert 'ticc_em_edm' in widget.raw_data.get('methods', {}), widget.raw_data
 assert widget._inherited_paradigm() == 'apprenticeship'
 assert widget.field_widgets, 'form failed to render'
-for kind in ('data_module', 'symbolic_state_loader', 'evaluator', 'plots'):
+for kind in ('data_module', 'evaluator', 'plots'):
     widget._component_choices(kind)
 assert not attempted, attempted
 assert not any(name.split('.')[0] in {'torch', 'lightning', 'matplotlib'} for name in sys.modules)
