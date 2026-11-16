@@ -15,5 +15,5 @@
   },
   "storage_version": 3,
   "api_version": 1,
-  "sdk": ">=2.0,<3"
+  "sdk": ">=3.0,<4"
 }

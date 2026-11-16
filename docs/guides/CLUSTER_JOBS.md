@@ -1,20 +1,20 @@
 # Cluster jobs
 
-Theta submits one experiment per Slurm allocation. Slurm support, including the ARC site template and the cluster setup panel, is the optional `slurm` scheduler component; install it into the workspace first (see [the scheduler contract](../reference/SCHEDULER_CONTRACT.md#installing-the-slurm-component)). Without it, no cluster settings or commands appear and saved cluster recipes report the missing scheduler. Project upload, submission, sync, and cleanup are explicit operations. Closing the desktop does not cancel a submitted job. OpenSSH owns authentication; Theta does not store passwords or silently retry ambiguous submissions.
+Theta submits one experiment per Slurm allocation. Slurm support, including the ARC site template and the cluster setup panel, is the optional `slurm` scheduler component; install it into the workspace first (see [the scheduler contract](../reference/SCHEDULER_CONTRACT.md#installing-the-slurm-component)). Without it, no cluster settings or commands appear and saved cluster recipes report the missing scheduler. Bundle upload, submission, sync, and cleanup are explicit operations. Closing the desktop does not cancel a submitted job. OpenSSH owns authentication; Theta does not store passwords or silently retry ambiguous submissions.
 
 The NCShare profiles (`site/ncshare/*`) are owned by the authored `ncshare-site` package in `src/usr/sites/ncshare`, not by the Slurm component. The hardened CPU pilot is `site=ncshare/common`. Its code has local filesystem/subprocess coverage, including actual CPU training and tuning. **Live NCShare acceptance and the overnight gate are still pending.** See the [implementation status and validation commands](../development/SLURM_NCSHARE_IMPLEMENTATION_STATUS.md). GPU qualification, automatic requeue, and full training-checkpoint resume are separate work.
 
 ## NCShare storage and setup
 
-Keep the control checkout, compact immutable source archives, and Python environment in home. `connection.remote_root` is this durable control checkout, currently `/hpc/home/cegbert1/ThetaIDE`. Helpers resolve its interpreter to an absolute path. Do not configure `/scratch` as the remote project directory or create the environment under `/work`.
+Keep the control workspace, compact immutable bundle archives, and Python environment in home. `connection.remote_root` is this durable control checkout, currently `/hpc/home/cegbert1/ThetaIDE`. Helpers resolve its interpreter to an absolute path. Do not configure `/scratch` as the remote project directory or create the environment under `/work`.
 
 The CPU site's versioned `execution` policy resolves `{user}`, `{uid}`, `{project_id}`, and `{control_root}` through an allowlist. No shell expansion is used:
 
 | Root | Purpose |
 | --- | --- |
-| home control checkout | configuration, interpreter, source archive store, submission receipts, scheduler stdout/stderr |
+| home control workspace | the activated bundle, interpreter, bundle archive store, submission receipts, scheduler stdout/stderr |
 | `/work/{user}/thetaide/{project_id}` | declared inputs and immutable published objects/manifests |
-| unique `theta-EXECUTION-…` directory under job-local `/scratch` | source, provider state, cwd, datasets, all training outputs, exclusively owned live SQLite |
+| unique `theta-EXECUTION-…` directory under job-local `/scratch` | extracted bundle, provider state, cwd, datasets, all training outputs, exclusively owned live SQLite |
 
 Scratch must exist, be writable, and be local storage. Missing/network scratch fails explicitly. There is no NFS execution or database fallback. Several allocations can share a node, each with its own scratch tree/database.
 
@@ -25,14 +25,14 @@ mkdir -p /hpc/home/cegbert1/ThetaIDE
 python3 -m venv /hpc/home/cegbert1/ThetaIDE/venv
 ```
 
-Locally, configure the existing site component, check transport, and upload:
+Locally, configure the existing site component, check transport, and upload an experiment's bundle:
 
 ```bash
 venv/bin/python run_pipeline.py site configure ncshare/common \
   --host ncshare --remote-root /hpc/home/cegbert1/ThetaIDE \
   --python /hpc/home/cegbert1/ThetaIDE/venv/bin/python3
 venv/bin/python run_pipeline.py site check ncshare/common
-venv/bin/python run_pipeline.py site push ncshare/common
+venv/bin/python run_pipeline.py site push ncshare/common ncshare/cpu_smoke
 ```
 
 Both ends need rsync 3 or newer. Authenticate/MFA in a separate terminal first; transfers use SSH BatchMode. Edit SSH aliases in the site component's `ssh_config`. No operation edits home SSH configuration.
@@ -58,13 +58,17 @@ Install dependencies in the cluster's home environment after upload:
 
 ```bash
 cd /hpc/home/cegbert1/ThetaIDE
-venv/bin/python -m pip install -e .
+venv/bin/python -m pip install -e . -r .thetaide/requirements.txt
 venv/bin/python -m pip check
 ```
 
-Install the selected research and tuner components' dependencies too (for example Optuna's `optuna` and `sqlalchemy`). Settings → Terminal → Cluster sites generates a setup script from their native manifests; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop.
+`.thetaide/requirements.txt` comes with the pushed bundle and lists the Python requirements of the providers that experiment selects (a tuner's only when it tunes). Settings → Terminal → Cluster sites generates this setup for a chosen experiment; inspect it before running. Setup generation itself makes no connection. Environments are never copied from the desktop. Submission checks the running interpreter against the bundle's requirements and names any that are missing.
 
-Project push compares source files by checksum and reuses unchanged files from the remote checkout. A parameter-only YAML edit transfers that YAML plus small sync manifests, rather than reuploading components or a complete ZIP. New and changed files are uploaded; removed source files are removed during verified activation. The cluster builds and retains one immutable source archive per source identity. Submission pins that archive; later uploads cannot change queued/running source. Scratch execution requires a new-format archive from `site push`.
+### Bundles
+
+`site push SITE EXPERIMENT [OVERRIDES…]` composes the experiment locally and uploads its bundle (`theta.bundle/v1`, described in `.thetaide/bundle.json`): the application without the desktop, the packages the experiment selects with their declared component dependencies, the workspace configuration outside `experiment/` plus the experiment files it reads, authored rules, and the workspace identity. Results, datasets, other experiments and unselected packages stay home. The experiment must run on `SITE`. Before uploading, the bundle must compose the experiment on its own.
+
+Push compares bundle files by checksum and reuses unchanged files in the remote workspace. A parameter-only YAML edit transfers that YAML plus the small manifest. Activation verifies every file against the manifest, removes files the previous bundle had and this one does not, and retains one immutable archive per bundle digest under `.thetaide/bundles/`. The remote workspace holds the most recently pushed bundle; submit the experiment that bundle was built for. Shared-workspace submissions build their own bundle at submission; scratch execution pins the pushed archive, so later pushes cannot change queued or running jobs. Continuation requires the parent's bundle digest.
 
 Datasets are excluded by default. Declare only required input copies in the site's policy, for example:
 
@@ -75,9 +79,9 @@ execution:
       target: src/usr/datasets/pilot.csv
 ```
 
-Sources are control-project-relative, links/traversal are rejected, and targets must be below `src/usr/datasets/`. `site push SITE --include-datasets` uploads datasets to control storage explicitly; submission stages only declared inputs to work, then the allocation copies them to scratch. Input byte/file/free-space limits apply. Relative runtime paths resolve from scratch. Large shared read-only dataset mappings are not qualified in this pilot; declare bounded copies or defer the experiment.
+Sources are control-project-relative, links/traversal are rejected, and targets must be below `src/usr/datasets/`. `site push SITE EXPERIMENT --include-datasets` uploads datasets to control storage explicitly; submission stages only declared inputs to work, then the allocation copies them to scratch. Input byte/file/free-space limits apply. Relative runtime paths resolve from scratch. Large shared read-only dataset mappings are not qualified in this pilot; declare bounded copies or defer the experiment.
 
-New work uploads/publications get current mtimes, while source archive/input metadata retains original timestamps. Do not touch older results to defeat `/work`'s documented 75-day mtime purge. Scientific results need independent durable backups.
+New work uploads/publications get current mtimes, while bundle archive/input metadata retains original timestamps. Do not touch older results to defeat `/work`'s documented 75-day mtime purge. Scientific results need independent durable backups.
 
 ## Submission and concurrency
 

@@ -29,7 +29,7 @@ SAMPLE_PLUGIN_JSON = {
     "author": "ThetaIDE Test",
     "default_enabled": False,
     "entry_point": "SamplePlugin",
-    "sdk": ">=2.0,<3",
+    "sdk": ">=3.0,<4",
 }
 
 SAMPLE_PLUGIN_SOURCE = """

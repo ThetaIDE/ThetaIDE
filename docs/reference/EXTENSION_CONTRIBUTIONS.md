@@ -87,9 +87,8 @@ enabled, unconfigured implementation. Remote tuner preparation uses the same che
 Legacy capabilities without contribution declarations retain their existing runtime
 contracts and may be enabled/disabled, but do not implicitly gain new host slots.
 
-GUI/config-preview fingerprints include enablement state. Standard source snapshots
-also retain `.thetaide/extensions.json`; the selected-bundle/custom external state
-cutover remains part of the remote bundle plan.
+GUI/config-preview fingerprints include enablement state. Remote
+[bundles](SCHEDULER_CONTRACT.md#bundles) carry `.thetaide/extensions.json`.
 
 ## Current host integration
 

@@ -2,7 +2,7 @@
   "id": "slurm",
   "name": "Slurm scheduler",
   "kind": "package",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Run experiments on Slurm clusters: site setup, job submission, resource headers and a scheduler monitor, with an ARC site template.",
   "author": {
     "name": "Theta-IDE Team"
@@ -20,7 +20,7 @@
       "id": "slurm",
       "kind": "scheduler",
       "entry_point": "execution.py:Scheduler",
-      "scheduler_api": 1,
+      "scheduler_api": 2,
       "contribution_api": 1,
       "readiness": {
         "config": [

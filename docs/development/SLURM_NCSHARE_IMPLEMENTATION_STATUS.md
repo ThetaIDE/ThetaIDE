@@ -54,13 +54,13 @@ These commands are prepared for a session in which you authorize and execute clu
 On the desktop, create disposable pilot recipes, then upload:
 
 ```bash
-mkdir -p in/config/experiment/ncshare
-cp docs/development/examples/ncshare_cpu_smoke.yaml in/config/experiment/ncshare/cpu_smoke.yaml
-cp docs/development/examples/ncshare_cpu_study.yaml in/config/experiment/ncshare/cpu_study.yaml
+mkdir -p src/usr/config/experiment/ncshare
+cp docs/development/examples/ncshare_cpu_smoke.yaml src/usr/config/experiment/ncshare/cpu_smoke.yaml
+cp docs/development/examples/ncshare_cpu_study.yaml src/usr/config/experiment/ncshare/cpu_study.yaml
 venv/bin/python run_pipeline.py ncshare/cpu_smoke dry_run=true
 venv/bin/python run_pipeline.py ncshare/cpu_study dry_run=true
 venv/bin/python run_pipeline.py site check ncshare/common
-venv/bin/python run_pipeline.py site push ncshare/common
+venv/bin/python run_pipeline.py site push ncshare/common ncshare/cpu_smoke
 ```
 
 The example recipes compose and pass local preflight with this checkout's installed SB3/DNN/CartPole components. Install their matching dependencies on the cluster first. They intentionally start with no monitors and plotting disabled; qualify the training/storage path before adding representative diagnostics/plots.

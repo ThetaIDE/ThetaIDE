@@ -14,11 +14,15 @@ def test_user_configuration_and_setup_are_offline(tmp_path, monkeypatch):
     from src.app.sites.catalog import configure
     configure(tmp_path, 'cluster', {'rsync_executable': '/custom/rsync'})
     assert transfer.connection(tmp_path, 'cluster')['rsync_executable'] == '/custom/rsync'
-    script = bootstrap_command(tmp_path, 'cluster')
-    assert 'site push cluster' in script and 'pip install' in script
+    script = bootstrap_command(tmp_path, 'cluster', 'g/test')
+    assert 'site push cluster g/test' in script
+    # Setup installs the requirements the pushed bundle lists, not those of every installed package.
+    assert 'pip install -e . -r .thetaide/requirements.txt' in script
     assert 'python3 -m venv' in script
     paths = shortcuts(tmp_path, 'cluster')
     assert len(paths) == 3
+    push = next(Path(path) for path in paths if '/theta-push-' in path).read_text()
+    assert push.rstrip().endswith('cluster "$@"')  # The shortcut takes the experiment to push.
     assert any('src/usr/sites/cluster/ssh_config' in value for value in ssh_arguments(tmp_path, transfer.connection(tmp_path, 'cluster')))
     command = submission_command(transfer.connection(tmp_path, 'cluster'), 'g/test', 'cluster')
     assert command == 'venv/bin/python3 run_pipeline.py g/test'

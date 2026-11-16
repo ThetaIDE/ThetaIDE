@@ -92,8 +92,8 @@ def test_close_shell_terminates_pty_and_blocks_late_startup(tmp_path, monkeypatc
 def test_terminal_upload_finishes_before_interactive_ssh(tmp_path, monkeypatch, capsys):
     transfer.configure(tmp_path, 'cluster', 'fake', '/home/user/theta')
     events = []
-    def upload(root, site, **kwargs):
-        events.append(('upload', root, site))
+    def upload(root, site, experiment, **kwargs):
+        events.append(('upload', root, site, experiment))
         assert kwargs == {'live_output': True}
         print('rsync progress visible')
     def replace(program, command): events.append(('ssh', program, command))
@@ -102,6 +102,7 @@ def test_terminal_upload_finishes_before_interactive_ssh(tmp_path, monkeypatch, 
     monkeypatch.setattr(os, 'execvp', replace)
     assert launch_in_terminal(tmp_path, 'cluster', 'cartpole/single') == 0
     assert [item[0] for item in events] == ['upload', 'ssh']
+    assert events[0][3] == 'cartpole/single'  # The upload is that experiment's bundle.
     command = events[1][2]
     assert command[0] == 'ssh' and '-t' in command and 'fake' in command
     assert not any('sbatch' in str(item) for item in command)

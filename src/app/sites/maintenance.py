@@ -4,6 +4,7 @@ import shutil
 import time
 from pathlib import Path
 
+from .bundle import MANIFEST
 from .storage import read_json, results_relative, results_root, transfer_lock, workspace_id, safe_path
 
 
@@ -20,8 +21,8 @@ def collect(root, *, apply=False, temporary_only=False):
     with transfer_lock(root):
         project = workspace_id(root)
         records = [read_json(path) for path in (results_root(root) / 'sites').glob('*/submission.json')]
-        pinned = {record.get('source_sha256') for record in records if not record.get('remote_cleaned_at') and record.get('state') != 'submission_failed'}
-        pinned.add(read_json(root / '.thetaide/source.json').get('sha256'))
+        pinned = {record.get('bundle_sha256') for record in records if not record.get('remote_cleaned_at') and record.get('state') != 'submission_failed'}
+        pinned.add(read_json(root / MANIFEST).get('bundle_sha256'))
         candidates = []
         for directory in (list((results_root(root) / 'sites/.sync').glob('*')) + list((root / '.thetaide/uploads').glob('*')))[:100]:
             try: safe_path(root, directory.relative_to(root).as_posix())
@@ -29,8 +30,8 @@ def collect(root, *, apply=False, temporary_only=False):
             lease = read_json(directory / '.theta-managed.json')
             if lease.get('project_id') == project and lease.get('expires_at', float('inf')) < time.time():
                 candidates.append(directory)
-        store_owned = read_json(root / '.thetaide/sources/ownership.json').get('project_id') == project
-        for archive in ([] if temporary_only or not store_owned else (root / '.thetaide/sources').glob('*.zip')):
+        store_owned = read_json(root / '.thetaide/bundles/ownership.json').get('project_id') == project
+        for archive in ([] if temporary_only or not store_owned else (root / '.thetaide/bundles').glob('*.zip')):
             if not archive.is_symlink() and re.fullmatch(r'[a-f0-9]{64}', archive.stem) and archive.stem not in pinned:
                 # Only the archive store is managed; no generic source-tree collection.
                 candidates.append(archive)

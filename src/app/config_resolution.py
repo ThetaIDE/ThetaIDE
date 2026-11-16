@@ -18,6 +18,7 @@ from src.app.workspace import WorkspacePaths
 GROUP_KINDS = {"agent": "algorithm", "model": "model", "env": "env", "data": "datamodule",
                "eval": "evaluator", "plot": "plotter", "site": "site", "tuner": "tuner"}
 _COMPOSITION_SOURCE = ContextVar("theta_composition_source", default=None)
+_RECORDING = ContextVar("theta_config_recording", default=None)
 
 
 @contextmanager
@@ -33,6 +34,17 @@ def configuration_context(paths, config_root=None):
 
 def composition_source():
     return _COMPOSITION_SOURCE.get()
+
+
+@contextmanager
+def recording():
+    """Collect every configuration file resolved in this context, through Hydra or directly."""
+    resolved = []
+    token = _RECORDING.set(resolved)
+    try:
+        yield resolved
+    finally:
+        _RECORDING.reset(token)
 
 
 def selector_path(relative):
@@ -102,6 +114,13 @@ class ConfigResolver:
         return candidates[0] if candidates else (None, None)
 
     def resolve(self, relative, *, required=False):
+        result = self._resolve(relative, required=required)
+        recorded = _RECORDING.get()
+        if recorded is not None and result is not None:
+            recorded.append(result)
+        return result
+
+    def _resolve(self, relative, *, required=False):
         relative = selector_path(relative).as_posix()
         package, source = self.owner(relative)
         for root in self.user_roots:

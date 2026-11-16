@@ -45,7 +45,7 @@ def test_native_slurm_install_status_cancel_disable_and_preserved_override(tmp_p
     installer = install(paths, 'slurm', tmp_path / 'archives')
     cfg = {'site': {'scheduler': 'slurm', 'connection': {'host': 'fixture', 'remote_root': '/scratch/fixture'}}}
     provider = get_scheduler(cfg=cfg, paths=paths)
-    assert provider.api_version == 1
+    assert provider.api_version == 2
     resources = provider.validate_allocation({'site': cfg['site'], 'trainer': {'num_nodes': 1}} , paths=paths)
     assert resources['nodes'] == 1
     record = {'schema_version': 1, 'scheduler_component': 'slurm', 'execution_id': 'a' * 32,
@@ -98,10 +98,10 @@ def test_independent_scheduler_uses_the_same_dispatch(tmp_path):
     paths = WorkspacePaths(tmp_path)
     root = paths.user('package') / 'independent-scheduler'
     root.mkdir(parents=True)
-    (root / 'scheduler.py').write_text('class Scheduler:\n api_version = 1\n def validate_allocation(self, cfg, *, paths=None): return {"workspace": str(paths.root)}\n')
+    (root / 'scheduler.py').write_text('class Scheduler:\n api_version = 2\n def validate_allocation(self, cfg, *, paths=None): return {"workspace": str(paths.root)}\n')
     (root / '.theta_component.json').write_text(json.dumps({'id': 'independent-scheduler', 'name': 'Independent', 'version': '1.0.0',
       'kind': 'package', 'storage_version': 3, 'api_version': 1,
-      'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 1}],
+      'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 2}],
       'payload': {'implementations': ['scheduler.py'], 'resources': [], 'configs': {}}}))
     cfg = {'site': {'scheduler': 'lattice-batch'}}
     from src.app.sites.execution import validate_allocation
@@ -168,12 +168,12 @@ def test_site_check_uses_the_selected_schedulers_remote_requirements(tmp_path, m
     root = paths.user('package') / 'independent-scheduler'
     root.mkdir(parents=True)
     (root / 'scheduler.py').write_text(
-        'class Scheduler:\n api_version = 1\n'
+        'class Scheduler:\n api_version = 2\n'
         ' def remote_requirements(self, site):\n'
         '  return [("lattice-submit", None), ("lattice-acct", "accounting unavailable")]\n')
     (root / '.theta_component.json').write_text(json.dumps({'id': 'independent-scheduler', 'name': 'Independent',
       'version': '1.0.0', 'kind': 'package', 'storage_version': 3, 'api_version': 1,
-      'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 1}],
+      'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 2}],
       'payload': {'implementations': ['scheduler.py'], 'resources': [], 'configs': {}}}))
     create(paths.root, 'lattice', scheduler='lattice-batch')
     configure(paths.root, 'lattice', {'host': 'fixture', 'remote_root': '/scratch/fixture'})
@@ -188,7 +188,7 @@ def test_site_check_uses_the_selected_schedulers_remote_requirements(tmp_path, m
     assert script.startswith('command -v lattice-submit && rsync --version && test -w .')
     assert "command -v lattice-acct || printf '%s\\n' 'accounting unavailable'" in script
     assert 'sbatch' not in script
-    (root / 'scheduler.py').write_text('class Scheduler:\n api_version = 1\n'
+    (root / 'scheduler.py').write_text('class Scheduler:\n api_version = 2\n'
                                        ' def remote_requirements(self, site):\n  return [("x; rm -rf /", None)]\n')
     from src.app.core.provider_loader import invalidate
     invalidate(paths)

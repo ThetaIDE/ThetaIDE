@@ -1,4 +1,4 @@
-"""Selected optional scheduler API v1. Core retains receipt and artifact policy."""
+"""Selected optional scheduler API v2. Core retains receipt, bundle and artifact policy."""
 from src.app.workspace import WorkspacePaths
 
 
@@ -24,13 +24,13 @@ def get_scheduler(*, cfg=None, record=None, paths=None):
     if selected is None:
         raise ValueError(f'Scheduler {selector!r} is not installed in {paths.root}; install its optional component before running this recipe')
     package, capability = selected
-    if capability.metadata.get('scheduler_api') != 1:
-        raise ValueError(f'Scheduler {selector!r} requires scheduler_api=1')
+    if capability.metadata.get('scheduler_api') != 2:
+        raise ValueError(f'Scheduler {selector!r} requires scheduler_api=2')
     status = capability_status(package, capability, paths=paths, config=cfg or (record or {}).get('config') or {})
     if not status.enabled:
         raise ValueError(f'Scheduler {selector!r}: {status.reason}')
     provider = load_capability(package, capability, paths=paths)
     provider = provider() if isinstance(provider, type) else provider
-    if getattr(provider, 'api_version', None) != 1:
-        raise ValueError(f'Scheduler {selector!r} requires runtime api_version=1')
+    if getattr(provider, 'api_version', None) != 2:
+        raise ValueError(f'Scheduler {selector!r} requires runtime api_version=2')
     return provider

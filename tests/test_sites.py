@@ -11,7 +11,8 @@ from omegaconf import OmegaConf
 
 from src.app.sites import profiles, scheduler
 from src.app.sites import execution, transfer
-from src.app.sites.snapshot import freeze
+from src.app.sites import bundle
+from bundle_fixtures import fake_bundles, fake_selection
 from src.app.sites.storage import digest, read_json, safe_path, workspace_id, write_json
 from src.app.workspace import WorkspacePaths
 
@@ -26,8 +27,8 @@ def no_ssh(monkeypatch):
 
 
 def project(root):
-    (root / 'src').mkdir(parents=True)
-    (root / 'src/worker.py').write_text('print("original")\n')
+    (root / 'src/app').mkdir(parents=True)
+    (root / 'src/app/worker.py').write_text('print("original")\n')
     (root / 'src/usr/config').mkdir(parents=True)
     (root / 'src/usr/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text('# runner\n')
@@ -86,14 +87,22 @@ def test_explicit_scheduler_and_packaged_profiles(tmp_path):
     assert 'local/default' in profiles(paths)
 
 
-def test_frozen_source_and_portable_identity(tmp_path):
+CLUSTER = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm',
+                            'python_executable': sys.executable}, 'resources': {}})
+
+
+def test_bundle_is_frozen_and_keeps_portable_identity(tmp_path):
     root = project(tmp_path / 'project')
     (root / '.thetaide/site_connections.json').write_text('{"private": true}')
-    source = freeze(root, tmp_path / 'snapshot')
-    assert '.thetaide/site_connections.json' not in source['files']
-    (root / 'src/worker.py').write_text('changed')
-    assert (tmp_path / 'snapshot/src/worker.py').read_text() == 'print("original")\n'
-    assert source['project_id'] == workspace_id(tmp_path / 'snapshot')
+    (root / 'src/usr/results/logs').mkdir(parents=True)
+    (root / 'src/usr/results/logs/old.csv').write_text('step\n')
+    manifest = bundle.build(fake_selection(root, 'demo/test', CLUSTER), tmp_path / 'snapshot')
+    assert '.thetaide/site_connections.json' not in manifest['files']
+    assert not any(name.startswith('src/usr/results') for name in manifest['files'])
+    (root / 'src/app/worker.py').write_text('changed')
+    assert (tmp_path / 'snapshot/src/app/worker.py').read_text() == 'print("original")\n'
+    assert manifest['project_id'] == workspace_id(tmp_path / 'snapshot')
+    assert bundle.verify(tmp_path / 'snapshot')['bundle_sha256'] == manifest['bundle_sha256']
 
 
 @pytest.mark.parametrize('relative', ['../x', '/x', 'a/../x', 'a\nb', 'a\\b', 'a//b'])
@@ -164,6 +173,7 @@ def test_remote_identity_and_local_collision_protection(tmp_path, monkeypatch):
 
 def test_unknown_submission_is_not_retried(tmp_path, monkeypatch):
     root = project(tmp_path)
+    fake_bundles(monkeypatch, CLUSTER)
     calls = []
     def submit(args, **kw):
         calls.append(args)
@@ -202,14 +212,14 @@ def test_source_activation_removes_only_previously_managed_files(tmp_path):
     remote_root = tmp_path / 'remote'
     remote_root.mkdir()
     snapshot = tmp_path / 'upload1'
-    freeze(source, snapshot)
+    bundle.build(fake_selection(source, 'demo/test', CLUSTER), snapshot)
     transfer.activate(remote_root, snapshot)
     unrelated = remote_root / 'src/unmanaged.txt'
     unrelated.write_text('keep')
-    (source / 'src/worker.py').unlink()
-    freeze(source, tmp_path / 'upload2')
+    (source / 'src/app/worker.py').unlink()
+    bundle.build(fake_selection(source, 'demo/test', CLUSTER), tmp_path / 'upload2')
     transfer.activate(remote_root, tmp_path / 'upload2')
-    assert not (remote_root / 'src/worker.py').exists()
+    assert not (remote_root / 'src/app/worker.py').exists()
     assert unrelated.read_text() == 'keep'
 
 
@@ -238,6 +248,7 @@ def test_site_component_scaffold_is_installable(tmp_path):
 def test_allocation_worker_runs_frozen_pipeline_and_records_outputs(tmp_path, monkeypatch):
     monkeypatch.setenv('SLURM_JOB_ID', '321')
     root = project(tmp_path)
+    fake_bundles(monkeypatch, CLUSTER)
     script = root / 'run_pipeline.py'
     script.write_text('''import json, os, pathlib, sys
 assert os.environ['THETA_IN_ALLOCATION'] == '1'
@@ -278,6 +289,7 @@ def test_scheduler_finishing_is_distinct_from_submission_exit(tmp_path, monkeypa
 def test_default_batch_interpreter_preserves_virtualenv_path(tmp_path, monkeypatch):
     real_run = subprocess.run
     root = project(tmp_path)
+    fake_bundles(monkeypatch, CLUSTER)
     executable = root / 'venv/bin/python3'
     executable.parent.mkdir(parents=True)
     executable.symlink_to(sys.executable)

@@ -676,9 +676,7 @@ symbolic:
 </ul>
 <p>Every non-local site profile names its scheduler with <code>site.scheduler</code>. Edit a component's site template through Components; Theta saves the edit as your own copy under <code>src/usr/config/site/</code>. Add <code>consolidate=true</code> to ask the scheduler to put every method into one allocation.</p>
 
-<div style="background-color: rgba(251, 73, 52, 0.12); border-left: 4px solid #fb4934; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">
-  <b>Cluster Push Mandate:</b> Always commit and push all code changes to GitHub before submitting cluster jobs, as remote compute nodes sync directly from the repository.
-</div>
+<p>Run uploads the experiment's bundle before opening the cluster terminal: the application, the packages and configuration that experiment selects, and nothing else. Results, datasets and other experiments stay on your machine. From a terminal, <code>run_pipeline.py site push SITE EXPERIMENT</code> does the same.</p>
 
 <h3>Configuring Cluster Resources</h3>
 <p>Specify compute requirements directly in your experiment YAML:</p>

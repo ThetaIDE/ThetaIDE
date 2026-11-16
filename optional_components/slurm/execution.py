@@ -1,4 +1,4 @@
-"""One immutable experiment snapshot per SLURM allocation, with portable receipts."""
+"""One immutable experiment bundle per SLURM allocation, with portable receipts."""
 from __future__ import annotations
 
 import json
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from src.app.api.execution import saved_run_id
 from src.app.api.sites import (
-    digest, extract, freeze, read_json, record_lock, safe_path, site_name, transfer_lock, write_json,
+    BUNDLE_ARCHIVES, digest, read_json, record_lock, safe_path, site_name, transfer_lock, write_json,
 )
 from src.app.api import sites as host
 
@@ -116,12 +116,15 @@ def _submit(root, experiment, overrides, cfg):
     try:
         snapshot = directory / 'workspace'
         if policy:
-            source = read_json(root / '.thetaide/source.json')
-            bundle = root / '.thetaide/sources' / (str(source.get('sha256')) + '.zip')
+            source = host.current_bundle(root)
+            pushed = (source.get('experiment') or {}).get('selector')
+            if pushed != experiment:
+                raise ValueError(f'The pushed bundle is for {pushed or "no experiment"}; push {experiment} to this site first')
+            bundle = root / BUNDLE_ARCHIVES / (str(source.get('bundle_sha256')) + '.zip')
             if not source.get('archive_sha256') or not bundle.is_file():
-                raise ValueError('Scratch execution requires a source archive from site push; upload this revision first')
-            if sum(item.stat().st_size for item in (root / '.thetaide/sources').glob('*.zip')) > policy['max_source_bytes']:
-                raise ValueError('Source archive store exceeds max_source_bytes; preview managed maintenance')
+                raise ValueError('Scratch execution requires the bundle archive from site push; push this experiment first')
+            if sum(item.stat().st_size for item in (root / BUNDLE_ARCHIVES).glob('*.zip')) > policy['max_source_bytes']:
+                raise ValueError('Bundle archive store exceeds max_source_bytes; preview managed maintenance')
             from src.app.api.sites import own_work_root, stage_inputs
             own_work_root(policy['work_root'], source['project_id'])
             inputs = Path(policy['work_root']) / 'inputs' / execution_id
@@ -132,13 +135,15 @@ def _submit(root, experiment, overrides, cfg):
                 shutil.rmtree(inputs)
                 raise
         else:
-            source = freeze(root, snapshot)
+            source = host.prepare_bundle(root, experiment, overrides, snapshot)
             control, frozen = paths, WorkspacePaths(snapshot)
             # The frozen workspace writes results and reads datasets in the control workspace.
             for link, target in ((frozen.results, control.results), (frozen.datasets, control.datasets)):
                 if link == frozen.results or target.exists():
                     link.parent.mkdir(parents=True, exist_ok=True)
                     link.symlink_to(target, target_is_directory=True)
+        from .commands import verify_environment
+        verify_environment(source)
         result_id = saved_run_id(str(cfg.experiment_id), f'__{execution_id}')
         command_overrides = [arg for arg in overrides if not arg.lstrip('+').startswith(('experiment_id=', 'group='))]
         command_overrides += [f'++experiment_id={json.dumps(result_id)}', f'++group={json.dumps(str(cfg.group))}']
@@ -150,10 +155,10 @@ def _submit(root, experiment, overrides, cfg):
                   'attempt_id': uuid.uuid4().hex, 'site': site_name(cfg), 'experiment': experiment,
                   'group': str(cfg.group), 'result_experiment_id': result_id,
                   'created_at': datetime.now(timezone.utc).isoformat(), 'state': 'prepared',
-                  'job_id': None, 'source_sha256': source['sha256'],
+                  'job_id': None, 'bundle_sha256': source['bundle_sha256'],
                   'overrides': command_overrides, 'resources': resources,
                   'config': OmegaConf.to_container(cfg, resolve=False), 'artifacts_finalized': False,
-                  'execution_policy': policy, 'control_root': str(root), 'source_archive_sha256': source.get('archive_sha256'),
+                  'execution_policy': policy, 'control_root': str(root), 'bundle_archive_sha256': source.get('archive_sha256'),
                   'publication_state': 'pending' if policy else None,
                   'tuner_execution': tuner_plan.record() if tuner_plan else None}
         request = cfg.get('study_continuation')
@@ -260,23 +265,21 @@ def run(root, execution_id):
         write_json(runtime / '.theta-owner.json', {'project_id': record['project_id'],
                    'execution_id': execution_id, 'job_id': os.environ.get('SLURM_JOB_ID'),
                    'host': __import__('socket').gethostname(), 'pid': os.getpid()})
-        bundle = root / '.thetaide/sources' / (record['source_sha256'] + '.zip')
-        if digest(bundle) != record['source_archive_sha256']: raise ValueError('Source archive changed')
+        bundle = root / BUNDLE_ARCHIVES / (record['bundle_sha256'] + '.zip')
+        if digest(bundle) != record['bundle_archive_sha256']: raise ValueError('Bundle archive changed')
         import zipfile
         with zipfile.ZipFile(bundle) as archive:
             required = sum(item.file_size for item in archive.infolist())
         required += read_json(Path(policy['work_root']) / 'inputs' / execution_id / '.theta-inputs.json').get('bytes', 0)
         if shutil.disk_usage(runtime).free < required + policy['scratch_reserve_bytes']:
-            raise ValueError('Insufficient job-local scratch for source/inputs and reserve')
-        source = extract(bundle, runtime)
-        if source['sha256'] != record['source_sha256']: raise ValueError('Source identity mismatch')
+            raise ValueError('Insufficient job-local scratch for bundle/inputs and reserve')
+        source = host.extract_bundle(bundle, runtime)
+        if source['bundle_sha256'] != record['bundle_sha256']: raise ValueError('Bundle identity mismatch')
         inputs = Path(policy['work_root']) / 'inputs' / execution_id
         if inputs.is_dir(): shutil.copytree(inputs, runtime, dirs_exist_ok=True, copy_function=shutil.copyfile)
     else:
-        source = read_json(snapshot / '.thetaide/source.json')
-        for relative, expected in source['files'].items():
-            if digest(safe_path(snapshot, relative)) != expected:
-                raise ValueError(f'Submission source changed: {relative}')
+        source = host.verify_bundle(snapshot)
+        if source['bundle_sha256'] != record['bundle_sha256']: raise ValueError('Bundle identity mismatch')
     with record_lock(path):
         record = read_json(path)
         if record.get('started_at'): raise ValueError('Execution already started; use a new attempt')
@@ -541,7 +544,7 @@ def refresh_many(root, records, *, minimum_seconds=10):
 
 
 class Scheduler:
-    api_version = 1
+    api_version = 2
 
     @staticmethod
     def launch_in_terminal(root, site, experiment):

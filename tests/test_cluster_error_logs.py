@@ -19,15 +19,15 @@ from src.app.pipeline.datasets import _execute_training
 from src.app.services import catalog
 from src.app.services.process_output import ProcessOutput
 from src.app.sites import execution, transfer
-from src.app.sites.snapshot import freeze
+from bundle_fixtures import activate_fake_bundle, fake_bundles
 from src.app.sites.storage import read_json, workspace_id, write_json
 
 REPO = Path(__file__).resolve().parents[1]
 
 
 def project(root, pipeline):
-    (root / 'src').mkdir(parents=True)
-    (root / 'src/worker.py').write_text('# fixture\n')
+    (root / 'src/app').mkdir(parents=True)
+    (root / 'src/app/worker.py').write_text('# fixture\n')
     (root / 'src/usr/config').mkdir(parents=True)
     (root / 'src/usr/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text(pipeline)
@@ -37,15 +37,21 @@ def project(root, pipeline):
     return root
 
 
-def submit(root, monkeypatch, *, managed=None):
+def cluster_cfg(managed=None):
     cfg = {'group': 'demo', 'experiment_id': 'run',
            'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}}
     if managed:
         cfg['site']['execution'] = managed
+    return OmegaConf.create(cfg)
+
+
+def submit(root, monkeypatch, *, managed=None):
+    cfg = cluster_cfg(managed)
+    fake_bundles(monkeypatch, cfg)
     # Submission is faked; workers and their output pipes are real local processes.
     with monkeypatch.context() as patch:
         patch.setattr(execution.subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=0, stdout='321\n', stderr=''))
-        return execution.submit(root, 'demo/run', [], OmegaConf.create(cfg))
+        return execution.submit(root, 'demo/run', [], cfg)
 
 
 def test_nested_training_errors_keep_stderr_identity_and_combined_log(tmp_path, capsys):
@@ -110,14 +116,13 @@ finally:
     print('training cleanup ran', file=sys.stderr, flush=True)
 '''
     root = project(tmp_path / 'control', pipeline)
-    upload = tmp_path / 'upload'
-    freeze(root, upload)
-    transfer.activate(root, upload)
     scratch = tmp_path / 'scratch'
     scratch.mkdir()
     work = tmp_path / 'work'
-    record = submit(root, monkeypatch, managed={'schema_version': 1, 'runtime': 'scratch', 'work_root': str(work),
-                    'scratch_root': str(scratch), 'stage_out_seconds': 4, 'scratch_reserve_bytes': 1})
+    managed = {'schema_version': 1, 'runtime': 'scratch', 'work_root': str(work),
+               'scratch_root': str(scratch), 'stage_out_seconds': 4, 'scratch_reserve_bytes': 1}
+    activate_fake_bundle(root, 'demo/run', cluster_cfg(managed))
+    record = submit(root, monkeypatch, managed=managed)
     directory = execution.receipt_path(root, record['execution_id']).parent
     script = (directory / 'job.sbatch').read_text()
     assert script.splitlines()[-1].startswith('exec ')

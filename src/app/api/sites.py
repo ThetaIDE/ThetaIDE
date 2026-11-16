@@ -10,8 +10,9 @@ Transport
     ``ssh_arguments``, ``rsync_shell``
 Workspace-contained files and locks
     ``safe_path``, ``digest``, ``read_json``, ``write_json``, ``record_lock``, ``transfer_lock``
-Snapshots, receipts and continuation
-    ``freeze``, ``extract``, ``receipt_path``, ``close_unfinished_runs``, ``TERMINAL``,
+Bundles, receipts and continuation
+    ``prepare_bundle``, ``verify_bundle``, ``current_bundle``, ``extract_bundle``,
+    ``BUNDLE_ARCHIVES``, ``BUNDLE_REQUIREMENTS``, ``receipt_path``, ``close_unfinished_runs``, ``TERMINAL``,
     ``pin_continuation``, ``restore_continuation``
 Policy and publication
     ``resolve_policy``, ``stage_inputs``, ``own_work_root``, ``assert_local_scratch``, ``Publisher``
@@ -31,8 +32,12 @@ _EXPORTS = {
     "rsync_shell": "src.app.sites.transport:rsync_shell",
     **{name: f"src.app.sites.storage:{name}" for name in (
         "safe_path", "digest", "read_json", "write_json", "record_lock", "transfer_lock")},
-    "freeze": "src.app.sites.snapshot:freeze",
-    "extract": "src.app.sites.snapshot:extract",
+    "prepare_bundle": "src.app.sites.bundle:prepare",
+    "verify_bundle": "src.app.sites.bundle:verify",
+    "current_bundle": "src.app.sites.bundle:current",
+    "extract_bundle": "src.app.sites.bundle:extract",
+    "BUNDLE_ARCHIVES": "src.app.sites.transfer:ARCHIVES",
+    "BUNDLE_REQUIREMENTS": "src.app.sites.bundle:REQUIREMENTS",
     "receipt_path": "src.app.sites.execution:receipt_path",
     "close_unfinished_runs": "src.app.sites.execution:close_unfinished_runs",
     "TERMINAL": "src.app.sites.execution:TERMINAL",

@@ -17,7 +17,9 @@ from omegaconf import OmegaConf
 from src.app.sites import execution, transfer
 from src.app.sites.policy import DEFAULTS, resolve, stage_inputs
 from src.app.sites.publication import Publisher, sqlite_export
-from src.app.sites.snapshot import archive, extract
+from src.app.sites import bundle as bundles
+from src.app.sites.bundle import extract
+from bundle_fixtures import activate_fake_bundle
 from src.app.sites.storage import digest, read_json, workspace_id, write_json
 from src.app.pipeline.exceptions import ConfigurationError
 from optional_components.slurm.headers import generate_sbatch_header
@@ -39,15 +41,9 @@ def managed(tmp_path, script=None):
     from component_fixtures import install_optional
     install_optional(root, 'slurm', tmp_path / 'archives')
     install_optional(root, 'optuna', tmp_path / 'archives')
-    bundle = root / 'source.zip'
-    source = archive(root, bundle)
-    target = root / '.thetaide/sources' / (source['sha256'] + '.zip')
-    target.parent.mkdir(parents=True)
-    write_json(target.parent / 'ownership.json', {'project_id': source['project_id']})
-    bundle.replace(target)
-    write_json(root / '.thetaide/source.json', {**source, 'archive_sha256': digest(target)})
     config = cfg()
     config.site.execution = {**DEFAULTS, 'work_root': str(work), 'scratch_root': str(scratch)}
+    activate_fake_bundle(root, 'g/e', config)
     return root, scratch, work, config
 
 
@@ -140,8 +136,8 @@ print(root)
     fake_submit(monkeypatch)
     first = execution.submit(root, 'g/e', [], config)
     second = execution.submit(root, 'g/e', [], config)
-    assert first['source_sha256'] == second['source_sha256']
-    assert len(list((root / '.thetaide/sources').glob('*.zip'))) == 1
+    assert first['bundle_sha256'] == second['bundle_sha256']
+    assert len(list((root / '.thetaide/bundles').glob('*.zip'))) == 1
     assert not list((root / 'src/usr/results/sites').glob('*/workspace'))
     for record in (first, second):
         # This synthetic producer writes a study without running a real tuner.
@@ -351,10 +347,10 @@ def test_gc_preserves_active_unknown_and_legacy_and_releases_verified_payload(tm
     write_json(lease / '.theta-managed.json', {'project_id': record['project_id'], 'expires_at': time.time() + 7200})
     old = root / 'src/usr/results/sites/.sync/legacy'
     old.mkdir()
-    bundle = root / '.thetaide/sources' / (record['source_sha256'] + '.zip')
+    bundle = root / '.thetaide/bundles' / (record['bundle_sha256'] + '.zip')
     assert collect(root, apply=True)['candidates'] == []
     assert bundle.exists() and old.exists() and lease.exists()
-    orphan = root / '.thetaide/sources' / ('c' * 64 + '.zip')
+    orphan = root / '.thetaide/bundles' / ('c' * 64 + '.zip')
     orphan.write_bytes(b'garbage')
     assert len(collect(root)['candidates']) == 1 and orphan.exists()
     collect(root, apply=True)
@@ -392,20 +388,14 @@ def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monk
     pytest.importorskip('stable_baselines3')
     from component_fixtures import LocalHub, cluster_site, install_optional
     from src.app.components.installer import HubInstaller
-    from src.app.sites.snapshot import freeze
     from src.app.pipeline.compose import compose_experiment, validate_composed
     from src.app.workspace import WorkspacePaths
     project = Path(__file__).resolve().parents[1]
     root, scratch, work = [tmp_path / name for name in ('control', 'scratch', 'work')]
     for path in (root, scratch, work): path.mkdir()
-    freeze(project, root)
-    # The control checkout holds the application only: no authored or installed packages and no
-    # package selections of whoever runs the test.
-    paths = WorkspacePaths(root, application=root)
-    for directory in (paths.research, *paths.managed_roots):
-        shutil.rmtree(directory, ignore_errors=True)
-    for name in ('provider_overrides.json', 'extensions.json'):
-        (root / '.thetaide' / name).unlink(missing_ok=True)
+    # The control workspace starts empty: no authored or installed packages and no package
+    # selections of whoever runs the test. The bundle brings the application.
+    paths = WorkspacePaths(root)
     installer = HubInstaller(paths.root, paths.data_dir)
     hub = LocalHub()
     for package in ('sb3-suite', 'gym_classic_control', 'dnn'):
@@ -418,17 +408,16 @@ def test_real_cpu_pipeline_in_fresh_scratch_with_frozen_providers(tmp_path, monk
     for name in ('cpu_smoke', 'cpu_study'):
         text = (project / f'docs/development/examples/ncshare_{name}.yaml').read_text()
         (target / f'{name}.yaml').write_text(text.replace('override /site: ncshare/common', 'override /site: cluster/common'))
-    bundle = root / 'source.zip'
-    source = archive(root, bundle)
-    destination = root / '.thetaide/sources' / (source['sha256'] + '.zip')
-    destination.parent.mkdir(parents=True)
-    bundle.replace(destination)
-    write_json(root / '.thetaide/source.json', {**source, 'archive_sha256': digest(destination)})
     monkeypatch.setenv('THETA_WORKSPACE', str(root))
     monkeypatch.setenv('SLURM_CPUS_PER_TASK', '2')
     overrides = [f'++site.execution.work_root={work}', f'++site.execution.scratch_root={scratch}',
                  f'++site.python_executable={sys.executable}']
-    composed = compose_experiment(f'ncshare/{recipe}', overrides, workspace=WorkspacePaths(root, application=root))
+    # What site push does: bundle the experiment, then activate it in the remote workspace.
+    stage = tmp_path / 'upload'
+    manifest = bundles.prepare(root, f'ncshare/{recipe}', overrides, stage)
+    assert {item['id'] for item in manifest['providers']} >= {'sb3-suite', 'gym_classic_control', 'slurm'}
+    transfer.activate(root, stage)
+    composed = compose_experiment(f'ncshare/{recipe}', overrides, workspace=paths)
     assert validate_composed(composed) == []
     fake_submit(monkeypatch)
     record = execution.submit(root, composed.experiment, overrides, composed.cfg)

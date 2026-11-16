@@ -29,7 +29,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                                    "id": {"type": "string", "minLength": 1}, "slot": {"type": "string", "minLength": 1},
                                    "label": {"type": "string"}, "availability": {"enum": ["enabled", "ready"]},
                                    "entry_point": {"type": "string", "pattern": r"^.+\.py:.+$"}}}},
-                           "scheduler_api": {"type": "integer", "enum": [1]},
+                           "scheduler_api": {"type": "integer", "enum": [2]},
                            "execution_contract": {"type": "integer", "minimum": 1},
                            "backend": {"type": "string"},
                            "tuning_features": {"type": "object", "additionalProperties": False, "properties": {

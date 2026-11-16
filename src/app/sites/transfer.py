@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .execution import TERMINAL, finalize, owned_files, receipt_path, refresh_status, refresh_many
-from .snapshot import DATASET_ROOT, archive, freeze, source_files
+from . import bundle
 from .transport import rsync_shell
 from . import transfer_output
 from .storage import digest, read_json, results_relative, results_root, safe_path, transfer_lock, workspace_id, write_json
@@ -130,7 +130,12 @@ def check(root, site):
     return {'site': site, 'checks': output.strip(), 'python': python_version}
 
 
-def push(root, site, *, datasets=False, live_output=False):
+DATASET_ROOT = 'src/usr/datasets'
+ARCHIVES = '.thetaide/bundles'
+
+
+def push(root, site, experiment, *, overrides=(), datasets=False, live_output=False):
+    """Upload the bundle of one experiment; the remote workspace then holds that bundle."""
     root = Path(root).resolve()
     config = connection(root, site)
     def announce(message):
@@ -140,11 +145,13 @@ def push(root, site, *, datasets=False, live_output=False):
     require_local_rsync(config)
     with transfer_lock(root), tempfile.TemporaryDirectory(prefix='theta-push-') as temporary:
         stage = Path(temporary)
-        announce('Preparing a frozen project snapshot...')
-        source = freeze(root, stage)
+        announce(f'Building the bundle of {experiment}...')
+        manifest = bundle.prepare(root, experiment, overrides, stage)
+        if manifest['experiment']['site'] != site:
+            raise ValueError(f'{manifest["experiment"]["selector"]} runs on site {manifest["experiment"]["site"]}, not {site}')
         # Transfer a frozen list, not a tree that the user may still be editing.
-        write_json(stage / '.theta-managed.json', {'project_id': source['project_id'], 'expires_at': __import__('time').time() + 7200})
-        files = [*source['files'], '.thetaide/source.json', '.theta-managed.json']
+        write_json(stage / '.theta-managed.json', {'project_id': manifest['project_id'], 'expires_at': __import__('time').time() + 7200})
+        files = [*manifest['files'], bundle.MANIFEST, '.theta-managed.json']
         if datasets and (root / DATASET_ROOT).is_dir():
             for path in (root / DATASET_ROOT).rglob('*'):
                 if path.is_symlink(): raise ValueError('Dataset symlinks need a cluster-side dataset mapping')
@@ -156,12 +163,12 @@ def push(root, site, *, datasets=False, live_output=False):
                     files.append(relative)
         listing = stage / 'files.list'
         listing.write_bytes(b''.join(name.encode() + b'\0' for name in files))
-        announce(f'Prepared {len(source["files"])} source files. Checking {config["host"]}:{config["remote_root"]}...')
+        announce(f'Prepared {len(manifest["files"])} bundle files. Checking {config["host"]}:{config["remote_root"]}...')
         # Refuse an existing workspace belonging to a different local project.
         identity = shlex.quote(config['remote_root'] + '/.thetaide/workspace.json')
         probe = 'if [ -f ' + identity + ' ]; then cat ' + identity + '; else printf "{}"; fi'
         existing = json.loads(ssh(config, ['bash', '-c', probe], log_stdout=False))
-        if existing.get('id') and existing['id'] != source['project_id']:
+        if existing.get('id') and existing['id'] != manifest['project_id']:
             raise ValueError('Remote directory belongs to another project; choose a new directory')
         upload = config['remote_root'] + '/.thetaide/uploads/' + uuid.uuid4().hex
         ssh(config, ['mkdir', '-p', upload])
@@ -170,15 +177,17 @@ def push(root, site, *, datasets=False, live_output=False):
         run_transfer([config.get('rsync_executable', 'rsync'), '-r', *progress_flags, '--protect-args', '--from0', '--files-from=' + str(listing),
                         '--checksum', '--partial-dir=.theta-partial', '--link-dest=' + config['remote_root'], '--rsync-path=' + config.get('remote_rsync', 'rsync'), '-e', rsync_shell(root, config),
                         str(stage) + '/', config['host'] + ':' + upload + '/'], live_output=live_output)
-        announce('Verifying uploaded source and activating the project...')
+        announce('Verifying the uploaded bundle and activating it...')
         ssh(config, [config['python'], upload + '/run_pipeline.py', 'site', '_activate',
                      '--root', config['remote_root'], '--source', upload], log_stdout=False)
         state = read_json(root / '.thetaide/site_sync.json')
-        state.setdefault(site, {}).update(last_push=now(), source_sha256=source['sha256'])
+        state.setdefault(site, {}).update(last_push=now(), bundle_sha256=manifest['bundle_sha256'],
+                                          experiment=manifest['experiment']['selector'])
         write_json(root / '.thetaide/site_sync.json', state)
-        return {'site': site, 'source_sha256': source['sha256'], 'files': len(files),
+        return {'site': site, 'experiment': manifest['experiment']['selector'], 'bundle_sha256': manifest['bundle_sha256'],
+                'files': len(files), 'requirements': manifest['requirements']['providers'],
                 'command': 'cd ' + shlex.quote(config['remote_root']) + ' && ' +
-                shlex.join([config['python'], 'run_pipeline.py', '<group/experiment>', 'site=' + site])}
+                shlex.join([config['python'], 'run_pipeline.py', manifest['experiment']['selector'], *manifest['experiment']['overrides']])}
 
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -484,17 +493,12 @@ def _clean_remote(root, execution_id, proof, *, preview=False):
 
 def activate(root, source):
     root, source = Path(root).resolve(), Path(source).resolve()
-    manifest = read_json(source / '.thetaide/source.json')
-    if not manifest.get('files'): raise ValueError('Uploaded source manifest is missing')
+    manifest = bundle.verify(source)
     identity_path = root / '.thetaide/workspace.json'
     if identity_path.exists() and read_json(identity_path).get('id') != manifest['project_id']:
         raise ValueError('Remote directory belongs to another project')
-    previous = read_json(root / '.thetaide/source.json')
+    previous = bundle.current(root)
     with transfer_lock(root):
-        allowed = set(source_files(source))
-        for relative, expected in manifest['files'].items():
-            if relative not in allowed or digest(safe_path(source, relative)) != expected:
-                raise ValueError(f'Uploaded source failed verification: {relative}')
         for relative in set(previous.get('files', {})) - set(manifest['files']):
             path = safe_path(root, relative)
             if path.is_file(): path.unlink()
@@ -516,21 +520,21 @@ def activate(root, source):
                     temporary = target.with_name(target.name + '.theta-upload')
                     shutil.copyfile(safe_path(source, relative), temporary)
                     os.replace(temporary, target)
-        # Build the pinned archive from the verified remote snapshot. Transferring
+        # Build the pinned archive from the verified uploaded bundle. Transferring
         # a full ZIP on every push would defeat per-file rsync reuse.
-        target = root / '.thetaide/sources' / (manifest['sha256'] + '.zip')
+        target = root / ARCHIVES / (manifest['bundle_sha256'] + '.zip')
         target.parent.mkdir(parents=True, exist_ok=True)
         write_json(target.parent / 'ownership.json', {'project_id': manifest['project_id']})
         if not target.exists():
-            archive(source, target.with_suffix('.tmp'))
+            bundle.archive(source, target.with_suffix('.tmp'))
             os.replace(target.with_suffix('.tmp'), target)
         manifest['archive_sha256'] = digest(target)
-        write_json(root / '.thetaide/source.json', manifest)
+        write_json(root / bundle.MANIFEST, manifest)
         lease = read_json(source / '.theta-managed.json')
         if lease.get('project_id') == manifest['project_id']:
             lease['expires_at'] = 0
             write_json(source / '.theta-managed.json', lease)
-    return {'source_sha256': manifest['sha256']}
+    return {'bundle_sha256': manifest['bundle_sha256'], 'experiment': manifest['experiment']['selector']}
 
 
 def release(root, generation):

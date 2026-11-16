@@ -46,8 +46,8 @@ def pin(root, record, request):
         raise ValueError('Selected tuner artifact cannot be continued by this execution')
     if compatibility(record_config(record), paths=paths) != compatibility(record_config(previous), paths=paths):
         raise ValueError('Continuation objective/search-space/provider configuration is incompatible')
-    if record['source_sha256'] != previous['source_sha256']:
-        raise ValueError('Continuation requires identical source/dependency pins; migration is explicit')
+    if record['bundle_sha256'] != previous['bundle_sha256']:
+        raise ValueError('Continuation requires the identical bundle; migration is explicit')
     lineage = previous.get('continuation', {}).get('lineage_id', previous['execution_id'])
     for path in (results_root(root) / 'sites').glob('*/submission.json'):
         other = read_json(path)

@@ -16,6 +16,10 @@ class SiteSetup(QWidget):
         self.site.setEditable(False)
         self.site.addItems(list(profiles(self.paths)))
         layout.addWidget(self.site)
+        layout.addWidget(label('Experiment to upload first', 'muted'))
+        self.experiment = ComboBox()
+        self.experiment.setEditable(False)
+        layout.addWidget(self.experiment)
         for title, action in [('Copy first-run upload and package setup', self.copy_setup),
                               ('Create project SSH / push / sync shortcuts', self.make_shortcuts),
                               ('Open editable site configuration', self.open_config)]:
@@ -32,10 +36,15 @@ class SiteSetup(QWidget):
         index = self.site.findText(selected)
         if index >= 0: self.site.setCurrentIndex(index)
         self.site.blockSignals(False)
+        chosen = self.experiment.currentText()
+        self.experiment.clear()
+        self.experiment.addItems(experiments(self.paths))
+        index = self.experiment.findText(chosen)
+        if index >= 0: self.experiment.setCurrentIndex(index)
         super().showEvent(event)
 
     def copy_setup(self):
-        try: command = bootstrap_command(self.paths.root, self.site.currentText())
+        try: command = bootstrap_command(self.paths.root, self.site.currentText(), self.experiment.currentText())
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, 'Site setup', str(exc)); return
         QApplication.clipboard().setText(command)
@@ -54,6 +63,14 @@ class SiteSetup(QWidget):
         component = self.site.currentText().split('/')[0]
         path = ConfigurationFiles(self.paths).create_override(f'site/{component}/_defaults.yaml')
         if path.is_file(): QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
+def experiments(paths):
+    """Experiment selectors of the workspace; ``_``-prefixed files are shared bases."""
+    from pathlib import PurePosixPath
+    names = paths.config_resolver().selectors('experiment')
+    return [str(PurePosixPath(name).relative_to('experiment').with_suffix('')) for name in names
+            if not PurePosixPath(name).name.startswith('_')]
 
 
 def create_settings(context):

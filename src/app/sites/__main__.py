@@ -21,7 +21,10 @@ def main(argv=None):
             command.add_argument('--scheduler', help='Installed scheduler capability for a newly created site')
         if name in ('clean', '_clean'): command.add_argument('--preview', action='store_true')
         if name == 'maintenance': command.add_argument('--apply', action='store_true')
-        if name == 'push': command.add_argument('--include-datasets', action='store_true')
+        if name == 'push':
+            command.add_argument('experiment')
+            command.add_argument('overrides', nargs='*')
+            command.add_argument('--include-datasets', action='store_true')
         if name == 'launch': command.add_argument('--experiment', required=True)
         if name in ('sync', '_index'):
             command.add_argument('--mode', choices=('metrics', 'results'), default='metrics')
@@ -55,7 +58,7 @@ def main(argv=None):
             from src.app.workspace import WorkspacePaths
             cfg = {'site': load(args.root, args.site)}
             return get_scheduler(cfg=cfg, paths=WorkspacePaths(args.root)).launch_in_terminal(args.root, args.site, args.experiment)
-        elif args.command == 'push': result = transfer.push(args.root, args.site, datasets=args.include_datasets)
+        elif args.command == 'push': result = transfer.push(args.root, args.site, args.experiment, overrides=args.overrides, datasets=args.include_datasets)
         elif args.command == 'sync': result = transfer.sync(args.root, args.site, args.mode, execution_id=args.execution, diagnostics=args.diagnostics)
         elif args.command == 'status': result = transfer.remote(args.root, args.site, '_status')
         elif args.command == 'clean': result = transfer.clean(args.root, args.site, args.execution_id, preview=args.preview)

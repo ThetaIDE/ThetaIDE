@@ -14,7 +14,7 @@ from src.app.sites import execution
 from src.app.sites.continuation import compatibility, restore
 from src.app.sites.publication import Publisher
 from src.app.sites.policy import DEFAULTS
-from src.app.sites.snapshot import archive
+from bundle_fixtures import activate_fake_bundle, fake_bundles
 from src.app.sites.storage import digest, read_json, write_json
 from src.app.workspace import WorkspacePaths
 from test_ncshare_hardening import managed, fake_submit
@@ -30,12 +30,8 @@ def install(root):
     return WorkspacePaths(root)
 
 
-def refresh_source(root):
-    bundle = root / 'fresh.zip'
-    source = archive(root, bundle)
-    target = root / '.thetaide/sources' / (source['sha256'] + '.zip')
-    bundle.replace(target)
-    write_json(root / '.thetaide/source.json', {**source, 'archive_sha256': digest(target)})
+def refresh_bundle(root, cfg):
+    activate_fake_bundle(root, 'g/e', cfg)
 
 
 def test_independent_worker_publication_monitor_and_continuation(tmp_path, monkeypatch):
@@ -47,7 +43,7 @@ p.write_text(json.dumps({'trials': [{'id': 0, 'state': 'complete', 'value': 7}, 
 '''
     root, scratch, work, cfg = managed(tmp_path, script)
     paths = install(root)
-    refresh_source(root)
+    refresh_bundle(root, cfg)
     cfg.tuning = {'component': 'fixture-grid', 'options': {'fixture-grid': {'attempts': 2}}}
     fake_submit(monkeypatch)
     original_import = builtins.__import__
@@ -191,6 +187,7 @@ p.write_text('{"trials": []}')
     install(root)
     cfg.site.execution = None
     cfg.tuning = {'component': 'fixture-grid'}
+    fake_bundles(monkeypatch, cfg)
     fake_submit(monkeypatch)
     record = execution.submit(root, 'g/e', [], cfg)
     assert execution.run(root, record['execution_id']) == 0

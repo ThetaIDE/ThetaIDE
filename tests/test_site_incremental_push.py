@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from src.app.sites import transfer
-from src.app.sites.snapshot import extract
+from src.app.sites.bundle import extract
+from bundle_fixtures import fake_bundles
 from src.app.sites.storage import read_json
 
 
@@ -15,8 +16,8 @@ def test_push_transfers_only_changed_files_and_retains_pinned_archives(tmp_path,
     local, remote = tmp_path / 'local', tmp_path / 'remote'
     local.mkdir()
     remote.mkdir()
-    (local / 'src').mkdir()
-    component = local / 'src/component.py'
+    (local / 'src/app').mkdir(parents=True)
+    component = local / 'src/app/component.py'
     component.write_text('version = 1\n')
     yaml = local / 'src/usr/config/group/run.yaml'
     yaml.parent.mkdir(parents=True)
@@ -61,28 +62,31 @@ def test_push_transfers_only_changed_files_and_retains_pinned_archives(tmp_path,
 
     monkeypatch.setattr(transfer, 'ssh', ssh)
     monkeypatch.setattr(transfer, 'run_transfer', rsync)
-    first = transfer.push(local, 'cluster')
-    original_inode = (remote / 'src/component.py').stat().st_ino
+    from omegaconf import OmegaConf
+    fake_bundles(monkeypatch, OmegaConf.create({'site': {'name': 'cluster', 'scheduler': 'slurm'}}))
+    push = lambda: transfer.push(local, 'cluster', 'group/run')
+    first = push()
+    original_inode = (remote / 'src/app/component.py').stat().st_ino
     # Even same-size edits with an unchanged mtime must upload.
     stamp = yaml.stat()
     yaml.write_text('seed: 2\n')
     os.utime(yaml, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
-    second = transfer.push(local, 'cluster')
+    second = push()
     payloads = lambda batch: [name for name in batch if not name.startswith('.theta')]
     assert payloads(batches[1]) == ['src/usr/config/group/run.yaml']
-    assert (remote / 'src/component.py').stat().st_ino == original_inode
+    assert (remote / 'src/app/component.py').stat().st_ino == original_inode
     assert (remote / 'src/usr/config/group/run.yaml').read_text() == 'seed: 2\n'
-    transfer.push(local, 'cluster')
+    push()
     assert payloads(batches[2]) == []
     component.write_text('version = 2\n')
-    transfer.push(local, 'cluster')
-    assert payloads(batches[3]) == ['src/component.py']
+    push()
+    assert payloads(batches[3]) == ['src/app/component.py']
     component.unlink()
-    transfer.push(local, 'cluster')
-    assert not (remote / 'src/component.py').exists()
-    # Source archives still reproduce old and new experiments independently.
+    push()
+    assert not (remote / 'src/app/component.py').exists()
+    # Bundle archives still reproduce old and new experiments independently.
     for result, seed in [(first, 'seed: 1\n'), (second, 'seed: 2\n')]:
-        destination = tmp_path / result['source_sha256']
-        extract(remote / '.thetaide/sources' / (result['source_sha256'] + '.zip'), destination)
+        destination = tmp_path / result['bundle_sha256']
+        extract(remote / '.thetaide/bundles' / (result['bundle_sha256'] + '.zip'), destination)
         assert (destination / 'src/usr/config/group/run.yaml').read_text() == seed
-        assert (destination / 'src/component.py').read_text() == 'version = 1\n'
+        assert (destination / 'src/app/component.py').read_text() == 'version = 1\n'

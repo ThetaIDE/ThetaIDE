@@ -29,13 +29,13 @@ implementation and may change without notice.
 
 The SDK is versioned independently of package storage formats. Minor versions
 only add exports or context services; a major version may remove them. App
-plugins declare the range they were written for as ``"sdk": ">=2.0,<3"`` in
+plugins declare the range they were written for as ``"sdk": ">=3.0,<4"`` in
 their capability metadata; the host refuses activation when it cannot satisfy
 it.
 """
 from __future__ import annotations
 
-SDK_VERSION = "2.4"
+SDK_VERSION = "3.0"
 
 
 def sdk_requirement_error(spec) -> str | None:
@@ -44,15 +44,15 @@ def sdk_requirement_error(spec) -> str | None:
     Every app plugin must declare the range it was written for.
     """
     if spec is None:
-        return "declares no sdk requirement; declare the range it was written for, such as '>=2.0,<3'"
+        return "declares no sdk requirement; declare the range it was written for, such as '>=3.0,<4'"
     if not isinstance(spec, str) or not spec.strip():
-        return "declares an invalid sdk requirement; use a PEP 440 range such as '>=2.0,<3'"
+        return "declares an invalid sdk requirement; use a PEP 440 range such as '>=3.0,<4'"
     from packaging.specifiers import InvalidSpecifier, SpecifierSet
     from packaging.version import Version
     try:
         allowed = SpecifierSet(spec)
     except InvalidSpecifier:
-        return f"declares an invalid sdk requirement {spec!r}; use a PEP 440 range such as '>=2.0,<3'"
+        return f"declares an invalid sdk requirement {spec!r}; use a PEP 440 range such as '>=3.0,<4'"
     if Version(SDK_VERSION) not in allowed:
         return f"requires Theta SDK {spec}, but this host provides SDK {SDK_VERSION}; install a compatible release"
     return None

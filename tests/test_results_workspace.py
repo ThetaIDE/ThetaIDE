@@ -6,9 +6,8 @@ import pytest
 from src.app.workspace import WorkspacePaths
 
 
-def test_results_do_not_change_source_inventory_snapshot_or_compose_key(tmp_path, monkeypatch):
+def test_results_do_not_change_source_inventory_or_compose_key(tmp_path, monkeypatch):
     from src.app.services.config_service import _inputs_fingerprint
-    from src.app.sites.snapshot import source_files
     from src.app.workspace_inventory import inventory
 
     paths = WorkspacePaths(tmp_path, application=tmp_path / "application")
@@ -17,7 +16,6 @@ def test_results_do_not_change_source_inventory_snapshot_or_compose_key(tmp_path
     source.write_text("value = 1\n")
     fingerprint = _inputs_fingerprint(paths)
     files = inventory(paths)["files"]
-    snapshot = source_files(tmp_path)
     output = paths.results / "logs/g/run/source.py"
     output.parent.mkdir(parents=True)
     output.write_text("value = 2\n")
@@ -36,7 +34,6 @@ def test_results_do_not_change_source_inventory_snapshot_or_compose_key(tmp_path
     monkeypatch.setattr(os, "scandir", scan)
     assert _inputs_fingerprint(paths) == fingerprint
     assert inventory(paths)["files"] == files
-    assert source_files(tmp_path) == snapshot
     source.write_text("value = 3\n")
     assert _inputs_fingerprint(paths) != fingerprint
 

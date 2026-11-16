@@ -16,9 +16,9 @@ def test_upload_rejects_apple_openrsync_before_network_or_staging(tmp_path, monk
         return SimpleNamespace(returncode=0, stdout='openrsync: protocol version 29\nrsync version 2.6.9 compatible\n', stderr='')
     monkeypatch.setattr(subprocess, 'run', version)
     monkeypatch.setattr(transfer, 'ssh', lambda *_a, **_k: pytest.fail('network attempted before compatibility check'))
-    monkeypatch.setattr(transfer, 'freeze', lambda *_: pytest.fail('staging started before compatibility check'))
+    monkeypatch.setattr(transfer.bundle, 'prepare', lambda *_: pytest.fail('staging started before compatibility check'))
     with pytest.raises(ValueError, match='brew install rsync'):
-        transfer.push(tmp_path, 'ncshare/common')
+        transfer.push(tmp_path, 'ncshare/common', 'g/e')
     assert calls == [['rsync', '--version']]
     assert not (tmp_path / '.thetaide').exists()
 

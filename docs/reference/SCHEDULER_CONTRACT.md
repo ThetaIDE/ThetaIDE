@@ -1,6 +1,6 @@
-# Scheduler component contract v1
+# Scheduler component contract v2
 
-Batch schedulers are optional native components. Slurm is one such component, maintained in `optional_components/slurm` and installed like any other package. Core never selects a scheduler by name. It owns receipts, source snapshots, publication, artifact ownership, continuation lineage and transport primitives (`src/app/sites/transport.py`). The selected scheduler owns submission, allocation validation, polling, cancellation, scheduler-specific headers/environment, setup commands and site templates.
+Batch schedulers are optional native components. Slurm is one such component, maintained in `optional_components/slurm` and installed like any other package. Core never selects a scheduler by name. It owns receipts, [bundles](#bundles), publication, artifact ownership, continuation lineage and transport primitives (`src/app/sites/transport.py`). The selected scheduler owns submission, allocation validation, polling, cancellation, scheduler-specific headers/environment, setup commands and site templates.
 
 ## Selection
 
@@ -11,13 +11,13 @@ A site profile names its scheduler with `site.scheduler`: either `local`, or the
 - A non-local profile that omits `site.scheduler` is rejected. Theta never runs it locally and never chooses an installed scheduler implicitly.
 - `create(..., scheduler=…)` and `site configure SITE --scheduler ID` record the scheduler when a new site component is authored. Without one, the generated profile carries `scheduler: null` and launch reports the missing selection.
 
-New receipts record `scheduler_component`. Receipts with `schema_version: 1` and no `scheduler_component` predate scheduler components and are read as `slurm` by a bounded reader in `src/app/sites/scheduler_api.py`. Other receipts without an explicit owner are rejected.
+Receipts record `scheduler_component`; a receipt without one is rejected.
 
 ## Manifest
 
 ```json
 {"id": "batch", "kind": "scheduler", "entry_point": "execution.py:Scheduler",
- "scheduler_api": 1, "contribution_api": 1,
+ "scheduler_api": 2, "contribution_api": 1,
  "readiness": {"config": ["site.connection.host", "site.connection.remote_root"]},
  "contributions": [
    {"id": "setup", "slot": "settings.site", "availability": "enabled", "entry_point": "settings.py:create_settings"},
@@ -25,14 +25,14 @@ New receipts record `scheduler_component`. Receipts with `schema_version: 1` and
    {"id": "scheduler-monitor", "slot": "monitor.scheduler", "availability": "ready"}]}
 ```
 
-`scheduler_api: 1` is required on the capability, and the loaded object (or instance of the loaded class) must have `api_version = 1`. Readiness and contributions follow [extension contributions v1](EXTENSION_CONTRIBUTIONS.md). Site profiles the component owns go in its `configs/site/<site>/…` payload; `_`-prefixed files there are shared defaults and are not offered for selection.
+`scheduler_api: 2` is required on the capability, and the loaded object (or instance of the loaded class) must have `api_version = 2`. Version 2 replaced source snapshots with bundles; a version-1 scheduler is refused. Readiness and contributions follow [extension contributions v1](EXTENSION_CONTRIBUTIONS.md). Site profiles the component owns go in its `configs/site/<site>/…` payload; `_`-prefixed files there are shared defaults and are not offered for selection.
 
 ## Runtime methods
 
 | Method | Required | Purpose |
 | --- | --- | --- |
 | `validate_allocation(cfg, *, paths)` | yes | Reject unsupported combinations; return normalized resources |
-| `submit(root, experiment, overrides, cfg)` | yes | Freeze/pin source, write a receipt with `scheduler_component`, submit |
+| `submit(root, experiment, overrides, cfg)` | yes | Build or pin the experiment's bundle, write a receipt with `scheduler_component` and `bundle_sha256`, submit |
 | `run(root, execution_id)` | yes | Allocation-side worker supervision |
 | `refresh_status(root, record)` / `refresh_many(root, records, *, minimum_seconds)` | yes | Reconcile scheduler state; batching is the provider's choice |
 | `cancel(root, record)` | yes | Request cancellation; only reconciliation proves termination |
@@ -41,6 +41,14 @@ New receipts record `scheduler_component`. Receipts with `schema_version: 1` and
 | `launch_in_terminal(root, site, experiment)`, `worker_threads`, `accounting_details` | no | Provider helpers used by its own tooling |
 
 Core dispatch lives in `src/app/sites/execution.py`. An independently named scheduler fixture uses the same path (`tests/test_optional_component_extraction.py`).
+
+## Bundles
+
+A remote job runs from a bundle built from its composed experiment (`src/app/sites/bundle.py`, schema `theta.bundle/v1`). `.thetaide/bundle.json` lists every file with its digest, plus the experiment selector, overrides and site; the application name, version and digest; each selected provider (ID, version, origin, digest, storage and API versions, capability contract versions, bundle path); each configuration file the composition resolved (selector, owner, origin, digest); the site policy's declared inputs; and requirements (`application` from `pyproject.toml`, `providers` from the selected packages' `dependencies.pip`, also written to `.thetaide/requirements.txt`). `bundle_sha256` is the digest over the file map.
+
+Contents: the application (`run_pipeline.py`, packaging metadata, `hydra_plugins/`, `src/app/`, the bundled component packages and inventory), the selected installed and authored packages with their declared component dependencies, the workspace configuration outside `experiment/` plus the experiment files the composition read, authored rules, and `.thetaide/{workspace,provider_overrides,extensions}.json`. Never included: `frontend/`, app plugins, `src/usr/results`, `src/usr/datasets`, other experiments, unselected packages and the rest of `.thetaide/`. Verification rejects any other schema, a changed or missing file, and a listed path in an excluded tree.
+
+Schedulers use the SDK (`src.app.api.sites`): `prepare_bundle(root, experiment, overrides, destination)` composes, builds and checks that the experiment composes inside the bundle; `current_bundle(root)` is the bundle `site push` activated (archived under `BUNDLE_ARCHIVES` by digest); `verify_bundle(directory)` and `extract_bundle(archive, destination)` return a verified manifest. `BUNDLE_REQUIREMENTS` is the requirements file's bundle path.
 
 ## Receipts
 
@@ -52,8 +60,8 @@ Build archives from the maintained sources, then install them into the selected 
 
 ```bash
 venv/bin/python scripts/package_optional_components.py slurm optuna --output /tmp/theta-optional
-venv/bin/python run_pipeline.py component --root WORKSPACE install /tmp/theta-optional/slurm-1.0.0.zip
-venv/bin/python run_pipeline.py component --root WORKSPACE install /tmp/theta-optional/optuna-1.0.0.zip
+venv/bin/python run_pipeline.py component --root WORKSPACE install /tmp/theta-optional/slurm-2.0.0.zip
+venv/bin/python run_pipeline.py component --root WORKSPACE install /tmp/theta-optional/optuna-1.1.1.zip
 ```
 
 Disable or re-enable without uninstalling with `component extension disable scheduler slurm` / `enable`. Uninstalling removes its contributions; usr overrides of its site templates remain.

@@ -86,7 +86,7 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def install_fixture(tmp_path, *, sdk=">=2.0,<3", plugin_id="lattice_notes"):
+def install_fixture(tmp_path, *, sdk=">=3.0,<4", plugin_id="lattice_notes"):
     archive = tmp_path / f"{plugin_id}.zip"
     meta = {"id": plugin_id, "name": "Lattice notes", "kind": "plugin", "version": "0.3.0",
             "storage_version": 3, "api_version": 1,
@@ -176,7 +176,7 @@ def test_independent_plugin_lifecycle_through_the_facade(qapp, tmp_path, monkeyp
     assert manager.disable_plugin("lattice_notes")
 
 
-@pytest.mark.parametrize("sdk", [">=1.0,<2", ">=3", "definitely not a range", None])
+@pytest.mark.parametrize("sdk", [">=1.0,<2", ">=2.0,<3", ">=4", "definitely not a range", None])
 def test_incompatible_sdk_requirement_is_refused_before_import(qapp, tmp_path, sdk):
     paths, package_root = install_fixture(tmp_path, sdk=sdk)
     window, manager, logs = host(paths, tmp_path)
@@ -195,7 +195,7 @@ def test_headless_catalog_lists_the_plugin_without_qt_or_its_code(tmp_path):
         f"paths = WorkspacePaths(Path({str(paths.root)!r}), {str(paths.data_dir)!r})\n"
         "caps = [c for p in get_catalog(paths).packages for c in p.capabilities if c.kind == 'plugin']\n"
         "plugin = next(c for c in caps if c.id == 'lattice_notes')\n"
-        "assert plugin.metadata['sdk'] == '>=2.0,<3', plugin.metadata\n"
+        "assert plugin.metadata['sdk'] == '>=3.0,<4', plugin.metadata\n"
         "assert not [k for k in sys.modules if k.startswith('PyQt6')]\n")
     result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
@@ -204,7 +204,7 @@ def test_headless_catalog_lists_the_plugin_without_qt_or_its_code(tmp_path):
 
 def test_bundled_plugins_declare_the_sdk_range_they_use():
     manifests = sorted((ROOT / "src/plugins/app/bundled").glob("*/plugin.json"))
-    assert len(manifests) == 5
+    assert len(manifests) == 4
     from src.app.api import sdk_requirement_error
     for manifest in manifests:
         spec = json.loads(manifest.read_text()).get("sdk")
@@ -259,7 +259,8 @@ def test_dock_and_hotkey_services_follow_settings_and_cleanup(qapp, tmp_path):
     assert context._hotkey_shortcuts == {}
 
 
-def test_sdk_2_3_requirements_are_satisfied():
+def test_sdk_3_requirements_are_satisfied():
     from src.app.api import SDK_VERSION, sdk_requirement_error
-    assert SDK_VERSION == "2.4"
-    assert sdk_requirement_error(">=2.1,<3") is None and sdk_requirement_error(">=2.4,<3") is None
+    assert SDK_VERSION == "3.0"
+    assert sdk_requirement_error(">=3.0,<4") is None
+    assert "requires Theta SDK" in sdk_requirement_error(">=2.4,<3")  # 3.0 removed the source snapshot exports
