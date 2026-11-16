@@ -16,6 +16,70 @@ from src.app.pipeline.validation import find_missing_components, find_unavailabl
 from src.app.workspace import WorkspacePaths
 
 
+@pytest.mark.parametrize("hide_before_activation", [False, True])
+def test_components_first_open_waits_for_page_visibility(tmp_path, monkeypatch, hide_before_activation):
+    from PyQt6.QtCore import QEvent, QObject
+    from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
+    from frontend.components_panel import ComponentsPanel
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    config = tmp_path / "src/usr/config/model/demo.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("hidden_sizes: [64, 32]\nactivation: relu\n")
+    host = QWidget()
+    stack = QStackedWidget(host)
+    QVBoxLayout(host).addWidget(stack)
+    other = QWidget()
+    stack.addWidget(other)
+    panel = ComponentsPanel(parent=host, lazy=True)
+    stack.addWidget(panel)
+    shown_windows = []
+
+    class WindowObserver(QObject):
+        def eventFilter(self, watched, event):
+            if event.type() == QEvent.Type.Show and isinstance(watched, QWidget) and watched.isWindow():
+                shown_windows.append(watched)
+            return False
+
+    observer = WindowObserver()
+    try:
+        host.show()
+        app.processEvents()
+        app.installEventFilter(observer)
+        original = panel.init_default_component
+        loads = []
+
+        def load_default():
+            # Descendants have completed their show transition before rendering.
+            assert panel.viewer.isVisible()
+            loads.append(True)
+            original()
+
+        monkeypatch.setattr(panel, "init_default_component", load_default)
+        stack.setCurrentWidget(panel)
+        assert panel.active_path is None and not loads
+        if hide_before_activation:
+            stack.setCurrentWidget(other)
+            app.processEvents()
+            assert panel.active_path is None and not loads
+            stack.setCurrentWidget(panel)
+        app.processEvents()
+        assert loads == [True]
+        assert panel.active_path == config
+        assert panel.viewer.raw_data["hidden_sizes"] == [64, 32]
+        assert not shown_windows
+        assert not host.isMinimized()
+        stack.setCurrentWidget(other)
+        stack.setCurrentWidget(panel)
+        app.processEvents()
+        assert loads == [True]
+    finally:
+        app.removeEventFilter(observer)
+        host.close()
+        host.deleteLater()
+
+
 @pytest.fixture
 def declared_workspace(tmp_path, monkeypatch):
     paths = WorkspacePaths(tmp_path)

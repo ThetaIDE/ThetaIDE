@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 
 import yaml
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -43,6 +43,9 @@ class ComponentsPanel(QWidget):
         self.is_hub_active = False
         self._init_ui()
         self._default_pending = lazy
+        self._activation_timer = QTimer(self)
+        self._activation_timer.setSingleShot(True)
+        self._activation_timer.timeout.connect(self._activate_if_visible)
         if not lazy:
             self.init_default_component()
 
@@ -54,7 +57,15 @@ class ComponentsPanel(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.activate()
+        # Finish showing the stacked page and its descendants before building
+        # and explicitly showing editor cards. Keep native widget creation out
+        # of the macOS visibility transition.
+        if self._default_pending:
+            self._activation_timer.start(0)
+
+    def _activate_if_visible(self):
+        if self.isVisible():
+            self.activate()
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
