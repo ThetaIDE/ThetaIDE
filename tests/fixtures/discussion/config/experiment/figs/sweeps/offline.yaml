@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - figs/_base
+  - _self_
+paradigm: offline_rl
+methods:
+  cql:
+    agent: d3rlpy-dev/cql

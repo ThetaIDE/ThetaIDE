@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - figs/_base
+  - _self_
+methods:
+  ppo:
+    agent: sb3-dev/ppo
+    model: basics/dnn
+  a2c:
+    agent: sb3-dev/a2c
+    model: basics/dnn

@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - figs/_base
+  - _self_
+methods:
+  dqn:
+    agent: sb3-dev/dqn
+    model: basics/dnn

@@ -21,7 +21,7 @@ COMPONENT_DIRECTORIES = {
     "experiment": "src/usr/experiments", "suite": "src/usr/packages", "package": "src/usr/packages",
 }
 # src/usr directories with a fixed purpose; a package's workspace resource cannot claim one.
-RESERVED_RESEARCH_DIRECTORIES = frozenset({"config", "datasets", "results", *(Path(d).name for d in COMPONENT_DIRECTORIES.values())})
+RESERVED_RESEARCH_DIRECTORIES = frozenset({"config", "datasets", "results", "discussion", *(Path(d).name for d in COMPONENT_DIRECTORIES.values())})
 
 
 @dataclass(frozen=True)
@@ -102,6 +102,8 @@ class WorkspacePaths:
         return self.research / name
     @property
     def results(self): return self.research / "results"
+    @property
+    def discussion(self): return self.research / "discussion"
     @property
     def results_relative(self):
         """The results root as a workspace-relative POSIX path, the prefix of portable result paths."""

@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - override /env: gym_classic_control_dev/cartpole
+paradigm: online_rl
+no_plot: true
+seed: 42
+total_timesteps: 16
+eval_episodes: 1

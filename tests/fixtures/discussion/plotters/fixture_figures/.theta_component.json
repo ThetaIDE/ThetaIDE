@@ -1,0 +1,36 @@
+{
+  "id": "fixture_figures",
+  "name": "Fixture figures",
+  "kind": "plotter",
+  "version": "1.0.0",
+  "storage_version": 3,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "fixture_curve",
+      "kind": "plotter",
+      "entry_point": "figures.py:FixtureCurve",
+      "provides": ["figure/vega-lite-v1"],
+      "requires": [
+        {"level": "block", "config": "paradigm", "in": ["online_rl"],
+         "message": "Fixture curves need online runs."},
+        {"level": "warn", "kind": "algorithm", "capability": ["sb3-dev/dqn"],
+         "message": "Fixture curves are tuned for DQN."}
+      ],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "color": {"type": "string", "default": "#1f77b4", "x-theta-live": true},
+          "metric": {"type": "string", "default": "train/reward", "x-theta-metric": true}
+        }
+      }
+    },
+    {
+      "id": "fixture_table",
+      "kind": "plotter",
+      "entry_point": "figures.py:FixtureTable"
+    }
+  ],
+  "payload": {"implementations": ["figures.py"], "resources": [], "configs": {}},
+  "dependencies": {"components": [], "pip": []}
+}
