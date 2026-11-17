@@ -82,6 +82,7 @@ order = [
     "workflows",
     "monitor",
     "results",
+    "discussion",
     "tensorboard",
     "terminal",
     "console",
@@ -93,6 +94,7 @@ visible = [
     "components",
     "config",
     "results",
+    "discussion",
     "terminal",
     "console",
 ]

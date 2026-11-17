@@ -29,6 +29,8 @@
     let view = null;
     let theme = {};
     let generation = 0;
+    let pendingParams = new Map();
+    let rendering = false;
     const figure = document.getElementById("figure");
     const message = document.getElementById("message");
     const busy = document.getElementById("busy");
@@ -43,6 +45,8 @@
 
     async function render(specJson) {
       const current = ++generation;
+      pendingParams = new Map();
+      rendering = true;
       // Embed into a hidden layer in place, so "container" sizes resolve, then swap it in.
       const layer = document.createElement("div");
       layer.className = "layer";
@@ -55,6 +59,7 @@
       } catch (err) {
         layer.remove();
         if (current === generation) {
+          rendering = false;
           showMessage(String(err && err.message || err));
           bridge.reportError(String(err && err.message || err));
         }
@@ -63,6 +68,18 @@
       if (current !== generation) { embedded.finalize(); layer.remove(); return; }
       if (view) view.finalize();
       view = embedded.view;
+      rendering = false;
+      try {
+        for (const [name, value] of pendingParams) view.signal(name, value);
+        await view.resize().runAsync();
+      } catch (err) {
+        if (current === generation) {
+          showMessage(String(err && err.message || err));
+          bridge.reportError(String(err && err.message || err));
+        }
+        return;
+      }
+      if (current !== generation) return;
       for (const child of [...figure.children]) if (child !== layer) child.remove();
       layer.style.visibility = "";
       figure.classList.remove("hidden");
@@ -71,10 +88,12 @@
     }
 
     async function setParam(name, valueJson) {
-      if (!view) return;
+      const value = JSON.parse(valueJson);
+      pendingParams.set(name, value);
+      if (!view || rendering) return;
       try {
         // A live change can move the title or legend, so autosize is recomputed.
-        await view.signal(name, JSON.parse(valueJson)).resize().runAsync();
+        await view.signal(name, value).resize().runAsync();
       } catch (err) {
         showMessage(String(err && err.message || err));
         bridge.reportError(String(err && err.message || err));

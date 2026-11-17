@@ -514,6 +514,10 @@ class Window(QMainWindow):
         self.results_panel = self.results_view
         self.tabs.addTab(self.results_panel, "Results browser", "results", "Results", tab_id="results")
 
+        from .discussion.panel import DiscussionPanel
+        self.discussion_panel = DiscussionPanel(self.workspace_paths, self.settings_manager)
+        self.tabs.addTab(self.discussion_panel, "Discussion", "discussion", "Discussion", tab_id="discussion")
+
         # 8. Terminal Panel
         command, cwd, env = self.terminal_config()
         self.terminal_panel = TerminalPanel(cwd=cwd, parent=self, command=command, env=env, lazy=True)
@@ -1197,6 +1201,7 @@ class Window(QMainWindow):
             "workflows",
             "monitor",
             "results",
+            "discussion",
             "tensorboard",
             "terminal",
             "console",
@@ -1438,6 +1443,7 @@ class Window(QMainWindow):
         view_menu.addAction("Workflows", lambda: self.tabs.setCurrentWidget(self.workflows_panel))
         view_menu.addAction("Training monitor", lambda: self.tabs.setCurrentWidget(self.monitor_panel))
         view_menu.addAction("Results browser", lambda: self.tabs.setCurrentWidget(self.results_panel))
+        view_menu.addAction("Discussion", lambda: self.tabs.setCurrentWidget(self.discussion_panel))
         if hasattr(self, "tabs") and "tensorboard" in self.tabs.tabs:
             view_menu.addAction("TensorBoard", self.show_tensorboard)
         view_menu.addAction("Terminal", lambda: self.tabs.setCurrentWidget(self.terminal_panel))
@@ -1667,6 +1673,8 @@ class Window(QMainWindow):
                 tree.refresh_icons()
         if hasattr(self, "results_view"):
             self.results_view.explorer.refresh_icons()
+        if hasattr(self, "discussion_panel"):
+            self.discussion_panel.apply_theme()
         if hasattr(self, "monitor") and self.selected:
             self.monitor.refresh_live()
         if hasattr(self, "settings_theme_select"):
@@ -3006,6 +3014,8 @@ class Window(QMainWindow):
             event.ignore()
             return
         self._shutting_down = True
+        if hasattr(self, "discussion_panel"):
+            self.discussion_panel.shutdown()
         history = getattr(self, "history_loader", None)
         if history is not None:
             history.shutdown()

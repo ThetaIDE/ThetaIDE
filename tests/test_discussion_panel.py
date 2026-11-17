@@ -341,9 +341,125 @@ def test_builder_drops_superseded_results_and_reports_component_errors(app, path
 def test_builder_runs_the_selected_plot_component(app, paths):
     doc = FigureDoc.load(paths.discussion / "figs/online/fixture_curve.yaml", paths=paths)
     builder = FigureBuilder(paths)
-    built = []
+    built, failed = [], []
     builder.built.connect(built.append)
+    builder.failed.connect(failed.append)
     builder.request(doc, immediate=True)
-    assert wait_until(lambda: built)
+    # A fresh process imports the plotting stack in this worker for the first time.
+    assert wait_until(lambda: built or failed, timeout=30)
+    assert not failed, failed
     assert built[0]["params"] == [{"name": "color", "value": "#d62728"}]
     assert {row["method"] for row in built[0]["data"]["values"]} == {"a2c", "ppo"}
+
+
+# ── Assembled panel ─────────────────────────────────────────────────────────
+
+
+from PyQt6.QtWidgets import QWidget  # noqa: E402
+from frontend.discussion import panel as panel_module  # noqa: E402
+
+
+class RecordingView(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+
+    def render(self, spec):
+        self.calls.append(("render", spec))
+
+    def setParam(self, name, value):
+        self.calls.append(("param", name, value))
+
+    def error(self, text):
+        self.calls.append(("error", text))
+
+    def clear(self):
+        self.calls.clear()
+
+    def set_busy(self, busy):
+        self.calls.append(("busy", busy))
+
+
+@pytest.fixture
+def panel(app, paths, monkeypatch):
+    monkeypatch.setattr(panel_module, "FigureView", RecordingView)
+    panel = panel_module.DiscussionPanel(paths)
+    yield panel
+    panel.shutdown()
+    panel.deleteLater()
+    app.processEvents()
+
+
+def open_fixture(panel, paths):
+    path = paths.discussion / "figs/online/fixture_curve.yaml"
+    panel.tree.select_figure(path)
+    assert wait_until(lambda: any(c[0] == "render" for c in panel.figure_view.calls), timeout=30)
+    return path
+
+
+def test_panel_empty_selection_and_open_figure(panel, paths):
+    assert panel.parameter_stack.currentWidget().text() == "Select a figure"
+    assert panel.figure_stack.currentWidget().text() == "Select a figure"
+    assert not panel.discussion.isEnabled()
+    path = open_fixture(panel, paths)
+    assert panel.doc.path == path
+    assert panel.discussion.toPlainText() == model.read_discussion(path)
+    panel.tree.tree.setCurrentItem(find(panel.tree, "figs/online"))
+    assert panel.doc is None and not panel.discussion.isEnabled()
+    assert panel.parameter_stack.currentIndex() == panel.figure_stack.currentIndex() == 0
+
+
+def test_panel_live_edits_and_debounced_regeneration(panel, paths):
+    open_fixture(panel, paths)
+    builds = []
+    panel.builder._build = lambda p, e, values, live: builds.append(values) or {"params": []}
+    panel.builder._timer.setInterval(40)
+    panel.parameters.editors["color"].setText("purple")
+    assert ("param", "color", "purple") in panel.figure_view.calls
+    assert not builds and not panel.builder._timer.isActive()
+    panel.parameters.editors["metric"].setText("eval/reward")
+    panel.parameters.editors["metric"].setText("train/reward")
+    assert wait_until(lambda: len(builds) == 1)
+    assert builds[0]["metric"] == "train/reward"
+    assert wait_until(lambda: not panel.builder.busy)
+    panel.tree.btn_regenerate.click()
+    assert wait_until(lambda: len(builds) == 2 and not panel.builder.busy)
+
+
+def test_panel_discussion_autosaves_and_flushes_on_switch_and_close(panel, paths):
+    path = open_fixture(panel, paths)
+    panel._save_timer.setInterval(30)
+    panel.discussion.setPlainText("Autosaved note\nwith a second line.")
+    assert wait_until(lambda: model.read_discussion(path) == "Autosaved note\nwith a second line.")
+    panel.discussion.setPlainText("Saved on selection")
+    panel.tree.tree.setCurrentItem(find(panel.tree, "other/solo"))
+    assert model.read_discussion(path) == "Saved on selection"
+    open_fixture(panel, paths)
+    assert panel.discussion.toPlainText() == "Saved on selection"
+    panel.discussion.setPlainText("Saved on close")
+    panel.close()
+    assert model.read_discussion(path) == "Saved on close"
+
+
+def test_panel_reapplies_live_edits_made_during_a_build(panel, paths):
+    open_fixture(panel, paths)
+    release = threading.Event()
+    def build(*args):
+        release.wait(3)
+        return {}
+    panel.builder._build = build
+    panel.regenerate()
+    panel.parameters.editors["color"].setText("orange")
+    release.set()
+    assert wait_until(lambda: not panel.builder.busy)
+    assert panel.figure_view.calls[-2:] == [("param", "color", "orange"), ("busy", False)]
+
+
+def test_panel_reports_invalid_figure_without_retaining_previous_editor(panel, paths):
+    open_fixture(panel, paths)
+    broken = paths.discussion / "figs/online/broken.yaml"
+    broken.write_text("plotter: fixture_curve\nparams: {unknown: 1}\n")
+    panel.select_figure(broken)
+    assert panel.doc is None and panel.parameters is None
+    assert not panel.discussion.isEnabled()
+    assert "Unknown parameter" in panel.figure_view.calls[-1][1]
