@@ -1086,14 +1086,40 @@ def mark_candidates(combo, findings_for) -> None:
     """
     for index in range(combo.count()):
         name = combo.itemData(index) if combo.itemData(index) is not None else combo.itemText(index)
-        findings = findings_for(name) if name else []
-        if not findings:
+        marking = candidate_marking(findings_for(name) if name else [])
+        if marking is None:
             continue
-        level = "block" if any(f.level == "block" for f in findings) else "warn"
-        role = "number" if level == "block" else "accent"
-        combo.setItemIcon(index, svg_icon("warning", {(QIcon.Mode.Normal, QIcon.State.Off): role}))
-        combo.setItemData(index, "\n".join(f.message for f in findings), Qt.ItemDataRole.ToolTipRole)
+        icon, tooltip, level = marking
+        combo.setItemIcon(index, icon)
+        combo.setItemData(index, tooltip, Qt.ItemDataRole.ToolTipRole)
         combo.setItemData(index, level, COMPATIBILITY_LEVEL_ROLE)
+
+
+def candidate_marking(findings):
+    """The (icon, tooltip, level) that marks a candidate with findings, or None without any.
+
+    Shared by picker items (``mark_candidates``) and menu actions (``mark_action``).
+    """
+    if not findings:
+        return None
+    level = "block" if any(f.level == "block" for f in findings) else "warn"
+    role = "number" if level == "block" else "accent"
+    icon = svg_icon("warning", {(QIcon.Mode.Normal, QIcon.State.Off): role})
+    return icon, "\n".join(f.message for f in findings), level
+
+
+def mark_action(action, findings) -> None:
+    """Mark a menu candidate the way ``mark_candidates`` marks a picker item."""
+    marking = candidate_marking(findings)
+    if marking is None:
+        return
+    icon, tooltip, level = marking
+    action.setIcon(icon)
+    action.setToolTip(tooltip)
+    action.setProperty("compatibilityLevel", level)
+    menu = action.parent()
+    if isinstance(menu, QMenu):
+        menu.setToolTipsVisible(True)
 
 
 def compatibility_status(findings) -> list:

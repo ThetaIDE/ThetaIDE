@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Regenerate: a data curve redrawn inside a counter-clockwise arrow -->
+  <path d="M4 12a8 8 0 1 0 2.34-5.66"/>
+  <polyline points="4 4 4 8.5 8.5 8.5"/>
+  <polyline points="8 15 11 11.5 13 13 16 9"/>
+</svg>
