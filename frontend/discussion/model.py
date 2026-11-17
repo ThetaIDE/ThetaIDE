@@ -116,7 +116,10 @@ def resolve_plotter(plotter: str, *, paths):
 
 
 def capability_schema(capability) -> dict:
-    """A plotter capability's figure ``parameter_schema``."""
+    """A figure plotter capability's ``parameter_schema``."""
+    from src.app.core.plotting.figures import FIGURE_CONTRACT
+    if FIGURE_CONTRACT not in (capability.metadata.get("provides") or []):
+        raise FigureError(f"Plot component {capability.id!r} does not provide {FIGURE_CONTRACT}")
     schema = capability.metadata.get("parameter_schema")
     if not isinstance(schema, dict) or schema.get("type", "object") != "object":
         raise FigureError(f"Plot component {capability.id!r} declares no figure parameter_schema")
@@ -266,6 +269,14 @@ def create_figure(paths, experiment_rel: str, capability: str) -> Path:
     doc = FigureDoc(folder / f"{name}.yaml", capability, {}, paths=paths)
     doc.save()
     return doc.path
+
+
+def figure_candidates(paths, experiment_rel: str) -> list:
+    """Figure plotters with their findings for one experiment, composed as validation composes it."""
+    from src.app.core.plotting.figures import compatible_figure_plotters
+    from src.app.pipeline.compose import compose_experiment
+    composed = compose_experiment(_check_rel(experiment_rel), workspace=paths)
+    return compatible_figure_plotters(composed.cfg, paths=paths)
 
 
 # ── Discussion text ──────────────────────────────────────────────────────────

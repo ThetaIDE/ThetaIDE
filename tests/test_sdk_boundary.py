@@ -197,7 +197,7 @@ def test_sdk_exports_are_canonical_host_objects():
     from src.app.api import config as sdk_config, packages
     from src.app.core import requirements, provider_loader
     from src.app.api import SDK_VERSION
-    assert SDK_VERSION == "3.1"
+    assert SDK_VERSION == "3.2"
     assert sdk_config.compatibility is requirements.compatibility
     assert packages.load_selected is requirements.load_selected
     assert packages.resource_entries is provider_loader.resource_entries

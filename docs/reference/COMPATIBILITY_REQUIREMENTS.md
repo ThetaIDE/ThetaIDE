@@ -63,6 +63,7 @@ Package code loads the selected component with `src.app.api.packages.load_select
 | --- | --- |
 | Validation (`src/app/pipeline/validation.py`) | Selections that resolve to no installed component are reported first. Block findings fail launch, dry run, the desktop preflight and bundle `check`; warn findings are printed and returned. |
 | Configuration forms | Agent, model, environment, data module and evaluator pickers omit candidates with block findings against the current draft and mark candidates with warn findings (the shared `mark_candidates` control). A candidate's rules about a component kind the method has not selected yet do not hide it; that kind's picker then offers only compatible candidates. A current selection shows its findings inline (`compatibility_status`). See [parameter form conventions](CONFIG_PARAMETER_FORMS.md). |
+| Discussion **+** menu | Figure plotters are evaluated against the composed experiment with `figure_findings`: `config` rules read the experiment, and a `kind` rule is satisfied by any enabled method. Blocked candidates are omitted and warned ones marked. See the [figure contract](FIGURE_CONTRACT.md). |
 | Run record | A run's manifest stores the warn findings it ran with as `compatibility_warnings`. |
 | SDK | `src.app.api.config.compatibility(cfg, *, paths)` returns every finding of every enabled method. |
 

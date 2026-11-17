@@ -446,6 +446,50 @@ def reference_findings(cfg, method, key, path, kind, candidate, *, paths=None) -
     return rule_findings(child, selections, effective, None, paths=paths)
 
 
+def _experiment_value(path, effective):
+    value = effective
+    for part in path.split("."):
+        if hasattr(value, "get") and part in value:
+            value = value[part]
+        else:
+            return _MISSING
+    return _plain(value)
+
+
+def figure_findings(cfg, capability, *, paths=None) -> list[Finding]:
+    """Declared findings of a figure plotter, a ``(package, capability)``, for a composed experiment.
+
+    A figure belongs to the whole experiment rather than to one method: ``config`` rules
+    (and ``when`` conditions) read the composed experiment, and a ``kind`` rule is satisfied
+    when any enabled method's selection of that kind satisfies it. Preflight hooks never run.
+    """
+    from src.app.pipeline.config import parse_methods_dict
+    paths = paths or WorkspacePaths.for_process()
+    package, capability = capability
+    effective = _effective(cfg, None)
+    owner = capability.id
+    selections = None
+    findings = []
+    for rule in capability.metadata.get("requires") or []:
+        if not all(_compare({"in": allowed}, _experiment_value(path, effective))
+                   for path, allowed in (rule.get("when") or {}).items()):
+            continue
+        if "kind" in rule:
+            if selections is None:
+                methods = parse_methods_dict(cfg, paths=paths) or {None: None}
+                selections = [method_selections(cfg, method, paths=paths) for method in methods.values()]
+            targets = [t for t in (_top(rule["kind"], s) for s in selections) if t is not None]
+            satisfied = any(_allowed(rule, target, paths) for target in targets)
+            value = ", ".join(sorted({t.name for t in targets})) if targets else _MISSING
+        else:
+            value = _experiment_value(rule["config"], effective)
+            satisfied = _compare(rule, value)
+        if not satisfied:
+            findings.append(Finding(f"plotter:{owner}", package.id, None, rule["level"],
+                                    rule.get("message") or _describe(owner, rule, value), dict(rule)))
+    return _unique(findings)
+
+
 def provides(kind, candidate, contract, *, paths=None) -> bool:
     """Whether a candidate selection's capability lists ``contract`` in ``provides``."""
     paths = paths or WorkspacePaths.for_process()

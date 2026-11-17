@@ -34,7 +34,7 @@ it.
 """
 from __future__ import annotations
 
-SDK_VERSION = "3.1"
+SDK_VERSION = "3.2"
 
 
 def sdk_requirement_error(spec) -> str | None:

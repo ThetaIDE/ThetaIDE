@@ -13,6 +13,8 @@ import math
 from dataclasses import dataclass, field
 from statistics import fmean, stdev
 
+from src.app.core.plotting.thinning import MAX_DRAWN_POINTS, thin_by, thin_xy
+
 from .metrics_catalog import AXIS_COLUMNS, COUNTER_COLUMNS, describe, group_sort_key, metric_group
 
 Point = tuple[float, float]
@@ -276,18 +278,10 @@ class Source:
         return f"{text} ({self.display_version or self.version})" if self.version else text
 
 
-MAX_DRAWN_POINTS = 2000
-
-
 def thin(points: list[dict], metric: str, limit: int = MAX_DRAWN_POINTS) -> list[dict]:
     """At most about `limit` chart points, for drawing only: each bucket keeps its lowest and highest
     value (in x order), so spikes and dips survive. Shorter series come back unchanged."""
-    return _thin(points, lambda point: point[metric], limit)
-
-
-def thin_xy(points: list[Point], limit: int = MAX_DRAWN_POINTS) -> list[Point]:
-    """Thin before constructing chart dictionaries, retaining the same extrema and latest point."""
-    return _thin(points, lambda point: point[1], limit)
+    return thin_by(points, lambda point: point[metric], limit)
 
 
 class IncrementalXYThinner:
@@ -326,21 +320,6 @@ class IncrementalXYThinner:
         if kept[-1] is not points[-1]:
             kept.append(points[-1])
         return kept
-
-
-def _thin(points, value, limit):
-    if len(points) <= limit:
-        return points
-    size = math.ceil(len(points) / (limit // 2))
-    kept = []
-    for start in range(0, len(points), size):
-        bucket = points[start : start + size]
-        low = min(range(len(bucket)), key=lambda i: value(bucket[i]))
-        high = max(range(len(bucket)), key=lambda i: value(bucket[i]))
-        kept.extend(bucket[i] for i in sorted({low, high}))
-    if kept[-1] is not points[-1]:
-        kept.append(points[-1])  # the latest value is always drawn
-    return kept
 
 
 def chart_points(points: list[Point], metric: str) -> list[dict]:

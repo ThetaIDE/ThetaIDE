@@ -2,14 +2,62 @@
   "kind": "plotter",
   "id": "standard_figures",
   "name": "standard_figures",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "storage_version": 3,
   "api_version": 1,
   "capabilities": [
     {
       "id": "convergence",
       "kind": "plotter",
-      "entry_point": "convergence.py:ConvergencePlotter"
+      "entry_point": "convergence.py:ConvergencePlotter",
+      "provides": [
+        "figure/vega-lite-v1"
+      ],
+      "parameter_schema": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string",
+            "default": "eval/reward",
+            "x-theta-metric": true,
+            "description": "The logged metric to plot."
+          },
+          "smoothing_window": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 10,
+            "description": "Moving-average window, in logged points."
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "default": [],
+            "description": "Methods to show; empty shows every method that logged the metric."
+          },
+          "line_width": {
+            "type": "number",
+            "minimum": 0,
+            "default": 2,
+            "x-theta-live": true
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 1,
+            "x-theta-live": true
+          },
+          "title": {
+            "type": "string",
+            "default": "",
+            "x-theta-live": true,
+            "description": "Figure title; empty shows the experiment and metric."
+          }
+        }
+      }
     },
     {
       "id": "losses",

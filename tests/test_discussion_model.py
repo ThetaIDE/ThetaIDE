@@ -62,7 +62,7 @@ def test_load_reads_plotter_params_and_schema(paths):
     ("plotter: fixture_curve\nparams: {width: 3}\n", "Unknown parameter: width"),
     ("plotter: fixture_curve\nparams: {color: 3}\n", "color"),
     ("plotter: nowhere\nparams: {}\n", "No installed plot component"),
-    ("plotter: fixture_table\nparams: {}\n", "declares no figure parameter_schema"),
+    ("plotter: fixture_table\nparams: {}\n", "does not provide figure/vega-lite-v1"),
     ("- a list\n", "must be a mapping"),
 ])
 def test_load_rejects_invalid_figure_files(paths, text, message):

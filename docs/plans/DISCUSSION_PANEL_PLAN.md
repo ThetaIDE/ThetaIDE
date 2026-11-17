@@ -1,6 +1,6 @@
 # Discussion panel plan
 
-Proposed 2026-11-16. Status: in progress on `feature/discussion-panel`; units 1 (model) landed. [Implementation prompt](DISCUSSION_PANEL_IMPLEMENTATION_PROMPT.md).
+Proposed 2026-11-16. Status: in progress on `feature/discussion-panel`; units 1 (model) and 2 (contract and convergence provider) landed. [Implementation prompt](DISCUSSION_PANEL_IMPLEMENTATION_PROMPT.md).
 
 A new side tab, **Discussion**, for editing the figures of each experiment and writing about them.
 
