@@ -1013,6 +1013,44 @@ def test_method_component_identity_and_nested_edits_round_trip(viewer, shape):
         assert not {"learning_rate", "max_grad_norm", "width", "backbone"} & saved.keys()
 
 
+def assert_shared_box(box):
+    """Title with its adder beside it, shared field and label widths, hover-bound removal."""
+    heading = next(w for w in box.findChildren(QLabel) if w.objectName() in ("heading", "cardTitle"))
+    header = next(row for row in box.findChildren(QHBoxLayout)
+                  if any(row.itemAt(i).widget() is heading for i in range(row.count())))
+    index = next(i for i in range(header.count()) if header.itemAt(i).widget() is heading)
+    add = header.itemAt(index + 1).widget()
+    assert isinstance(add, QToolButton) and add.property("parameterAdd"), title(box)
+    compact = box.property("parameterColumns") == 2
+    field_width = NUMBER_FIELD_WIDTH if compact else PARAM_FIELD_WIDTH
+    label_width = 120 if compact else PARAM_LABEL_WIDTH
+    for field in box.findChildren((QLineEdit, QComboBox, QAbstractSpinBox)):
+        if isinstance(field.parentWidget(), (QComboBox, QAbstractSpinBox)):
+            continue
+        if field.property("parameterExpands"):
+            assert field.maximumWidth() > field_width
+            continue
+        ancestor = field.parentWidget()
+        in_column = bool(field.property("parameterColumn"))
+        while ancestor is not None and ancestor is not box:
+            if ancestor.property("parameterColumn"):
+                in_column = True
+                break
+            ancestor = ancestor.parentWidget()
+        row_width = NUMBER_FIELD_WIDTH if in_column else field_width
+        assert field.maximumWidth() == row_width, (title(box), field.objectName())
+        assert field.minimumWidth() == row_width
+    for button in box.findChildren(QToolButton):
+        if button.property("parameterRemove"):
+            assert button.property("parameterHoverBound"), (title(box), button.toolTip())
+    for form in box.findChildren(QFormLayout):
+        for row in range(form.rowCount()):
+            item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            if item and isinstance(item.widget(), QLabel):
+                expected = form.preferred_label_width() if hasattr(form, "preferred_label_width") else label_width
+                assert item.widget().width() == expected
+
+
 def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
     widget = load(viewer, {
         "paradigm": "online_rl", "env": {"name": "demo", "num_envs": 2}, "seed": 4,
@@ -1034,40 +1072,7 @@ def test_every_ordinary_box_has_title_adder_and_shared_field_widths(viewer):
         if title(box) == "Methods":
             assert box.property("specialParameterLayout")
             continue
-        heading = next(w for w in box.findChildren(QLabel) if w.objectName() in ("heading", "cardTitle"))
-        header = next(row for row in box.findChildren(QHBoxLayout)
-                      if any(row.itemAt(i).widget() is heading for i in range(row.count())))
-        index = next(i for i in range(header.count()) if header.itemAt(i).widget() is heading)
-        add = header.itemAt(index + 1).widget()
-        assert isinstance(add, QToolButton) and add.property("parameterAdd"), title(box)
-        compact = box.property("parameterColumns") == 2
-        field_width = NUMBER_FIELD_WIDTH if compact else PARAM_FIELD_WIDTH
-        label_width = 120 if compact else PARAM_LABEL_WIDTH
-        for field in box.findChildren((QLineEdit, QComboBox, QAbstractSpinBox)):
-            if isinstance(field.parentWidget(), (QComboBox, QAbstractSpinBox)):
-                continue
-            if field.property("parameterExpands"):
-                assert field.maximumWidth() > field_width
-                continue
-            ancestor = field.parentWidget()
-            in_column = bool(field.property("parameterColumn"))
-            while ancestor is not None and ancestor is not box:
-                if ancestor.property("parameterColumn"):
-                    in_column = True
-                    break
-                ancestor = ancestor.parentWidget()
-            row_width = NUMBER_FIELD_WIDTH if in_column else field_width
-            assert field.maximumWidth() == row_width, (title(box), field.objectName())
-            assert field.minimumWidth() == row_width
-        for button in box.findChildren(QToolButton):
-            if button.property("parameterRemove"):
-                assert button.property("parameterHoverBound"), (title(box), button.toolTip())
-        for form in box.findChildren(QFormLayout):
-            for row in range(form.rowCount()):
-                item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
-                if item and isinstance(item.widget(), QLabel):
-                    expected = form.preferred_label_width() if hasattr(form, "preferred_label_width") else label_width
-                    assert item.widget().width() == expected
+        assert_shared_box(box)
     roots = [widget.findChild(QAbstractSpinBox, "sweep_n_trials")]
     roots += [field for field in widget.findChildren(QLineEdit) + widget.findChildren(QAbstractSpinBox)
               if field.property("parameterPath") in ("checkpoint.monitor", "custom.value")]
@@ -1129,6 +1134,54 @@ def test_hover_removal_does_not_move_editors(viewer):
         assert not remove.isVisible()
     app.processEvents()
     assert field.geometry() == before
+
+
+def test_figure_parameters_box_follows_the_shared_conventions(tmp_path, monkeypatch):
+    """The Discussion tab's Parameters box (frontend/discussion/params.py) is an ordinary box."""
+    from discussion_fixtures import build_discussion_workspace
+    from frontend.discussion.model import FigureDoc
+    from frontend.discussion.params import ParametersBox
+    from src.app.workspace import WorkspacePaths
+
+    root = build_discussion_workspace(tmp_path / "workspace")
+    monkeypatch.setenv("THETA_WORKSPACE", str(root))
+    paths = WorkspacePaths(root)
+    doc = FigureDoc.load(paths.discussion / "figs/online/fixture_curve.yaml", paths=paths)
+    box = ParametersBox(doc)
+    box.resize(700, 240)
+    box.show()
+    app.processEvents()
+    assert title(box) == "Parameters" and box.property("configBox")
+    assert_shared_box(box)
+
+    remove = next(b for b in box.findChildren(QToolButton) if b.property("parameterRemove"))
+    assert remove.property("parameterPath") == "color"  # explicit and optional; metric is a default
+    field = box.editors["color"]
+    hover = remove.findChild(_RowHoverReveal)
+    before = field.geometry()
+    if QApplication.focusWidget() is not None:  # a focused row keeps its action visible
+        QApplication.focusWidget().clearFocus()
+    with patch("frontend.config_panel.controls.QCursor.pos", return_value=field.mapToGlobal(field.rect().center())):
+        hover._update_visibility()
+        assert remove.isVisible()
+    with patch("frontend.config_panel.controls.QCursor.pos", return_value=QPoint(-1000, -1000)):
+        hover._update_visibility()
+        assert not remove.isVisible()
+    app.processEvents()
+    assert field.geometry() == before
+
+    box.editors["metric"].setText("eval/reward")
+    app.processEvents()
+    assert yaml.safe_load(doc.path.read_text())["params"] == {"color": "#d62728", "metric": "eval/reward"}
+    next(b for b in box.findChildren(QToolButton) if b.property("parameterPath") == "metric"
+         and b.property("parameterRemove")).click()
+    app.processEvents()
+    assert yaml.safe_load(doc.path.read_text())["params"] == {"color": "#d62728"}
+
+    schema = doc.schema()
+    monkeypatch.setattr(doc, "schema", lambda: {**schema, "required": ["color"]})
+    box.render()
+    assert not [b for b in box.findChildren(QToolButton) if b.property("parameterRemove")]
 
 
 def test_first_environment_child_preserves_selector_identity(viewer):
