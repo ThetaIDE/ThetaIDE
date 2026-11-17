@@ -12,7 +12,7 @@ A plotter capability opts in with three things:
    - Every other property is a **regeneration parameter**. Editing it calls `figure_spec` again in the background.
    - A string property marked `"x-theta-metric": true` offers the metrics the experiment's runs logged as choices, when there are any. Otherwise it is a plain text field.
 3. `figure_spec(self, exp_id: str, params: dict) -> dict` on the capability's `BasePlotter` subclass. It returns a Vega-Lite spec with its data inline (`data.values`).
-   - `exp_id` is the experiment's config path without `.yaml` (`cartpole/sweeps/ppo_long`).
+   - `exp_id` is the selected target: an experiment's config path without `.yaml` (`cartpole/sweeps/ppo_long`), or a saved run's full result identity (`cartpole/sweeps/ppo_long/20261116-120000`). Read metrics only from that target. A saved run's config supplies the methods actually executed.
    - `params` is the schema defaults merged with the figure's saved values.
    - For every live parameter the spec declares a top-level `params` entry with the same name, whose `value` is the current value. Spec properties that accept expressions use it (`{"expr": "line_width"}`).
    - The spec has no `bind`. Theta's Parameters box owns the controls.
@@ -49,6 +49,14 @@ The **+** menu of the Discussion tree lists the figure plotters compatible with 
 - Preflight hooks never run.
 
 The menu omits candidates with block findings and marks candidates with warn findings, with the warning icon and tooltip of the configuration pickers.
+
+When a saved run is selected, compatibility reads its saved `results/logs/<group>/<experiment>/<stamp>/config.yaml`, rather than recomposing the current recipe. A run without a saved config cannot offer new figures until that config is available. Saved runs remain browsable after their current recipe is removed.
+
+The desktop loads run listings lazily through the same backend as Results. Run figures and discussion text live under `discussion/<group>/<experiment>/<stamp>/`; the full target path is passed unchanged to the provider. Specs remain derived and parameter values remain solely in the figure YAML.
+
+## Rendering
+
+The figure view loads pinned local Vega 6.4.0, Vega-Lite 6.5.0 and Vega-Embed 7.3.0 builds, and creates QtWebEngine only when first shown. Figure generation runs in a worker thread with a 400 ms debounce. New requests supersede old results; live edits made during a rebuild are applied to the completed chart. Providers must not access Qt widgets from `figure_spec`.
 
 ## Providers
 

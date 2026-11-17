@@ -13,10 +13,12 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Run THEMES/AL experiments](guides/THEMES_AL.md)
 - [Configure local training resources](guides/TRAINING_RESOURCES.md)
 - [Run and sync cluster jobs](guides/CLUSTER_JOBS.md)
+- [Create figures and write discussions](guides/DISCUSSION.md)
 
 ## Reference
 
-- [Theta SDK](reference/SDK.md) — SDK 3.1: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
+- [Theta SDK](reference/SDK.md) — SDK 3.2: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
+- [Discussion figure contract](reference/FIGURE_CONTRACT.md) — Vega-Lite plot components, live parameters, regeneration and storage.
 - [Layer ownership and configuration provenance](reference/LAYER_BOUNDARIES.md) — active architecture contract, source-aware resolution, the exception register and inventory command.
 - [Method execution contract v1](reference/EXECUTION_CONTRACT.md) — provider features, resource hints and tuner objective/pruning compatibility.
 - [Compatibility requirements](reference/COMPATIBILITY_REQUIREMENTS.md) — capability `requires`/`provides`/`preflight`, component references, workspace resources and run logger result categories; how validation, forms and the run record use the findings.
@@ -45,6 +47,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Plans
 
+- [Discussion panel plan](plans/DISCUSSION_PANEL_PLAN.md) — implementation and verification status for per-experiment figures and discussion text. [Implementation prompt](plans/DISCUSSION_PANEL_IMPLEMENTATION_PROMPT.md).
 - [UI refinements during the layer refactor](plans/UI_REFINEMENTS_20261115.md) — config forms, Monitor/Results consolidation, retired panels and terminal shell controls; Vega deferred.
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
@@ -63,6 +66,8 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 - [Mechanistic monitoring roadmap](plans/MECHANISTIC_MONITORS_ROADMAP.md) — remaining work after the initial foundation.
 
 ## Reports
+
+- [Discussion panel verification](reports/DISCUSSION_PANEL_VERIFICATION_20261117.md) — focused tests, stamped-run isolation and pending native visual acceptance.
 
 - [Package format v3 Hub release](reports/V3_HUB_RELEASE_20261116.md) — the published 34-package batch (SDK 3.1): commits, feeds, archive hashes, Pages deployment and what was verified before publishing.
 - [Optuna 1.1.1 Hub release](reports/OPTUNA_HUB_RELEASE_20261116.md) — production feeds, archive hash, successful deployment and real Hub-card installation verification.

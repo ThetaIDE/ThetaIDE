@@ -1,0 +1,7 @@
+group: figs
+experiment_id: online/20261116-120000
+paradigm: online_rl
+methods:
+  ppo:
+    agent: sb3-dev/ppo
+    model: basics/dnn

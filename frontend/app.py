@@ -515,7 +515,7 @@ class Window(QMainWindow):
         self.tabs.addTab(self.results_panel, "Results browser", "results", "Results", tab_id="results")
 
         from .discussion.panel import DiscussionPanel
-        self.discussion_panel = DiscussionPanel(self.workspace_paths, self.settings_manager)
+        self.discussion_panel = DiscussionPanel(self.workspace_paths, self.settings_manager, backend=self.backend)
         self.tabs.addTab(self.discussion_panel, "Discussion", "discussion", "Discussion", tab_id="discussion")
 
         # 8. Terminal Panel

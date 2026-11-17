@@ -463,3 +463,53 @@ def test_panel_reports_invalid_figure_without_retaining_previous_editor(panel, p
     assert panel.doc is None and panel.parameters is None
     assert not panel.discussion.isEnabled()
     assert "Unknown parameter" in panel.figure_view.calls[-1][1]
+
+
+def test_stamped_run_selection_creates_a_figure_and_plots_only_that_run(panel, paths):
+    from src.app.services.catalog import list_runs
+    panel.tree.set_runs(list_runs(workspace=paths))
+    target = "figs/online/20261116-120000"
+    run = find(panel.tree, target)
+    assert run is not None and run.text(0).startswith("20261116-120000")
+    panel.tree.tree.setCurrentItem(run)
+    assert panel.tree.selected_experiment() == target
+    assert panel.tree.btn_add.isEnabled()
+    actions = {a.text(): a for a in panel.tree.build_add_menu().actions()}
+    actions["fixture_curve"].trigger()
+    assert wait_until(lambda: any(c[0] == "render" for c in panel.figure_view.calls), timeout=30)
+    assert panel.doc.path == paths.discussion / target / "fixture_curve.yaml"
+    spec = next(c[1] for c in panel.figure_view.calls if c[0] == "render")
+    assert [row["value"] for row in spec["data"]["values"]] == [101, 102]
+    panel.discussion.setPlainText("This stamped run improved.")
+    panel.tree.tree.setCurrentItem(find(panel.tree, "figs/online/20261116-130000"))
+    assert model.read_discussion(paths.discussion / target / "fixture_curve.yaml") == "This stamped run improved."
+    panel.tree.search.setText("120000")
+    assert not find(panel.tree, target).isHidden()
+    assert find(panel.tree, "figs/online/20261116-130000").isHidden()
+    panel.tree.set_runs(list_runs(workspace=paths))
+    assert find(panel.tree, target).childCount() == 1
+
+
+def test_panel_loads_runs_lazily_through_the_results_backend(app, paths, monkeypatch):
+    from src.app.services.catalog import list_runs
+    monkeypatch.setattr(panel_module, "FigureView", RecordingView)
+    class Backend:
+        calls = 0
+
+        def list_runs(self, callback, *, completed_only):
+            self.calls += 1
+            assert not completed_only
+            callback({"runs": list_runs(workspace=paths)}, None)
+
+    backend = Backend()
+    panel = panel_module.DiscussionPanel(paths, backend=backend)
+    assert backend.calls == 0
+    panel.show()
+    app.processEvents()
+    assert backend.calls == 1
+    assert find(panel.tree, "figs/online/20261116-120000") is not None
+    panel.tree.btn_refresh.click()
+    assert backend.calls == 2
+    panel.close()
+    panel.deleteLater()
+    app.processEvents()

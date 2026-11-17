@@ -219,17 +219,9 @@ class BasePlotter:
                     if target_direct.exists():
                         saved_cfg = self._load_yaml(target_direct)
                         break
-                    target_nested = list(base_dir.glob(f"{group_hint}/{clean_exp}/*/config.yaml"))
-                    if target_nested:
-                        saved_cfg = self._load_yaml(target_nested[0])
-                        break
                 matches = list(base_dir.glob(f"*/{clean_exp}/config.yaml"))
                 if matches:
                     saved_cfg = self._load_yaml(matches[0])
-                    break
-                matches_nested = list(base_dir.glob(f"*/{clean_exp}/*/config.yaml"))
-                if matches_nested:
-                    saved_cfg = self._load_yaml(matches_nested[0])
                     break
 
         if not group_hint:

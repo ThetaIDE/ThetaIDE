@@ -1,6 +1,6 @@
 # Discussion panel plan
 
-Proposed 2026-11-16. Status: units 1–6 implemented on `feature/discussion-panel`; unit 7 verification and documentation in progress. [Implementation prompt](DISCUSSION_PANEL_IMPLEMENTATION_PROMPT.md).
+Proposed 2026-11-16. Status: units 1–7 implemented on `feature/discussion-panel`; native visual acceptance remains pending. The 2026-11-17 follow-up adds timestamped run selection, using the Results catalog, with figures scoped to each selected run. [Verification](../reports/DISCUSSION_PANEL_VERIFICATION_20261117.md). [Implementation prompt](DISCUSSION_PANEL_IMPLEMENTATION_PROMPT.md).
 
 A new side tab, **Discussion**, for editing the figures of each experiment and writing about them.
 
@@ -18,6 +18,7 @@ A new side tab, **Discussion**, for editing the figures of each experiment and w
 ## Scope
 
 - The tree mirrors the Experiment panel's groups and subfolders. Each experiment is a folder, and its figures are leaves below it.
+- Follow-up: saved timestamped runs appear beneath their experiments with the same labels as Results. Selecting a run and adding a figure scopes its data, parameters and discussion to that run. Its saved config governs compatibility. Historical runs remain available when the current recipe is absent.
 - A square **+** button in the tree's header toolbar opens a dropdown of the plot components that are compatible with the selected experiment. Choosing one creates a figure.
 - Selecting a figure shows its parameters, the rendered figure, and its discussion text.
 - Parameter edits update the figure. Parameters the plot component marks as live update the drawn figure instantly. Every other parameter makes the component rebuild the figure in the background. A **Regenerate** button forces a rebuild, for example to pick up new runs.

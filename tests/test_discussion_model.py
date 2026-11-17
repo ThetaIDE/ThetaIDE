@@ -38,6 +38,26 @@ def test_tree_mirrors_experiment_groups_and_skips_group_defaults(paths):
     assert model.experiment_ids(tree) == ["figs/sweeps/offline", "figs/online", "other/solo"]
 
 
+def test_tree_includes_catalog_runs_and_experiments_without_current_recipes(paths):
+    from src.app.services.catalog import list_runs
+    entries = list_runs(workspace=paths)
+    tree = model.experiment_tree(paths, entries)
+    assert ("run", "figs/online/20261116-120000") in flatten(tree)
+    assert ("run", "figs/online/20261116-130000") in flatten(tree)
+    (paths.config / "experiment/figs/online.yaml").unlink()
+    assert ("experiment", "figs/online") in flatten(model.experiment_tree(paths, entries))
+
+
+def test_run_candidates_use_saved_configuration_and_need_no_current_recipe(paths):
+    target = "figs/online/20261116-120000"
+    (paths.config / "experiment/figs/online.yaml").write_text("paradigm: offline_rl\n")
+    candidates = {c.selector: c for c in model.figure_candidates(paths, target)}
+    assert not candidates["fixture_curve"].blocked
+    (paths.results / "logs" / target / "config.yaml").unlink()
+    with pytest.raises(FigureError, match="has no config.yaml"):
+        model.figure_candidates(paths, target)
+
+
 def test_figures_lists_saved_figure_files(paths):
     assert [p.name for p in model.figures(paths, "figs/online")] == ["fixture_curve.yaml"]
     assert model.figures(paths, "other/solo") == []  # no folder until the first figure

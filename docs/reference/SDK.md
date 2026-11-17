@@ -28,6 +28,8 @@ Scheduler components own submission, polling and cancellation. The host keeps tr
 
 Plotter constructors take the host's workspace and pass it on: `def __init__(self, *, paths): super().__init__("name", paths=paths)`. The host always supplies `paths`; `BasePlotter` has no default workspace.
 
+Discussion passes the selected experiment or stamped run's full result identity to `figure_spec`. See the [figure contract](FIGURE_CONTRACT.md) for run scoping and saved-config compatibility.
+
 ## App plugin host facade
 
 `Plugin.activate(context)` receives a `PluginContext`. Use its services, never attributes of the host window. Everything registered through the context is withdrawn when the plugin is disabled. The context does not expose the host window.

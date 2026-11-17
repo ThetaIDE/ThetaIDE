@@ -1,5 +1,4 @@
-"""The Discussion tab's tree: the Experiment panel's groups, subfolders and experiments, with each
-experiment's figures as leaves. Built from tree_tools so it looks and behaves like the Experiment tree."""
+"""Discussion experiments, saved runs and figures, using the shared tree tools and Results catalog."""
 
 from __future__ import annotations
 
@@ -31,6 +30,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     figure_selected = pyqtSignal(object)
     experiment_selected = pyqtSignal(str)
     regenerate_requested = pyqtSignal()
+    refresh_requested = pyqtSignal()
 
     mode = "discussion"
 
@@ -38,6 +38,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         super().__init__(parent)
         self.paths = paths
         self.settings_manager = settings_manager
+        self.runs = []
         # experiment rel -> FigureCandidate list; composes the experiment by default.
         self.candidates = candidates or (lambda rel: model.figure_candidates(self.paths, rel))
         self._init_ui()
@@ -62,13 +63,13 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self.btn_refresh = self._tool_button("reload", "Reload experiments and figures from disk", "reload")
-        self.btn_refresh.clicked.connect(lambda: self.populate())
+        self.btn_refresh = self._tool_button("reload", "Reload experiments, runs and figures from disk", "reload")
+        self.btn_refresh.clicked.connect(self.refresh)
         self.btn_collapse = self._tool_button("collapse_all", "Collapse all folders in the tree", "collapse_all")
         self.btn_collapse.clicked.connect(self.collapse_all)
         self.btn_expand = self._tool_button("expand_all", "Expand all folders in the tree", "expand_all")
         self.btn_expand.clicked.connect(self.expand_all)
-        self.btn_search = self._tool_button("search", "Filter experiments and figures", "search")
+        self.btn_search = self._tool_button("search", "Filter experiments, runs and figures", "search")
         self.btn_add = self._tool_button("plus", "Add a figure from a compatible plot component", "plus")
         self.btn_add.clicked.connect(self.open_add_menu)
         self.btn_regenerate = self._tool_button("regenerate", "Regenerate the figure (picks up new runs)",
@@ -81,17 +82,16 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         layout.addWidget(self.header_widget)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Filter experiments and figures…")
+        self.search.setPlaceholderText("Filter experiments, runs and figures…")
         self.search.textChanged.connect(self.filter_tree)
         self.watch_search()
         layout.addWidget(self.search)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setIndentation(14)
+        self.tree.setIndentation(20)
         self.tree.setItemDelegate(GroupItemDelegate(self.tree))
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.tree.setStyleSheet("QTreeWidget::item:selected { background: #665c54; color: #fabd2f; }")
         self.tree.currentItemChanged.connect(self._current_changed)
         layout.addWidget(self.tree, 1)
         self._update_actions()
@@ -118,7 +118,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def _set_icon(self, item, data):
         kind = data.get("type")
-        if kind == "folder":
+        if kind in ("folder", "experiment", "run"):
             item.setIcon(0, folder_icon())
         elif kind == "figure":
             item.setIcon(0, svg_icon("plots", TOOL_ICON_COLORS))
@@ -144,7 +144,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         blocked = self.tree.blockSignals(True)
         try:
             self.tree.clear()
-            for node in model.experiment_tree(self.paths):
+            for node in model.experiment_tree(self.paths, self.runs):
                 self._add_node(self.tree, node)
             if select is not None:
                 expanded |= self._ancestors(model.figure_experiment(self.paths, select))
@@ -162,6 +162,15 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self._current_changed(None, True)  # the selection is gone
         self._update_actions()
 
+    def set_runs(self, entries):
+        """Use the same catalog entries and saved-run identities as Results."""
+        self.runs = list(entries)
+        self.populate()
+
+    def refresh(self):
+        self.populate()
+        self.refresh_requested.emit()
+
     @staticmethod
     def _ancestors(rel: str) -> set[str]:
         parts = rel.split("/")
@@ -172,7 +181,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         item = self._item(parent, node.name, data)
         for child in node.children:
             self._add_node(item, child)
-        if node.kind == "experiment":
+        if node.kind in ("experiment", "run"):
             for path in model.figures(self.paths, node.rel):
                 self._item(item, path.stem, {"type": "figure", "rel": f"{node.rel}/{path.stem}",
                                              "path": str(path), "experiment": node.rel})
@@ -221,7 +230,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         data = self._data()
         if data.get("type") == "figure":
             return data["experiment"]
-        return data["rel"] if data.get("type") == "experiment" else ""
+        return data["rel"] if data.get("type") in ("experiment", "run") else ""
 
     def select_figure(self, path: Path):
         item = self._find(Path(path))

@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import copy
 import re
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass, field, replace
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -43,13 +43,12 @@ def experiment_root(paths) -> Path:
     return paths.config / "experiment"
 
 
-def experiment_tree(paths) -> list[TreeNode]:
-    """Groups, subfolders and experiment IDs under the config experiment directory, in the
-    Experiment tree's order: folders before experiments, each sorted. Group defaults
-    (``_base.yaml``) are not experiments."""
+def experiment_tree(paths, runs=()) -> list[TreeNode]:
+    """Current recipes plus saved runs from the Results catalog, grouped by experiment.
+
+    Historical experiments remain visible without a recipe. Group defaults are omitted.
+    """
     root = experiment_root(paths)
-    if not root.is_dir():
-        return []
 
     def visit(directory: Path, prefix: str, depth: int) -> list[TreeNode]:
         dirs = sorted(p for p in directory.iterdir() if p.is_dir() and not p.name.startswith("."))
@@ -63,7 +62,45 @@ def experiment_tree(paths) -> list[TreeNode]:
             nodes.append(TreeNode(file.stem, f"{prefix}{file.stem}", "experiment"))
         return nodes
 
-    return visit(root, "", 0)
+    nodes = visit(root, "", 0) if root.is_dir() else []
+    from src.app.pipeline.result_paths import result_experiment_id, saved_run_label
+
+    def insert(siblings, parts, prefix, run):
+        rel = "/".join([*prefix, parts[0]])
+        index = next((i for i, node in enumerate(siblings) if node.rel == rel), None)
+        kind = "experiment" if len(parts) == 1 else ("group" if not prefix else "folder")
+        node = siblings[index] if index is not None else TreeNode(parts[0], rel, kind)
+        children = list(node.children)
+        if len(parts) > 1:
+            insert(children, parts[1:], [*prefix, parts[0]], run)
+        else:
+            node = replace(node, kind="experiment")
+            if run is not None:
+                children.append(run)
+        node = replace(node, children=tuple(children))
+        if index is None:
+            siblings.append(node)
+        else:
+            siblings[index] = node
+
+    for entry in sorted(runs, key=lambda e: (e["group"], e["experiment_id"])):
+        if not entry.get("agents") and not entry.get("has_run_logs"):
+            continue
+        group, run_id = entry["group"], entry["experiment_id"]
+        experiment = (PurePosixPath(run_id).parent.as_posix() if (entry.get("config") or {}).get("saved_run")
+                      else result_experiment_id(run_id))
+        label = saved_run_label(run_id)
+        if not entry.get("finished"):
+            label += " · in progress"
+        if entry.get("incomplete_results"):
+            label += " · incomplete results"
+        run = TreeNode(label, f"{group}/{run_id}", "run") if run_id != experiment else None
+        insert(nodes, [group, *experiment.split("/")], [], run)
+
+    def ordered(items):
+        return [replace(node, children=tuple(ordered(node.children))) for node in
+                sorted(items, key=lambda node: (node.kind not in ("group", "folder"), node.name))]
+    return ordered(nodes)
 
 
 def experiment_ids(nodes) -> list[str]:
@@ -272,11 +309,29 @@ def create_figure(paths, experiment_rel: str, capability: str) -> Path:
 
 
 def figure_candidates(paths, experiment_rel: str) -> list:
-    """Figure plotters with their findings for one experiment, composed as validation composes it."""
+    """Candidates against the current recipe or the selected run's saved configuration."""
     from src.app.core.plotting.figures import compatible_figure_plotters
     from src.app.pipeline.compose import compose_experiment
-    composed = compose_experiment(_check_rel(experiment_rel), workspace=paths)
-    return compatible_figure_plotters(composed.cfg, paths=paths)
+    target = _check_rel(experiment_rel)
+    if is_saved_run(paths, target):
+        from omegaconf import OmegaConf
+        config = paths.results / "logs" / target / "config.yaml"
+        if not config.is_file():
+            raise FigureError(f"Saved run {target} has no config.yaml; sync its results first.")
+        cfg = OmegaConf.load(config)
+    else:
+        cfg = compose_experiment(target, workspace=paths).cfg
+    return compatible_figure_plotters(cfg, paths=paths)
+
+
+def is_saved_run(paths, target: str) -> bool:
+    """A target identifies a saved execution rather than the current recipe."""
+    from src.app.pipeline.result_paths import result_experiment_id
+    target = _check_rel(target)
+    # A saved snapshot also identifies renamed runs whose names are not timestamps.
+    return (result_experiment_id(target) != target
+            or (not (experiment_root(paths) / f"{target}.yaml").is_file()
+                and (paths.results / "logs" / target / "config.yaml").is_file()))
 
 
 # ── Discussion text ──────────────────────────────────────────────────────────

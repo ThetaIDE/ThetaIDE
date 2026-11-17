@@ -12,24 +12,31 @@ from .view import FigureBuilder, FigureView
 
 def _empty():
     label = QLabel("Select a figure")
-    label.setProperty("muted", True)
+    label.setObjectName("muted")
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     return label
 
 
 class DiscussionPanel(QWidget):
-    def __init__(self, paths, settings_manager=None, parent=None):
+    def __init__(self, paths, settings_manager=None, parent=None, *, backend=None):
         super().__init__(parent)
         self.paths = paths
         self.doc = None
         self.parameters = None
         self._dirty = False
+        self._runs_requested = False
+        self.run_loader = None
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self.flush_pending_save)
 
         self.tree = DiscussionTree(paths, settings_manager=settings_manager)
+        if backend is not None:
+            from ..results.loader import ResultsLoader
+            self.run_loader = ResultsLoader(backend, self)
+            self.run_loader.runs_listed.connect(self.tree.set_runs)
+            self.tree.refresh_requested.connect(self.refresh_runs)
         self.parameter_stack = QStackedWidget()
         self.parameter_stack.addWidget(_empty())
         self.parameter_scroll = QScrollArea()
@@ -112,6 +119,17 @@ class DiscussionPanel(QWidget):
     def regenerate(self):
         if self.doc is not None:
             self.builder.request(self.doc, immediate=True)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._runs_requested:
+            self.refresh_runs()
+
+    def refresh_runs(self):
+        if self.run_loader is not None:
+            self._runs_requested = True
+            self.run_loader.clear()
+            self.run_loader.list_runs()
 
     def regenerate_later(self):
         if self.doc is not None:

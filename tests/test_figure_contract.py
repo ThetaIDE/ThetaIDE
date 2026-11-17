@@ -131,3 +131,12 @@ def test_convergence_thins_long_series(paths):
         assert 100 < len(spec["data"]["values"]) <= MAX_DRAWN_POINTS + 1
     finally:
         metrics.write_text(original)
+
+
+def test_convergence_uses_the_selected_stamped_run_only(paths):
+    target = "figs/online/20261116-130000"
+    doc = FigureDoc.load(model.create_figure(paths, target, "convergence"), paths=paths)
+    doc.set_param("metric", "train/reward")
+    doc.set_param("smoothing_window", 1)
+    spec = build_figure_spec(*doc.capability(), doc.experiment, doc.values(), doc.live_params(), paths=paths)
+    assert [row["y"] for row in spec["data"]["values"]] == [201, 202]
