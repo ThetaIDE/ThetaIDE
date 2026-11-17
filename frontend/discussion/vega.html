@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- The Discussion figure: vendored, pinned Vega builds (see vendor/), driven over QWebChannel. -->
+  <script src="vendor/vega.min.js"></script>
+  <script src="vendor/vega-lite.min.js"></script>
+  <script src="vendor/vega-embed.min.js"></script>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
+                 font-family: -apple-system, "Segoe UI", sans-serif; }
+    #figure { position: absolute; inset: 12px; }
+    #figure.hidden { visibility: hidden; }
+    /* vega-embed styles its target as an inline block; the layer must fill the figure for "container" sizes. */
+    #figure > .layer { position: absolute !important; inset: 0; display: block !important; }
+    #message { position: absolute; inset: 12px; display: flex; align-items: center; justify-content: center;
+               text-align: center; white-space: pre-wrap; font-size: 13px; }
+    #busy { position: absolute; top: 8px; right: 12px; font-size: 12px; padding: 3px 8px; border-radius: 4px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="figure"></div>
+  <div id="message" hidden></div>
+  <div id="busy" hidden>Regenerating…</div>
+  <script>
+    let bridge = null;
+    let view = null;
+    let theme = {};
+    let generation = 0;
+    const figure = document.getElementById("figure");
+    const message = document.getElementById("message");
+    const busy = document.getElementById("busy");
+
+    function showMessage(text) {
+      if (view) { view.finalize(); view = null; }
+      figure.replaceChildren();
+      figure.classList.add("hidden");
+      message.textContent = text;
+      message.hidden = false;
+    }
+
+    async function render(specJson) {
+      const current = ++generation;
+      // Embed into a hidden layer in place, so "container" sizes resolve, then swap it in.
+      const layer = document.createElement("div");
+      layer.className = "layer";
+      layer.style.visibility = "hidden";
+      figure.appendChild(layer);
+      let embedded;
+      try {
+        embedded = await vegaEmbed(layer, JSON.parse(specJson),
+                                   {actions: false, renderer: "svg", config: theme.config || {}});
+      } catch (err) {
+        layer.remove();
+        if (current === generation) {
+          showMessage(String(err && err.message || err));
+          bridge.reportError(String(err && err.message || err));
+        }
+        return;
+      }
+      if (current !== generation) { embedded.finalize(); layer.remove(); return; }
+      if (view) view.finalize();
+      view = embedded.view;
+      for (const child of [...figure.children]) if (child !== layer) child.remove();
+      layer.style.visibility = "";
+      figure.classList.remove("hidden");
+      message.hidden = true;
+      bridge.rendered();
+    }
+
+    async function setParam(name, valueJson) {
+      if (!view) return;
+      try {
+        // A live change can move the title or legend, so autosize is recomputed.
+        await view.signal(name, JSON.parse(valueJson)).resize().runAsync();
+      } catch (err) {
+        showMessage(String(err && err.message || err));
+        bridge.reportError(String(err && err.message || err));
+      }
+    }
+
+    function applyTheme(themeJson) {
+      theme = JSON.parse(themeJson);
+      message.style.color = theme.muted;
+      busy.style.color = theme.text;
+      busy.style.background = theme.surface;
+    }
+
+    window.addEventListener("resize", () => { if (view) view.resize().runAsync(); });
+
+    new QWebChannel(qt.webChannelTransport, channel => {
+      bridge = channel.objects.bridge;
+      bridge.themeRequested.connect(applyTheme);
+      bridge.renderRequested.connect(render);
+      bridge.paramRequested.connect(setParam);
+      bridge.errorRequested.connect(text => { generation++; showMessage(text); });
+      bridge.busyRequested.connect(on => { busy.hidden = !on; });
+      bridge.ready();
+    });
+  </script>
+</body>
+</html>

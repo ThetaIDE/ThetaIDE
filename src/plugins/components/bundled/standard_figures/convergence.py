@@ -49,8 +49,13 @@ class ConvergencePlotter(BasePlotter):
                     row["lo"], row["hi"] = py - band, py + band
                 rows.append(row)
 
+        # A standard-error band where a method has several runs.
+        band = [{"transform": [{"filter": "isValid(datum.lo)"}],
+                 "mark": {"type": "area", "opacity": 0.15},
+                 "encoding": {"y": {"field": "lo", "type": "quantitative"}, "y2": {"field": "hi"}}}
+                ] if any("lo" in row for row in rows) else []
         return {
-            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
             "params": [
                 {"name": "line_width", "value": params["line_width"]},
                 {"name": "opacity", "value": params["opacity"]},
@@ -66,10 +71,7 @@ class ConvergencePlotter(BasePlotter):
                 "color": {"field": "method", "type": "nominal", "title": "Method",
                           "scale": {"domain": labels, "range": colors}},
             },
-            "layer": [
-                {"transform": [{"filter": "isValid(datum.lo)"}],
-                 "mark": {"type": "area", "opacity": 0.15},
-                 "encoding": {"y": {"field": "lo", "type": "quantitative"}, "y2": {"field": "hi"}}},
+            "layer": band + [
                 {"mark": {"type": "line", "strokeWidth": {"expr": "line_width"}, "opacity": {"expr": "opacity"}},
                  "encoding": {"y": {"field": "y", "type": "quantitative", "title": ylabel}}},
             ],

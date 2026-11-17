@@ -216,3 +216,134 @@ def test_plus_adds_parameters_without_defaults_and_metric_choices_are_offered(ap
     app.processEvents()
     assert saved(doc.path) == {"color": "#d62728", "label": ""}
     assert isinstance(box.editors["label"], QLineEdit) and "label" in removes(box)
+
+
+# ── Figure view and builder ──────────────────────────────────────────────────
+
+
+import json  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+from PyQt6.QtCore import QEventLoop, QTimer  # noqa: E402
+
+from frontend.discussion import view as view_module  # noqa: E402
+from frontend.discussion.view import FigureBuilder, FigureView, embed_config  # noqa: E402
+
+
+def wait_until(predicate, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        loop = QEventLoop()
+        QTimer.singleShot(10, loop.quit)
+        loop.exec()
+    return predicate()
+
+
+def bridge_calls(view):
+    calls = []
+    view.bridge.renderRequested.connect(lambda spec: calls.append(("render", json.loads(spec))))
+    view.bridge.paramRequested.connect(lambda name, value: calls.append(("param", name, json.loads(value))))
+    view.bridge.errorRequested.connect(lambda text: calls.append(("error", text)))
+    view.bridge.busyRequested.connect(lambda on: calls.append(("busy", on)))
+    return calls
+
+
+def test_vega_builds_are_vendored_pinned_and_licensed():
+    html = view_module.HTML_PATH.read_text()
+    vendor = view_module.HTML_PATH.parent / "vendor"
+    for name in ("vega", "vega-lite", "vega-embed"):
+        assert f'src="vendor/{name}.min.js"' in html
+        assert (vendor / f"{name}.min.js").stat().st_size > 10_000
+        assert "BSD" in (vendor / f"LICENSE-{name}.txt").read_text() or "Redistribution" in (
+            vendor / f"LICENSE-{name}.txt").read_text()
+    assert "http" not in html.replace("https://vega.github.io", "")  # nothing is fetched
+
+
+def test_figure_view_creates_no_web_engine_until_shown_and_replays_when_ready(app):
+    view = FigureView()
+    calls = bridge_calls(view)
+    view.render({"params": [{"name": "w", "value": 1}]})
+    view.setParam("w", 3)
+    view.set_busy(True)
+    assert view.web is None and calls == []  # nothing is sent before the page exists
+    view._page_ready()
+    assert calls == [("render", {"params": [{"name": "w", "value": 1}]}), ("param", "w", 3), ("busy", True)]
+    calls.clear()
+    view.setParam("w", 4)
+    view.error("No runs")
+    view.setParam("w", 5)  # no figure to update
+    assert calls == [("param", "w", 4), ("error", "No runs")]
+
+
+def test_embed_config_uses_theme_tokens():
+    from frontend.theme import theme_color
+    config = embed_config()
+    assert config["axis"]["labelColor"] == theme_color("muted")
+    assert config["title"]["color"] == theme_color("text")
+    assert config["axis"]["gridColor"] == theme_color("border")
+
+
+class Doc:
+    plotter, experiment = "fixture_curve", "figs/online"
+
+    def __init__(self, value):
+        self.value = value
+
+    def values(self):
+        return {"metric": self.value}
+
+    def live_params(self):
+        return []
+
+
+def test_builder_debounces_and_delivers_only_the_newest_request(app, paths):
+    builds = []
+    builder = FigureBuilder(paths, debounce_ms=50, build=lambda p, e, values, live: builds.append(values) or values)
+    built, states = [], []
+    builder.built.connect(built.append)
+    builder.started.connect(lambda: states.append("started"))
+    builder.finished.connect(lambda: states.append("finished"))
+    for value in ("a", "b", "c"):
+        builder.request(Doc(value))
+    assert wait_until(lambda: built)
+    assert builds == [{"metric": "c"}] and built == [{"metric": "c"}]
+    assert states == ["started", "finished"]
+
+
+def test_builder_drops_superseded_results_and_reports_component_errors(app, paths):
+    release = threading.Event()
+
+    def build(plotter, experiment, values, live):
+        if values["metric"] == "slow":
+            release.wait(5)
+            return {"slow": True}
+        if values["metric"] == "broken":
+            raise ValueError("No run of figs/online logged 'broken'.")
+        return {"fast": True}
+
+    builder = FigureBuilder(paths, build=build)
+    built, failed = [], []
+    builder.built.connect(built.append)
+    builder.failed.connect(failed.append)
+    builder.request(Doc("slow"), immediate=True)
+    builder.request(Doc("fast"), immediate=True)
+    assert wait_until(lambda: built)
+    release.set()
+    wait_until(lambda: False, 0.2)
+    assert built == [{"fast": True}] and not builder.busy
+
+    builder.request(Doc("broken"), immediate=True)
+    assert wait_until(lambda: failed)
+    assert failed == ["No run of figs/online logged 'broken'."]
+
+
+def test_builder_runs_the_selected_plot_component(app, paths):
+    doc = FigureDoc.load(paths.discussion / "figs/online/fixture_curve.yaml", paths=paths)
+    builder = FigureBuilder(paths)
+    built = []
+    builder.built.connect(built.append)
+    builder.request(doc, immediate=True)
+    assert wait_until(lambda: built)
+    assert built[0]["params"] == [{"name": "color", "value": "#d62728"}]
+    assert {row["method"] for row in built[0]["data"]["values"]} == {"a2c", "ppo"}

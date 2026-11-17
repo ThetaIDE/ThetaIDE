@@ -92,3 +92,13 @@ Worth settling before any public release.
 |---|---|---|---|
 | [optuna](https://optuna.org/) | 4.9.0 | MIT License | `optuna>=3.0,<5` |
 | [SQLAlchemy](https://docs.sqlalchemy.org) | 1.4.54 | MIT | `sqlalchemy>=1.4.2,<3` |
+
+### Vendored browser libraries
+
+Shipped as pinned files with their licence texts beside them (`LICENSE-<name>.txt`).
+
+| Package | Version in use | Licence | Vendored as |
+|---|---|---|---|
+| [vega](https://github.com/vega/vega) | 6.4.0 | BSD-3-Clause | `frontend/discussion/vendor/vega.min.js` |
+| [vega-lite](https://github.com/vega/vega-lite) | 6.5.0 | BSD-3-Clause | `frontend/discussion/vendor/vega-lite.min.js` |
+| [vega-embed](https://github.com/vega/vega-embed) | 7.3.0 | BSD-3-Clause | `frontend/discussion/vendor/vega-embed.min.js` |

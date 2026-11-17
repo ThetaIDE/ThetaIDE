@@ -5,6 +5,7 @@ recursive-include src/plugins/components/bundled *.py *.json
 recursive-include src/plugins/app/bundled *.py *.json *.html *.js *.svg *.md *.txt *.mjs
 recursive-include src/app/config_defaults *.yaml
 recursive-include frontend/icons *.svg *.png
+recursive-include frontend/discussion *.html *.js *.txt
 recursive-exclude src/plugins/components/installed *
 recursive-exclude src/plugins/app/installed *
 prune .thetaide

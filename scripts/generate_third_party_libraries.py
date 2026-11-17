@@ -34,6 +34,16 @@ COPYLEFT_NOTES = {
     "vidmaker": "Optional `video` extra. GPL-3.0: a distributed build that bundles it is subject to the GPL, as with PyQt6.",
 }
 
+# Browser libraries shipped as files inside the desktop app rather than declared as Python
+# dependencies: (name, pinned version, licence, homepage, vendored files).
+VENDORED = [
+    ("vega", "6.4.0", "BSD-3-Clause", "https://github.com/vega/vega", "frontend/discussion/vendor/vega.min.js"),
+    ("vega-lite", "6.5.0", "BSD-3-Clause", "https://github.com/vega/vega-lite",
+     "frontend/discussion/vendor/vega-lite.min.js"),
+    ("vega-embed", "7.3.0", "BSD-3-Clause", "https://github.com/vega/vega-embed",
+     "frontend/discussion/vendor/vega-embed.min.js"),
+]
+
 HEADER = """# Third-Party Libraries
 
 Every dependency ThetaIDE declares, with the licence of the version actually
@@ -130,6 +140,12 @@ def render() -> str:
         for _, label, version, lic, declared in sorted(rows, key=lambda r: r[0].lower()):
             parts.append(f"| {label} | {version} | {lic} | {declared} |")
         parts.append("")
+    parts.append("### Vendored browser libraries\n")
+    parts.append("Shipped as pinned files with their licence texts beside them (`LICENSE-<name>.txt`).\n")
+    parts.append("| Package | Version in use | Licence | Vendored as |\n|---|---|---|---|")
+    for name, version, lic, url, path in VENDORED:
+        parts.append(f"| [{name}]({url}) | {version} | {lic} | `{path}` |")
+    parts.append("")
     return "\n".join(parts).rstrip() + "\n"
 
 

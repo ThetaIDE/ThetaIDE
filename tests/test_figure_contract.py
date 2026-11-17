@@ -102,7 +102,7 @@ def test_convergence_returns_a_valid_spec_for_fixture_metrics(paths):
     doc.set_param("smoothing_window", 1)
     spec = build_figure_spec(*doc.capability(), "figs/online", doc.values(), doc.live_params(), paths=paths)
     json.dumps(spec, allow_nan=False)  # the view receives strict JSON
-    assert spec["$schema"].endswith("/vega-lite/v5.json")
+    assert spec["$schema"].endswith("/vega-lite/v6.json")
     assert {p["name"]: p["value"] for p in spec["params"]} == {"line_width": 2, "opacity": 1, "title": ""}
     rows = spec["data"]["values"]
     assert {row["method"] for row in rows} == {"a2c", "ppo"}

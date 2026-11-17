@@ -92,6 +92,7 @@ exclude = ["*.installed", "*.installed.*", "*.node_modules", "*.node_modules.*"]
 "src.plugins.components.bundled" = ["*/.theta_component.json", "**/*.json", "**/*.yaml"]
 "src.plugins.app.bundled" = ["**/*.json", "**/*.svg", "**/*.html", "**/*.js", "**/*.css", "**/*.png", "**/*.md", "**/*.txt", "**/*.mjs"]
 "frontend" = ["icons/*.svg", "icons/*.png"]
+"frontend.discussion" = ["vega.html", "vendor/*.js", "vendor/*.txt"]
 
 # ── Ruff (linting + formatting) ─────────────────────────────
 [tool.ruff]

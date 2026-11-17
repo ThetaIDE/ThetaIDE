@@ -18,7 +18,7 @@ class FixtureCurve(BasePlotter):
                 values += [{"method": method, "step": float(r["step"]), "value": float(r[params["metric"]])}
                            for _, r in rows.iterrows()]
         return {
-            "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+            "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
             "params": [{"name": "color", "value": params["color"]}],
             "data": {"values": values},
             "mark": {"type": "line", "color": {"expr": "color"}},
