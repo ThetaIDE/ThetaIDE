@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from discussion_fixtures import build_discussion_workspace
+from discussion_fixtures import build_discussion_workspace, write_seeded_runs
 from frontend.discussion import model
 from frontend.discussion.model import FigureDoc
 from src.app.core.plotting import figures
@@ -40,7 +40,7 @@ def findings(paths, experiment):
 def test_sdk_exports_the_contract():
     from src.app.api import SDK_VERSION, plotting
     from src.app.core.plotting import thinning
-    assert SDK_VERSION == "3.2"
+    assert SDK_VERSION == "3.4"
     assert plotting.FIGURE_CONTRACT == FIGURE_CONTRACT == "figure/vega-lite-v1"
     assert plotting.thin_xy is thinning.thin_xy
 
@@ -65,9 +65,15 @@ def test_figure_findings_never_run_preflight_hooks(paths, monkeypatch):
 def test_candidates_are_the_contract_providers_with_findings(paths):
     candidates = {c.selector: c for c in model.figure_candidates(paths, "figs/sweeps/offline")}
     assert {"convergence", "fixture_curve"} <= set(candidates)
-    assert "fixture_table" not in candidates and "losses" not in candidates
+    assert {"convergence", "final_performance", "performance_profile", "run_variability", "losses",
+            "sweep_scatter", "sweep_parallel", "metric_table"} <= set(candidates)
+    assert "fixture_table" not in candidates and "reports" not in candidates and "tuning" not in candidates
     assert candidates["fixture_curve"].blocked
     assert not candidates["convergence"].blocked and not candidates["convergence"].findings
+    # Sweep figures need a sweep: blocked without one, offered for a saved run that has one.
+    assert candidates["sweep_scatter"].blocked and candidates["sweep_parallel"].blocked
+    swept = {c.selector: c for c in model.figure_candidates(paths, write_seeded_runs(paths))}
+    assert not swept["sweep_scatter"].blocked and not swept["sweep_parallel"].blocked
     online = {c.selector: c for c in model.figure_candidates(paths, "figs/online")}
     assert not online["fixture_curve"].blocked
     assert [f.message for f in online["fixture_curve"].warnings] == ["Fixture curves are tuned for DQN."]
@@ -79,6 +85,14 @@ def test_candidates_are_the_contract_providers_with_findings(paths):
     ({}, ["color", "size"], "live parameters color, size"),
     ({"params": [{"name": "color", "value": "red", "bind": {"input": "color"}}]}, ["color"], "must not bind"),
     ([], [], "mapping"),
+    # View interactions are allowed anywhere; input widgets are not, even in a nested layer.
+    ({"params": [{"name": "color", "value": "red"}],
+      "layer": [{"params": [{"name": "zoom", "select": "interval", "bind": "scales"},
+                            {"name": "pick", "select": {"type": "point", "fields": ["method"]}, "bind": "legend"}]}]},
+     ["color"], None),
+    ({"params": [{"name": "color", "value": "red"}],
+      "spec": {"layer": [{"params": [{"name": "w", "value": 1, "bind": {"input": "range"}}]}]}},
+     ["color"], "must not bind"),
 ])
 def test_spec_errors(spec, live, message):
     error = spec_error(spec, live)
@@ -97,13 +111,14 @@ def test_a_live_parameter_missing_from_the_spec_is_an_error(paths, monkeypatch):
 def test_convergence_returns_a_valid_spec_for_fixture_metrics(paths):
     path = model.create_figure(paths, "figs/online", "convergence")
     doc = FigureDoc.load(path, paths=paths)
-    assert doc.live_params() == ["line_width", "opacity", "title"]
+    assert doc.live_params() == ["x_label", "y_label", "y_min", "y_max", "title", "line_width", "opacity"]
     doc.set_param("metric", "train/reward")
     doc.set_param("smoothing_window", 1)
     spec = build_figure_spec(*doc.capability(), "figs/online", doc.values(), doc.live_params(), paths=paths)
     json.dumps(spec, allow_nan=False)  # the view receives strict JSON
     assert spec["$schema"].endswith("/vega-lite/v6.json")
-    assert {p["name"]: p["value"] for p in spec["params"]} == {"line_width": 2, "opacity": 1, "title": ""}
+    assert {p["name"]: p["value"] for p in spec["params"]} == {
+        "line_width": 2, "opacity": 1, "title": "", "x_label": "", "y_label": "", "y_min": None, "y_max": None}
     rows = spec["data"]["values"]
     assert {row["method"] for row in rows} == {"a2c", "ppo"}
     assert [row["y"] for row in rows if row["method"] == "ppo"] == [1.0, 2.0, 4.0, 3.0, 5.0, 6.0]

@@ -5,12 +5,16 @@ The WebEngine figure view is replaced by a recorder; tests/test_figure_contract.
 
 import pytest
 import yaml
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from types import SimpleNamespace
+
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QFrame, QLabel
 
 from discussion_fixtures import build_discussion_workspace
 from frontend.discussion import model
-from frontend.discussion.tree import NO_CANDIDATES, DiscussionTree
+from frontend.discussion.picker import NO_CANDIDATES, FigurePicker
+from frontend.discussion.tree import DiscussionTree
 from src.app.workspace import WorkspacePaths
 
 
@@ -49,61 +53,87 @@ def test_tree_mirrors_the_experiment_tree_with_figure_leaves(app, paths):
     assert tree.mode == "discussion"
     groups = tree.header_widget.header_layout.groups
     assert [b.button_id for b in groups["row1_left"]] == ["reload", "collapse_all", "expand_all", "search"]
-    assert [b.button_id for b in groups["row1_right"]] == ["plus", "regenerate"]
+    assert [b.button_id for b in groups["row1_right"]] == ["plus"]
     assert all(b.width() == b.height() == 30 for g in groups.values() for b in g)
 
 
-def test_selection_drives_the_add_and_regenerate_buttons(app, paths):
+def test_selection_drives_the_add_button(app, paths):
     tree = DiscussionTree(paths)
     figures, experiments = [], []
     tree.figure_selected.connect(figures.append)
     tree.experiment_selected.connect(experiments.append)
-    assert not tree.btn_add.isEnabled() and not tree.btn_regenerate.isEnabled()
+    assert not tree.btn_add.isEnabled()
 
     tree.tree.setCurrentItem(find(tree, "figs/online"))
-    assert tree.btn_add.isEnabled() and not tree.btn_regenerate.isEnabled()
+    assert tree.btn_add.isEnabled()
     assert experiments[-1] == "figs/online" and figures[-1] is None
 
     figure = paths.discussion / "figs/online/fixture_curve.yaml"
     tree.select_figure(figure)
-    assert tree.btn_add.isEnabled() and tree.btn_regenerate.isEnabled()
+    assert tree.btn_add.isEnabled()
     assert figures[-1] == figure and experiments[-1] == "figs/online"
 
     tree.tree.setCurrentItem(find(tree, "figs/sweeps"))
-    assert not tree.btn_add.isEnabled() and not tree.btn_regenerate.isEnabled()
+    assert not tree.btn_add.isEnabled()
     assert figures[-1] is None and experiments[-1] == ""
 
 
-def test_add_menu_omits_blocked_candidates_and_marks_warned_ones(app, paths):
+def picker_for(paths, experiment, **kwargs):
+    picker = FigurePicker(experiment, kwargs.get("candidates") or (lambda rel: model.figure_candidates(paths, rel)))
+    return picker, {card.selector: card for card in picker.cards}
+
+
+def test_plus_requests_the_picker_of_the_selected_experiment(app, paths):
     tree = DiscussionTree(paths)
-    tree.tree.setCurrentItem(find(tree, "figs/online"))
-    actions = {a.text(): a for a in tree.build_add_menu().actions()}
-    assert set(actions) == {"convergence", "fixture_curve"}
-    warned = actions["fixture_curve"]
-    assert warned.property("compatibilityLevel") == "warn"
-    assert warned.toolTip() == "Fixture curves are tuned for DQN."
-    assert not warned.icon().isNull()
-    assert actions["convergence"].property("compatibilityLevel") is None
-    assert actions["convergence"].icon().isNull()
-
-    tree.tree.setCurrentItem(find(tree, "figs/sweeps/offline"))
-    assert [a.text() for a in tree.build_add_menu().actions()] == ["convergence"]
+    requested = []
+    tree.add_requested.connect(requested.append)
+    tree.select_figure(paths.discussion / "figs/online/fixture_curve.yaml")
+    tree.btn_add.click()
+    assert requested == ["figs/online"]
 
 
-def test_add_menu_without_compatible_candidates_shows_one_disabled_item(app, paths):
-    tree = DiscussionTree(paths, candidates=lambda rel: [])
-    tree.tree.setCurrentItem(find(tree, "other/solo"))
-    [action] = tree.build_add_menu().actions()
-    assert action.text() == NO_CANDIDATES and not action.isEnabled()
+def test_picker_omits_blocked_candidates_and_marks_warned_ones(app, paths):
+    picker, cards = picker_for(paths, "figs/online")
+    # The sweep figures are blocked: the target has no sweep.
+    assert set(cards) == {"convergence", "final_performance", "performance_profile", "run_variability", "losses", "metric_table"} | {"fixture_curve"}
+    warned = cards["fixture_curve"]
+    assert warned.property("figureCard") and warned.property("configBox")
+    [status] = [w for w in warned.findChildren(QLabel) if w.objectName() == "compatibilityStatus"]
+    assert status.property("compatibilityLevel") == "warn"
+    assert status.text() == "Off-label: Fixture curves are tuned for DQN."
+    assert not [w for w in cards["convergence"].findChildren(QLabel) if w.objectName() == "compatibilityStatus"]
+    texts = [w.text() for w in cards["convergence"].findChildren(QLabel)]
+    assert "Learning curve" in texts and "16 parameters · 7 live" in texts
+
+    _, cards = picker_for(paths, "figs/sweeps/offline")
+    assert set(cards) == {"convergence", "final_performance", "performance_profile", "run_variability", "losses", "metric_table"}
 
 
-def test_choosing_a_candidate_creates_and_selects_the_figure(app, paths):
+def test_picker_without_compatible_candidates_says_so(app, paths):
+    picker, cards = picker_for(paths, "other/solo", candidates=lambda rel: [])
+    assert not cards
+    assert NO_CANDIDATES in [w.text() for w in picker.findChildren(QLabel)]
+
+
+def test_picker_cards_choose_on_click_and_keyboard_and_escape_cancels(app, paths):
+    picker, cards = picker_for(paths, "other/solo")
+    chosen, cancelled = [], []
+    picker.chosen.connect(lambda e, s: chosen.append((e, s)))
+    picker.cancelled.connect(lambda: cancelled.append(True))
+    card = cards["convergence"]
+    card.resize(200, 80)
+    QTest.mouseClick(card, Qt.MouseButton.LeftButton, pos=card.rect().center())
+    QTest.keyClick(card, Qt.Key.Key_Return)
+    assert chosen == [("other/solo", "convergence")] * 2
+    QTest.keyClick(picker, Qt.Key.Key_Escape)
+    assert cancelled == [True]
+
+
+def test_add_figure_creates_and_selects_the_figure(app, paths):
     tree = DiscussionTree(paths)
     selected = []
     tree.figure_selected.connect(selected.append)
-    tree.tree.setCurrentItem(find(tree, "other/solo"))
-    actions = {a.text(): a for a in tree.build_add_menu().actions()}
-    actions["convergence"].trigger()
+    tree.add_figure("other/solo", "convergence")
 
     created = paths.discussion / "other/solo/convergence.yaml"
     assert yaml.safe_load(created.read_text()) == {"plotter": "convergence", "params": {}}
@@ -290,6 +320,9 @@ class Doc:
     def __init__(self, value):
         self.value = value
 
+    def capability(self):
+        return SimpleNamespace(id="fixture_figures", version="1.0.0"), None
+
     def values(self):
         return {"metric": self.value}
 
@@ -360,9 +393,17 @@ from frontend.discussion import panel as panel_module  # noqa: E402
 
 
 class RecordingView(QWidget):
+    image_ready = pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
         self.calls = []
+
+    def reset_view(self):
+        self.calls.append(("reset",))
+
+    def request_image(self, scale=2.0):
+        self.calls.append(("image", scale))
 
     def render(self, spec):
         self.calls.append(("render", spec))
@@ -409,6 +450,44 @@ def test_panel_empty_selection_and_open_figure(panel, paths):
     assert panel.parameter_stack.currentIndex() == panel.figure_stack.currentIndex() == 0
 
 
+def test_panel_is_laid_out_like_the_experiment_tab(panel, paths):
+    assert panel.title.text() == "No experiment selected"
+    margins = panel.layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (18, 14, 18, 14)
+    assert panel.figure_box.property("configBox") and panel.discussion_box.property("configBox")
+    assert panel.discussion_box.title_label.text() == "Discussion"
+    assert panel.discussion_box.isAncestorOf(panel.discussion)
+    open_fixture(panel, paths)
+    assert panel.title.text() == "figs / online"
+    assert panel.parameters.title_label.text() == "fixture_curve"  # the box names the figure
+    holder = panel.parameter_scroll.widget()
+    assert holder is not panel.parameters and holder.isAncestorOf(panel.parameters)
+    margins = holder.layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 10, 12, 16)
+
+
+def test_panel_picker_replaces_the_parameters_box_until_chosen_or_closed(panel, paths):
+    path = open_fixture(panel, paths)
+    panel.tree.btn_add.click()
+    assert panel.parameter_stack.currentIndex() == panel.PICKER_PAGE
+    assert panel.picker.experiment == "figs/online" and panel.doc.path == path
+    assert panel.picker.property("configBox") and panel.picker.title_label.text() == "Add figure"
+    assert all(panel.picker.isAncestorOf(card) for card in panel.picker.cards)
+    panel.picker.cancelled.emit()
+    assert panel.picker is None and panel.parameter_stack.currentIndex() == panel.PARAMETERS_PAGE
+
+    panel.tree.btn_add.click()
+    panel.tree.tree.setCurrentItem(find(panel.tree, "other/solo"))  # selecting elsewhere closes it
+    assert panel.picker is None and panel.parameter_stack.currentIndex() == 0
+
+    panel.tree.btn_add.click()
+    next(c for c in panel.picker.cards if c.selector == "convergence").clicked.emit()
+    created = paths.discussion / "other/solo/convergence.yaml"
+    assert panel.picker is None and panel.doc.path == created
+    assert panel.parameter_stack.currentIndex() == panel.PARAMETERS_PAGE
+    assert panel.parameters.title_label.text() == "convergence"
+
+
 def test_panel_live_edits_and_debounced_regeneration(panel, paths):
     open_fixture(panel, paths)
     builds = []
@@ -417,12 +496,13 @@ def test_panel_live_edits_and_debounced_regeneration(panel, paths):
     panel.parameters.editors["color"].setText("purple")
     assert ("param", "color", "purple") in panel.figure_view.calls
     assert not builds and not panel.builder._timer.isActive()
-    panel.parameters.editors["metric"].setText("eval/reward")
-    panel.parameters.editors["metric"].setText("train/reward")
+    metric = panel.parameters.editors["metric"]  # the target's logged metrics
+    assert isinstance(metric, QComboBox)
+    metric.setCurrentText("eval/reward")
     assert wait_until(lambda: len(builds) == 1)
-    assert builds[0]["metric"] == "train/reward"
+    assert builds[0]["metric"] == "eval/reward"
     assert wait_until(lambda: not panel.builder.busy)
-    panel.tree.btn_regenerate.click()
+    panel.figure_tools["regenerate"].click()
     assert wait_until(lambda: len(builds) == 2 and not panel.builder.busy)
 
 
@@ -474,8 +554,10 @@ def test_stamped_run_selection_creates_a_figure_and_plots_only_that_run(panel, p
     panel.tree.tree.setCurrentItem(run)
     assert panel.tree.selected_experiment() == target
     assert panel.tree.btn_add.isEnabled()
-    actions = {a.text(): a for a in panel.tree.build_add_menu().actions()}
-    actions["fixture_curve"].trigger()
+    panel.tree.btn_add.click()
+    assert panel.parameter_stack.currentIndex() == panel.PICKER_PAGE
+    next(c for c in panel.picker.cards if c.selector == "fixture_curve").clicked.emit()
+    assert panel.parameter_stack.currentIndex() == panel.PARAMETERS_PAGE
     assert wait_until(lambda: any(c[0] == "render" for c in panel.figure_view.calls), timeout=30)
     assert panel.doc.path == paths.discussion / target / "fixture_curve.yaml"
     spec = next(c[1] for c in panel.figure_view.calls if c[0] == "render")
@@ -513,3 +595,226 @@ def test_panel_loads_runs_lazily_through_the_results_backend(app, paths, monkeyp
     panel.close()
     panel.deleteLater()
     app.processEvents()
+
+
+# ── Grouped standard figures: groups, Auto values and run choices ───────────
+
+
+from PyQt6.QtGui import QShortcut  # noqa: E402
+from PyQt6.QtWidgets import QMessageBox  # noqa: E402
+from frontend.config_panel.editors import ChoiceListEditor  # noqa: E402
+
+
+def convergence_box(paths, **kwargs):
+    path = model.create_figure(paths, "figs/online", "convergence")
+    doc = FigureDoc.load(path, paths=paths)
+    return ParametersBox(doc, **kwargs), doc
+
+
+def disclosure(box, group):
+    caption = next(w for w in box.findChildren(QWidget) if w.property("parameterGroupCaption") == group)
+    return next(b for b in caption.findChildren(QToolButton) if b.property("parameterDisclosure"))
+
+
+def test_grouped_parameters_render_as_collapsible_blocks(app, paths):
+    box, _ = convergence_box(paths, collapsed={"Style"})
+    assert list(box.groups) == ["Data", "Axes", "Style"]
+    assert box.groups["Data"].isAncestorOf(box.editors["metric"])
+    assert box.groups["Style"].isAncestorOf(box.editors["line_width"])
+    assert box.groups["Style"].isHidden() and not box.groups["Axes"].isHidden()
+    toggled = []
+    box.collapsed_changed.connect(toggled.append)
+    disclosure(box, "Style").click()
+    disclosure(box, "Axes").click()
+    assert not box.groups["Style"].isHidden() and box.groups["Axes"].isHidden()
+    assert toggled == [set(), {"Axes"}]
+
+
+def test_auto_text_values_show_a_placeholder_and_clearing_restores_the_default(app, paths):
+    box, doc = convergence_box(paths)
+    title = box.editors["title"]
+    assert title.placeholderText() == "Auto" and title.text() == ""
+    assert box.editors["y_min"].placeholderText() == "Auto"
+    box.set_param("title", "Reward")
+    assert saved(doc.path) == {"title": "Reward"}
+    box.set_param("title", "")
+    assert saved(doc.path) == {}
+
+
+def test_metric_and_method_parameters_offer_the_targets_logged_runs(app, paths):
+    box, doc = convergence_box(paths, metric_choices=["eval/reward", "train/reward"], method_choices=["a2c", "ppo"])
+    metric = box.editors["metric"]
+    assert isinstance(metric, QComboBox) and metric.currentText() == "eval/reward"
+    methods = box.editors["methods"]
+    assert isinstance(methods, ChoiceListEditor) and methods.choices == ["a2c", "ppo"]
+    methods.add("ppo")
+    assert saved(doc.path) == {"methods": ["ppo"]}
+    methods.remove("ppo")
+    assert saved(doc.path) == {"methods": []}
+    # Nothing logged yet: the metric is typed.
+    assert isinstance(convergence_box(paths)[0].editors["metric"], QLineEdit)
+
+
+def test_choice_list_editor_writes_the_whole_list_and_offers_remaining_choices(app):
+    written = []
+    editor = ChoiceListEditor(["a"], ["a", "b", "c"], written.append, noun="method")
+    entries = [w for w in editor.findChildren(QFrame) if w.property("choiceEntry")]
+    assert [e.property("choiceValue") for e in entries] == ["a"]
+    add = next(b for b in editor.findChildren(QToolButton) if b.property("choiceAdd"))
+    assert [a.text() for a in add.menu().actions() if a.text() and not a.isSeparator()][:2] == ["b", "c"]
+    editor.add("c")
+    editor.add("c")  # already present
+    assert written == [["a", "c"]]
+    app.processEvents()
+    remove = next(b for b in editor.findChildren(QToolButton) if b.property("choiceRemove") == "a")
+    remove.click()
+    app.processEvents()
+    assert written[-1] == ["c"]
+    assert [w.property("choiceValue") for w in editor.findChildren(QFrame)
+            if w.property("choiceEntry") and not w.isHidden()] == ["c"]
+
+
+# ── Spec cache ───────────────────────────────────────────────────────────────
+
+
+def test_builder_serves_unchanged_figures_from_the_cache_until_forced_or_changed(app, paths):
+    doc = FigureDoc.load(paths.discussion / "figs/online/fixture_curve.yaml", paths=paths)
+    builds = []
+    builder = FigureBuilder(paths, build=lambda p, e, values, live: builds.append(dict(values)) or {"n": len(builds)})
+    built = []
+    builder.built.connect(built.append)
+    builder.request(doc, immediate=True)
+    assert wait_until(lambda: built and not builder.busy)
+    builder.request(doc, immediate=True)
+    assert len(builds) == 1 and built == [{"n": 1}, {"n": 1}]  # served at once, without a build
+
+    doc.set_param("color", "#000000")  # live: applied to the drawn figure, not rebuilt
+    builder.request(doc, immediate=True)
+    assert len(builds) == 1
+
+    builder.request(doc, immediate=True, force=True)
+    assert wait_until(lambda: len(built) == 4 and not builder.busy) and len(builds) == 2
+
+    doc.set_param("metric", "eval/reward")
+    builder.request(doc, immediate=True)
+    assert wait_until(lambda: len(builds) == 3 and not builder.busy)
+    metrics = paths.results / "logs/figs/online"
+    csv = next(metrics.glob("**/metrics.csv"))
+    csv.write_text(csv.read_text() + "\n")  # new logged data changes the target's stamp
+    builder.request(doc, immediate=True)
+    assert wait_until(lambda: len(builds) == 4 and not builder.busy)
+
+
+# ── Renaming, duplicating and deleting from the tree ─────────────────────────
+
+
+def figure_item(tree, paths, name="fixture_curve"):
+    tree.select_figure(paths.discussion / f"figs/online/{name}.yaml")
+    return tree.tree.currentItem()
+
+
+def shortcut(tree, key):
+    return next(s for s in tree.findChildren(QShortcut) if s.key().toString() == key)
+
+
+def test_figure_context_menu_and_shortcuts(app, paths, monkeypatch):
+    tree = DiscussionTree(paths)
+    assert tree.build_context_menu(find(tree, "figs/online")) is None
+    menu = tree.build_context_menu(figure_item(tree, paths))
+    assert [a.text() for a in menu.actions()] == ["Rename…", "Duplicate", "", "Delete…"]
+    renames = []
+    tree.rename_requested.connect(renames.append)
+    menu.actions()[0].trigger()
+    shortcut(tree, "F2").activated.emit()
+    figure = paths.discussion / "figs/online/fixture_curve.yaml"
+    assert renames == [figure, figure]
+
+    menu.actions()[1].trigger()
+    copy = figure.with_name("fixture_curve_copy.yaml")
+    assert copy.is_file() and tree.selected_figure() == copy
+
+    answers = iter([QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes])
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: next(answers))
+    shortcut(tree, "Del").activated.emit()
+    assert copy.is_file()  # declined
+    shortcut(tree, "Del").activated.emit()
+    assert not copy.exists() and tree.selected_experiment() == "figs/online" and tree.selected_figure() is None
+    assert item_texts(tree, find(tree, "figs/online")) == ["fixture_curve"]
+
+
+def test_panel_renames_the_open_figure_inline_and_reports_a_taken_name(panel, paths):
+    path = open_fixture(panel, paths)
+    panel.discussion.setPlainText("Kept through the rename")
+    panel.tree.duplicate_figure(path)  # the copy takes "fixture_curve_copy"
+    panel.tree.select_figure(path)
+    panel.tree.rename_requested.emit(path)
+    editor = panel.parameters.name_editor
+    assert editor is not None and editor.text() == "fixture_curve" and panel.parameters.title_label.isHidden()
+
+    editor.setText("fixture_curve_copy")
+    editor.editingFinished.emit()
+    assert path.exists() and editor.property("parameterInvalid")
+    assert "already exists" in editor.accessibleDescription()
+
+    editor.setText("Reward curve")
+    editor.editingFinished.emit()
+    renamed = path.with_name("Reward curve.yaml")
+    assert renamed.is_file() and not path.exists()
+    assert wait_until(lambda: panel.doc is not None and panel.doc.path == renamed)
+    assert panel.parameters.title_label.text() == "Reward curve"
+    assert model.read_discussion(renamed) == "Kept through the rename"
+
+
+def test_panel_escape_cancels_a_rename(panel, paths):
+    path = open_fixture(panel, paths)
+    panel.parameters.start_rename()
+    panel.parameters.name_editor.setText("Unwanted")
+    QTest.keyClick(panel.parameters.name_editor, Qt.Key.Key_Escape)
+    assert panel.parameters.name_editor is None and not panel.parameters.title_label.isHidden()
+    assert path.is_file() and not path.with_name("Unwanted.yaml").exists()
+
+
+# ── Figure toolbar and saved group state ─────────────────────────────────────
+
+
+def test_figure_toolbar_resets_the_view_and_copies_the_image(panel, paths):
+    assert not any(button.isEnabled() for button in panel.figure_tools.values())
+    open_fixture(panel, paths)
+    assert all(button.isEnabled() for button in panel.figure_tools.values())
+    panel.figure_tools["reset"].click()
+    panel.figure_tools["copy"].click()
+    assert ("reset",) in panel.figure_view.calls and ("image", 2.0) in panel.figure_view.calls
+    from PyQt6.QtGui import QImage
+    image = QImage(4, 3, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.red)
+    panel.figure_view.image_ready.emit(image)
+    assert QApplication.clipboard().image().size() == image.size()
+
+
+class Settings:
+    def __init__(self):
+        self.values = {}
+
+    def get(self, section, key, default=None):
+        return self.values.get((section, key), default)
+
+    def persist_key(self, section, key, value):
+        self.values[(section, key)] = value
+
+
+def test_collapsed_groups_are_remembered_per_figure_type(app, paths, monkeypatch):
+    monkeypatch.setattr(panel_module, "FigureView", RecordingView)
+    settings = Settings()
+    panel = panel_module.DiscussionPanel(paths, settings)
+    try:
+        first = model.create_figure(paths, "figs/online", "convergence")
+        second = model.create_figure(paths, "figs/online", "convergence")
+        panel.tree.populate(select=first)
+        disclosure(panel.parameters, "Axes").click()
+        assert settings.values[("discussion", "collapsed_groups")] == {"convergence": ["Axes"]}
+        panel.tree.select_figure(second)
+        assert panel.parameters.groups["Axes"].isHidden() and not panel.parameters.groups["Data"].isHidden()
+    finally:
+        panel.shutdown()
+        panel.deleteLater()
+        app.processEvents()

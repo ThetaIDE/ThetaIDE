@@ -19,7 +19,7 @@ A new side tab, **Discussion**, for editing the figures of each experiment and w
 
 - The tree mirrors the Experiment panel's groups and subfolders. Each experiment is a folder, and its figures are leaves below it.
 - Follow-up: saved timestamped runs appear beneath their experiments with the same labels as Results. Selecting a run and adding a figure scopes its data, parameters and discussion to that run. Its saved config governs compatibility. Historical runs remain available when the current recipe is absent.
-- A square **+** button in the tree's header toolbar opens a dropdown of the plot components that are compatible with the selected experiment. Choosing one creates a figure.
+- A square **+** button in the tree's header toolbar replaces the parameters column with an **Add figure** box of cards for the plot components compatible with the selected experiment (2026-11-17; originally a dropdown). Choosing a card creates the figure and opens its parameter box. Follow-on work: [figure enhancements plan](DISCUSSION_FIGURES_ENHANCEMENT_PLAN.md).
 - Selecting a figure shows its parameters, the rendered figure, and its discussion text.
 - Parameter edits update the figure. Parameters the plot component marks as live update the drawn figure instantly. Every other parameter makes the component rebuild the figure in the background. A **Regenerate** button forces a rebuild, for example to pick up new runs.
 
@@ -111,12 +111,11 @@ src/usr/discussion/<group>/<subdirs>/<experimentID>/<figure>.md     # discussion
 - It reuses `tree_tools` (`TreeHeaderWidget`, `TreeHeaderActions`, `TreeToolbarPersistence`, `DraggableToolButton`, `style_tool_button`, `folder_icon`, `GroupItemDelegate`, `group_heading_font`), so it looks and behaves like the Experiment tree.
 - The toolbar uses square buttons, as the Experiment tree does:
   - `row1_left`: reload, collapse, expand, search.
-  - `row1_right`: **+** (`plus`) and **Regenerate** (`reload`, or a new icon if the two are confusable).
+  - `row1_right`: **+** (`plus`). (Superseded 2026-11-17: **Regenerate** moved to the Figure card's toolbar; see the [figures enhancement plan](DISCUSSION_FIGURES_ENHANCEMENT_PLAN.md).)
 - **+** is enabled while an experiment, or a figure inside one, is selected.
-  - Clicking it opens a `QMenu` of compatible plotters, labelled by capability and marked when they have warnings.
-  - With no compatible plotters it shows one disabled item: "No compatible plot components".
+  - Clicking it replaces the parameters column with an **Add figure** box of cards for the compatible plotters, with warnings on their cards. (Originally a `QMenu`.)
+  - With no compatible plotters the box says "No compatible plot components".
   - Choosing a plotter creates the figure and selects it.
-- **Regenerate** is enabled while a figure is selected.
 
 ### 4. Parameters box
 

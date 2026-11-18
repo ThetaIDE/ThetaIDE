@@ -1,90 +1,1098 @@
 {
-  "kind": "plotter",
-  "id": "standard_figures",
-  "name": "standard_figures",
-  "version": "1.1.0",
-  "storage_version": 3,
-  "api_version": 1,
-  "capabilities": [
-    {
-      "id": "convergence",
-      "kind": "plotter",
-      "entry_point": "convergence.py:ConvergencePlotter",
-      "provides": [
-        "figure/vega-lite-v1"
+ "kind": "plotter",
+ "id": "standard_figures",
+ "name": "standard_figures",
+ "version": "1.2.0",
+ "storage_version": 3,
+ "api_version": 1,
+ "capabilities": [
+  {
+   "id": "convergence",
+   "kind": "plotter",
+   "entry_point": "convergence.py:ConvergencePlotter",
+   "label": "Learning curve",
+   "description": "A metric over training: each method's mean across runs with an uncertainty band, optionally every run.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "metric": {
+      "type": "string",
+      "default": "eval/reward",
+      "x-theta-metric": true,
+      "description": "The logged metric to plot.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "x_quantity": {
+      "type": "string",
+      "enum": [
+       "transitions",
+       "step",
+       "epoch",
+       "time/total"
       ],
-      "parameter_schema": {
-        "type": "object",
-        "properties": {
-          "metric": {
-            "type": "string",
-            "default": "eval/reward",
-            "x-theta-metric": true,
-            "description": "The logged metric to plot."
-          },
-          "smoothing_window": {
-            "type": "integer",
-            "minimum": 1,
-            "default": 10,
-            "description": "Moving-average window, in logged points."
-          },
-          "methods": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "uniqueItems": true,
-            "default": [],
-            "description": "Methods to show; empty shows every method that logged the metric."
-          },
-          "line_width": {
-            "type": "number",
-            "minimum": 0,
-            "default": 2,
-            "x-theta-live": true
-          },
-          "opacity": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1,
-            "default": 1,
-            "x-theta-live": true
-          },
-          "title": {
-            "type": "string",
-            "default": "",
-            "x-theta-live": true,
-            "description": "Figure title; empty shows the experiment and metric."
-          }
-        }
-      }
-    },
-    {
-      "id": "losses",
-      "kind": "plotter",
-      "entry_point": "losses.py:LossesPlotter"
-    },
-    {
-      "id": "reports",
-      "kind": "plotter",
-      "entry_point": "reports.py:ReportsPlotter"
-    },
-    {
-      "id": "tuning",
-      "kind": "plotter",
-      "entry_point": "tuning.py:TuningPlotter"
+      "default": "transitions",
+      "description": "The x axis. A run that did not log it falls back to steps, epochs or the logged point.",
+      "x-theta-group": "Data"
+     },
+     "smoothing": {
+      "type": "string",
+      "enum": [
+       "moving_average",
+       "ema",
+       "none"
+      ],
+      "default": "moving_average",
+      "description": "How each run is smoothed before runs are combined.",
+      "x-theta-group": "Data"
+     },
+     "smoothing_window": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Smoothing window in logged points; the EMA uses alpha = 2 / (window + 1).",
+      "x-theta-group": "Data"
+     },
+     "band": {
+      "type": "string",
+      "enum": [
+       "sem",
+       "ci95",
+       "std",
+       "none"
+      ],
+      "default": "sem",
+      "description": "Uncertainty across runs: standard error, 95% interval of the mean, standard deviation, or none.",
+      "x-theta-group": "Data"
+     },
+     "show_runs": {
+      "type": "boolean",
+      "default": false,
+      "description": "Also draw every run faintly.",
+      "x-theta-group": "Data"
+     },
+     "x_label": {
+      "type": "string",
+      "default": "",
+      "description": "x-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_label": {
+      "type": "string",
+      "default": "",
+      "description": "y-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_scale": {
+      "type": "string",
+      "enum": [
+       "linear",
+       "log",
+       "symlog"
+      ],
+      "default": "linear",
+      "description": "The y scale. Log hides values at or below zero; symlog keeps them.",
+      "x-theta-group": "Axes"
+     },
+     "y_min": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Lower end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_max": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Upper end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment and metric.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "line_width": {
+      "type": "number",
+      "minimum": 0,
+      "default": 2,
+      "description": "Line width in pixels.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1,
+      "description": "Opacity of the main marks.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "legend": {
+      "type": "string",
+      "enum": [
+       "right",
+       "bottom",
+       "top",
+       "left",
+       "none"
+      ],
+      "default": "right",
+      "description": "Where the legend goes, or none.",
+      "x-theta-group": "Style"
+     }
     }
-  ],
-  "payload": {
-    "implementations": [
-      "convergence.py",
-      "__init__.py",
-      "reports.py",
-      "tuning.py",
-      "losses.py"
-    ],
-    "resources": [],
-    "configs": {}
+   }
   },
-  "config_paths": []
+  {
+   "id": "final_performance",
+   "kind": "plotter",
+   "entry_point": "final_performance.py:FinalPerformancePlotter",
+   "label": "Final performance",
+   "description": "Each method's final (or best) score across runs as bars, boxes or a strip, with a bootstrap interval.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "metric": {
+      "type": "string",
+      "default": "eval/reward",
+      "x-theta-metric": true,
+      "description": "The logged metric to plot.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "score": {
+      "type": "string",
+      "enum": [
+       "final",
+       "best",
+       "lowest"
+      ],
+      "default": "final",
+      "description": "Each run's score: the mean of its last logged points, or its highest or lowest value.",
+      "x-theta-group": "Data"
+     },
+     "final_fraction": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.1,
+      "description": "Fraction of each run's last logged points averaged for the final score.",
+      "x-theta-group": "Data"
+     },
+     "aggregate": {
+      "type": "string",
+      "enum": [
+       "mean",
+       "median",
+       "iqm"
+      ],
+      "default": "mean",
+      "description": "How runs are summarised per method; IQM is the mean of the middle 50%.",
+      "x-theta-group": "Data"
+     },
+     "interval": {
+      "type": "string",
+      "enum": [
+       "bootstrap95",
+       "none"
+      ],
+      "default": "bootstrap95",
+      "description": "A 95% percentile-bootstrap interval of the summary, or none.",
+      "x-theta-group": "Data"
+     },
+     "y_label": {
+      "type": "string",
+      "default": "",
+      "description": "y-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_min": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Lower end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_max": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Upper end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "chart": {
+      "type": "string",
+      "enum": [
+       "bar",
+       "box",
+       "strip"
+      ],
+      "default": "bar",
+      "description": "Bars of the summary, box plots of the runs, or the runs as points.",
+      "x-theta-group": "Style"
+     },
+     "show_runs": {
+      "type": "boolean",
+      "default": true,
+      "description": "Draw each run's score as a point.",
+      "x-theta-group": "Style"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment and metric.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1,
+      "description": "Opacity of the main marks.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "legend": {
+      "type": "string",
+      "enum": [
+       "right",
+       "bottom",
+       "top",
+       "left",
+       "none"
+      ],
+      "default": "right",
+      "description": "Where the legend goes, or none.",
+      "x-theta-group": "Style"
+     }
+    }
+   }
+  },
+  {
+   "id": "performance_profile",
+   "kind": "plotter",
+   "entry_point": "performance_profile.py:PerformanceProfilePlotter",
+   "label": "Performance profile",
+   "description": "The fraction of each method's runs scoring above every threshold: a robust comparison across seeds.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "metric": {
+      "type": "string",
+      "default": "eval/reward",
+      "x-theta-metric": true,
+      "description": "The logged metric to plot.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "score": {
+      "type": "string",
+      "enum": [
+       "final",
+       "best",
+       "lowest"
+      ],
+      "default": "final",
+      "description": "Each run's score: the mean of its last logged points, or its highest or lowest value.",
+      "x-theta-group": "Data"
+     },
+     "final_fraction": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.1,
+      "description": "Fraction of each run's last logged points averaged for the final score.",
+      "x-theta-group": "Data"
+     },
+     "x_label": {
+      "type": "string",
+      "default": "",
+      "description": "x-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_label": {
+      "type": "string",
+      "default": "",
+      "description": "y-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment and metric.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "line_width": {
+      "type": "number",
+      "minimum": 0,
+      "default": 2,
+      "description": "Line width in pixels.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1,
+      "description": "Opacity of the main marks.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "legend": {
+      "type": "string",
+      "enum": [
+       "right",
+       "bottom",
+       "top",
+       "left",
+       "none"
+      ],
+      "default": "right",
+      "description": "Where the legend goes, or none.",
+      "x-theta-group": "Style"
+     }
+    }
+   }
+  },
+  {
+   "id": "run_variability",
+   "kind": "plotter",
+   "entry_point": "run_variability.py:RunVariabilityPlotter",
+   "label": "Run variability",
+   "description": "One panel per method with every run in its own colour and the mean on top, to see seed-to-seed spread.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "metric": {
+      "type": "string",
+      "default": "eval/reward",
+      "x-theta-metric": true,
+      "description": "The logged metric to plot.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "x_quantity": {
+      "type": "string",
+      "enum": [
+       "transitions",
+       "step",
+       "epoch",
+       "time/total"
+      ],
+      "default": "transitions",
+      "description": "The x axis. A run that did not log it falls back to steps, epochs or the logged point.",
+      "x-theta-group": "Data"
+     },
+     "smoothing": {
+      "type": "string",
+      "enum": [
+       "moving_average",
+       "ema",
+       "none"
+      ],
+      "default": "moving_average",
+      "description": "How each run is smoothed before runs are combined.",
+      "x-theta-group": "Data"
+     },
+     "smoothing_window": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Smoothing window in logged points; the EMA uses alpha = 2 / (window + 1).",
+      "x-theta-group": "Data"
+     },
+     "x_label": {
+      "type": "string",
+      "default": "",
+      "description": "x-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_label": {
+      "type": "string",
+      "default": "",
+      "description": "y-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_scale": {
+      "type": "string",
+      "enum": [
+       "linear",
+       "log",
+       "symlog"
+      ],
+      "default": "linear",
+      "description": "The y scale. Log hides values at or below zero; symlog keeps them.",
+      "x-theta-group": "Axes"
+     },
+     "y_min": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Lower end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_max": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Upper end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment and metric.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "line_width": {
+      "type": "number",
+      "minimum": 0,
+      "default": 2,
+      "description": "Line width in pixels.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "run_opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.45,
+      "description": "Opacity of the individual runs.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "columns": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Panels per row.",
+      "x-theta-group": "Style"
+     },
+     "panel_width": {
+      "type": "integer",
+      "minimum": 80,
+      "default": 320,
+      "description": "Width of each panel in pixels.",
+      "x-theta-group": "Style"
+     },
+     "panel_height": {
+      "type": "integer",
+      "minimum": 60,
+      "default": 200,
+      "description": "Height of each panel in pixels.",
+      "x-theta-group": "Style"
+     }
+    }
+   }
+  },
+  {
+   "id": "losses",
+   "kind": "plotter",
+   "entry_point": "losses.py:LossesPlotter",
+   "label": "Training losses",
+   "description": "Training losses per method, one panel per loss with its own y scale.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "metrics": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-metric": true,
+      "description": "Losses to show; empty shows every logged losses/ metric.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "x_quantity": {
+      "type": "string",
+      "enum": [
+       "transitions",
+       "step",
+       "epoch",
+       "time/total"
+      ],
+      "default": "transitions",
+      "description": "The x axis. A run that did not log it falls back to steps, epochs or the logged point.",
+      "x-theta-group": "Data"
+     },
+     "smoothing": {
+      "type": "string",
+      "enum": [
+       "moving_average",
+       "ema",
+       "none"
+      ],
+      "default": "moving_average",
+      "description": "How each run is smoothed before runs are combined.",
+      "x-theta-group": "Data"
+     },
+     "smoothing_window": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Smoothing window in logged points; the EMA uses alpha = 2 / (window + 1).",
+      "x-theta-group": "Data"
+     },
+     "band": {
+      "type": "string",
+      "enum": [
+       "sem",
+       "ci95",
+       "std",
+       "none"
+      ],
+      "default": "sem",
+      "description": "Uncertainty across runs: standard error, 95% interval of the mean, standard deviation, or none.",
+      "x-theta-group": "Data"
+     },
+     "x_label": {
+      "type": "string",
+      "default": "",
+      "description": "x-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_scale": {
+      "type": "string",
+      "enum": [
+       "linear",
+       "log",
+       "symlog"
+      ],
+      "default": "linear",
+      "description": "The y scale. Log hides values at or below zero; symlog keeps them.",
+      "x-theta-group": "Axes"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "line_width": {
+      "type": "number",
+      "minimum": 0,
+      "default": 2,
+      "description": "Line width in pixels.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1,
+      "description": "Opacity of the main marks.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "legend": {
+      "type": "string",
+      "enum": [
+       "right",
+       "bottom",
+       "top",
+       "left",
+       "none"
+      ],
+      "default": "right",
+      "description": "Where the legend goes, or none.",
+      "x-theta-group": "Style"
+     },
+     "columns": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Panels per row.",
+      "x-theta-group": "Style"
+     },
+     "panel_width": {
+      "type": "integer",
+      "minimum": 80,
+      "default": 320,
+      "description": "Width of each panel in pixels.",
+      "x-theta-group": "Style"
+     },
+     "panel_height": {
+      "type": "integer",
+      "minimum": 60,
+      "default": 200,
+      "description": "Height of each panel in pixels.",
+      "x-theta-group": "Style"
+     }
+    }
+   }
+  },
+  {
+   "id": "sweep_scatter",
+   "kind": "plotter",
+   "entry_point": "sweeps.py:SweepScatterPlotter",
+   "label": "Sweep scatter",
+   "description": "Each trial's objective against one swept parameter, coloured by method or by a second parameter.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "parameter": {
+      "type": "string",
+      "default": "",
+      "description": "The swept parameter on the x axis; empty uses the first one.",
+      "x-theta-group": "Data"
+     },
+     "color_by": {
+      "type": "string",
+      "default": "",
+      "description": "A second swept parameter for colour; empty colours by method.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "include_pruned": {
+      "type": "boolean",
+      "default": false,
+      "description": "Also show pruned trials' last values.",
+      "x-theta-group": "Data"
+     },
+     "x_scale": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "linear",
+       "log"
+      ],
+      "default": "auto",
+      "description": "The x scale of a numeric parameter; auto uses log when values are positive and span 100x or more.",
+      "x-theta-group": "Axes"
+     },
+     "x_label": {
+      "type": "string",
+      "default": "",
+      "description": "x-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_label": {
+      "type": "string",
+      "default": "",
+      "description": "y-axis title; empty shows the default.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_scale": {
+      "type": "string",
+      "enum": [
+       "linear",
+       "log",
+       "symlog"
+      ],
+      "default": "linear",
+      "description": "The y scale. Log hides values at or below zero; symlog keeps them.",
+      "x-theta-group": "Axes"
+     },
+     "y_min": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Lower end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "y_max": {
+      "type": [
+       "number",
+       "null"
+      ],
+      "default": null,
+      "description": "Upper end of the y axis; empty fits the data.",
+      "x-theta-live": true,
+      "x-theta-group": "Axes"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "point_size": {
+      "type": "number",
+      "minimum": 1,
+      "default": 60,
+      "description": "Point area in square pixels.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.8,
+      "description": "Opacity of the points.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "legend": {
+      "type": "string",
+      "enum": [
+       "right",
+       "bottom",
+       "top",
+       "left",
+       "none"
+      ],
+      "default": "right",
+      "description": "Where the legend goes, or none.",
+      "x-theta-group": "Style"
+     }
+    }
+   },
+   "requires": [
+    {
+     "level": "block",
+     "config": "tuning",
+     "present": true,
+     "message": "Sweep figures need an experiment with a parameter sweep."
+    }
+   ]
+  },
+  {
+   "id": "sweep_parallel",
+   "kind": "plotter",
+   "entry_point": "sweeps.py:SweepParallelPlotter",
+   "label": "Sweep parallel coordinates",
+   "description": "Every trial as a line across its swept parameters and objective, coloured by the objective.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "parameters": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "description": "Swept parameters to show, in order; empty shows all of them.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "include_pruned": {
+      "type": "boolean",
+      "default": false,
+      "description": "Also show pruned trials' last values.",
+      "x-theta-group": "Data"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "line_width": {
+      "type": "number",
+      "minimum": 0,
+      "default": 1.5,
+      "description": "Line width in pixels.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "opacity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.7,
+      "description": "Opacity of the lines.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "legend": {
+      "type": "string",
+      "enum": [
+       "right",
+       "bottom",
+       "top",
+       "left",
+       "none"
+      ],
+      "default": "right",
+      "description": "Where the legend goes, or none.",
+      "x-theta-group": "Style"
+     }
+    }
+   },
+   "requires": [
+    {
+     "level": "block",
+     "config": "tuning",
+     "present": true,
+     "message": "Sweep figures need an experiment with a parameter sweep."
+    }
+   ]
+  },
+  {
+   "id": "metric_table",
+   "kind": "plotter",
+   "entry_point": "metric_table.py:MetricTablePlotter",
+   "label": "Metric table",
+   "description": "A compact table of each method's final metrics: the summary and its spread across runs.",
+   "provides": [
+    "figure/vega-lite-v1"
+   ],
+   "parameter_schema": {
+    "type": "object",
+    "properties": {
+     "metrics": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-metric": true,
+      "description": "Metrics to tabulate; empty shows eval/reward and train/reward when logged.",
+      "x-theta-group": "Data"
+     },
+     "methods": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-method": true,
+      "description": "Methods to show; empty shows every method that logged the metric.",
+      "x-theta-group": "Data"
+     },
+     "score": {
+      "type": "string",
+      "enum": [
+       "final",
+       "best",
+       "lowest"
+      ],
+      "default": "final",
+      "description": "Each run's score: the mean of its last logged points, or its highest or lowest value.",
+      "x-theta-group": "Data"
+     },
+     "final_fraction": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "default": 0.1,
+      "description": "Fraction of each run's last logged points averaged for the final score.",
+      "x-theta-group": "Data"
+     },
+     "aggregate": {
+      "type": "string",
+      "enum": [
+       "mean",
+       "median",
+       "iqm"
+      ],
+      "default": "mean",
+      "description": "How runs are summarised per method; IQM is the mean of the middle 50%.",
+      "x-theta-group": "Data"
+     },
+     "spread": {
+      "type": "string",
+      "enum": [
+       "std",
+       "sem",
+       "bootstrap95",
+       "none"
+      ],
+      "default": "std",
+      "description": "The spread shown after each value.",
+      "x-theta-group": "Data"
+     },
+     "decimals": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8,
+      "default": 2,
+      "description": "Decimal places.",
+      "x-theta-group": "Style"
+     },
+     "title": {
+      "type": "string",
+      "default": "",
+      "description": "Figure title; empty shows the experiment.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "font_size": {
+      "type": "number",
+      "minimum": 6,
+      "default": 13,
+      "description": "Cell text size.",
+      "x-theta-live": true,
+      "x-theta-group": "Style"
+     },
+     "highlight_best": {
+      "type": "boolean",
+      "default": true,
+      "description": "Bold each metric's best method (higher is better unless the score is lowest).",
+      "x-theta-group": "Style"
+     }
+    }
+   }
+  },
+  {
+   "id": "reports",
+   "kind": "plotter",
+   "entry_point": "reports.py:ReportsPlotter"
+  },
+  {
+   "id": "tuning",
+   "kind": "plotter",
+   "entry_point": "tuning.py:TuningPlotter"
+  }
+ ],
+ "payload": {
+  "implementations": [
+   "__init__.py",
+   "common.py",
+   "convergence.py",
+   "final_performance.py",
+   "performance_profile.py",
+   "run_variability.py",
+   "losses.py",
+   "sweeps.py",
+   "metric_table.py",
+   "reports.py",
+   "tuning.py"
+  ],
+  "resources": [],
+  "configs": {}
+ },
+ "config_paths": []
 }

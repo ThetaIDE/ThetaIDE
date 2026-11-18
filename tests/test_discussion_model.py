@@ -3,7 +3,7 @@
 import pytest
 import yaml
 
-from discussion_fixtures import build_discussion_workspace
+from discussion_fixtures import build_discussion_workspace, write_seeded_runs
 from frontend.discussion import model
 from frontend.discussion.model import FigureDoc, FigureError
 from src.app.workspace import RESERVED_RESEARCH_DIRECTORIES, WorkspacePaths
@@ -141,3 +141,69 @@ def test_discussion_text_reads_and_writes(paths):
     assert not model.write_discussion(path, "First note")
     assert model.write_discussion(path, "")
     assert model.read_discussion(path) == ""
+
+
+# ── Renaming, duplicating and deleting ───────────────────────────────────────
+
+
+def test_rename_moves_the_figure_and_its_text_and_rejects_taken_or_invalid_names(paths):
+    figure = paths.discussion / "figs/online/fixture_curve.yaml"
+    model.write_discussion(figure, "Notes")
+    renamed = model.rename_figure(figure, "  Reward curve ")
+    assert renamed == figure.with_name("Reward curve.yaml")
+    assert not figure.exists() and not model.discussion_path(figure).exists()
+    assert model.read_discussion(renamed) == "Notes"
+    assert model.rename_figure(renamed, "Reward curve") == renamed  # unchanged
+
+    other = model.create_figure(paths, "figs/online", "fixture_curve")
+    with pytest.raises(FigureError, match="already exists"):
+        model.rename_figure(other, "Reward curve")
+    for bad in ("", " ", "../escape", "_hidden", "a/b", "dots.yaml"):
+        with pytest.raises(FigureError, match="Use letters"):
+            model.rename_figure(other, bad)
+    assert other.exists()
+
+
+def test_duplicate_copies_figure_and_text_to_a_free_name_and_delete_removes_both(paths):
+    figure = paths.discussion / "figs/online/fixture_curve.yaml"
+    model.write_discussion(figure, "Original notes")
+    first = model.duplicate_figure(figure)
+    second = model.duplicate_figure(figure)
+    assert (first.name, second.name) == ("fixture_curve_copy.yaml", "fixture_curve_copy_2.yaml")
+    assert first.read_text() == figure.read_text() and model.read_discussion(first) == "Original notes"
+
+    model.delete_figure(first)
+    assert not first.exists() and not model.discussion_path(first).exists()
+    model.delete_figure(second)
+    assert model.figures(paths, "figs/online") == [figure]
+
+
+def test_create_figure_skips_names_taken_by_a_figure_or_an_orphaned_text(paths):
+    folder = paths.discussion / "figs/online"
+    (folder / "convergence.md").write_text("Orphaned text")
+    assert model.create_figure(paths, "figs/online", "convergence").name == "convergence_2.yaml"
+
+
+# ── What a target logged ─────────────────────────────────────────────────────
+
+
+def test_target_runs_lists_logged_methods_and_metrics_without_counters(paths):
+    target = write_seeded_runs(paths)
+    runs = model.target_runs(paths, target)
+    assert runs.methods == ("a2c", "ppo")
+    assert set(runs.metrics) == {"train/reward", "eval/reward", "losses/policy_loss", "losses/value_loss"}
+    assert "step" not in runs.metrics and "transitions" not in runs.metrics
+    assert model.target_runs(paths, "other/solo") == model.TargetRuns((), ())
+
+
+def test_target_stamp_changes_with_metrics_config_and_sweeps(paths):
+    target = write_seeded_runs(paths)
+    stamp = model.target_stamp(paths, target)
+    assert stamp == model.target_stamp(paths, target)
+    logs = paths.results / "logs" / target
+    files = {path for path, _, _ in stamp}
+    assert str(logs / "ppo/version_0/metrics.csv") in files and str(logs / "config.yaml") in files
+    assert str(paths.results / "checkpoints" / target / "ppo/tuning_summary.json") in files
+    with (logs / "ppo/version_0/metrics.csv").open("a") as stream:
+        stream.write("41,328,41.0,,0.1,0.1\n")
+    assert model.target_stamp(paths, target) != stamp

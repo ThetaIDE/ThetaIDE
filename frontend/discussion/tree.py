@@ -5,42 +5,42 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QLineEdit, QMenu, QTreeWidget, QTreeWidgetItem,
+from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
+from PyQt6.QtWidgets import (QAbstractItemView, QLineEdit, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
-from ..config_panel.controls import mark_action
 from ..sidetabs import svg_icon
 from ..tree_tools import (TOOL_ICON_COLORS, DraggableToolButton, GroupItemDelegate, TreeHeaderActions,
                           TreeHeaderWidget, TreeToolbarPersistence, folder_icon, group_heading_font,
                           refresh_tool_icons, style_tool_button)
 from . import model
 
-NO_CANDIDATES = "No compatible plot components"
-
-
 class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     """Experiment tree with figure leaves.
 
     ``figure_selected`` carries the selected figure file, or None when the selection is not a
     figure; ``experiment_selected`` carries the experiment of the selection ("" for a group or
-    folder). ``regenerate_requested`` asks for the selected figure to be rebuilt.
+    folder). ``add_requested`` asks for the figure picker of the selected experiment.
+
+    Figure leaves have a context menu (Rename…, Duplicate, Delete…), F2 and Delete.
+    ``rename_requested`` asks the panel to rename a figure; ``about_to_modify`` is emitted
+    before a figure's files are duplicated or deleted, so pending discussion text is saved first.
     """
 
     figure_selected = pyqtSignal(object)
     experiment_selected = pyqtSignal(str)
-    regenerate_requested = pyqtSignal()
+    add_requested = pyqtSignal(str)
+    rename_requested = pyqtSignal(object)
+    about_to_modify = pyqtSignal(object)
     refresh_requested = pyqtSignal()
 
     mode = "discussion"
 
-    def __init__(self, paths, parent=None, settings_manager=None, candidates=None):
+    def __init__(self, paths, parent=None, settings_manager=None):
         super().__init__(parent)
         self.paths = paths
         self.settings_manager = settings_manager
         self.runs = []
-        # experiment rel -> FigureCandidate list; composes the experiment by default.
-        self.candidates = candidates or (lambda rel: model.figure_candidates(self.paths, rel))
         self._init_ui()
         self.populate()
 
@@ -53,7 +53,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     def _default_toolbar_groups(self):
         return {
             "row1_left": [self.btn_refresh, self.btn_collapse, self.btn_expand, self.btn_search],
-            "row1_right": [self.btn_add, self.btn_regenerate],
+            "row1_right": [self.btn_add],
             "row2_left": [],
             "row2_right": [],
         }
@@ -71,10 +71,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.btn_expand.clicked.connect(self.expand_all)
         self.btn_search = self._tool_button("search", "Filter experiments, runs and figures", "search")
         self.btn_add = self._tool_button("plus", "Add a figure from a compatible plot component", "plus")
-        self.btn_add.clicked.connect(self.open_add_menu)
-        self.btn_regenerate = self._tool_button("regenerate", "Regenerate the figure (picks up new runs)",
-                                                "regenerate")
-        self.btn_regenerate.clicked.connect(self.regenerate_requested)
+        self.btn_add.clicked.connect(lambda: self.add_requested.emit(self.selected_experiment()))
 
         self.header_widget = TreeHeaderWidget(self)
         self.header_widget.set_groups(self._load_toolbar_groups())
@@ -93,6 +90,13 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.tree.setItemDelegate(GroupItemDelegate(self.tree))
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.currentItemChanged.connect(self._current_changed)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_context_menu)
+        for key, action in ((QKeySequence.StandardKey.Delete, self._delete_selected),
+                            (Qt.Key.Key_Backspace, self._delete_selected), (Qt.Key.Key_F2, self._rename_selected)):
+            shortcut = QShortcut(QKeySequence(key), self.tree)
+            shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+            shortcut.activated.connect(action)
         layout.addWidget(self.tree, 1)
         self._update_actions()
 
@@ -239,7 +243,6 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     def _update_actions(self):
         self.btn_add.setEnabled(bool(self.selected_experiment()))
-        self.btn_regenerate.setEnabled(self.selected_figure() is not None)
 
     def _current_changed(self, current, previous):
         self._update_actions()
@@ -250,41 +253,68 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     # ── Adding figures ───────────────────────────────────────────────────────
 
-    def build_add_menu(self) -> QMenu:
-        """The compatible plot components of the selected experiment: blocked ones omitted,
-        warned ones marked. Choosing one creates the figure and selects it."""
-        menu = QMenu(self)
-        experiment = self.selected_experiment()
-        if not experiment:
-            return menu
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            candidates = self.candidates(experiment)
-        except Exception as exc:  # the experiment does not compose
-            action = menu.addAction(f"Cannot read {experiment}: {exc}")
-            action.setEnabled(False)
-            return menu
-        finally:
-            QApplication.restoreOverrideCursor()
-        offered = [c for c in candidates if not c.blocked]
-        for candidate in offered:
-            action = menu.addAction(candidate.selector)
-            action.setData(candidate.selector)
-            mark_action(action, candidate.warnings)
-            if not action.toolTip() or action.toolTip() == action.text():
-                action.setToolTip(f"{candidate.selector} ({candidate.package.id})")
-            action.triggered.connect(lambda _=False, s=candidate.selector, e=experiment: self.add_figure(e, s))
-        if not offered:
-            menu.addAction(NO_CANDIDATES).setEnabled(False)
-        return menu
-
-    def open_add_menu(self):
-        menu = self.build_add_menu()
-        if not menu.isEmpty():
-            menu.exec(self.btn_add.mapToGlobal(self.btn_add.rect().bottomLeft()))
-        menu.deleteLater()
-
     def add_figure(self, experiment: str, capability: str) -> Path:
         path = model.create_figure(self.paths, experiment, capability)
         self.populate(select=path)
         return path
+
+    # ── Managing figures ─────────────────────────────────────────────────────
+
+    def _figure_at(self, item) -> Path | None:
+        data = (item.data(0, Qt.ItemDataRole.UserRole) or {}) if item is not None else {}
+        return Path(data["path"]) if data.get("type") == "figure" else None
+
+    def build_context_menu(self, item) -> QMenu | None:
+        path = self._figure_at(item)
+        if path is None:
+            return None
+        menu = QMenu(self)
+        menu.addAction("Rename…", lambda: self.rename_requested.emit(path))
+        menu.addAction("Duplicate", lambda: self.duplicate_figure(path))
+        menu.addSeparator()
+        menu.addAction("Delete…", lambda: self.prompt_delete(path))
+        return menu
+
+    def _show_context_menu(self, position):
+        menu = self.build_context_menu(self.tree.itemAt(position))
+        if menu is not None:
+            menu.exec(self.tree.viewport().mapToGlobal(position))
+            menu.deleteLater()
+
+    def _rename_selected(self):
+        path = self.selected_figure()
+        if path is not None:
+            self.rename_requested.emit(path)
+
+    def _delete_selected(self):
+        path = self.selected_figure()
+        if path is not None:
+            self.prompt_delete(path)
+
+    def duplicate_figure(self, path: Path) -> Path:
+        self.about_to_modify.emit(Path(path))
+        copy = model.duplicate_figure(path)
+        self.populate(select=copy)
+        return copy
+
+    def prompt_delete(self, path: Path) -> bool:
+        path = Path(path)
+        text = " and its discussion" if model.discussion_path(path).is_file() else ""
+        answer = QMessageBox.question(
+            self, "Delete figure", f"Delete the figure '{path.stem}'{text}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        self.delete_figure(path)
+        return True
+
+    def delete_figure(self, path: Path):
+        path = Path(path)
+        self.about_to_modify.emit(path)
+        model.delete_figure(path)
+        if self.selected_figure() == path:
+            item = self._find(path)
+            parent = item.parent() if item is not None else None
+            if parent is not None:
+                self.tree.setCurrentItem(parent)  # the experiment stays selected
+        self.populate()

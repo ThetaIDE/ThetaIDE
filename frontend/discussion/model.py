@@ -289,6 +289,67 @@ class FigureDoc:
         temporary.replace(self.path)
 
 
+# ── Figure management ────────────────────────────────────────────────────────
+
+FIGURE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]*")
+
+
+def check_figure_name(name: str) -> str:
+    """A figure name: letters, digits, spaces, ``_`` and ``-``, starting with a letter or digit."""
+    name = str(name).strip()
+    if not FIGURE_NAME.fullmatch(name):
+        raise FigureError("Use letters, digits, spaces, '_' and '-', starting with a letter or digit.")
+    return name
+
+
+def _taken(folder: Path, name: str) -> bool:
+    return (folder / f"{name}.yaml").exists() or (folder / f"{name}.md").exists()
+
+
+def _free_name(folder: Path, base: str) -> str:
+    name, index = base, 1
+    while _taken(folder, name):
+        index += 1
+        name = f"{base}_{index}"
+    return name
+
+
+def rename_figure(figure_path: Path, name: str) -> Path:
+    """Rename a figure and its discussion text together; returns the new figure path."""
+    figure_path = Path(figure_path)
+    name = check_figure_name(name)
+    if name == figure_path.stem:
+        return figure_path
+    if _taken(figure_path.parent, name):
+        raise FigureError(f"A figure named {name!r} already exists here.")
+    target = figure_path.with_name(f"{name}.yaml")
+    text = discussion_path(figure_path)
+    figure_path.rename(target)
+    if text.is_file():
+        text.rename(discussion_path(target))
+    return target
+
+
+def duplicate_figure(figure_path: Path) -> Path:
+    """Copy a figure and its discussion text to ``<name>_copy`` (``_copy_2``… when taken)."""
+    figure_path = Path(figure_path)
+    target = figure_path.with_name(f"{_free_name(figure_path.parent, f'{figure_path.stem}_copy')}.yaml")
+    target.write_bytes(figure_path.read_bytes())
+    text = discussion_path(figure_path)
+    if text.is_file():
+        discussion_path(target).write_bytes(text.read_bytes())
+    return target
+
+
+def delete_figure(figure_path: Path) -> None:
+    """Delete a figure and its discussion text."""
+    figure_path = Path(figure_path)
+    text = discussion_path(figure_path)
+    figure_path.unlink()
+    if text.is_file():
+        text.unlink()
+
+
 def _figure_name(capability_id: str) -> str:
     name = re.sub(r"[^A-Za-z0-9_-]+", "_", capability_id.split("/")[-1]).strip("_")
     return name or "figure"
@@ -298,11 +359,7 @@ def create_figure(paths, experiment_rel: str, capability: str) -> Path:
     """Write ``<capability>.yaml`` (``_2``, ``_3``… when taken) with empty params."""
     folder = figure_dir(paths, experiment_rel)
     resolve_plotter(capability, paths=paths)
-    base = _figure_name(capability)
-    name, index = base, 1
-    while (folder / f"{name}.yaml").exists() or (folder / f"{name}.md").exists():
-        index += 1
-        name = f"{base}_{index}"
+    name = _free_name(folder, _figure_name(capability))
     doc = FigureDoc(folder / f"{name}.yaml", capability, {}, paths=paths)
     doc.save()
     return doc.path
@@ -332,6 +389,65 @@ def is_saved_run(paths, target: str) -> bool:
     return (result_experiment_id(target) != target
             or (not (experiment_root(paths) / f"{target}.yaml").is_file()
                 and (paths.results / "logs" / target / "config.yaml").is_file()))
+
+
+# ── A target's logged runs ───────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TargetRuns:
+    """What a target's runs logged: method directories and metric columns (counters excluded)."""
+
+    methods: tuple = ()
+    metrics: tuple = ()
+
+
+def _metric_files(paths, target: str) -> list[Path]:
+    """The ``metrics.csv`` files plotters read for a target (``BasePlotter.load_metrics``)."""
+    root = paths.results / "logs" / _check_rel(target)
+    if not root.is_dir():
+        return []
+    return sorted({*root.glob("*/version_*/metrics.csv"), *root.glob("*/metrics.csv")})
+
+
+def target_runs(paths, target: str) -> TargetRuns:
+    """Methods and metrics from the header of each of the target's metric files."""
+    from frontend.results.metrics_catalog import COUNTER_COLUMNS, group_sort_key, metric_group
+    root = paths.results / "logs" / _check_rel(target)
+    methods, metrics = set(), set()
+    for path in _metric_files(paths, target):
+        try:
+            with path.open(encoding="utf-8") as stream:
+                header = stream.readline().strip()
+        except OSError:
+            continue
+        if not header:
+            continue
+        methods.add(path.relative_to(root).parts[0])
+        metrics.update(column for column in header.split(",") if column and column not in COUNTER_COLUMNS)
+    ordered = sorted(metrics, key=lambda name: (group_sort_key(metric_group(name)), name))
+    return TargetRuns(tuple(sorted(methods)), tuple(ordered))
+
+
+def target_stamp(paths, target: str) -> tuple:
+    """Changes whenever anything a figure of ``target`` reads changes on disk.
+
+    Covers its metric files, its recipe or saved config, and its sweep summaries.
+    """
+    target = _check_rel(target)
+    candidates = [*_metric_files(paths, target), experiment_root(paths) / f"{target}.yaml",
+                  paths.results / "logs" / target / "config.yaml"]
+    checkpoints = paths.results / "checkpoints" / target
+    if checkpoints.is_dir():
+        candidates += [*checkpoints.glob("*/tuning_summary.json"), *checkpoints.glob("*/sweeps/*/tuning_summary.json")]
+    stamp = []
+    for path in sorted(set(candidates)):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        stamp.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return tuple(stamp)
 
 
 # ── Discussion text ──────────────────────────────────────────────────────────

@@ -1,18 +1,22 @@
 """The rendered figure (vega.html in a WebEngine view) and the background figure builder.
 
-``FigureView`` offers ``render(spec)``, ``setParam(name, value)`` and ``error(message)`` over a
-QWebChannel bridge. Its QWebEngineView is created the first time the view is shown, so the
+``FigureView`` offers ``render(spec)``, ``setParam(name, value)``, ``error(message)``,
+``reset_view()`` and ``request_image()`` (answered by ``image_ready``) over a QWebChannel bridge.
+Tooltips use the bundled vega-tooltip handler, styled from the theme. Its QWebEngineView is created the first time the view is shown, so the
 Discussion tab costs nothing at startup. Calls made before the page is ready are replayed.
 
 ``FigureBuilder`` runs a plot component's ``figure_spec`` in a worker thread: regeneration
 requests are debounced, a newer request supersedes an older one, and component exceptions
-come back as error messages.
+come back as error messages. Built specs are cached in memory, keyed by the plotter and its
+version, the target, the regeneration parameters' values and the target's ``target_stamp``,
+so reopening an unchanged figure draws at once. A forced request bypasses the cache.
 """
 
 from __future__ import annotations
 
 import json
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
@@ -22,6 +26,7 @@ from ..theme import theme_color
 
 HTML_PATH = Path(__file__).with_name("vega.html")
 REGENERATE_DEBOUNCE_MS = 400
+SPEC_CACHE_SIZE = 32
 
 
 def embed_config() -> dict:
@@ -48,9 +53,12 @@ class FigureBridge(QObject):
     errorRequested = pyqtSignal(str)
     busyRequested = pyqtSignal(bool)
     themeRequested = pyqtSignal(str)
+    resetRequested = pyqtSignal()
+    imageRequested = pyqtSignal(float)
     page_ready = pyqtSignal()
     page_rendered = pyqtSignal()
     page_failed = pyqtSignal(str)
+    page_image = pyqtSignal(str)
 
     @pyqtSlot()
     def ready(self):
@@ -64,10 +72,32 @@ class FigureBridge(QObject):
     def reportError(self, message):  # noqa: N802 - called from JavaScript
         self.page_failed.emit(message)
 
+    @pyqtSlot(str)
+    def imageReady(self, data_url):  # noqa: N802 - called from JavaScript
+        self.page_image.emit(data_url)
+
+
+def image_from_data_url(data_url: str):
+    """The QImage of a ``data:image/png;base64,…`` URL; a null image for anything else."""
+    import base64
+    import binascii
+
+    from PyQt6.QtGui import QImage
+    prefix = "data:image/png;base64,"
+    if not data_url.startswith(prefix):
+        return QImage()
+    try:
+        raw = base64.b64decode(data_url[len(prefix):], validate=True)
+    except (binascii.Error, ValueError):
+        return QImage()
+    return QImage.fromData(raw, "PNG")
+
 
 class FigureView(QWidget):
     """The figure pane. Replays the last render, its live parameters and the busy state once
     the page is ready."""
+
+    image_ready = pyqtSignal(object)  # QImage; null when there is no figure to copy
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -79,6 +109,7 @@ class FigureView(QWidget):
         self._content = None  # ("render", spec_json) or ("error", message)
         self._params: dict[str, str] = {}
         self._busy = False
+        self.bridge.page_image.connect(lambda url: self.image_ready.emit(image_from_data_url(url)))
 
     # The interface the panel uses.
 
@@ -107,6 +138,19 @@ class FigureView(QWidget):
 
     def clear(self):
         self.error("")
+
+    def reset_view(self):
+        """Redraw the current figure: zoom, pan and legend selections return to the spec's."""
+        if self._ready and self._content and self._content[0] == "render":
+            self.bridge.resetRequested.emit()
+
+    def request_image(self, scale: float = 2.0):
+        """Ask the page for a PNG of the drawn figure; ``image_ready`` answers."""
+        from PyQt6.QtGui import QImage
+        if self._ready and self._content and self._content[0] == "render":
+            self.bridge.imageRequested.emit(scale)
+        else:
+            self.image_ready.emit(QImage())
 
     def apply_theme(self):
         if self.web is not None:
@@ -144,7 +188,8 @@ class FigureView(QWidget):
 
     def _theme_json(self) -> str:
         return json.dumps({"config": embed_config(), "text": theme_color("text"), "muted": theme_color("muted"),
-                           "surface": theme_color("surface")})
+                           "surface": theme_color("surface"), "border": theme_color("border"),
+                           "panel": theme_color("panel")})
 
     def _page_ready(self):
         self._ready = True
@@ -184,16 +229,44 @@ class FigureBuilder(QObject):
         self._timer.timeout.connect(self._start)
         self._result.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
         self.busy = False
+        self._cache: OrderedDict = OrderedDict()
+        self._keys: dict[int, tuple] = {}  # generation -> cache key of the job building it
 
-    def request(self, doc, *, immediate: bool = False):
-        """Rebuild ``doc``'s figure: now, or after the debounce interval (restarted by each call)."""
+    def cache_key(self, doc) -> tuple:
+        """What a built spec depends on. Live parameters are applied after drawing, so they are not part of it."""
+        from .model import target_stamp
+        live = set(doc.live_params())
+        values = {name: value for name, value in doc.values().items() if name not in live}
+        package = doc.capability()[0]
+        return (doc.plotter, package.id, package.version, doc.experiment,
+                json.dumps(values, sort_keys=True, default=str), target_stamp(self.paths, doc.experiment))
+
+    def request(self, doc, *, immediate: bool = False, force: bool = False):
+        """Rebuild ``doc``'s figure: now, or after the debounce interval (restarted by each call).
+
+        An unchanged figure is served from the cache unless ``force`` is set.
+        """
         self._generation += 1
+        key = self.cache_key(doc)
+        if not force and key in self._cache:
+            self._timer.stop()
+            self._job = None
+            self._cache.move_to_end(key)
+            if self.busy:
+                self.busy = False
+                self.finished.emit()
+            self.built.emit(self._cache[key])
+            return
+        self._keys = {self._generation: key}
         self._job = (self._generation, doc.plotter, doc.experiment, doc.values(), doc.live_params())
         if immediate:
             self._timer.stop()
             self._start()
         else:
             self._timer.start()
+
+    def clear_cache(self):
+        self._cache.clear()
 
     def cancel(self):
         """Drop the pending request and ignore results still being built."""
@@ -216,10 +289,13 @@ class FigureBuilder(QObject):
     def _run(self, job):
         generation, plotter, experiment, values, live = job
         try:
-            spec = self._build(plotter, experiment, values, live)
-            self._result.emit(generation, spec, "")
+            result = (generation, self._build(plotter, experiment, values, live), "")
         except Exception as exc:  # the component's own errors go to the figure pane
-            self._result.emit(generation, None, str(exc) or type(exc).__name__)
+            result = (generation, None, str(exc) or type(exc).__name__)
+        try:
+            self._result.emit(*result)
+        except RuntimeError:  # the panel closed during the build; nobody is waiting for it
+            pass
 
     def _deliver(self, generation, spec, error):
         if generation != self._generation:
@@ -228,6 +304,11 @@ class FigureBuilder(QObject):
         if error:
             self.failed.emit(error)
         else:
+            key = self._keys.pop(generation, None)
+            if key is not None:
+                self._cache[key] = spec
+                while len(self._cache) > SPEC_CACHE_SIZE:
+                    self._cache.popitem(last=False)
             self.built.emit(spec)
         self.finished.emit()
 

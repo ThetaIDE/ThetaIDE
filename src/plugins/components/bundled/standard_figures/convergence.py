@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-import json
 import math
 
-from src.app.api.plotting import BasePlotter, thin_xy
+from src.app.api.plotting import (BasePlotter, aggregate, auto_text, by_method, metric_runs, smooth, thin_xy,
+                                  vega_lite_figure)
+
+from .common import (colors, hover_points, interactive_line, load_runs, method_styles, metric_title, tooltip,
+                     x_axis, y_encoding)
+
+LIVE = ["line_width", "opacity", "title", "x_label", "y_label", "y_min", "y_max"]
 
 
 class ConvergencePlotter(BasePlotter):
@@ -15,64 +20,60 @@ class ConvergencePlotter(BasePlotter):
         self.plot_metric_series(exp_id, group, output_dir, metrics, cfg)
 
     def figure_spec(self, exp_id: str, params: dict) -> dict:
-        """One metric's smoothed mean per method, with a standard-error band (figure/vega-lite-v1).
+        """One metric's smoothed mean per method with an uncertainty band (figure/vega-lite-v1).
 
-        Live parameters: line_width, opacity and title. The rest change the data.
+        Each run is smoothed, then runs are averaged per method. ``show_runs`` adds every run
+        faintly. Live parameters: line width, opacity, title, axis labels and y range.
         """
-        group = exp_id.split("/", 1)[0]
+        group, runs_data = load_runs(self, exp_id, params)
         metric = params["metric"]
-        runs_data = self.load_metrics(group, exp_id)
-        if params["methods"]:
-            runs_data = {name: versions for name, versions in runs_data.items() if name in params["methods"]}
-        active = self.active_methods_for(runs_data, metric)
-        if not active:
+        runs, x_title = metric_runs(runs_data, metric, params["x_quantity"])
+        if not runs:
             raise ValueError(f"No run of {exp_id} logged {metric!r}.")
+        grouped = by_method(runs)
+        methods = sorted(grouped)
+        styles = method_styles(self, exp_id, group, methods)
 
-        experiment = self.get_experiment_config(exp_id)
-        cfg = {**self.default_cfg, "methods": experiment.get("methods") or {},
-               "smoothing_window": params["smoothing_window"]}
-        styles = self.resolve_method_styles(active, cfg, group)
-        series, used_xlabel = self.collect_metric_series({name: runs_data[name] for name in active}, metric, cfg)
-        xlabel, ylabel, automatic_title = self.resolve_labels(metric, exp_id, cfg, used_xlabel)
-
-        rows, labels, colors = [], [], []
-        for method, (x, y, sem) in series.items():
+        rows = []
+        for method in methods:
             label = styles[method]["label"]
-            labels.append(label)
-            colors.append(styles[method]["color"])
-            bands = sem.tolist() if sem is not None else [None] * len(y)
-            points = [(float(px), float(py), band) for px, py, band in zip(x.tolist(), y.tolist(), bands)
-                      if math.isfinite(px) and math.isfinite(py)]
-            for px, py, band in thin_xy(points):
-                row = {"method": label, "x": px, "y": py}
-                if band is not None and math.isfinite(band):
-                    row["lo"], row["hi"] = py - band, py + band
+            smoothed = [(run.x, smooth(run.y, params["smoothing"], params["smoothing_window"]))
+                        for run in grouped[method]]
+            x, mean, lower, upper = aggregate(smoothed, params["band"])
+            bands = zip(lower, upper) if lower is not None else ((None, None) for _ in x)
+            points = [(float(px), float(py), lo, hi) for px, py, (lo, hi) in zip(x, mean, bands)]
+            for px, py, lo, hi in thin_xy(points):
+                row = {"kind": "mean", "method": label, "x": px, "y": py}
+                if lo is not None and math.isfinite(lo) and math.isfinite(hi):
+                    row["lo"], row["hi"] = float(lo), float(hi)
                 rows.append(row)
+            if params["show_runs"]:
+                for run, (rx, ry) in zip(grouped[method], smoothed):
+                    rows += [{"kind": "run", "method": label, "run": f"{label} · {run.version}", "x": float(px),
+                              "y": float(py)} for px, py in thin_xy(list(zip(rx.tolist(), ry.tolist())))]
 
-        # A standard-error band where a method has several runs.
-        band = [{"transform": [{"filter": "isValid(datum.lo)"}],
-                 "mark": {"type": "area", "opacity": 0.15},
-                 "encoding": {"y": {"field": "lo", "type": "quantitative"}, "y2": {"field": "hi"}}}
-                ] if any("lo" in row for row in rows) else []
-        return {
-            "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
-            "params": [
-                {"name": "line_width", "value": params["line_width"]},
-                {"name": "opacity", "value": params["opacity"]},
-                {"name": "title", "value": params["title"]},
-            ],
-            "title": {"text": {"expr": f"title || {json.dumps(automatic_title)}"}},
-            "width": "container",
-            "height": "container",
-            "autosize": {"type": "fit", "contains": "padding"},
-            "data": {"values": rows},
-            "encoding": {
-                "x": {"field": "x", "type": "quantitative", "title": xlabel},
-                "color": {"field": "method", "type": "nominal", "title": "Method",
-                          "scale": {"domain": labels, "range": colors}},
-            },
-            "layer": band + [
-                {"mark": {"type": "line", "strokeWidth": {"expr": "line_width"}, "opacity": {"expr": "opacity"}},
-                 "encoding": {"y": {"field": "y", "type": "quantitative", "title": ylabel}}},
-            ],
-        }
+        y_title = metric_title(metric)
+        y = y_encoding("y", params, y_title)
+        layers = []
+        if any("lo" in row for row in rows):
+            layers.append({"transform": [{"filter": "datum.kind === 'mean' && isValid(datum.lo)"}],
+                           "mark": {"type": "area"},
+                           "encoding": {"y": y_encoding("lo", params, y_title), "y2": {"field": "hi"},
+                                        "opacity": {"condition": {"param": "legend_pick", "empty": True,
+                                                                  "value": 0.18}, "value": 0.04}}})
+        if params["show_runs"]:
+            layers.append({"transform": [{"filter": "datum.kind === 'run'"}],
+                           "mark": {"type": "line", "strokeWidth": 1},
+                           "encoding": {"y": y, "detail": {"field": "run"},
+                                        "opacity": {"condition": {"param": "legend_pick", "empty": True,
+                                                                  "value": 0.3}, "value": 0.05}}})
+        layers.append(interactive_line("datum.kind === 'mean'", y))
+        tips = tooltip(("method", "Method", "nominal"), ("x", x_title, "quantitative"),
+                       ("y", y_title, "quantitative"), ("lo", "Lower", "quantitative"),
+                       ("hi", "Upper", "quantitative"))
+        layers.append(hover_points("datum.kind === 'mean'", y, tips))
+        return vega_lite_figure(
+            params, LIVE, rows, title=auto_text("title", f"{exp_id} · {metric}"),
+            encoding={"x": {"field": "x", "type": "quantitative", "axis": x_axis(x_title)},
+                      "color": colors(styles, methods, params["legend"])},
+            layer=layers)

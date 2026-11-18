@@ -12,13 +12,15 @@
                  font-family: -apple-system, "Segoe UI", sans-serif; }
     #figure { position: absolute; inset: 12px; }
     #figure.hidden { visibility: hidden; }
-    /* vega-embed styles its target as an inline block; the layer must fill the figure for "container" sizes. */
-    #figure > .layer { position: absolute !important; inset: 0; display: block !important; }
+    /* vega-embed styles its target as an inline block; the layer must fill the figure for "container" sizes.
+       Faceted figures have fixed panel sizes and scroll when larger than the card. */
+    #figure > .layer { position: absolute !important; inset: 0; display: block !important; overflow: auto; }
     #message { position: absolute; inset: 12px; display: flex; align-items: center; justify-content: center;
                text-align: center; white-space: pre-wrap; font-size: 13px; }
     #busy { position: absolute; top: 8px; right: 12px; font-size: 12px; padding: 3px 8px; border-radius: 4px; }
     [hidden] { display: none !important; }
   </style>
+  <style id="tooltip-theme"></style>
 </head>
 <body>
   <div id="figure"></div>
@@ -30,6 +32,8 @@
     let theme = {};
     let generation = 0;
     let pendingParams = new Map();
+    let appliedParams = new Map();  // live values set since the last render, replayed by a reset
+    let lastSpec = null;
     let rendering = false;
     const figure = document.getElementById("figure");
     const message = document.getElementById("message");
@@ -43,9 +47,11 @@
       message.hidden = false;
     }
 
-    async function render(specJson) {
+    async function render(specJson, replay) {
       const current = ++generation;
-      pendingParams = new Map();
+      lastSpec = specJson;
+      pendingParams = new Map(replay || []);
+      appliedParams = new Map(replay || []);
       rendering = true;
       // Embed into a hidden layer in place, so "container" sizes resolve, then swap it in.
       const layer = document.createElement("div");
@@ -55,7 +61,8 @@
       let embedded;
       try {
         embedded = await vegaEmbed(layer, JSON.parse(specJson),
-                                   {actions: false, renderer: "svg", config: theme.config || {}});
+                                   {actions: false, renderer: "svg", config: theme.config || {},
+                                    tooltip: {theme: "custom", offsetX: 12, offsetY: 12}});
       } catch (err) {
         layer.remove();
         if (current === generation) {
@@ -90,6 +97,7 @@
     async function setParam(name, valueJson) {
       const value = JSON.parse(valueJson);
       pendingParams.set(name, value);
+      appliedParams.set(name, value);
       if (!view || rendering) return;
       try {
         // A live change can move the title or legend, so autosize is recomputed.
@@ -105,6 +113,24 @@
       message.style.color = theme.muted;
       busy.style.color = theme.text;
       busy.style.background = theme.surface;
+      document.getElementById("tooltip-theme").textContent =
+        `#vg-tooltip-element.custom-theme { background: ${theme.panel}; color: ${theme.text};
+           border: 1px solid ${theme.border}; border-radius: 4px; font-size: 12px; padding: 6px 8px;
+           box-shadow: none; }
+         #vg-tooltip-element.custom-theme td.key { color: ${theme.muted}; }`;
+    }
+
+    function resetView() {
+      if (lastSpec !== null) render(lastSpec, appliedParams);
+    }
+
+    async function requestImage(scale) {
+      if (!view) { bridge.imageReady(""); return; }
+      try {
+        bridge.imageReady(await view.toImageURL("png", scale));
+      } catch (err) {
+        bridge.imageReady("");
+      }
     }
 
     window.addEventListener("resize", () => { if (view) view.resize().runAsync(); });
@@ -116,6 +142,8 @@
       bridge.paramRequested.connect(setParam);
       bridge.errorRequested.connect(text => { generation++; showMessage(text); });
       bridge.busyRequested.connect(on => { busy.hidden = !on; });
+      bridge.resetRequested.connect(resetView);
+      bridge.imageRequested.connect(requestImage);
       bridge.ready();
     });
   </script>

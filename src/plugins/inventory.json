@@ -5,13 +5,13 @@
       "id": "final_metric",
       "root": "src/plugins/components/bundled/final_metric",
       "kind": "objective",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "id": "learning_curve",
       "root": "src/plugins/components/bundled/learning_curve",
       "kind": "objective",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "id": "sequential_spec",

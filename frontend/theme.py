@@ -136,6 +136,9 @@ QLabel#badge { background: #3c3836; color: #fabd2f; border-radius: 4px; padding:
 QLabel#value { color: #b8bb26; font-size: 25px; font-weight: 600; }
 QFrame#card, QFrame[configBox="true"] { background: #32302f; border: 1px solid #504945; border-radius: 5px; }
 QFrame#card QLabel, QFrame[configBox="true"] QLabel { background: transparent; }
+QFrame[figureCard="true"]:hover, QFrame[figureCard="true"]:focus { border-color: #fabd2f; }
+QFrame[choiceEntry="true"] { background: #3c3836; border: 1px solid #504945; border-radius: 4px; }
+QFrame[choiceEntry="true"] QLabel { background: transparent; }
 QWidget[configBoxBody="true"] { background: transparent; }
 QWidget[parameterBoolean="true"] { background: transparent; }
 QPushButton, QToolButton { background: #3c3836; border: 1px solid #504945; border-radius: 4px; padding: 7px 12px; }

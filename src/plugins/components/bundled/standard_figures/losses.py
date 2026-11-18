@@ -156,3 +156,63 @@ class LossesPlotter(BasePlotter):
         loss_cfg.setdefault("output_subdir", subdir)
         loss_cfg.setdefault("filename_prefix", "comparison_")
         self.plot_metric_series(exp_id, group, output_dir, metrics, loss_cfg)
+
+    def figure_spec(self, exp_id: str, params: dict) -> dict:
+        """Training losses per method, one panel per loss with its own y scale (figure/vega-lite-v1)."""
+        from src.app.api.plotting import (aggregate, auto_text, by_method, hover_param, legend_opacity, legend_param,
+                                          metric_runs, smooth, thin_xy, vega_lite_figure, zoom_param)
+
+        from .common import colors, load_runs, method_styles, tooltip, x_axis
+
+        group, runs_data = load_runs(self, exp_id, params)
+        logged = sorted({column for versions in runs_data.values() for df in versions.values()
+                         for column in df.columns if str(column).startswith("losses/")})
+        losses = list(params["metrics"]) or logged
+        rows, methods, x_title = [], set(), None
+        for loss in losses:
+            runs, used = metric_runs(runs_data, loss, params["x_quantity"])
+            x_title = x_title or (used if runs else None)
+            for method, method_runs in by_method(runs).items():
+                methods.add(method)
+                smoothed = [(run.x, smooth(run.y, params["smoothing"], params["smoothing_window"]))
+                            for run in method_runs]
+                x, mean, lower, upper = aggregate(smoothed, params["band"])
+                bands = zip(lower, upper) if lower is not None else ((None, None) for _ in x)
+                for px, py, lo, hi in thin_xy([(float(a), float(b), c, d) for a, b, (c, d) in zip(x, mean, bands)]):
+                    row = {"loss": loss, "method": method, "x": px, "y": py}
+                    if lo is not None:
+                        row["lo"], row["hi"] = float(lo), float(hi)
+                    rows.append(row)
+        if not rows:
+            wanted = ", ".join(losses) if losses else "any losses/ metric"
+            raise ValueError(f"No run of {exp_id} logged {wanted}.")
+        methods = sorted(methods)
+        styles = method_styles(self, exp_id, group, methods)
+        for row in rows:
+            row["method"] = styles[row["method"]]["label"]
+        x_title = x_title or "Transitions"
+        y = {"field": "y", "type": "quantitative", "title": None,
+             "scale": {"type": params["y_scale"], "zero": False}}
+        layers = []
+        if any("lo" in row for row in rows):
+            layers.append({"transform": [{"filter": "isValid(datum.lo)"}], "mark": {"type": "area"},
+                           "encoding": {"y": {**y, "field": "lo"}, "y2": {"field": "hi"},
+                                        "opacity": legend_opacity(0.18, off=0.04)}})
+        layers.append({"params": [zoom_param(), legend_param()],
+                       "mark": {"type": "line", "strokeWidth": {"expr": "line_width"}},
+                       "encoding": {"y": y, "opacity": legend_opacity({"expr": "opacity"})}})
+        tips = tooltip(("loss", "Loss", "nominal"), ("method", "Method", "nominal"), ("x", x_title, "quantitative"),
+                       ("y", "Value", "quantitative"))
+        layers.append({"params": [hover_param(("x", "method"))], "mark": {"type": "point", "filled": True, "size": 36},
+                       "encoding": {"y": y, "tooltip": tips,
+                                    "opacity": {"condition": {"param": "hover", "empty": False, "value": 1},
+                                                "value": 0}}})
+        panel = {"width": params["panel_width"], "height": params["panel_height"],
+                 "encoding": {"x": {"field": "x", "type": "quantitative", "axis": x_axis(x_title)},
+                              "color": colors(styles, methods, params["legend"])},
+                 "layer": layers}
+        return vega_lite_figure(
+            params, ["title", "line_width", "opacity", "x_label"], rows, container=False,
+            title=auto_text("title", f"{exp_id} · losses"),
+            facet={"field": "loss", "type": "nominal", "title": None, "sort": losses},
+            columns=params["columns"], spec=panel, resolve={"scale": {"y": "independent"}})

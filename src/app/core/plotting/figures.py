@@ -70,10 +70,29 @@ def spec_error(spec, live: list[str]) -> str | None:
     if missing:
         return ("The spec declares no top-level param for live parameter"
                 f"{'s' if len(missing) > 1 else ''} {', '.join(missing)}")
-    bound = sorted(p["name"] for p in declared if isinstance(p, dict) and "bind" in p)
+    bound = sorted({str(p.get("name")) for p in _all_params(spec)
+                    if "bind" in p and p["bind"] not in VIEW_BINDINGS})
     if bound:
         return f"Spec params must not bind controls ({', '.join(bound)}); Theta's form owns them"
     return None
+
+
+# Selections may bind to the view itself: zoom/pan (``"scales"``) and legend toggling (``"legend"``).
+VIEW_BINDINGS = ("scales", "legend")
+
+
+def _all_params(node):
+    """Every param declared anywhere in a spec: top level, layers, concatenations and facets."""
+    if isinstance(node, dict):
+        for param in node.get("params") or []:
+            if isinstance(param, dict):
+                yield param
+        for key, value in node.items():
+            if key not in ("params", "data", "datasets") and isinstance(value, (dict, list)):
+                yield from _all_params(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _all_params(item)
 
 
 def build_figure_spec(package, capability, exp_id: str, params: dict, live: list[str], *, paths) -> dict:
