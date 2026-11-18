@@ -28,7 +28,7 @@ class JobManager(RunnerManager):
         self.project_root = paths.root
         self.results_root = paths.results
         self.logs_dir = Path(logs_dir or paths.results / 'logs').resolve()
-        store_path = Path(store_path or paths.data_dir / 'runs/jobs/jobs.db').resolve()
+        store_path = Path(store_path or paths.jobs / 'jobs.db').resolve()
         self.store_path = store_path
         self.jobs_dir = store_path.parent
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -251,10 +251,18 @@ class JobManager(RunnerManager):
     def start_streaming(self):
         self._streaming_enabled = True
 
-    def launch(self, experiment, overrides=None, queue=False, overwrite=False):
+    def launch_claims(self):
+        """Queued and running jobs' results folders, as the launch check needs them (plain data, safe to
+        send to a process)."""
+        return [{key: job.get(key) for key in ('job_id', 'status', 'group', 'experiment_id')}
+                for job in self.jobs.values() if job.get('status') in ('queued', *ACTIVE_STATUSES)]
+
+    def launch(self, experiment, overrides=None, queue=False, overwrite=False, plan=None):
+        """Start or queue a run. The desktop passes the `plan` its validation process prepared, so the
+        GUI thread never composes; without one it is prepared here (headless callers and tests)."""
         self._refresh()
-        plan = prepare_launch(experiment, overrides, overwrite=overwrite,
-                              active_jobs=[j for j in self.jobs.values() if j.get('status') in ('queued', *ACTIVE_STATUSES)])
+        if plan is None:
+            plan = prepare_launch(experiment, overrides, overwrite=overwrite, active_jobs=self.launch_claims())
         result = self._rpc('launch', experiment, overrides, queue=queue, overwrite=overwrite, _plan=plan)
         # A short job can finish before the next snapshot. Its final output
         # still belongs to this client even if it was never observed running.

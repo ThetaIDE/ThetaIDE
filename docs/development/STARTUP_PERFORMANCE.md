@@ -45,10 +45,26 @@ and the original diagnosis are in the [startup report](../reports/STARTUP_PERFOR
 
 The production window uses `LocalBackend(isolate_validation=True)`. A private
 interpreter starts on the first validation request, remains warm, and handles
-composition and explicit pipeline checks serially. It receives JSON arguments
-and returns JSON reports through files in a private temporary directory. Provider
-modules and compose caches invalidate between requests so source edits and
-installs/removals remain visible. Training dependencies stay in that interpreter.
+composition, explicit pipeline checks and the launch check serially. It receives
+JSON arguments and returns JSON reports through files in a private temporary
+directory. Before each request it fingerprints provider inputs (authored Python and
+manifests under `src/usr`, every package manifest, provider selection and
+enablement); only when that changes does it re-import provider modules and clear
+its compose cache, so source edits and installs/removals remain visible while
+config edits never pay for a reload. Results are cached on the full inputs
+fingerprint, which also covers every effective config file, so switching back to an
+experiment or undoing an edit reuses its report. Training dependencies stay in that
+interpreter.
+
+Each check is one discovery read: `compose_experiment`, `validate_composed`,
+`method_plans`, the cached services and `prepare_launch` run inside
+`provider_discovery_snapshot()`, so manifests, the provider catalog and config
+resolvers are built once per check rather than once per lookup.
+
+Run and Queue send `prepare_launch` to the validation interpreter and hand its plan
+to the runner; the GUI thread never composes. Saving a draft that was just checked
+does not check it again. `run_pipeline.py` still validates before training, since a
+queued job can start long after it was checked.
 
 Validation has its own work queue. Run catalog/file operations keep their
 separate queue and can complete while validation runs. Editing cancels pending

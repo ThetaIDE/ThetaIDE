@@ -111,6 +111,10 @@ class WorkspacePaths:
     @property
     def collection(self): return self.data_dir / "components"
     @property
+    def jobs(self):
+        """The training runner's job store, logs and terminal-run announcements."""
+        return self.data_dir / "runs" / "jobs"
+    @property
     def bundled_components(self): return self.application / "src/plugins/components/bundled"
     @property
     def installed_components(self): return self.root / "src/plugins/components/installed"

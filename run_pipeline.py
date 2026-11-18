@@ -43,6 +43,8 @@ def main(paths):
     from src.app.pipeline.datasets import run_plotting
     from src.app.pipeline.exceptions import ConfigurationError
 
+    # A workflow node's pipeline inherits its parent's PID; only the outermost pipeline is a job.
+    nested = "THETA_PIPELINE_PID" in os.environ
     os.environ["THETA_PIPELINE_PID"] = str(os.getpid())
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print("Usage: python run_pipeline.py <group>/<experiment_id> [Hydra Overrides]")
@@ -232,25 +234,28 @@ def main(paths):
     }
 
     from src.app.pipeline.variability import make_plan, run_execution
+    from src.app.services.terminal_runs import announced
 
     variability_plan = make_plan(cfg, context)
 
-    # Dispatch: workflow engine or direct paradigm runner
-    workflow_id = cfg.get("workflow", None)
-    if variability_plan is not None and cfg.get("objective") is None and not uses_tuning:
-        run_execution(cfg, context, variability_plan)
-    elif workflow_id:
-        from src.app.pipeline.workflow.executor import run_workflow
+    # An open ThetaIDE follows terminal launches as its own jobs.
+    with announced(composed, enabled=not (nested or in_allocation)):
+        # Dispatch: workflow engine or direct paradigm runner
+        workflow_id = cfg.get("workflow", None)
+        if variability_plan is not None and cfg.get("objective") is None and not uses_tuning:
+            run_execution(cfg, context, variability_plan)
+        elif workflow_id:
+            from src.app.pipeline.workflow.executor import run_workflow
 
-        from src.app.pipeline.experiment_snapshot import save_run_config
+            from src.app.pipeline.experiment_snapshot import save_run_config
 
-        save_run_config(cfg, paths=composed.workspace)
-        run_workflow(workflow_id, cfg, context)
-    else:
-        # Scheduler submissions returned above; this process is local or inside an allocation.
-        from src.app.pipeline.local_runner import run_local_training
+            save_run_config(cfg, paths=composed.workspace)
+            run_workflow(workflow_id, cfg, context)
+        else:
+            # Scheduler submissions returned above; this process is local or inside an allocation.
+            from src.app.pipeline.local_runner import run_local_training
 
-        run_local_training(cfg, context)
+            run_local_training(cfg, context)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from src.app.services.job_store import JobStore
 from src.app.services.metrics import AgentFeed
 from src.app.services.processes import kill_process_tree, process_stats
 from src.app.services.resource_budget import ResourceBudget, ResourcePool, host_capacity, tree_memory, managed_environment
+from src.app.services.terminal_runs import RUNNER_JOB_VARIABLE, announcements, is_terminal, process_alive, read as read_announcement
 from src.app.telemetry.records import metrics_row
 
 ACTIVE_STATUSES = ("pending", "running")
@@ -65,7 +66,7 @@ class JobManager(QObject):
         self.logs_dir = Path(logs_dir or paths.results / "logs")  # where run_pipeline.py writes <results>/logs/<group>/<id>
         self.settings_path = Path(settings_path) if settings_path else None
         self.enabled_plugins_provider = enabled_plugins_provider
-        self.jobs_dir = Path(store_path).parent if store_path else paths.data_dir / "runs" / "jobs"
+        self.jobs_dir = Path(store_path).parent if store_path else paths.jobs
         self.store_path = Path(store_path or self.jobs_dir / "jobs.db")
         self.store = JobStore(self.store_path)
         self.jobs: dict[str, dict[str, Any]] = {}
@@ -88,6 +89,7 @@ class JobManager(QObject):
         self._execution_signatures: dict[str, tuple] = {}
         self._last_hardware: dict[str, float] = {}
         self._streamed_hardware: set[str] = set()  # jobs whose training process reports its own resource use
+        self._followed_terminal: set[str] = set()  # terminal jobs whose result folders are watched
         self.watcher = QFileSystemWatcher(self)
         self.watcher.directoryChanged.connect(self._on_path_changed)
         self.watcher.fileChanged.connect(self._on_path_changed)
@@ -97,10 +99,16 @@ class JobManager(QObject):
 
     def _recover(self):
         """Load past jobs. A job still marked active belonged to a previous session: QProcess jobs end
-        with the app, so it can't be reattached."""
+        with the app, so it can't be reattached. Terminal jobs are settled from their announcements."""
         self.store.recover_active_jobs()
+        unsettled = {record["job_id"] for _path, record in announcements(self.jobs_dir)}
         for job in self.store.list_jobs():
-            if job.get("status") in ACTIVE_STATUSES:
+            if is_terminal(job) and job["job_id"] in unsettled and job.get("status") != "cancelled":
+                for key in ("finished", "returncode", "error"):
+                    job.pop(key, None)
+                job["status"] = "running"
+                self.store.save_job(job)
+            elif job.get("status") in ACTIVE_STATUSES:
                 job.update(status="interrupted", finished=job.get("finished") or time.time(),
                            error="Started by a previous ThetaIDE session that has closed.")
                 self.store.save_job(job)
@@ -415,6 +423,7 @@ class JobManager(QObject):
             env.insert(key, value)
         env.insert("PYTHONUNBUFFERED", "1")
         env.insert("THETA_CANCEL_DIR", str((self.jobs_dir / "cancellations" / job_id).resolve()))
+        env.insert(RUNNER_JOB_VARIABLE, job_id)  # this job is already followed; the pipeline must not announce itself
         env.insert("PYTHONIOENCODING", "utf-8")
         if self.settings_path is not None:
             env.insert("THETAIDE_SETTINGS_FILE", str(self.settings_path))
@@ -540,9 +549,12 @@ class JobManager(QObject):
         if job["status"] in ("failed", "error"):
             run_dir = self._run_dir(job)
             run_dir.mkdir(parents=True, exist_ok=True)
-            for stream in ("stdout", "stderr"):
-                shutil.copyfile(self.jobs_dir / f"{job_id}.{stream}.log", run_dir / f"{job_id}.{stream}.log")
+            # Terminal runs keep one combined log; their streams went to the terminal.
+            for name in ((f"{job_id}.log",) if is_terminal(job) else (f"{job_id}.stdout.log", f"{job_id}.stderr.log")):
+                if (self.jobs_dir / name).is_file():
+                    shutil.copyfile(self.jobs_dir / name, run_dir / name)
         self._unwatch(job)
+        self._followed_terminal.discard(job_id)
         process = self._processes.pop(job_id, None)
         if process is not None:
             process.deleteLater()
@@ -721,15 +733,62 @@ class JobManager(QObject):
         job["status"] = "cancelled"
         self._save(job)
         process = self._processes.get(job_id)
+        process_id = None
         if process is not None and process.state() != QProcess.ProcessState.NotRunning:
             process_id = int(process.processId())
             kill_process_tree(process_id)
             if process.state() != QProcess.ProcessState.NotRunning:
                 process.kill()
+        elif is_terminal(job) and process_alive(job.get("pid"), job["request"].get("process_started")):
+            process_id = int(job["pid"])
+            kill_process_tree(process_id)
+        if process_id is not None:
             from src.app.pipeline.variability import mark_cancelled
             mark_cancelled(job.get("group", ""), job.get("experiment_id", ""), process_id,
                            paths=WorkspacePaths(self.project_root))
         return self.public(job)
+
+    # ── Terminal runs: pipelines started outside the desktop announce themselves ──
+
+    def adopt_terminal_runs(self):
+        """Follow each announced terminal pipeline as a job and settle it when the pipeline exits."""
+        for path, record in announcements(self.jobs_dir):
+            job_id = record["job_id"]
+            job = self.jobs.get(job_id)
+            if job is None:
+                job = {key: record.get(key) for key in ("experiment", "group", "experiment_id", "agents", "pid",
+                                                       "total_timesteps", "effective_timesteps", "run_in_parallel",
+                                                       "started")}
+                job.update(job_id=job_id, status="running", created=record.get("started"),
+                           request={"source": "terminal", "experiment": record.get("experiment"),
+                                    "overrides": record.get("overrides", []), "overwrite": False,
+                                    "local": True, "accelerator": record.get("accelerator", True),
+                                    "resource_estimate": record.get("resource_estimate"),
+                                    "process_started": record.get("process_started")})
+                self.jobs[job_id] = job
+                self._save(job)
+            if not job.get("finished"):  # running, or cancelled from the desktop and still exiting
+                if job_id not in self._followed_terminal:
+                    self._followed_terminal.add(job_id)
+                    self._watch(job)
+                    self._execution_signatures[job_id] = self._execution_status_signature(job)
+                    self._emit_queue()
+                if "returncode" not in record and not process_alive(record.get("pid"), record.get("process_started")):
+                    record = read_announcement(path) or record  # its exit may have been recorded meanwhile
+                    if "returncode" not in record:
+                        job["error"] = "The terminal run ended without recording an exit code."
+                    self._settle_terminal(job, record)
+                elif "returncode" in record:
+                    self._settle_terminal(job, record)
+            if job.get("finished"):
+                path.unlink(missing_ok=True)
+
+    def _settle_terminal(self, job, record):
+        if record.get("interrupted"):
+            job["status"] = "cancelled"  # Ctrl+C in the terminal
+        if job.get("status") == "cancelled":
+            job.pop("error", None)
+        self._finish(job["job_id"], record.get("returncode"))
 
     def start_queue(self) -> dict[str, Any]:
         """Start queued work as resources become available."""

@@ -95,6 +95,8 @@ def main():
                         'max_parallel': manager.max_parallel, 'updated': time.time()})
             # Reconcile files even when filesystem notifications were coalesced.
             manager._on_path_changed('')
+            # Pipelines started from a terminal join the jobs this desktop follows.
+            manager.adopt_terminal_runs()
         # Remove replies left behind by a client that exited during a request.
         for reply in directory.glob('*.reply'):
             try:

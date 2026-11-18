@@ -101,20 +101,23 @@ class LocalBackend(QObject):
         self._submit(fn, experiment, list(overrides), draft_yaml, callback=callback,
                      current=lambda: self._alive and generation == self._compose_generation, pool=self._validation_pool)
 
+    def prepare_launch(self, experiment: str, overrides: list[str], overwrite: bool, active_jobs: list[dict],
+                       callback: Callback):
+        """The launch check (config_service.prepare_launch), off the GUI thread; the callback gets the plan."""
+        if self._validator is not None:
+            fn = lambda *args: self._validator.call("launch", *args)
+        else:
+            fn = lambda experiment, overrides, overwrite, active_jobs: config_service.prepare_launch(
+                experiment, overrides, overwrite=overwrite, active_jobs=active_jobs, workspace=self.paths)
+        self._submit(fn, experiment, list(overrides), overwrite, list(active_jobs),
+                     callback=callback, pool=self._validation_pool)
+
     def cancel_compose(self):
         """Discard queued and late validation results; never interrupt Hydra mid-call."""
         self._compose_generation += 1
 
     def list_runs(self, callback: Callback, *, completed_only=False):
         self._submit(lambda: {"runs": catalog.list_runs(completed_only=completed_only, workspace=self.paths)}, callback=callback)
-
-    def list_executions(self, callback: Callback, *, completed_only=False):
-        from src.app.services.executions import list_executions
-        self._submit(partial(list_executions, workspace=self.paths), completed_only, callback=callback)
-
-    def read_execution(self, path: str, callback: Callback, *, completed_only=False):
-        from src.app.services.executions import read_execution
-        self._submit(partial(read_execution, workspace=self.paths), path, completed_only, callback=callback)
 
     def archive_run(self, group: str, experiment_id: str, destination: str, callback: Callback):
         self._submit(partial(catalog.archive_run, workspace=self.paths), group, experiment_id, destination, callback=callback)
