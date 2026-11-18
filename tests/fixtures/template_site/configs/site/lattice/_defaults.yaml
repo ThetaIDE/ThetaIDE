@@ -1,0 +1,12 @@
+# @package site
+scheduler: batch
+python_executable: auto
+resources:
+  partition: batch
+  gpus: 0
+  cores: 4
+  nodes: 1
+connection:
+  host: null
+  remote_root: null
+  python: venv/bin/python3

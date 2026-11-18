@@ -195,7 +195,7 @@ def main():
         sdist_files = sorted('/'.join(p.split('/')[1:]) for p in archive.getnames())
     # The authoring workspace (src/usr, results included) and workspace state are never distributed.
     rooted = ('src/usr/', '.thetaide/')
-    anywhere = ('src/plugins/components/installed/', 'src/plugins/app/installed/', 'node_modules/', '.venv/', 'optional_components/')
+    anywhere = ('src/plugins/components/installed/', 'src/plugins/app/installed/', 'node_modules/', '.venv/')
     for files in (wheel_files, sdist_files):
         assert not any(name.startswith(rooted) or any(part in name for part in anywhere) for name in files)
         assert 'src/plugins/inventory.json' in files

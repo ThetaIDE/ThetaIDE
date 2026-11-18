@@ -12,10 +12,10 @@ def test_selected_site_button_pulls_results_and_hides_for_local():
     control = ExperimentSiteSyncControl()
     control.start = Mock()
     assert control.isHidden()
-    control.set_config({'site': {'name': 'ncshare/common', 'scheduler': 'slurm'}}, experiment='group/recipe')
+    control.set_config({'site': {'name': 'cluster/cpu', 'scheduler': 'batch'}}, experiment='group/recipe')
     assert not control.isHidden()
     control.button.click()
-    control.start.assert_called_once_with('ncshare/common', 'experiment', experiment='group/recipe')
+    control.start.assert_called_once_with('cluster/cpu', 'experiment', experiment='group/recipe')
     assert control.mode == 'results'
     control.set_config({'site': {'name': 'local', 'scheduler': 'local'}})
     assert control.isHidden()

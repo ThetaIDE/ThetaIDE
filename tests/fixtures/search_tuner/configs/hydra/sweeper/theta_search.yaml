@@ -1,0 +1,5 @@
+# @package hydra.sweeper
+_target_: hydra_plugins.theta_sweeper.ThetaSweeper
+tuner: search
+study_name: ???
+n_trials: ???

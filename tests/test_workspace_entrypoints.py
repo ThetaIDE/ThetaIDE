@@ -97,5 +97,5 @@ def test_cli_help_needs_no_optional_scheduler(tmp_path):
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     assert 'site=<profile>' in result.stdout
-    for name in ('ncshare', 'Slurm', 'Optuna'):
+    for name in ('Slurm', 'Optuna'):
         assert name not in result.stdout

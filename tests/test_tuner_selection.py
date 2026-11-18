@@ -13,9 +13,9 @@ from src.app.pipeline.tuner_execution import TunerExecutionPlan, prepare_plan, r
 from src.app.workspace import WorkspacePaths
 
 
-@pytest.mark.parametrize('tuning', [None, {}, [], 'optuna', {'component': None}, {'component': ''},
-    {'component': '  '}, {'component': 3}, {'component': False}, {'component': ['optuna']},
-    {'component': ' optuna'}, {'component': 'optuna '}])
+@pytest.mark.parametrize('tuning', [None, {}, [], 'search', {'component': None}, {'component': ''},
+    {'component': '  '}, {'component': 3}, {'component': False}, {'component': ['search']},
+    {'component': ' search'}, {'component': 'search '}])
 def test_missing_and_malformed_selectors_fail_before_provider_resolution(monkeypatch, tuning):
     monkeypatch.setattr('src.app.core.provider_loader.resolve_provider', lambda *a, **k: pytest.fail('guessed a provider'))
     cfg = {'tuning': tuning}
@@ -87,7 +87,7 @@ def test_unselected_sweep_rejected_by_validation_remote_and_worker(tmp_path):
             check()
 
 
-@pytest.mark.parametrize('marker', [None, TunerExecutionPlan('optuna', 'a' * 32).record()])
+@pytest.mark.parametrize('marker', [None, TunerExecutionPlan('search', 'a' * 32).record()])
 def test_receipts_never_supply_a_tuner_selection(marker):
     record = {'execution_id': 'a' * 32, 'tuner_execution': marker, 'config': {'tuning': {}}}
     cfg = record_config(record)
@@ -107,21 +107,21 @@ def test_receipt_config_is_returned_as_a_copy():
 
 def test_receipt_overrides_are_replayed_unchanged():
     record = {'execution_id': 'a' * 32, 'tuner_execution': None, 'config': {},
-              'overrides': ['seed=3', '++tuning.component="optuna"']}
-    assert record_overrides(record) == ['seed=3', '++tuning.component="optuna"']
+              'overrides': ['seed=3', '++tuning.component="search"']}
+    assert record_overrides(record) == ['seed=3', '++tuning.component="search"']
     assert record_overrides(record) is not record['overrides']
 
 
 def test_continuation_identity_ignores_the_trial_budget(tmp_path):
     from src.app.sites.continuation import compatibility
-    from component_fixtures import optuna_plan
-    record = {'execution_id': 'a' * 32, 'tuner_execution': optuna_plan('a' * 32), 'config': {'tuning': {
-        'component': 'optuna', 'metric': 'score', 'direction': 'maximize', 'n_trials': 2}}}
+    from component_fixtures import search_plan
+    record = {'execution_id': 'a' * 32, 'tuner_execution': search_plan('a' * 32), 'config': {'tuning': {
+        'component': 'search', 'metric': 'score', 'direction': 'maximize', 'n_trials': 2}}}
     current = copy.deepcopy(record_config(record))
     current['tuning']['n_trials'] = 10
-    from component_fixtures import install_optional
+    from component_fixtures import install_fixture
     paths = WorkspacePaths(tmp_path / 'workspace')
-    install_optional(paths, 'optuna', tmp_path / 'archives')
+    install_fixture(paths, 'search-tuner', tmp_path / 'archives')
     assert compatibility(record_config(record), paths=paths) == compatibility(current, paths=paths)
     current['tuning']['metric'] = 'different-score'
     assert compatibility(record_config(record), paths=paths) != compatibility(current, paths=paths)
@@ -135,10 +135,10 @@ def test_tuner_telemetry_does_not_infer_an_owner(tmp_path):
     (root / 'provider.py').write_text('raise AssertionError("metadata inspection imported a tuner")')
     manifest = {'id': 'provider', 'name': 'Provider', 'kind': 'tuner', 'version': '1.0.0',
         'storage_version': 3, 'api_version': 1,
-        'capabilities': [{'id': 'optuna', 'kind': 'tuner', 'entry_point': 'provider.py:Tuner',
+        'capabilities': [{'id': 'search', 'kind': 'tuner', 'entry_point': 'provider.py:Tuner',
                           'monitoring': {'provides': [{'name': 'tuner/probe', 'label': 'Probe'}]}}],
         'payload': {'implementations': ['provider.py'], 'resources': [], 'configs': {}}}
     (root / '.theta_component.json').write_text(json.dumps(manifest))
     catalog = get_catalog(WorkspacePaths(tmp_path, application=tmp_path / 'empty-app'))
     assert not available_monitors({'tuning': {}}, catalog=catalog, include_shared=False)
-    assert [m.name for m in available_monitors({'tuning': {'component': 'optuna'}}, catalog=catalog, include_shared=False)] == ['tuner/probe']
+    assert [m.name for m in available_monitors({'tuning': {'component': 'search'}}, catalog=catalog, include_shared=False)] == ['tuner/probe']

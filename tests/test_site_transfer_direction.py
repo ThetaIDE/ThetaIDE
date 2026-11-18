@@ -13,9 +13,9 @@ app = QApplication.instance() or QApplication([])
 def test_every_sync_control_downloads_without_uploading_or_launching(mode, monkeypatch, tmp_path):
     monkeypatch.setattr(WorkspacePaths, 'for_process', classmethod(lambda cls: cls(tmp_path)))
     # Pull controls are the selected scheduler's monitor contribution: install one and configure a site.
-    from component_fixtures import install_optional
-    install_optional(tmp_path, 'slurm', tmp_path.parent / (tmp_path.name + '-archives'))
-    transfer.configure(tmp_path, 'cluster', 'alias', '/project', scheduler='slurm')
+    from component_fixtures import install_fixture
+    install_fixture(tmp_path, 'batch-scheduler', tmp_path.parent / (tmp_path.name + '-archives'))
+    transfer.configure(tmp_path, 'cluster', 'alias', '/project', scheduler='batch')
     monkeypatch.setattr(transfer, 'push', lambda *_a, **_k: pytest.fail('Sync attempted a code upload'))
     from frontend import site_launch
     monkeypatch.setattr(site_launch, 'launch', lambda *_: pytest.fail('Sync attempted to launch an experiment'))
@@ -28,7 +28,7 @@ def test_every_sync_control_downloads_without_uploading_or_launching(mode, monke
     # Run the transfer deterministically while still exercising the UI action wiring.
     control.backend._submit = lambda fn, *, callback: callback(fn(), None)
     if mode == 'experiment':
-        control.set_config({'site': {'name': 'cluster', 'scheduler': 'slurm',
+        control.set_config({'site': {'name': 'cluster', 'scheduler': 'batch',
                                      'connection': {'host': 'alias', 'remote_root': '/project'}}},
                            experiment='group/recipe')
         control.button.click()

@@ -7,10 +7,10 @@ from src.app.pipeline.config import parse_methods_dict
 
 
 @pytest.fixture(autouse=True)
-def optuna_workspace(monkeypatch):
-    """Sweeps compile through the selected tuner, so Optuna is installed in the workspace."""
-    from component_fixtures import optional_workspace
-    monkeypatch.setenv("THETA_WORKSPACE", str(optional_workspace("optuna").root))
+def search_workspace(monkeypatch):
+    """Sweeps compile through the selected tuner, so the test tuner is installed in the workspace."""
+    from component_fixtures import fixture_workspace_with
+    monkeypatch.setenv("THETA_WORKSPACE", str(fixture_workspace_with("search-tuner").root))
 
 
 class TestBuildMethodOverrides:
@@ -299,9 +299,9 @@ class TestBuildMethodOverrides:
             "experiment_name": "mimic/test_cql",
             "paradigm": "offline_rl",
             "tuning": {
-                "component": "optuna",
+                "component": "search",
                 "direction": "minimize",
-                "options": {"optuna": {"n_trials": 25}},
+                "options": {"search": {"n_trials": 25}},
             },
             "methods": {
                 "cql_dnn": {
@@ -323,10 +323,9 @@ class TestBuildMethodOverrides:
         )
         assert "--multirun" in overrides
         assert overrides[0] == "--multirun"
-        assert "hydra/sweeper=theta_optuna" in overrides
+        assert "hydra/sweeper=theta_search" in overrides
         assert '++hydra.sweeper.study_name="study_cql_v1"' in overrides
         assert "++hydra.sweeper.n_trials=25" in overrides
-        assert "++hydra.sweeper.direction=minimize" in overrides
         assert "agent.lr=interval(0.0001, 0.01)" in overrides
         assert "agent.cql_alpha=choice(0.1,1.0,5.0)" in overrides
         # Ensure tune dict is not passed as a hyperparameter
@@ -338,7 +337,7 @@ class TestBuildMethodOverrides:
             "model.width": {"type": "int", "low": 2, "high": 6, "step": 2},
             "agent.enabled": {"type": "choice", "values": [True, False]},
         }}
-        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna", "direction": "maximize"}})
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "search", "direction": "maximize"}})
         assert "agent.lr=tag(log, interval(0.0001, 0.01))" in overrides
         assert "model.width=range(2, 6, 2)" in overrides
         assert "agent.enabled=choice(true,false)" in overrides
@@ -347,22 +346,13 @@ class TestBuildMethodOverrides:
         method = {"agent": "ppo", "model": "dnn", "tune": {
             "agent.lr": {"type": "float", "low": 0.1, "high": 0.5, "step": 0.2},
         }}
-        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl", "tuning": {"component": "optuna", "direction": "maximize"}})
+        overrides = build_method_overrides("m", method, cfg={"paradigm": "online_rl", "tuning": {"component": "search", "direction": "maximize"}})
         assert "agent.lr=range(0.1, 0.5, 0.2)" in overrides
-
-    @pytest.mark.parametrize("arg", ["hydra.sweeper.n_trials=5", "++hydra.sweeper.direction=minimize",
-                                     "hydra/sweeper=other"])
-    def test_sweeper_settings_come_only_from_the_tuning_block(self, arg):
-        method = {"agent": "cql", "model": "dnn", "tune": {"agent.lr": {"type": "float", "low": 0.1, "high": 0.2}}}
-        with pytest.raises(ValueError, match="compiled from the tuning block"):
-            build_method_overrides(
-                "cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna", "direction": "maximize"}},
-                extra_args=[arg])
 
     def test_sweep_does_not_override_sample_with_base_value(self):
         method = {"agent": "cql", "model": "dnn", "lr": 0.001,
                   "tune": {"agent.lr": {"type": "float", "low": 0.0001, "high": 0.01}}}
-        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "optuna", "direction": "maximize"}})
+        overrides = build_method_overrides("cql", method, cfg={"paradigm": "offline_rl", "tuning": {"component": "search", "direction": "maximize"}})
         assert any(arg.lstrip("+") == "agent.lr=interval(0.0001, 0.01)" for arg in overrides)
         assert sum(arg.lstrip("+").startswith("agent.lr=") for arg in overrides) == 1
 
@@ -396,15 +386,15 @@ class TestBuildMethodOverrides:
         assert "--multirun" not in m1_overrides
         assert not any("hydra/sweeper" in o for o in m1_overrides)
 
-        # Method 2: tuned -> Optuna sweep
+        # Method 2: tuned -> sweep
         m2_overrides = build_method_overrides(
             method_name="ppo_tuned",
             method_cfg=methods["ppo_tuned"],
-            cfg={**cfg_dict, "tuning": {"component": "optuna", "direction": "maximize"}},
+            cfg={**cfg_dict, "tuning": {"component": "search", "direction": "maximize"}},
             study_name="cartpole_ppo_tuned_v1",
         )
         assert "--multirun" in m2_overrides
-        assert "hydra/sweeper=theta_optuna" in m2_overrides
+        assert "hydra/sweeper=theta_search" in m2_overrides
         assert "agent.lr=interval(0.0001, 0.01)" in m2_overrides
 
 

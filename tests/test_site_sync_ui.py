@@ -41,5 +41,5 @@ def test_remote_stop_never_cancels_a_local_job():
 
 def test_remote_queue_command_is_inactive():
     from frontend.app import Window
-    host = SimpleNamespace(composed_config={'site': {'scheduler': 'slurm'}})
+    host = SimpleNamespace(composed_config={'site': {'scheduler': 'batch'}})
     Window.add_to_queue(host, start=True)

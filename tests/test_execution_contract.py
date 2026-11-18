@@ -144,9 +144,9 @@ def test_configured_evaluator_runs_once():
 
 def test_pipeline_sweep_invokes_worker_once_per_trial(tmp_path):
     root = sentinel_workspace(tmp_path)
-    # Tuning is an optional component; install Optuna into this workspace like any package.
-    from component_fixtures import install_optional
-    install_optional(tmp_path, 'optuna', tmp_path / 'optional-archives')
+    # Tuning is a component; install the test tuner into this workspace like any package.
+    from component_fixtures import install_fixture
+    install_fixture(tmp_path, 'search-tuner', tmp_path / 'fixture-archives')
     experiment = tmp_path / 'src/usr/config/experiment/probe.yaml'
     with experiment.open('a') as handle:
         handle.write('    tune:\n      model.lr: {type: choice, values: [0.001, 0.002]}\n')
@@ -154,7 +154,7 @@ def test_pipeline_sweep_invokes_worker_once_per_trial(tmp_path):
     environment.pop('THETA_DATA_DIR', None)
     environment.pop('THETA_PROVIDER_SNAPSHOT', None)
     result = subprocess.run([sys.executable, str(root / 'run_pipeline.py'), 'probe',
-                             '++tuning.component=optuna', '++tuning.options.optuna.n_trials=2',
+                             '++tuning.component=search', '++tuning.options.search.n_trials=2',
                              '++tuning.metric=probe', '++tuning.direction=maximize'],
                             cwd=tmp_path, env=environment, text=True, capture_output=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr

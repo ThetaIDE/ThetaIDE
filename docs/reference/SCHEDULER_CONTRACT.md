@@ -1,6 +1,6 @@
 # Scheduler component contract v2
 
-Batch schedulers are optional native components. Slurm is one such component, maintained in `optional_components/slurm` and installed like any other package. Core never selects a scheduler by name. It owns receipts, [bundles](#bundles), publication, artifact ownership, continuation lineage and transport primitives (`src/app/sites/transport.py`). The selected scheduler owns submission, allocation validation, polling, cancellation, scheduler-specific headers/environment, setup commands and site templates.
+Batch schedulers are native components installed from Theta Hub. Slurm is one such component; its source lives in the theta-plugins repository under `schedulers/slurm`. Core never selects a scheduler by name. It owns receipts, [bundles](#bundles), publication, artifact ownership, continuation lineage and transport primitives (`src/app/sites/transport.py`). The selected scheduler owns submission, allocation validation, polling, cancellation, scheduler-specific headers/environment and setup commands. Schedulers ship no site profiles: each site is a package the user authors under `src/usr/sites/SITE`.
 
 ## Selection
 
@@ -40,7 +40,7 @@ Receipts record `scheduler_component`; a receipt without one is rejected.
 | `submission_command(config, experiment, site)` | no | Command copied by the desktop **Run** action |
 | `launch_in_terminal(root, site, experiment)`, `worker_threads`, `accounting_details` | no | Provider helpers used by its own tooling |
 
-Core dispatch lives in `src/app/sites/execution.py`. An independently named scheduler fixture uses the same path (`tests/test_optional_component_extraction.py`).
+Core dispatch lives in `src/app/sites/execution.py`. Independently named scheduler fixtures use the same path (`tests/test_scheduler_components.py`).
 
 ## Bundles
 
@@ -54,14 +54,14 @@ Schedulers use the SDK (`src.app.api.sites`): `prepare_bundle(root, experiment, 
 
 Receipts live in `src/usr/results/sites/<execution>` for every scheduler. Each records the `scheduler_component` that owns it and its `tuner_execution` plan (or `null`); a receipt without either is refused. Scripts use the installed scheduler through these runtime methods; SSH shortcuts use `run_pipeline.py site ssh`.
 
-## Installing the Slurm component
+## Installing a scheduler
 
-Build archives from the maintained sources, then install them into the selected workspace:
+Install **Slurm scheduler** from Components → Hub, or install a locally built archive (built in theta-plugins with `scripts/package_plugins.py --only slurm`):
 
 ```bash
-venv/bin/python scripts/package_optional_components.py slurm optuna --output /tmp/theta-optional
-venv/bin/python run_pipeline.py component --root WORKSPACE install /tmp/theta-optional/slurm-2.0.0.zip
-venv/bin/python run_pipeline.py component --root WORKSPACE install /tmp/theta-optional/optuna-1.1.1.zip
+venv/bin/python run_pipeline.py component --root WORKSPACE install slurm-3.0.0.zip
 ```
 
-Disable or re-enable without uninstalling with `component extension disable scheduler slurm` / `enable`. Uninstalling removes its contributions; usr overrides of its site templates remain.
+Then author a site that selects it, for example `run_pipeline.py site configure cluster --scheduler slurm --host ALIAS --remote-root PATH`. Disable or re-enable without uninstalling with `component extension disable scheduler slurm` / `enable`. Uninstalling removes its contributions; authored sites remain.
+
+IDE tests exercise this contract with the fixture `batch-scheduler` and `template-site` packages in `tests/fixtures/`; Slurm's own tests live beside its source in theta-plugins.

@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from src.app.sites import profiles, scheduler
 from src.app.sites import execution, transfer
 from src.app.sites import bundle
-from bundle_fixtures import fake_bundles, fake_selection
+from bundle_fixtures import fake_selection
 from src.app.sites.storage import digest, read_json, safe_path, workspace_id, write_json
 from src.app.workspace import WorkspacePaths
 
@@ -21,7 +21,7 @@ from src.app.workspace import WorkspacePaths
 def no_ssh(monkeypatch):
     original = subprocess.run
     def guarded(args, *a, **kw):
-        assert args[0] not in ('ssh', 'rsync', 'sbatch', 'squeue', 'sacct'), 'Test attempted a real cluster command'
+        assert args[0] not in ('ssh', 'rsync'), 'Test attempted a real remote command'
         return original(args, *a, **kw)
     monkeypatch.setattr(subprocess, 'run', guarded)
 
@@ -33,16 +33,16 @@ def project(root):
     (root / 'src/usr/config/config.yaml').write_text('defaults: [{site: local}]\n')
     (root / 'run_pipeline.py').write_text('# runner\n')
     workspace_id(root)
-    from component_fixtures import install_optional
-    # Cluster contracts run through the optional Slurm scheduler, installed like any component.
-    install_optional(root, 'slurm', root.parent / (root.name + '-archives'))
+    from component_fixtures import install_fixture
+    # Cluster contracts run through an installed scheduler; the test one runs no commands.
+    install_fixture(root, 'batch-scheduler', root.parent / (root.name + '-archives'))
     return root
 
 
 def record(root, state='completed'):
     project(root)
     execution_id = 'a' * 32
-    value = {'schema_version': 1, 'scheduler_component': 'slurm', 'tuner_execution': None,
+    value = {'schema_version': 1, 'scheduler_component': 'batch', 'tuner_execution': None,
              'execution_id': execution_id, 'project_id': workspace_id(root),
              'site': 'cluster', 'group': 'demo', 'result_experiment_id': 'nested/test__' + execution_id,
              'state': state, 'scheduler_state': state, 'job_id': '123', 'artifacts_finalized': False}
@@ -87,7 +87,7 @@ def test_explicit_scheduler_and_packaged_profiles(tmp_path):
     assert 'local/default' in profiles(paths)
 
 
-CLUSTER = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm',
+CLUSTER = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'batch',
                             'python_executable': sys.executable}, 'resources': {}})
 
 
@@ -171,25 +171,6 @@ def test_remote_identity_and_local_collision_protection(tmp_path, monkeypatch):
     assert collision.read_text() == 'my local output'
 
 
-def test_unknown_submission_is_not_retried(tmp_path, monkeypatch):
-    root = project(tmp_path)
-    fake_bundles(monkeypatch, CLUSTER)
-    calls = []
-    def submit(args, **kw):
-        calls.append(args)
-        raise subprocess.TimeoutExpired(args, 60)
-    monkeypatch.setattr(subprocess, 'run', submit)
-    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}})
-    with pytest.raises(RuntimeError): execution.submit(root, 'demo/test', [], cfg)
-    assert len(calls) == 1
-    receipt = read_json(next((root / 'src/usr/results/sites').glob('*/submission.json')))
-    assert receipt['state'] == 'submission_unknown'
-    assert receipt['result_experiment_id'] == 'test/' + receipt['execution_id']
-    script = next((root / 'src/usr/results/sites').glob('*/job.sbatch')).read_text()
-    assert 'unset THETA_RESOURCE_POOL' in script
-    assert '_run' in script
-
-
 def test_cleanup_requires_all_verified_artifacts(tmp_path, monkeypatch):
     remote_root, local_root = tmp_path / 'cluster', tmp_path / 'local'
     value, _, checkpoint = record(remote_root)
@@ -245,60 +226,13 @@ def test_site_component_scaffold_is_installable(tmp_path):
     assert 'cluster/default' in profiles(WorkspacePaths(tmp_path))
 
 
-def test_allocation_worker_runs_frozen_pipeline_and_records_outputs(tmp_path, monkeypatch):
-    monkeypatch.setenv('SLURM_JOB_ID', '321')
-    root = project(tmp_path)
-    fake_bundles(monkeypatch, CLUSTER)
-    script = root / 'run_pipeline.py'
-    script.write_text('''import json, os, pathlib, sys
-assert os.environ['THETA_IN_ALLOCATION'] == '1'
-assert 'THETA_RESOURCE_POOL' not in os.environ
-value = next(item.split('=', 1)[1] for item in sys.argv if item.startswith('++experiment_id='))
-name = json.loads(value)
-path = pathlib.Path('src/usr/results/logs/demo') / name / 'agent/version_0'
-path.mkdir(parents=True)
-(path / 'metrics.csv').write_text('step,reward\\n1,5\\n')
-print('frozen source executed')
-''')
-    def sbatch(args, **kw):
-        assert args[0] == 'sbatch'
-        return SimpleNamespace(returncode=0, stdout='321;cluster\n', stderr='')
-    monkeypatch.setattr(subprocess, 'run', sbatch)
-    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm', 'python_executable': sys.executable}, 'resources': {}})
-    result = execution.submit(root, 'demo/test', [], cfg)
-    script.write_text('raise RuntimeError("mutable project must not run")')
-    monkeypatch.setenv('THETA_RESOURCE_POOL', '/unrelated/workstation-pool')
-    code = execution.run(root, result['execution_id'])
-    assert code == 0
-    receipt = read_json(execution.receipt_path(root, result['execution_id']))
-    assert receipt['state'] == 'completed'
-    assert not receipt['artifacts_finalized']  # wait for scheduler termination before sealing stdout/stderr
-    assert list((root / 'src/usr/results/logs').rglob('metrics.csv'))
-    assert 'frozen source executed' in (execution.receipt_path(root, result['execution_id']).parent / 'pipeline.log').read_text()
-
-
-def test_scheduler_finishing_is_distinct_from_submission_exit(tmp_path, monkeypatch):
+def test_status_and_cancellation_dispatch_to_the_receipts_scheduler(tmp_path):
     value, _, _ = record(tmp_path, 'running')
-    replies = iter(['', '123|TIMEOUT|0:15\n'])
-    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=next(replies)))
-    updated = execution.refresh_status(tmp_path, value)
-    assert updated['state'] == 'timeout'
-    assert updated['exit_code'] == '0:15'
-
-
-def test_default_batch_interpreter_preserves_virtualenv_path(tmp_path, monkeypatch):
-    real_run = subprocess.run
-    root = project(tmp_path)
-    fake_bundles(monkeypatch, CLUSTER)
-    executable = root / 'venv/bin/python3'
-    executable.parent.mkdir(parents=True)
-    executable.symlink_to(sys.executable)
-    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=0, stdout='123\n', stderr=''))
-    cfg = OmegaConf.create({'group': 'demo', 'experiment_id': 'test', 'site': {'name': 'cluster', 'scheduler': 'slurm'}, 'resources': {}})
-    value = execution.submit(root, 'demo/test', [], cfg)
-    script = (execution.receipt_path(root, value['execution_id']).parent / 'job.sbatch').read_text()
-    assert str(executable) in script
-    assert real_run(['/bin/bash', '-n', str(execution.receipt_path(root, value['execution_id']).parent / 'job.sbatch')]).returncode == 0
+    (execution.receipt_path(tmp_path, value['execution_id']).parent / 'batch-state').write_text('timeout')
+    assert execution.refresh_status(tmp_path, value)['state'] == 'timeout'
+    value, _, _ = record(tmp_path / 'other', 'running')
+    assert execution.cancel(tmp_path / 'other', value)['scheduler_state'] == 'cancelled'
+    assert read_json(execution.receipt_path(tmp_path / 'other', value['execution_id']))['state'] == 'cancelled'
 
 
 def test_hydra_inherits_and_overrides_site_group(tmp_path, monkeypatch):
@@ -309,11 +243,11 @@ def test_hydra_inherits_and_overrides_site_group(tmp_path, monkeypatch):
     (config / 'site').mkdir()
     (config / 'config.yaml').write_text('defaults:\n  - site: local\n  - _self_\ngroup: ungrouped\nexperiment_id: default_exp\nexperiment_name: default_exp\n')
     (config / 'site/local.yaml').write_text('scheduler: local\n')
-    (config / 'site/cluster.yaml').write_text('scheduler: slurm\n')
+    (config / 'site/cluster.yaml').write_text('scheduler: batch\n')
     (config / 'experiment/g/_base.yaml').write_text('# @package _global_\ndefaults:\n  - override /site: cluster\n  - _self_\n')
     (config / 'experiment/g/test.yaml').write_text('# @package _global_\ndefaults:\n  - /experiment/g/_base\n  - _self_\n')
     composed = compose_experiment('g/test', workspace=WorkspacePaths(tmp_path))
-    assert composed.cfg.site.scheduler == 'slurm'
+    assert composed.cfg.site.scheduler == 'batch'
     assert compose_experiment('g/test', ['site=local'], workspace=WorkspacePaths(tmp_path)).cfg.site.scheduler == 'local'
 
 

@@ -1,0 +1,35 @@
+{
+  "id": "search-tuner",
+  "name": "Search tuner fixture",
+  "kind": "tuner",
+  "version": "1.0.0",
+  "description": "Test tuner: settings, sweep compilation and a grid sweeper without third-party libraries.",
+  "storage_version": 3,
+  "api_version": 1,
+  "capabilities": [
+    {
+      "id": "search",
+      "kind": "tuner",
+      "entry_point": "component.py:SearchTuner",
+      "contribution_api": 1,
+      "contributions": [
+        {"id": "configure", "slot": "configuration.tuning", "label": "Hyperparameter Sweep", "availability": "enabled"},
+        {"id": "parameters", "slot": "configuration.parameter_sweeps", "availability": "ready"},
+        {"id": "study-monitor", "slot": "monitor.tuning", "label": "Tuning study", "availability": "ready"}
+      ],
+      "tuning_features": {
+        "objective_modes": ["metric", "component"],
+        "pruning": true,
+        "pruning_objectives": false,
+        "pruning_repeated_runs": false
+      }
+    }
+  ],
+  "payload": {
+    "implementations": ["__init__.py", "component.py", "sweeper.py"],
+    "resources": [],
+    "configs": {"hydra/sweeper/theta_search.yaml": "configs/hydra/sweeper/theta_search.yaml"}
+  },
+  "config_paths": ["hydra/sweeper/theta_search.yaml"],
+  "exports": {"hydra_sweeper": "sweeper.py:SearchSweeper"}
+}

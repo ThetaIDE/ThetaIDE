@@ -63,7 +63,7 @@ def test_push_transfers_only_changed_files_and_retains_pinned_archives(tmp_path,
     monkeypatch.setattr(transfer, 'ssh', ssh)
     monkeypatch.setattr(transfer, 'run_transfer', rsync)
     from omegaconf import OmegaConf
-    fake_bundles(monkeypatch, OmegaConf.create({'site': {'name': 'cluster', 'scheduler': 'slurm'}}))
+    fake_bundles(monkeypatch, OmegaConf.create({'site': {'name': 'cluster', 'scheduler': 'batch'}}))
     push = lambda: transfer.push(local, 'cluster', 'group/run')
     first = push()
     original_inode = (remote / 'src/app/component.py').stat().st_ino

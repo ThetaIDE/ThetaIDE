@@ -18,7 +18,7 @@ from src.app.components.sdk_boundary import (package_errors, package_references,
                                              undeclared_imports, violations, window_access)
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARDED = [ROOT / "optional_components", ROOT / "src/plugins/components/bundled", ROOT / "src/plugins/app/bundled"]
+GUARDED = [ROOT / "src/plugins/components/bundled", ROOT / "src/plugins/app/bundled", ROOT / "tests/fixtures"]
 HOST_TREES = [ROOT / "src/app", ROOT / "frontend", ROOT / "hydra_plugins", ROOT / "run_pipeline.py"]
 
 
@@ -27,7 +27,7 @@ def guarded_files():
 
 
 def package_roots():
-    """Every package this repository tracks: optional, bundled, authored (src/usr) and fixtures."""
+    """Every package this repository tracks: bundled, authored (src/usr) and fixtures."""
     listed = subprocess.run(["git", "ls-files", "*.theta_component.json"], cwd=ROOT, capture_output=True,
                             text=True, check=True).stdout.split()
     return sorted((ROOT / name).parent for name in listed)
@@ -54,7 +54,7 @@ def test_imports_only_the_supported_sdk(path):
 
 def test_tracked_packages_cover_every_origin():
     roots = {root.relative_to(ROOT).parts[0] if root.parts[-3:-1] != ("src", "usr") else "" for root in package_roots()}
-    assert {"optional_components", "src", "tests"} <= roots
+    assert {"src", "tests"} <= roots
     assert any(root.is_relative_to(ROOT / "src/usr") for root in package_roots())
 
 
@@ -98,7 +98,7 @@ CORE_TREES = [ROOT / "src/app", ROOT / "hydra_plugins", ROOT / "run_pipeline.py"
 
 
 @pytest.mark.parametrize("token", ["symbolic_state", "ruleset", "rules_root", "compatible_paradigms",
-                                   "allowed_agents", "tensorboard", "tfevents", "slurm_submit_dir", "optuna",
+                                   "allowed_agents", "tensorboard", "tfevents", "slurm_submit_dir", "optuna", "ncshare",
                                    "sb3", "d3rlpy"])
 def test_core_has_no_component_special_cases(token):
     """Compatibility, resources, result categories, sweepers and scheduler shells belong to their packages."""
@@ -197,7 +197,7 @@ def test_sdk_exports_are_canonical_host_objects():
     from src.app.api import config as sdk_config, packages
     from src.app.core import requirements, provider_loader
     from src.app.api import SDK_VERSION
-    assert SDK_VERSION == "3.2"
+    assert SDK_VERSION == "3.4"
     assert sdk_config.compatibility is requirements.compatibility
     assert packages.load_selected is requirements.load_selected
     assert packages.resource_entries is provider_loader.resource_entries

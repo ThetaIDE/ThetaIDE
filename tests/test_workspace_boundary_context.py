@@ -84,16 +84,16 @@ def test_plot_and_component_export_consume_effective_profiles_from_two_workspace
 
 def test_site_template_configuration_creates_user_override(tmp_path):
     from src.app.sites.catalog import configure, load, defaults_path
-    from component_fixtures import install_optional
+    from component_fixtures import install_fixture
     paths = WorkspacePaths(tmp_path)
-    install_optional(paths, "slurm", tmp_path / "archives")
-    resolved = paths.config_resolver().resolve('site/arc/_defaults.yaml', required=True)
-    assert resolved.package.id == 'slurm'
+    install_fixture(paths, "template-site", tmp_path / "archives")
+    resolved = paths.config_resolver().resolve('site/lattice/_defaults.yaml', required=True)
+    assert resolved.package.id == 'template-site'
     original = resolved.file.read_bytes()
-    configure(paths, 'arc/default', {'host': 'test-alias', 'remote_root': '/scratch/test'})
+    configure(paths, 'lattice/default', {'host': 'test-alias', 'remote_root': '/scratch/test'})
     assert resolved.file.read_bytes() == original
-    assert defaults_path(paths, 'arc/default') == paths.config / 'site/arc/_defaults.yaml'
-    assert load(paths, 'arc/default')['connection']['host'] == 'test-alias'
+    assert defaults_path(paths, 'lattice/default') == paths.config / 'site/lattice/_defaults.yaml'
+    assert load(paths, 'lattice/default')['connection']['host'] == 'test-alias'
     assert not paths.user('site').exists()
 
 

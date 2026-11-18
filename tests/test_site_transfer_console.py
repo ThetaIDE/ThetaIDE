@@ -165,7 +165,7 @@ def test_experiment_sync_terminal_streams_and_returns_to_origin(monkeypatch, tmp
         return {'last_sync': '2026-11-10T12:00:00Z', 'transferred': 1}
     monkeypatch.setattr(transfer, 'sync', sync)
     try:
-        control.set_config({'site': {'name': 'cluster', 'scheduler': 'slurm'}}, experiment='group/recipe')
+        control.set_config({'site': {'name': 'cluster', 'scheduler': 'batch'}}, experiment='group/recipe')
         control.button.click()
         terminal = panel.terminal
         assert window.tabs.currentWidget() is panel

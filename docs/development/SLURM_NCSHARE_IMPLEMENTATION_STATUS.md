@@ -27,7 +27,7 @@ The initial requested audit suites reproduced **63 passed, 2 failed**. The failu
 
 These failures are isolated from the managed storage tests and remain reported; their assertions have not been weakened or removed. The supported end-to-end desktop workflow is **not declared wholly green**. A broader exploratory run also found 11 existing `test_queue_panel.py` failures targeting removed constructor callbacks/window queue APIs. Queue implementation was not changed by this work. Current hierarchy coverage is retained in `test_queue_hierarchy.py`.
 
-New `test_ncshare_hardening.py` uses real files, SQLite WAL connections, fake scheduler/transfer commands, and real subprocesses. It exercises resource overrides; archive traversal/link refusal; purge-safe input mtimes; allocation-exclusive scratch; standalone WAL backups; DB cadence/coalescing; atomic failed copies; immutable bundles and repeat-sync zero payload; manifest-only login work; shared diagnostic budgets; continuation compatibility/ownership/interruption reconciliation; scheduler batching; signal stage-out; runtime limits; transfer cancellation; and verified cleanup/lease exclusion.
+The hardening tests (originally `test_ncshare_hardening.py`) use real files, SQLite WAL connections, fake scheduler/transfer commands, and real subprocesses. It exercises resource overrides; archive traversal/link refusal; purge-safe input mtimes; allocation-exclusive scratch; standalone WAL backups; DB cadence/coalescing; atomic failed copies; immutable bundles and repeat-sync zero payload; manifest-only login work; shared diagnostic budgets; continuation compatibility/ownership/interruption reconciliation; scheduler batching; signal stage-out; runtime limits; transfer cancellation; and verified cleanup/lease exclusion.
 
 Two integrations execute the **actual pipeline from archived source and providers in fresh local scratch**: a 64-transition CartPole CPU run and a three-trial CPU Optuna study. The latter is continued in a new attempt and its four completed trials verified. This validates local path/interpreter/storage integration, not NCShare Slurm or NFS behavior.
 
@@ -35,14 +35,10 @@ The original adaptive-trials regression needed its component config roots added 
 
 A core checkpoint before final expansion passed **77 tests**, including real CPU study continuation. A later 150-test run caught a transient WAL-disappearance race during continuation: the publisher now tolerates disappearing producer sidecars, and dedicated regression coverage was added. The broad final run passed **150 tests with the same 2 baseline monitor-lifecycle failures** (152 collected, 101.20 seconds). It ran outside the macOS sandbox for process inspection. An additional bounded-metadata serializer regression was added afterward. Final focused checks passed **118 tests, with only the two already-passing full CPU integration cases deselected** (22.77 seconds); these covered the final serializer, cleanup-preview, and scheduler/training-outcome changes. The suite does not establish live acceptance.
 
+The Slurm and Optuna tests now live beside their sources in theta-plugins (`tests/test_slurm_*.py`, `tests/test_optuna_*.py`); `test_ncshare_hardening.py` was split between those files and the IDE's `tests/test_site_publication.py`, which uses fixture packages instead of NCShare. Run the plugin tests from the theta-plugins checkout:
+
 ```bash
-QT_QPA_PLATFORM=offscreen venv/bin/python -m pytest -q \
-  tests/test_ncshare_hardening.py tests/test_sites.py tests/test_site_workflow.py \
-  tests/test_site_ownership.py tests/test_site_sync_ui.py tests/test_slurm.py \
-  tests/test_mechanistic_monitors.py tests/test_monitor_lifecycle.py \
-  tests/test_queue_hierarchy.py tests/test_optuna_pruning.py tests/test_sweep_monitoring.py \
-  tests/test_telemetry.py tests/test_monitor_streams.py tests/test_monitor_refresh_cost.py \
-  tests/test_adaptive_trials.py
+../Theta-IDE/venv/bin/python -m pytest -q tests/test_slurm_execution.py tests/test_slurm_headers.py tests/test_optuna_execution.py
 ```
 
 `git diff --check` and Python compilation checks passed. No mocked result is live cluster acceptance.

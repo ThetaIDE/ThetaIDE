@@ -49,7 +49,8 @@ python -m frontend          # from the repository root, with the venv active
 ```
 
 ThetaIDE runs from the same venv as the pipeline. It imports the pipeline's composition and validation code
-directly and launches `run_pipeline.py` as a child process, so there is nothing else to start.
+directly and launches `run_pipeline.py` as a child process, so there is nothing else to start. Local
+`run_pipeline.py` runs started from a terminal also appear in its queue and monitors (see 3.3).
 
 ---
 
@@ -106,7 +107,7 @@ the worker. A multi-seed trial may have pending seeds while its admitted seeds c
 
 | Method | Behaviour |
 |---|---|
-| `launch(experiment, overrides, queue=False, overwrite=False)` | Validates via `prepare_launch`, then starts the job (or queues it). Raises `LaunchError`. |
+| `launch(experiment, overrides, queue=False, overwrite=False, plan=None)` | Starts the job (or queues it) from `plan`, which the desktop prepares in its validation process; without one, validates via `prepare_launch` first. Raises `LaunchError`. |
 | `cancel(job_id)` | Queued: removed from the queue. Running: kills the process tree; the job ends as `cancelled`. |
 | `start_queue()` / `pause_queue()` | Starts/stops admitting queued work. Resource budgets determine concurrency; already running jobs continue when queue admission pauses. |
 | `move(job_id, position)` | Reorders a queued job (raises `LaunchError` for a job that is not queued). |
@@ -117,7 +118,7 @@ the worker. A multi-seed trial may have pending seeds while its admitted seeds c
 | Signal | Arguments |
 |---|---|
 | `job_changed` | the job's public record after any status change (`pending` → `running` → `completed` / `failed` / `cancelled` / `error`) |
-| `job_output` | `job_id`, new log lines (also written to `<data dir>/jobs/<job_id>.log`) |
+| `job_output` | `job_id`, new log lines (also written to `<data dir>/runs/jobs/<job_id>.log`) |
 | `job_metrics` | `job_id`, agent, new metric rows, `reset` |
 | `job_hardware` | `job_id`, `{cpu_percent, memory_mb}`, sampled at most once a second while output arrives |
 | `queue_changed` | the same dictionary as `queue_state()` |
@@ -125,6 +126,21 @@ the worker. A multi-seed trial may have pending seeds while its admitted seeds c
 Jobs belong to the detached runner. The desktop can reconnect to persisted jobs after reopening; queued
 work is durable. On runner recovery, stale jobs whose processes are no longer active may be marked
 `interrupted`. The runner can exit after its idle grace period when no work or clients remain.
+
+**Terminal launches.** A local `run_pipeline.py` started from a terminal announces itself in
+`<data dir>/runs/jobs/terminal/<job_id>.json` (`src/app/services/terminal_runs.py`). It tees its console
+output to `<job_id>.log` and records its exit code in the announcement. Once a second the runner adopts
+announcements as jobs whose request has `source: terminal`. They get the same queue cards, live monitors,
+log and method/replicate cancellation as desktop launches. Cancelling the whole job kills the terminal
+pipeline's process tree. The runner settles the job from the recorded exit:
+- **Ctrl+C** ends the job as `cancelled`.
+- **A process that vanished without recording an exit** ends the job as `error`.
+
+The runner deletes an announcement only after settling its job, so a desktop opened later still adopts
+runs that started or finished while it was closed. Pipelines the runner itself starts carry
+`THETA_RUNNER_JOB` and do not announce themselves. Nested workflow pipelines and scheduler allocations don't
+announce either. `WorkspacePaths.jobs` is the one definition of this folder for the desktop, the runner and
+the terminal.
 
 ### 3.4 TensorBoard (`frontend/tensorboard.py`)
 

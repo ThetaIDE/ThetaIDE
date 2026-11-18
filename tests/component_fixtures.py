@@ -1,19 +1,39 @@
-"""Explicit native optional-package setup for integration tests."""
+"""Test tuner and scheduler packages (``tests/fixtures``) installed through the native lifecycle."""
 import json
 from pathlib import Path
-from zipfile import ZipFile
-from scripts.package_optional_components import build
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 from src.app.components.installer import HubInstaller
 from src.app.components.models import HubComponent, ReleaseInfo
 from src.app.core.provider_catalog import get_catalog
 from src.app.workspace import WorkspacePaths
 
+FIXTURES = Path(__file__).resolve().parent / 'fixtures'
+#: Installable fixture packages by ID: a tuner, a scheduler and a packaged site, without third-party libraries.
+PACKAGES = {'search-tuner': 'search_tuner', 'batch-scheduler': 'batch_scheduler', 'template-site': 'template_site'}
 
-def install_optional(paths, name, output):
+
+def build_fixture(package_id, output):
+    """A native archive of the fixture package ``package_id``."""
+    source = FIXTURES / PACKAGES[package_id]
+    metadata = json.loads((source / '.theta_component.json').read_text())
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    target = output / f"{metadata['id']}-{metadata['version']}.zip"
+    with ZipFile(target, 'w', ZIP_DEFLATED) as archive:
+        for path in sorted(source.rglob('*')):
+            if path.is_file() and '__pycache__' not in path.parts:
+                info = ZipInfo(path.relative_to(source).as_posix(), date_time=(2020, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                archive.writestr(info, path.read_bytes())
+    return target
+
+
+def install_fixture(paths, package_id, output):
+    """Install the fixture package ``package_id`` into the workspace ``paths`` like a Hub release."""
     paths = paths if isinstance(paths, WorkspacePaths) else WorkspacePaths(paths)
-    if get_catalog(paths).package(name) is not None: return
-    source = Path(__file__).resolve().parents[1] / 'optional_components' / name
-    archive = build(source, output)
+    if get_catalog(paths).package(package_id) is not None: return
+    archive = build_fixture(package_id, output)
     with ZipFile(archive) as bundle: metadata = json.loads(bundle.read('.theta_component.json'))
     component = HubComponent.from_dict(metadata)
     component.releases = {component.version: ReleaseInfo(component.version, archive.as_uri(), '')}
@@ -21,60 +41,52 @@ def install_optional(paths, name, output):
 
 
 def cluster_site(root, *, execution=None):
-    """Author a two-partition Slurm site, `cluster`, in the workspace at `root`.
+    """Author a two-partition batch site, `cluster`, in the workspace at `root`.
 
-    `cluster/common` is a CPU partition without --time or --gres, `cluster/gpu` a consolidated
+    `cluster/cpu` is a CPU partition without --time or --gres, `cluster/gpu` a consolidated
     GPU partition, and `cluster/default` inherits the shared defaults. `execution` adds a managed
-    execution policy to `cluster/common`. Tests use it instead of any institution's real site package.
+    execution policy to `cluster/cpu`. Tests use it instead of any institution's real site package.
     """
     from src.app.sites.catalog import create
     root = root.root if isinstance(root, WorkspacePaths) else Path(root)
-    defaults = {'scheduler': 'slurm', 'python_executable': 'auto', 'venv_dir': 'venv',
+    defaults = {'scheduler': 'batch', 'python_executable': 'auto', 'venv_dir': 'venv',
                 'mail_user': None, 'mail_type': 'END,FAIL', 'consolidate': False,
                 'resources': {'time': None, 'nodes': 1, 'gpu_type': None, 'gres': None},
                 'module_loads': [], 'extra_pythonpath': [],
                 'extra_env_vars': {'OMP_NUM_THREADS': '1'}, 'extra_sbatch_flags': [],
                 'dataset_search_dirs': []}
     variants = {
-        'common': {'scheduler': 'slurm', 'resources': {'partition': 'common', 'cores': 4,
+        'cpu': {'scheduler': 'batch', 'resources': {'partition': 'cpu', 'cores': 4,
                    'memory': '8G', 'gpus': 0, 'no_gres': True}},
-        'gpu': {'scheduler': 'slurm', 'consolidate': True, 'gres_format': 'gpu:{gpu_type}:{gpus}',
+        'gpu': {'scheduler': 'batch', 'consolidate': True, 'gres_format': 'gpu:{gpu_type}:{gpus}',
                 'resources': {'partition': 'gpu', 'gpus': 1, 'cores': 16, 'memory': '32G',
                               'no_gres': False}, 'module_loads': ['cuda']},
     }
     if execution is not None:
-        variants['common']['execution'] = dict(execution)
+        variants['cpu']['execution'] = dict(execution)
     return create(root, 'cluster', defaults, variants)
 
 
 _SESSION_WORKSPACES = {}
 
 
-def optional_workspace(name):
-    """A private workspace with one optional component installed once per test session."""
-    if name not in _SESSION_WORKSPACES:
+def fixture_workspace_with(package_id):
+    """A private workspace with one fixture package installed once per test session. Do not change it."""
+    if package_id not in _SESSION_WORKSPACES:
         import tempfile
-        root = Path(tempfile.mkdtemp(prefix=f'theta-optional-{name}-'))
+        root = Path(tempfile.mkdtemp(prefix=f'theta-{package_id}-'))
         paths = WorkspacePaths(root / 'workspace')
-        install_optional(paths, name, root / 'archives')
-        _SESSION_WORKSPACES[name] = paths
-    return _SESSION_WORKSPACES[name]
+        install_fixture(paths, package_id, root / 'archives')
+        _SESSION_WORKSPACES[package_id] = paths
+    return _SESSION_WORKSPACES[package_id]
 
 
-def optional_module(name, relative):
-    """Load `relative` from an installed optional component, never from a checkout path."""
-    from src.app.core.provider_loader import load_module
-    paths = optional_workspace(name)
-    return load_module(get_catalog(paths).package(name), relative, paths=paths)
-
-
-def optuna_plan(execution_id):
-    """The serialized managed-SQLite plan the Optuna component records for a study allocation."""
+def search_plan(execution_id):
+    """The serialized plan the search tuner fixture records for a study allocation."""
     from src.app.pipeline.tuner_execution import TunerArtifact, TunerExecutionPlan
-    return TunerExecutionPlan('optuna', execution_id,
-        artifacts=(TunerArtifact('study', f'optuna/{execution_id}/study.sqlite', True),),
-        trials=40, storage_kind='managed', distributions=('optuna', 'sqlalchemy'),
-        continuation_notes='reinitialized from configured seed; suggestion sequence can differ').record()
+    return TunerExecutionPlan('search', execution_id,
+        artifacts=(TunerArtifact('study', f'search/{execution_id}/study.sqlite', True),),
+        trials=40, storage_kind='managed').record()
 
 
 class LocalHub:
@@ -118,34 +130,3 @@ class LocalHub:
                 self.install(installer, dependency)
         assert installer.install(component, install_dependencies=False)
         return component
-
-
-def sweep_workspace(root):
-    """A copy of the checkout workspace at `root` with Optuna installed, for Hydra sweep scripts.
-
-    Returns the workspace and the `hydra.searchpath=[...]` override a script that composes
-    `paths.config` needs to see package and framework profiles (sites, the Optuna sweepers).
-    Run the script with `THETA_WORKSPACE` set to `paths.root`.
-    """
-    import shutil
-    from conftest import base_workspace
-    root = Path(root)
-    shutil.copytree(base_workspace(), root, dirs_exist_ok=True)
-    paths = WorkspacePaths(root)
-    install_optional(paths, 'optuna', root.parent / (root.name + '-archives'))
-    roots = [path for path in paths.config_roots() if path != paths.config]
-    return paths, 'hydra.searchpath=[' + ','.join('file://' + str(path) for path in roots) + ']'
-
-
-def sweeper_args(storage, study, n_trials, sampler="TPESampler", **settings):
-    """Every Hydra sweeper value, as the Optuna tuner compiles them from a tuning block."""
-    values = dict(storage=storage, study_name=study, n_trials=n_trials, n_jobs=1, direction="minimize",
-                  pruner="none", pruner_startup_trials=5, pruner_warmup_steps=0, timeout_seconds=0,
-                  max_failed_trials=0)
-    values.update(settings)
-    return ["hydra/sweeper=theta_optuna", f"++hydra.sweeper.sampler._target_=optuna.samplers.{sampler}",
-            *(f"hydra.sweeper.{key}={value}" for key, value in values.items())]
-
-
-#: The Optuna component's own Hydra configs, for tests that launch Hydra directly.
-OPTUNA_CONFIGS = Path(__file__).resolve().parents[1] / "optional_components/optuna/configs"

@@ -65,6 +65,14 @@ class SiteSyncControl(QWidget):
         if app is not None:
             app.applicationStateChanged.connect(self._on_application_state)
 
+    def _replace_button(self, button):
+        """Drive `button` (e.g. a tree header button) instead of the control's own push button."""
+        previous = self.button
+        self.layout().removeWidget(previous)
+        previous.hide()
+        previous.deleteLater()
+        self.button = button
+
     def _ready_for(self, config):
         from src.app.core.contributions import ContributionRegistry
         from src.app.core.provider_catalog import get_catalog
@@ -259,11 +267,7 @@ class ExperimentSiteSyncControl(SiteSyncControl):
         super().__init__('results', parent)
         from .tree_tools import square_tool_button
         self._toolbar_button = button is not None
-        previous = self.button
-        self.layout().removeWidget(previous)
-        previous.hide()
-        previous.deleteLater()
-        self.button = button if button is not None else square_tool_button('sync', 'Sync site data')
+        self._replace_button(button if button is not None else square_tool_button('sync', 'Sync site data'))
         if not self._toolbar_button:
             self.layout().insertWidget(0, self.button)
         self.button.setToolTip('Pull published results, metrics and monitor data from this experiment’s site.')
@@ -298,3 +302,36 @@ class ExperimentSiteSyncControl(SiteSyncControl):
         if not self._toolbar_button:
             self.show()
         super().start(site, action, **options)
+
+
+class RunSiteSyncControl(SiteSyncControl):
+    """Pull the selected Results run's execution from its site, from the run tree's header button.
+
+    The button shows only while the selected run ran on a site other than local.
+    """
+
+    watch_in_terminal = True
+
+    def __init__(self, button, parent=None):
+        self.remote = {}
+        super().__init__('results', parent, run_provider=lambda: {'remote': self.remote})
+        self._replace_button(button)
+        self.button.clicked.connect(self.sync_run)
+        self.status.clear()
+        self.hide()
+        self.set_remote(None)
+
+    def set_remote(self, remote):
+        """The selected run's site execution record (catalog list_runs `remote`), or None."""
+        self.remote = dict(remote or {})
+        self.refresh_target()
+
+    def _refresh_availability(self):
+        site = str(self.remote.get('site') or '')
+        ready = bool(site and self.remote.get('execution_id')) and site != 'local' and not site.startswith('local/')
+        if ready:
+            title = f'Sync {self.remote.get("result_experiment_id") or "run"} from {site}'
+            self.button.setAccessibleName(title)
+            self.button.setToolTip(title + ': pull published results, metrics and monitor data.')
+        self.button.setVisible(ready)
+        return ready

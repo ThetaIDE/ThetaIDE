@@ -193,26 +193,6 @@ def test_managed_method_pool_ignores_old_count_limit(tmp_path, monkeypatch):
     assert sizes == [5] and sorted(calls) == [[str(i)] for i in range(5)]
 
 
-def test_managed_optuna_batches_are_single_trials(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from omegaconf import OmegaConf
-    optuna = pytest.importorskip('optuna')
-    from component_fixtures import optional_module
-    _optuna_sweeper = optional_module('optuna', 'sweeper.py')
-    ThetaOptunaSweeper = _optuna_sweeper.ThetaOptunaSweeper
-    batches = []
-    def launch(jobs, initial_job_idx):
-        batches.append(len(jobs))
-        return [SimpleNamespace(return_value=.5) for job in jobs]
-    sweeper = ThetaOptunaSweeper(optuna.samplers.RandomSampler(), 'minimize',
-                                 f'sqlite:///{tmp_path}/study.db', 'managed', 3, 8, None, 'none', 5, 0, 0, 0)
-    sweeper.impl.config = OmegaConf.create({'hydra': {'sweep': {'dir': str(tmp_path)}}})
-    sweeper.impl.launcher = SimpleNamespace(launch=launch)
-    monkeypatch.setenv('THETA_MANAGED_SERIAL', '1')
-    sweeper.sweep(['+x=interval(1.0,2.0)'])
-    assert batches == [1, 1, 1]
-
-
 def test_local_distributed_launch_is_rejected_before_process_start(monkeypatch):
     from types import SimpleNamespace
     from omegaconf import OmegaConf

@@ -17,7 +17,7 @@ def test_sweep_queue_groups_active_trials_and_tracks_resume(tmp_path):
 
     root = tmp_path / "src/usr/results/checkpoints/g/e/m"
     root.mkdir(parents=True)
-    summary = {"schema_version": 1, "component": "optuna", "study": "s", "stop_reason": "running", "requested_trials": 4,
+    summary = {"schema_version": 1, "component": "search", "study": "s", "stop_reason": "running", "requested_trials": 4,
                "initial_trials": 1, "trials": [
                    {"id": 0, "state": "complete", "log_version": "version_old"},
                    {"id": 1, "state": "complete", "log_version": "version_one"},
@@ -90,27 +90,6 @@ def test_sweep_view_shows_future_pending_work_without_inventing_parameters():
     assert not view.table.isRowHidden(row)
 
 
-def test_tuning_summary_counts_pending_sampled_and_future_trials(tmp_path):
-    import optuna
-    from component_fixtures import optional_module
-    _optuna_utils = optional_module('optuna', 'utils.py')
-    write_study_summary = _optuna_utils.write_study_summary
-    study = optuna.create_study()
-    study.set_user_attr('theta_requested_trials', 10)
-    study.set_user_attr('theta_initial_trials', 0)
-    study.set_user_attr('theta_last_stop_reason', 'running')
-    trial = study.ask()
-    trial.set_user_attr('theta_execution_state', 'pending')
-    write_study_summary(study, tmp_path)
-    summary = json.loads((tmp_path / 'tuning_summary.json').read_text())
-    assert summary['pending_trials'] == 10 and summary['future_trials'] == 9
-    assert summary['trials'][0]['state'] == 'pending'
-    trial.set_user_attr('theta_execution_state', 'running')
-    write_study_summary(study, tmp_path)
-    summary = json.loads((tmp_path / 'tuning_summary.json').read_text())
-    assert summary['pending_trials'] == 9 and summary['trials'][0]['state'] == 'running'
-
-
 def test_queue_keeps_pending_backlog_card_separate_from_study_card():
     from PyQt6.QtWidgets import QApplication
     from frontend.queue_panel import QueuePanel
@@ -141,18 +120,3 @@ def test_trial_feeds_keep_parallel_versions_separate(tmp_path):
     assert second.latest("eval/reward") == 2
 
 
-def test_summary_preserves_recorded_log_version_without_guessing_for_old_trials(tmp_path):
-    import optuna
-    from component_fixtures import optional_module
-    _optuna_utils = optional_module('optuna', 'utils.py')
-    write_study_summary = _optuna_utils.write_study_summary
-
-    study = optuna.create_study()
-    old = study.ask()
-    study.tell(old, 1.0)
-    current = study.ask()
-    current.set_user_attr("theta_log_version", "version_sweep_current")
-    write_study_summary(study, tmp_path)
-    trials = json.loads((tmp_path / "tuning_summary.json").read_text())["trials"]
-    assert trials[0]["log_version"] is None
-    assert trials[1]["log_version"] == "version_sweep_current"

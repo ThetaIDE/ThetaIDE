@@ -261,7 +261,7 @@ def test_dock_and_hotkey_services_follow_settings_and_cleanup(qapp, tmp_path):
 
 def test_sdk_3_requirements_are_satisfied():
     from src.app.api import SDK_VERSION, sdk_requirement_error
-    assert SDK_VERSION == "3.2"
+    assert SDK_VERSION == "3.4"
     assert sdk_requirement_error(">=3.0,<4") is None
     assert sdk_requirement_error(">=3.1,<4") is None
     assert "requires Theta SDK" in sdk_requirement_error(">=2.4,<3")  # 3.0 removed the source snapshot exports

@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from src.app.services.resource_budget import GIB, ResourceBudget, ResourcePool, uses_accelerator, workload_estimate
+from src.app.services.resource_budget import GIB, ResourcePool, uses_accelerator, workload_estimate
 
 
 def test_cpu_adapter_is_detected_automatically_for_method_config():
@@ -107,48 +107,3 @@ def test_training_holds_one_slot_until_completion_without_capacity_rechecks(monk
     assert len(attempts) == 1
 
 
-def test_trial_runs_once_without_capacity_restarts(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-    from pathlib import Path
-    from omegaconf import OmegaConf
-    from component_fixtures import optional_module
-    parallel = optional_module('optuna', 'parallel.py')
-
-    monkeypatch.setenv('THETA_RESOURCE_POOL', str(tmp_path / 'pool.db'))
-    processes, waiting, completed = [], [], []
-
-    class Pool:
-        path = tmp_path / 'pool.db'
-        def __init__(self, *args): pass
-        def sample(self): pass
-        def enqueue(self, count=1, **kwargs): return ['ticket'] * count
-        def dequeue(self, ticket): pass
-        def acquire(self, *args, **kwargs): return 'token', ''
-        def attach(self, *args): pass
-        def release(self, *args): pass
-
-    class Process:
-        pid = 123
-        returncode = None
-        def __init__(self, args):
-            processes.append(self)
-            Path(args[-1]).write_text('{"value": 42}')
-            self.polls = 0
-        def poll(self):
-            self.polls += 1
-            return None if self.polls == 1 else 0
-        def wait(self): self.returncode = -15
-
-    monkeypatch.setattr(parallel, 'ResourcePool', Pool)
-    monkeypatch.setattr(parallel.subprocess, 'Popen', Process)
-    monkeypatch.setattr(parallel, 'kill_process_tree', lambda pid: None)
-    monkeypatch.setattr(parallel.time, 'sleep', lambda _: None)
-    def load(config, overrides):
-        return OmegaConf.create({'hydra': {'job': {}, 'sweep': {'dir': str(tmp_path)}},
-                                 'theta_tuning': {'log_version': 'same-trial'}})
-    impl = SimpleNamespace(task_function=load, config=OmegaConf.create({'hydra': {'sweep': {'dir': str(tmp_path)}}}),
-        job_idx=0, n_jobs=2, hydra_context=SimpleNamespace(config_loader=SimpleNamespace(load_sweep_config=load)))
-    results = parallel.launch_trials(impl, [('x=1',)], on_wait=waiting.append,
-                                    on_result=lambda i, result: completed.append(i))
-    assert len(processes) == 1 and waiting == [] and completed == [0]
-    assert len(results) == 1 and results[0].return_value == 42

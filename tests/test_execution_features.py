@@ -116,7 +116,7 @@ def test_invalid_features_fail(features):
 @pytest.mark.parametrize('agent,extra,message', [
     ('sb3-dev/ppo', {'evaluator': 'custom'}, 'native evaluation'),
     ('sb3-dev/ppo', {'resume_from': 'x.zip'}, 'exact training resume'),
-    ('d3rlpy-dev/bc', {'tuning': {'component': 'optuna', 'n_trials': 2}}, 'tuning/winner-promotion'),
+    ('d3rlpy-dev/bc', {'tuning': {'component': 'search', 'n_trials': 2}}, 'tuning/winner-promotion'),
 ])
 def test_migrated_adapters_preserve_rejections(agent, extra, message):
     with pytest.raises(ValueError, match=message):

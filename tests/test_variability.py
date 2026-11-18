@@ -36,7 +36,7 @@ def test_plan_rejects_unsupported_combinations():
     cfg = config()
     with pytest.raises(ConfigurationError, match="scheduler-site"):
         make_plan(cfg, {**context(), "is_interactive": False})
-    cfg.tuning = {"component": "optuna"}
+    cfg.tuning = {"component": "search"}
     assert make_plan(cfg, context())["training_seeds"] == [1, 2]
 
 

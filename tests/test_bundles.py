@@ -16,7 +16,7 @@ defaults:
 
 experiment_id: tuned
 tuning:
-  component: optuna
+  component: search
   metric: reward
   direction: maximize
 """
@@ -24,12 +24,12 @@ tuning:
 
 @pytest.fixture(scope='module')
 def workspace(tmp_path_factory):
-    """The fixture workspace with Optuna installed, an unrelated authored package and a tuned recipe."""
+    """The fixture workspace with the test tuner installed, an unrelated authored package and a tuned recipe."""
     from conftest import build_fixture_workspace
-    from component_fixtures import install_optional
+    from component_fixtures import install_fixture
     base = tmp_path_factory.mktemp('bundles')
     root = build_fixture_workspace(base / 'workspace')
-    install_optional(root, 'optuna', base / 'archives')
+    install_fixture(root, 'search-tuner', base / 'archives')
     unrelated = root / 'src/usr/models/unrelated-models'
     shutil.copytree(root / 'src/usr/models/test-models', unrelated)
     manifest = read_json(unrelated / '.theta_component.json')
@@ -47,7 +47,7 @@ def workspace(tmp_path_factory):
     manifest = read_json(grid / '.theta_component.json')
     manifest['dependencies'] = {'pip': ['fixture-grid-search>=1']}
     write_json(grid / '.theta_component.json', manifest)
-    (WorkspacePaths(root).config / 'experiment/thetaide/grid.yaml').write_text(TUNED.replace('component: optuna', 'component: fixture-grid')
+    (WorkspacePaths(root).config / 'experiment/thetaide/grid.yaml').write_text(TUNED.replace('component: search', 'component: fixture-grid')
                                                                                .replace('experiment_id: tuned', 'experiment_id: grid'))
     scheduler = root / 'src/usr/packages/independent-scheduler'
     scheduler.mkdir(parents=True)
@@ -58,9 +58,9 @@ def workspace(tmp_path_factory):
         'capabilities': [{'id': 'lattice-batch', 'kind': 'scheduler', 'entry_point': 'scheduler.py:Scheduler', 'scheduler_api': 2}],
         'payload': {'implementations': ['scheduler.py'], 'resources': [], 'configs': {}}})
     from src.app.sites.catalog import create
-    create(root, 'lattice', {'scheduler': 'lattice-batch'}, {'common': {'scheduler': 'lattice-batch'}})
+    create(root, 'lattice', {'scheduler': 'lattice-batch'}, {'cpu': {'scheduler': 'lattice-batch'}})
     (WorkspacePaths(root).config / 'experiment/thetaide/lattice.yaml').write_text(
-        '# @package _global_\ndefaults:\n  - /experiment/thetaide/cartpole_ppo_reference\n  - override /site: lattice/common\n'
+        '# @package _global_\ndefaults:\n  - /experiment/thetaide/cartpole_ppo_reference\n  - override /site: lattice/cpu\n'
         '  - _self_\n\nexperiment_id: lattice\n')
     results = WorkspacePaths(root).results / 'logs/thetaide/cartpole_ppo_baseline/run.csv'
     results.parent.mkdir(parents=True)
@@ -87,19 +87,19 @@ def test_bundle_holds_what_the_experiment_selects(selected, tmp_path):
     assert manifest['experiment'] == {'selector': 'thetaide/cartpole_ppo_reference', 'overrides': [], 'site': 'local/default'}
     # The algorithm, environment and model the recipe names, and nothing it does not.
     assert {'sb3-dev', 'test-models', 'gym_classic_control_dev'} <= providers(manifest)
-    assert not {'optuna', 'unrelated-models'} & providers(manifest)
+    assert not {'search-tuner', 'unrelated-models'} & providers(manifest)
     files = set(manifest['files'])
     assert 'run_pipeline.py' in files and 'src/app/workspace.py' in files
     assert not any(name.startswith(('frontend/', 'src/plugins/app/')) for name in files)
     assert not any(name.startswith(('src/usr/results', 'src/usr/datasets', 'src/usr/models/unrelated-models',
-                                    'src/plugins/components/installed/optuna')) for name in files)
+                                    'src/plugins/components/installed/search-tuner')) for name in files)
     assert 'src/usr/config/experiment/thetaide/cartpole_ppo_reference.yaml' in files
     assert 'src/usr/config/experiment/thetaide/_base.yaml' in files
     assert 'src/usr/config/experiment/thetaide/tuned.yaml' not in files  # Other experiments stay home.
     assert any(item['selector'] == 'experiment/thetaide/cartpole_ppo_reference.yaml' and item['origin'] == 'workspace'
                for item in manifest['configs'])
     # Requirements are those of the selected providers; this experiment has no tuner (5e).
-    assert not any(line.startswith(('optuna', 'sqlalchemy')) for line in manifest['requirements']['providers'])
+    assert 'fixture-grid-search>=1' not in manifest['requirements']['providers']
     requirements = manifest['requirements']
     assert 'hydra-core>=1.3,<2' in requirements['application']
     assert (tmp_path / 'bundle' / bundle.REQUIREMENTS).read_text().splitlines() == [*requirements['application'], *requirements['providers']]
@@ -107,24 +107,21 @@ def test_bundle_holds_what_the_experiment_selects(selected, tmp_path):
     assert bundle.verify(tmp_path / 'bundle')['bundle_sha256'] == manifest['bundle_sha256']
 
 
-def test_selected_tuner_and_its_requirements_travel_with_the_bundle(selected, tmp_path):
+def test_selected_installed_tuner_travels_with_the_bundle(selected, tmp_path):
     manifest = bundle.prepare(selected, 'thetaide/tuned', [], tmp_path / 'bundle')
-    assert 'optuna' in providers(manifest)
-    tuner = next(item for item in manifest['providers'] if item['id'] == 'optuna')
-    assert tuner['path'] == 'src/plugins/components/installed/optuna' and tuner['digest']
-    assert any(line.startswith('optuna') for line in manifest['requirements']['providers'])
+    tuner = next(item for item in manifest['providers'] if item['id'] == 'search-tuner')
+    assert tuner['path'] == 'src/plugins/components/installed/search-tuner' and tuner['digest']
 
 
 def test_a_differently_named_tuner_is_selected_the_same_way(selected, tmp_path):
     manifest = bundle.prepare(selected, 'thetaide/grid', [], tmp_path / 'bundle')
-    assert 'fixture-grid' in providers(manifest) and 'optuna' not in providers(manifest)
+    assert 'fixture-grid' in providers(manifest) and 'search-tuner' not in providers(manifest)
     assert 'fixture-grid-search>=1' in manifest['requirements']['providers']
-    assert not any(line.startswith('optuna') for line in manifest['requirements']['providers'])
 
 
 def test_a_differently_named_scheduler_travels_with_its_site(selected, tmp_path):
     manifest = bundle.prepare(selected, 'thetaide/lattice', [], tmp_path / 'bundle')
-    assert manifest['experiment']['site'] == 'lattice/common'
+    assert manifest['experiment']['site'] == 'lattice/cpu'
     scheduler = next(item for item in manifest['providers'] if item['id'] == 'independent-scheduler')
     assert scheduler['capabilities'] == [{'kind': 'scheduler', 'id': 'lattice-batch', 'scheduler_api': 2}]
     assert 'lattice-batch-client>=2' in manifest['requirements']['providers']
@@ -181,5 +178,5 @@ def test_push_refuses_an_experiment_of_another_site(selected, tmp_path, monkeypa
     monkeypatch.setattr(transfer, 'connection', lambda *_: {'host': 'fake', 'remote_root': '/remote'})
     monkeypatch.setattr(transfer, 'require_local_rsync', lambda config: 'rsync')
     monkeypatch.setattr(transfer, 'ssh', lambda *_a, **_k: pytest.fail('network attempted'))
-    with pytest.raises(ValueError, match='runs on site local/default, not cluster/common'):
-        transfer.push(selected, 'cluster/common', 'thetaide/cartpole_ppo_reference')
+    with pytest.raises(ValueError, match='runs on site local/default, not cluster/cpu'):
+        transfer.push(selected, 'cluster/cpu', 'thetaide/cartpole_ppo_reference')

@@ -15,7 +15,7 @@ from pathlib import Path
 HOST = re.compile(r"^(src\.app|frontend)(\.|$)")
 SDK = re.compile(r"^src\.app\.api(\.|$)")
 # Another package's modules, by path. Packages use each other through `provider_export`.
-PACKAGE = re.compile(r"^(src\.usr|src\.plugins|optional_components)(\.|$)")
+PACKAGE = re.compile(r"^(src\.usr|src\.plugins)(\.|$)")
 # A string naming a private host module, e.g. a `python -m src.app.x` argument.
 MODULE_STRING = re.compile(r"^(src\.app|frontend)(\.[A-Za-z_][A-Za-z0-9_]*)+$")
 WINDOW_ACCESS = re.compile(r"\bcontext\.window\b|\bcontext\._window\b|\.context\.window\b")

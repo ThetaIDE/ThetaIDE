@@ -61,7 +61,7 @@ def test_two_desktops_keep_editor_backend_and_figures_in_their_workspace(tmp_pat
 def test_optional_settings_lifecycle_and_clean_host(tmp_path):
     from frontend.extension_settings import ExtensionSettings
     from frontend.site_sync import SiteSyncControl
-    from component_fixtures import install_optional
+    from component_fixtures import install_fixture
     from src.app.core.contributions import ContributionRegistry
     app = QApplication.instance() or QApplication([])
     paths = WorkspacePaths(tmp_path / 'workspace')
@@ -73,17 +73,17 @@ def test_optional_settings_lifecycle_and_clean_host(tmp_path):
     app.processEvents()
     assert not host.scope.active and host.maximumHeight() == 0
     assert not sync.button.isVisible()
-    install_optional(paths, 'slurm', tmp_path / 'archives')
+    install_fixture(paths, 'batch-scheduler', tmp_path / 'archives')
     host.reconcile()
     assert len(host.scope.active) == 1
-    cfg = {'site': {'scheduler': 'slurm', 'connection': {'host': 'fixture', 'remote_root': '/scratch/test'}}}
+    cfg = {'site': {'scheduler': 'batch', 'connection': {'host': 'fixture', 'remote_root': '/scratch/test'}}}
     sync._config = cfg
     assert sync._refresh_availability()
-    ContributionRegistry(paths).set_enabled('scheduler', 'slurm', False)
+    ContributionRegistry(paths).set_enabled('scheduler', 'batch', False)
     host.reconcile()
     sync._refresh_availability()
     assert not host.scope.active and not sync.button.isVisible()
-    ContributionRegistry(paths).set_enabled('scheduler', 'slurm', True)
+    ContributionRegistry(paths).set_enabled('scheduler', 'batch', True)
     host.reconcile()
     assert host.scope.active
     host.close()

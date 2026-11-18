@@ -105,7 +105,8 @@ def test_independent_objective_pruning_validation_from_unrelated_cwd(tmp_path, m
     root = tmp_path / 'src/usr/packages/objective'
     root.mkdir()
     (root / 'score.py').write_text('raise AssertionError("validation executed objective")')
-    (root / 'score.json').write_text(json.dumps({'api_version': 1, 'source': 'score.py'}))
+    (root / 'score.json').write_text(json.dumps({'api_version': 1, 'source': 'score.py',
+                                                 'intermediate_function': 'intermediate'}))
     (root / '.theta_component.json').write_text(json.dumps({
         'id': 'score', 'name': 'Score', 'version': '1.0.0', 'kind': 'objective',
         'storage_version': 3, 'api_version': 1,
@@ -156,16 +157,3 @@ def test_plain_objectives_do_not_load_tuners(tmp_path, monkeypatch):
     assert not validate_tuning_compatibility({'objective': {}}, paths=WorkspacePaths(tmp_path))
 
 
-@pytest.mark.parametrize('cfg,active', [
-    ({'tuning': {'options': {'optuna': {'pruner': 'median'}}}}, True),
-    ({'theta_tuning': {'pruner': 'none'}, 'tuning': {'options': {'optuna': {'pruner': 'median'}}}}, False),
-    ({'theta_tuning': {'pruner': 'median'}}, True),
-    ({}, False),
-])
-def test_optuna_reads_pruning_from_its_options_or_the_trial_runtime(cfg, active, tmp_path):
-    from component_fixtures import install_optional
-    from src.app.core.provider_loader import load_module
-    paths = WorkspacePaths(tmp_path / 'workspace')
-    install_optional(paths, 'optuna', tmp_path / 'archives')
-    component = load_module(get_catalog(paths).package('optuna'), 'component.py', paths=paths)
-    assert component.OptunaTuner().pruning_enabled(cfg) is active

@@ -1,0 +1,19 @@
+{
+  "id": "template-site",
+  "name": "Site template fixture",
+  "kind": "site",
+  "version": "1.0.0",
+  "description": "Test site package whose profiles ship with an installed package rather than the workspace.",
+  "storage_version": 3,
+  "api_version": 1,
+  "capabilities": [{"id": "lattice", "kind": "site", "entry_point": "site.py:SITE"}],
+  "payload": {
+    "implementations": ["site.py"],
+    "resources": [],
+    "configs": {
+      "site/lattice/_defaults.yaml": "configs/site/lattice/_defaults.yaml",
+      "site/lattice/default.yaml": "configs/site/lattice/default.yaml"
+    }
+  },
+  "config_paths": ["site/lattice/_defaults.yaml", "site/lattice/default.yaml"]
+}

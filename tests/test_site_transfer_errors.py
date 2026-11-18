@@ -18,7 +18,7 @@ def test_upload_rejects_apple_openrsync_before_network_or_staging(tmp_path, monk
     monkeypatch.setattr(transfer, 'ssh', lambda *_a, **_k: pytest.fail('network attempted before compatibility check'))
     monkeypatch.setattr(transfer.bundle, 'prepare', lambda *_: pytest.fail('staging started before compatibility check'))
     with pytest.raises(ValueError, match='brew install rsync'):
-        transfer.push(tmp_path, 'ncshare/common', 'g/e')
+        transfer.push(tmp_path, 'cluster/cpu', 'g/e')
     assert calls == [['rsync', '--version']]
     assert not (tmp_path / '.thetaide').exists()
 

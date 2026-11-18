@@ -150,21 +150,21 @@ def fixture_workspace(tmp_path, monkeypatch):
 
 
 @pytest.fixture(scope="session")
-def _optuna_workspace_root(tmp_path_factory):
-    from component_fixtures import install_optional
-    base = tmp_path_factory.mktemp("optuna-workspace")
+def _tuner_workspace_root(tmp_path_factory):
+    from component_fixtures import install_fixture
+    base = tmp_path_factory.mktemp("tuner-workspace")
     root = build_fixture_workspace(base / "workspace")
-    install_optional(root, "optuna", base / "optional-archives")
+    install_fixture(root, "search-tuner", base / "archives")
     return root
 
 
 @pytest.fixture
-def optuna_workspace(_optuna_workspace_root, monkeypatch):
-    """The fixture workspace with the optional Optuna tuner installed, selected for the process.
+def tuner_workspace(_tuner_workspace_root, monkeypatch):
+    """The fixture workspace with the ``search`` test tuner installed, selected for the process.
 
     Built once per session: tests using it must not change its files.
     """
-    root = _optuna_workspace_root
+    root = _tuner_workspace_root
     monkeypatch.setenv("THETA_WORKSPACE", str(root))
     monkeypatch.delenv("THETA_DATA_DIR", raising=False)
     try:
@@ -186,15 +186,6 @@ def tuner_monitor_workspace(tmp_path):
     (root / 'provider.py').write_text('raise AssertionError("monitor imported tuner")')
     return (WorkspacePaths(tmp_path, application=tmp_path / 'empty-app'),
             {'tuning': {'component': 'lattice', 'options': {'lattice': {'token': 'configured'}}}})
-
-
-@pytest.fixture
-def optional_tuner_metadata(monkeypatch):
-    """Exercise bundled field metadata without requiring optional training libraries."""
-    from src.app.core import contributions
-    available = contributions._distribution_available
-    monkeypatch.setattr(contributions, '_distribution_available',
-                        lambda name: name in ('optuna', 'hydra-optuna-sweeper', 'sqlalchemy') or available(name))
 
 
 # Qt requires QtWebEngineWidgets to be imported before any QApplication exists.
