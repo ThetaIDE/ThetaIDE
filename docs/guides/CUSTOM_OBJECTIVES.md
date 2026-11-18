@@ -39,7 +39,9 @@ tuning:
   n_trials: 40
   options:
     optuna:
-      pruner: none
+      pruner: median
+      pruner_startup_trials: 8
+      pruner_warmup_steps: 6
 ```
 
 The existing variability settings are the source of truth for samples. An
@@ -140,13 +142,56 @@ in Monitor/Results as `objective/<component>`. Tuning summaries link to the
 objective artifact. A winning seed panel retains all checkpoints and selects
 the configuration; it does not choose or promote an arbitrary sample model.
 
-Source freezing and intermediate scoring are intentionally deferred. Source is
-loaded fresh when a configuration is scored, so finish an edit before launching
-a study and avoid editing it during a running or resumed study. The stored
-parameters are a record, not a frozen source snapshot. Objectives currently
-require pruning disabled and receive the complete sample panel once training
-finishes. Scoring code never starts workers, reserves resources, or publishes
-training status. Existing experiments without an objective retain their scalar-metric
-behavior.
+Source freezing is intentionally deferred. Source is loaded fresh when a
+configuration is scored, so finish an edit before launching a study and avoid
+editing it during a running or resumed study. The stored parameters are a
+record, not a frozen source snapshot. `evaluate` receives the complete sample
+panel once training finishes. Scoring code never starts workers, reserves
+resources, or publishes training status. Existing experiments without an
+objective retain their scalar-metric behavior.
+
+## Pruning
+
+A tuner that declares `pruning_objectives` (and `pruning_repeated_runs` for
+seed panels) can stop a trial early when its objective declares an intermediate
+function:
+
+```json
+{"api_version": 1, "source": "my_objective.py", "function": "evaluate",
+ "intermediate_function": "intermediate"}
+```
+
+```python
+from src.app.api.tuning import ObjectiveProgress
+
+def intermediate(results, params):
+    progress = results.common_progress(params["metric"])
+    if progress is None:
+        return None              # some seed has no evaluation yet
+    step, horizon = progress     # checkpoint index every unfailed seed reached, and its transitions
+    result = evaluate(results.snapshot(), {**params, "budget": horizon})
+    return ObjectiveProgress(step, result.value)
+```
+
+While the seeds train, the trial coordinator rescans their logs every five
+seconds and calls the intermediate function with the partial panel: running
+seeds have status `running` (or `pending`/`queued` before they start), failed
+seeds `failed`. `common_progress(metric)` returns the latest evaluation
+checkpoint that every unfailed seed has reached; `snapshot()` treats running
+seeds as finished so `evaluate` can score the panel as if the budget ended
+there. Return `None` until the objective has a meaningful score. Each new step
+is reported to the tuner. When it prunes the trial, every seed of that trial is
+stopped and the trial is recorded as pruned. An exception in the intermediate
+function fails the trial rather than silently disabling pruning.
+
+Steps are evaluation checkpoints (0 is the evaluation before training), the same
+unit as the Optuna warmup setting, so trials compare at equal steps only with a
+fixed evaluation cadence. A checkpoint counts once every seed has reached it: run
+the whole panel at once (`parallel_runs` equal to the seed count) for pruning to
+act before the last seeds start. Pruning with an objective that has no
+intermediate function is rejected before training. The bundled `final_metric`
+(the mean of the latest common observation, used for metric tuning with repeated
+runs) and `learning_curve` declare one, as do the workspace objectives in
+`src/usr/objectives`.
 
 Bundled objectives now live in `src/plugins/components/bundled/{final_metric,learning_curve}`; the API stays in `src/app/objectives`. Package objectives are discoverable through the shared catalog and standalone authored descriptors remain under `src/usr/objectives`. Colliding IDs require an explicit user override; see [provider storage](../reference/PLUGIN_STORAGE.md). New-format metadata listings do not execute objective code.

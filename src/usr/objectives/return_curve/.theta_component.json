@@ -1,0 +1,6 @@
+{
+  "id": "return_curve", "name": "Return curve area", "kind": "objective",
+  "version": "0.2.0", "storage_version": 3, "api_version": 1,
+  "capabilities": [{"id": "return_curve", "kind": "objective", "entry_point": "return_curve.json"}],
+  "payload": {"implementations": ["return_curve.py"], "resources": ["return_curve.json"], "configs": {}}
+}

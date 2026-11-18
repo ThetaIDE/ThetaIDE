@@ -1,6 +1,6 @@
 {
   "id": "fast_stable", "name": "Fast and stable", "kind": "objective",
-  "version": "0.1.0", "storage_version": 3, "api_version": 1,
+  "version": "0.2.0", "storage_version": 3, "api_version": 1,
   "capabilities": [{"id": "fast_stable", "kind": "objective", "entry_point": "fast_stable.json"}],
   "payload": {"implementations": ["fast_stable.py"], "resources": ["fast_stable.json"], "configs": {}}
 }

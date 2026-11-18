@@ -1,6 +1,7 @@
 {
   "api_version": 1,
   "source": "final_metric.py",
+  "intermediate_function": "intermediate",
   "defaults": {"metric": "eval/reward"},
   "requires": {"metric_parameter": "metric"},
   "schema": {

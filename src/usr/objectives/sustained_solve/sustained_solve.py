@@ -6,7 +6,7 @@ The training episode moving average is deliberately not part of the score.
 import math
 import statistics
 
-from src.app.api.tuning import ObjectiveResult
+from src.app.api.tuning import ObjectiveProgress, ObjectiveResult
 
 
 def evaluate(results, params):
@@ -78,3 +78,21 @@ def evaluate(results, params):
     return ObjectiveResult(value, dict(stable_seeds=stable, runs=len(records),
         stable_fraction=stable / len(records), per_run=records, quality_tiebreak=robust,
         metric=params['metric'], budget=budget, window_start=window, target_reward=target))
+
+
+def intermediate(results, params):
+    """The objective as if the budget ended at the latest evaluation every seed has reached."""
+    progress = results.common_progress(params['metric'])
+    if progress is None or progress[1] <= 0:
+        return None
+    step, horizon = progress
+    budget = float(params['budget'] or results.config.get('total_timesteps', 0))
+    horizon = min(horizon, budget) if budget > 0 else horizon
+    # Score only once every seed has the evaluations the stability window needs.
+    window = horizon * (1 - params['stability_fraction'])
+    for run in results.runs:
+        if run.status not in ('failed', 'cancelled') and sum(
+                window <= t <= horizon for t, _ in run.curve(params['metric'])) < params['min_evaluations']:
+            return None
+    result = evaluate(results.snapshot(), {**params, 'budget': horizon})
+    return ObjectiveProgress(step, result.value, {'horizon': horizon, **{k: result.diagnostics[k] for k in ('stable_seeds', 'quality_tiebreak')}})

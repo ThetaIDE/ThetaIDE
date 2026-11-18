@@ -93,9 +93,9 @@ trial count/concurrency, Optuna/SQLAlchemy version names, scheduling normalizati
 SQLite integrity checking and RUNNING-to-FAIL reconciliation. Its package metadata
 now declares its pip dependencies. Generic site setup uses package requirements
 instead of an application extra (the `[optuna]` extra was removed). The Optuna tuner is
-an optional component maintained in `optional_components/optuna` and installed into a
-workspace like any package; saved `src.app.tuners.optuna.*` targets load from that
-installation. Configuration and live study monitors
+a Theta Hub component whose source lives in theta-plugins under `tuners/optuna`; it is
+installed into a workspace like any package. IDE tests use the fixture `search-tuner`
+package in `tests/fixtures/search_tuner` instead. Configuration and live study monitors
 now use the [contribution/readiness contract](EXTENSION_CONTRIBUTIONS.md).
 
 ## Study summary readers

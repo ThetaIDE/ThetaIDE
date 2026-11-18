@@ -91,11 +91,12 @@ def make_plan(cfg, context):
             "eval_episodes": episodes, "capabilities": capabilities}
 
 
-def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_failure=True):
+def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_failure=True, on_manifest=None):
     """Execute a seed panel through one lifecycle for experiments and resolved trials.
 
     A resolved-task dispatcher receives (config, run, on_start, on_wait). It
     launches the worker; this executor owns identity, status and cancellation.
+    ``on_manifest(path)`` runs once the manifest exists, before any seed starts.
     """
     from src.app.pipeline.local_runner import _run_methods_sequential, _setup_output_dirs, run_plotting_phase
 
@@ -259,6 +260,8 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
         link.parent.mkdir(parents=True, exist_ok=True)
         link.write_text(json.dumps({"manifest": os.path.relpath(path, link.parent)}) + "\n", encoding="utf-8")
     print(f"Execution manifest: {path}")
+    if on_manifest is not None:
+        on_manifest(path)
     workers = 1 if os.environ.get('THETA_IN_ALLOCATION') == '1' else plan['parallel_runs']
     if os.environ.get('THETA_RESOURCE_POOL'):
         from src.app.services.resource_budget import orchestration_workers

@@ -9,7 +9,7 @@ Execution plans and artifacts
     ``check_artifact_admission``, ``request_artifact_snapshot``, ``commit_artifact``
 
 Objectives and trials
-    ``ObjectiveResult``, ``RunResult``, ``TrialResults`` (objective component inputs and result),
+    ``ObjectiveResult``, ``ObjectiveProgress``, ``RunResult``, ``TrialResults`` (objective component inputs, final and intermediate results),
     ``objective_metric``, ``objective_value``,
     ``trial_log_version``, ``trial_checkpoint_dir``, ``trial_checkpoint_dir_from_config``,
     ``finish_trial_runs``, ``trial_monitor`` (reports intermediate values and pruning for the active trial)
@@ -24,7 +24,7 @@ _EXPORTS = {
         "apply_overrides", "record_plan", "record_config", "record_overrides", "sqlite_snapshot",
         "check_artifact_admission", "request_artifact_snapshot", "commit_artifact",
     )},
-    **{name: f"src.app.objectives.api:{name}" for name in ("ObjectiveResult", "RunResult", "TrialResults")},
+    **{name: f"src.app.objectives.api:{name}" for name in ("ObjectiveResult", "ObjectiveProgress", "RunResult", "TrialResults")},
     "objective_metric": "src.app.pipeline.objective:objective_metric",
     "objective_value": "src.app.pipeline.objective:objective_value",
     "trial_log_version": "src.app.pipeline.trial_artifacts:trial_log_version",

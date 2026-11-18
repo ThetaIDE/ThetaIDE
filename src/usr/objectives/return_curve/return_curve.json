@@ -1,0 +1,23 @@
+{
+  "api_version": 1,
+  "source": "return_curve.py",
+  "function": "evaluate",
+  "intermediate_function": "intermediate",
+  "requires": {"episode_outcomes": true, "metric_parameter": "metric"},
+  "defaults": {
+    "metric": "eval/sampled_reward", "budget": 0, "floor": -200, "ceiling": -100,
+    "tail_fraction": 0.5, "tail_weight": 0.5
+  },
+  "schema": {
+    "type": "object", "additionalProperties": false,
+    "required": ["metric", "budget", "floor", "ceiling", "tail_fraction", "tail_weight"],
+    "properties": {
+      "metric": {"type": "string", "enum": ["eval/sampled_reward", "eval/reward"], "description": "Sampled policy return is the default; greedy return can be dominated by fixed rules."},
+      "budget": {"type": "number", "minimum": 0, "description": "Transition budget; zero uses total_timesteps."},
+      "floor": {"type": "number", "description": "Return that scores zero, e.g. -200 for MountainCar-v0."},
+      "ceiling": {"type": "number", "description": "Return that scores one; values beyond it are clamped."},
+      "tail_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "Fraction of worst seeds in the robustness term."},
+      "tail_weight": {"type": "number", "minimum": 0, "maximum": 1, "description": "Weight of the worst-seed mean against the all-seed mean."}
+    }
+  }
+}

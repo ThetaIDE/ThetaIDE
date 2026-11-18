@@ -93,11 +93,6 @@ def run_objective(cfg, *, execute=None):
             on_start(os.getpid())
             execute(child, directory)
 
-    path = run_execution(cfg, {"methods": {name: {}}, "workspace": paths}, plan,
-                         dispatch=dispatch, parent=parent, raise_on_failure=False)
-    execution = json.loads(path.read_text(encoding="utf-8"))
-    if any(run["status"] == "cancelled" for run in execution["runs"]):
-        raise TrainingCancelled()
     from src.app.pipeline.objective import objective_metric
     default_metric = "eval/reward" if cfg.get("paradigm") == "online_rl" else "val/loss"
     metric = objective_metric(cfg, default_metric)
@@ -108,6 +103,22 @@ def run_objective(cfg, *, execute=None):
         scoring_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
         with open_dict(scoring_cfg):
             scoring_cfg.objective = {"component": "final_metric", "params": {"metric": metric}}
+    from src.app.pipeline.trial_pruning import progress_pruning
+    pruning = progress_pruning(cfg, scoring_cfg, version, output, paths=paths)
+    try:
+        path = run_execution(cfg, {"methods": {name: {}}, "workspace": paths}, plan,
+                             dispatch=dispatch, parent=parent, raise_on_failure=False,
+                             on_manifest=pruning.attach if pruning else None)
+    finally:
+        if pruning:
+            pruning.stop()
+    if pruning and pruning.error:
+        raise pruning.error
+    if pruning and pruning.pruned:
+        raise TrainingCancelled()
+    execution = json.loads(path.read_text(encoding="utf-8"))
+    if any(run["status"] == "cancelled" for run in execution["runs"]):
+        raise TrainingCancelled()
     result, result_path = score_execution(scoring_cfg, path, output, artifact_root, paths=paths)
     from src.app import telemetry
     run = telemetry.init(str(cfg.group), str(cfg.experiment_id), name,

@@ -121,10 +121,10 @@ def test_validation_requires_data_and_rejects_pruning():
     with pytest.raises(ValueError, match="eval_episodes"):
         validate_objective(cfg)
     cfg.eval_episodes = 2
-    cfg.tuning = {"component": "optuna", "options": {"optuna": {"pruner": "median"}}}
-    from component_fixtures import optional_workspace
+    cfg.tuning = {"component": "search", "options": {"search": {"pruner": "median"}}}
+    from component_fixtures import fixture_workspace_with
     with pytest.raises(ValueError, match="pruning disabled"):
-        validate_objective(cfg, paths=optional_workspace("optuna"))
+        validate_objective(cfg, paths=fixture_workspace_with("search-tuner"))
     cfg.tuning = None
     cfg.objective.params = {"aggregation": {"fraction": 0}}
     with pytest.raises(ValueError, match="fraction"):

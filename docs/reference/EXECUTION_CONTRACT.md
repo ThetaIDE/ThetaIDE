@@ -178,8 +178,17 @@ provider preflight still enforces metric, evaluation-cadence and process constra
 Core Lightning and editable SB3 adapters report intermediate values. Other runners
 default to false. Existing installed manifests are preserved.
 
-Optuna advertises metric/component scoring and pruning, while rejecting pruning
-with component objectives or repeated runs. Its query owns namespaced, flat,
+A trial with a component objective or repeated runs trains its seeds in separate
+workers, so pruning happens in the trial coordinator: it scores the partial seed
+panel with the objective's `intermediate_function` (see
+[custom objectives](../guides/CUSTOM_OBJECTIVES.md#pruning)), reports each new
+evaluation checkpoint through the tuner's `trial_monitor`, and cancels the trial's
+cancellation target when the monitor raises a pruned exception. Pruning requires
+an objective with an intermediate function; metric tuning with repeated runs
+scores through the bundled `final_metric`, which has one.
+
+Optuna 1.3.0 advertises metric/component scoring and pruning, including component
+objectives and repeated runs. Its query owns namespaced, flat,
 Hydra and worker-runtime option precedence. Ordinary objective scoring with no
 tuning configuration or tuner runtime does not load a tuner. Objective validation
 also accepts explicit workspace paths for method and feature resolution.

@@ -18,6 +18,22 @@ class ObjectiveResult:
 
 
 @dataclass
+class ObjectiveProgress:
+    """A partial score while seeds still train.
+
+    ``step`` counts evaluation checkpoints that every unfailed seed has reached
+    (0 is the evaluation before training). Tuners compare trials at equal steps.
+    """
+    step: int
+    value: float
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+
+# Seeds that ended without results; objectives score them as failures.
+STOPPED = ("failed", "cancelled")
+
+
+@dataclass
 class RunResult:
     seed: int
     status: str
@@ -49,6 +65,24 @@ class TrialResults:
     runs: list[RunResult]
     config: dict[str, Any]
 
+    def common_progress(self, metric: str, axis: str = "transitions") -> tuple[int, float] | None:
+        """The latest evaluation checkpoint every unfailed seed has reached.
+
+        Returns ``(step, x)``: the checkpoint index and its smallest x across seeds,
+        or None while a seed has no observation (for example, before it starts).
+        """
+        curves = [run.curve(metric, axis) for run in self.runs if run.status not in STOPPED]
+        if not curves or not all(curves):
+            return None
+        index = min(len(curve) for curve in curves) - 1
+        return index, min(curve[index][0] for curve in curves)
+
+    def snapshot(self) -> "TrialResults":
+        """The panel as if every unfailed seed had finished now, for scoring at a horizon."""
+        import dataclasses
+        return TrialResults([run if run.status in STOPPED or run.status == "completed"
+                             else dataclasses.replace(run, status="completed") for run in self.runs], self.config)
+
 
 @dataclass
 class ObjectiveComponent:
@@ -72,7 +106,41 @@ class ObjectiveComponent:
         return params
 
     def evaluate(self, results: TrialResults, params) -> ObjectiveResult:
-        # Execute freshly saved source on every scoring invocation, without stale pyc files.
+        result = getattr(self.load_source(), self.metadata.get("function", "evaluate"))(results, params)
+        if not isinstance(result, ObjectiveResult):
+            result = ObjectiveResult(float(result))
+        result.value = float(result.value)
+        if not math.isfinite(result.value):
+            raise ValueError("Objective must return a finite scalar")
+        json.dumps(result.diagnostics, allow_nan=False)
+        return result
+
+    @property
+    def scores_progress(self) -> bool:
+        return bool(self.metadata.get("intermediate_function"))
+
+    def intermediate(self, results: TrialResults, params, module=None) -> ObjectiveProgress | None:
+        """Score partial results; None until the objective has a comparable checkpoint.
+
+        Pass ``module`` (from ``load_source()``) to score repeatedly from one loaded source.
+        """
+        if not self.scores_progress:
+            raise ValueError(f"Objective {self.name!r} does not declare intermediate_function")
+        result = getattr(module or self.load_source(), self.metadata["intermediate_function"])(results, params)
+        if result is None:
+            return None
+        if not isinstance(result, ObjectiveProgress):
+            raise TypeError("intermediate_function must return ObjectiveProgress or None")
+        if isinstance(result.step, bool) or not isinstance(result.step, int) or result.step < 0:
+            raise ValueError("Objective progress step must be a nonnegative integer")
+        result.value = float(result.value)
+        if not math.isfinite(result.value):
+            raise ValueError("Objective progress must be a finite scalar")
+        json.dumps(result.diagnostics, allow_nan=False)
+        return result
+
+    def load_source(self):
+        # Execute freshly saved source on every load, without stale pyc files.
         from src.app.core.provider_catalog import get_catalog
         from src.app.core.provider_loader import load_module
         from src.app.workspace import WorkspacePaths
@@ -87,14 +155,7 @@ class ObjectiveComponent:
             module = types.ModuleType("theta_objective_" + hashlib.sha256(str(self.source).encode()).hexdigest())
             module.__file__ = str(self.source)
             exec(compile(self.source.read_text(encoding="utf-8"), str(self.source), "exec"), module.__dict__)
-        result = getattr(module, self.metadata.get("function", "evaluate"))(results, params)
-        if not isinstance(result, ObjectiveResult):
-            result = ObjectiveResult(float(result))
-        result.value = float(result.value)
-        if not math.isfinite(result.value):
-            raise ValueError("Objective must return a finite scalar")
-        json.dumps(result.diagnostics, allow_nan=False)
-        return result
+        return module
 
 
 def objective_root(workspace=None):
@@ -129,6 +190,9 @@ def load_objective(name: str, workspace=None) -> ObjectiveComponent:
     if not source.is_file():
         raise ValueError(f"Objective source does not exist: {source}")
     Draft202012Validator.check_schema(metadata.get("schema", {}))
+    intermediate = metadata.get("intermediate_function")
+    if intermediate is not None and (not isinstance(intermediate, str) or not intermediate.isidentifier()):
+        raise ValueError(f"Objective {name!r} intermediate_function must name a function")
     return ObjectiveComponent(name, source, metadata)
 
 
@@ -166,8 +230,11 @@ def validate_objective(cfg, *, workspace=None, paths=None):
     from src.app.pipeline.tuning_features import validate_tuning_compatibility
     from src.app.workspace import WorkspacePaths
     paths = paths or (WorkspacePaths(workspace) if workspace is not None else WorkspacePaths.for_process())
-    validate_tuning_compatibility(cfg, paths=paths)
+    pruning = validate_tuning_compatibility(cfg, paths=paths)
     component = load_objective(str(spec["component"]), paths.root)
+    if pruning and not component.scores_progress:
+        raise ValueError(f"Objective {component.name!r} does not score intermediate progress "
+                         "(intermediate_function); disable pruning or add one")
     try:
         compile(component.source.read_text(encoding="utf-8"), str(component.source), "exec")
     except SyntaxError as exc:
@@ -177,16 +244,19 @@ def validate_objective(cfg, *, workspace=None, paths=None):
         params = OmegaConf.to_container(params, resolve=True)
     params = component.parameters(params)
     requirements = component.metadata.get("requires", {})
-    from src.app.telemetry.selection import selection_from_config
+    from src.app.telemetry.selection import evaluation_off, selection_from_config
     selection = selection_from_config(cfg)
     metrics = list(requirements.get("metrics", []))
     if requirements.get("metric_parameter"):
         metrics.append(params[requirements["metric_parameter"]])
     for metric in metrics:
         if not selection.keeps(metric):
-            raise ValueError(f"Objective requires recorded metric {metric!r}")
-    if requirements.get("episode_outcomes") and (cfg.get("paradigm") != "online_rl" or int(cfg.get("eval_episodes") or 0) < 1):
-        raise ValueError("Objective requires online evaluation with eval_episodes > 0")
+            off = str(metric).startswith("eval/") and evaluation_off(cfg)
+            raise ValueError(f"Objective requires recorded metric {metric!r}"
+                             + (", but evaluation is off (eval frequency 0)" if off else ""))
+    if requirements.get("episode_outcomes") and (cfg.get("paradigm") != "online_rl" or int(cfg.get("eval_episodes") or 0) < 1
+                                                 or evaluation_off(cfg)):
+        raise ValueError("Objective requires online evaluation with eval_episodes > 0 and an eval frequency above 0")
     if requirements.get("episode_outcomes"):
         from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
         from src.app.pipeline.config import parse_methods_dict

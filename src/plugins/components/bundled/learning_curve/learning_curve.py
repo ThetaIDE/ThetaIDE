@@ -2,7 +2,7 @@
 import math
 import statistics
 
-from src.app.api.tuning import ObjectiveResult
+from src.app.api.tuning import ObjectiveProgress, ObjectiveResult
 
 
 def evaluate(results, params):
@@ -68,3 +68,19 @@ def evaluate(results, params):
                                    "runs": len(results.runs), "budget": budget,
                                    "window_start": window_start, "completed_final_values": final_values,
                                    "completed_window_minima": window_minima})
+
+
+def intermediate(results, params):
+    """The objective as if the budget ended at the latest evaluation every seed has reached."""
+    progress = results.common_progress(params["metric"])
+    if progress is None or progress[1] <= 0:
+        return None
+    step, horizon = progress
+    budget = float(params["curve"].get("budget") or results.config.get("total_timesteps") or 0)
+    horizon = min(horizon, budget) if budget > 0 else horizon
+    if horizon <= budget * params["curve"].get("start_fraction", 0):
+        return None
+    partial = {**params, "curve": {**params["curve"], "budget": horizon,
+                                   "start_fraction": params["curve"].get("start_fraction", 0) * budget / horizon}}
+    result = evaluate(results.snapshot(), partial)
+    return ObjectiveProgress(step, result.value, {"horizon": horizon, "per_run_auc": result.diagnostics["per_run_auc"]})

@@ -16,7 +16,7 @@ def test_worker_composes_component_site_config(tmp_path, explicit_searchpath):
     cluster_site(workspace)
     config = workspace / "src/usr/config"
     config.mkdir(parents=True)
-    (config / "config.yaml").write_text("defaults:\n  - site: cluster/common\n  - _self_\n")
+    (config / "config.yaml").write_text("defaults:\n  - site: cluster/cpu\n  - _self_\n")
     command = [sys.executable, "-m", "src.app.pipeline.provider_worker",
                "src/app/pipeline/repeated_task.py"]
     if explicit_searchpath:
@@ -31,8 +31,8 @@ def test_worker_composes_component_site_config(tmp_path, explicit_searchpath):
                             text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     cfg = OmegaConf.create(result.stdout)
-    assert cfg.site.scheduler == "slurm"
-    assert cfg.site.resources.partition == "common"
+    assert cfg.site.scheduler == "batch"
+    assert cfg.site.resources.partition == "cpu"
 
 
 def test_multirun_flag_before_overrides_launches_trials(tmp_path):
@@ -43,7 +43,7 @@ def test_multirun_flag_before_overrides_launches_trials(tmp_path):
     config = workspace / "src/usr/config"
     config.mkdir(parents=True)
     (config / "config.yaml").write_text(
-        "defaults:\n  - site: cluster/common\n  - _self_\nprobe: 0\n")
+        "defaults:\n  - site: cluster/cpu\n  - _self_\nprobe: 0\n")
     # Exercise Hydra's real parser, sweeper and launcher without starting training.
     script = (
         "import sys; from src.app.pipeline import repeated_task as worker; "

@@ -1,6 +1,7 @@
 {
   "api_version": 1,
   "source": "learning_curve.py",
+  "intermediate_function": "intermediate",
   "requires": {"episode_outcomes": true, "metrics": ["eval/reward"]},
   "defaults": {
     "metric": "eval/reward",
