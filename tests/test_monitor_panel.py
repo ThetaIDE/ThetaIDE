@@ -430,6 +430,33 @@ def test_open_queue_job_switches_to_its_live_monitor(method, expected):
     host.tabs.setCurrentWidget.assert_called_once_with(host.monitor_panel)
 
 
+def test_terminal_job_gets_a_run_record_the_monitor_opens():
+    from unittest.mock import Mock
+
+    job = {"job_id": "terminal-1", "status": "running", "started": 1700000000.0,
+           "request": {"source": "terminal"}, "experiment": "BlendRL/MountainCar/sweep",
+           "group": "BlendRL", "experiment_id": "MountainCar/sweep", "agents": ["DNN"], "total_timesteps": 300000}
+    monitor = SimpleNamespace(focus_agent=Mock(), focus_sweep=Mock(), show_view=Mock())
+    host = SimpleNamespace(runs=[], active_runs=[], persist=Mock(return_value=True), log=Mock(),
+                           refresh_runs=Mock(), update_launch_state=Mock(), select_run=Mock(), monitor=monitor,
+                           jobs=SimpleNamespace(job=lambda job_id: job if job_id == "terminal-1" else None),
+                           _set_monitor_active=Mock(), tabs=SimpleNamespace(setCurrentWidget=Mock()),
+                           monitor_panel=object())
+    host.run_for_job = lambda job_id: Window.run_for_job(host, job_id)
+    host.adopt_terminal_job = lambda job: Window.adopt_terminal_job(host, job)
+
+    Window.on_job_changed(host, job)  # the runner announced a pipeline started from a terminal
+    [run] = host.runs
+    assert run["backend"]["job_id"] == "terminal-1" and run["status"] == "running" and run["origin"] == "cli"
+    assert host.active_runs == [run] and run["config"]["total_timesteps"] == 300000
+    Window.open_job(host, "terminal-1", "DNN")
+    host.select_run.assert_called_once_with(run)
+    assert len(host.runs) == 1
+
+    desktop_job = {**job, "job_id": "desktop-1", "request": {}}
+    assert Window.adopt_terminal_job(host, desktop_job) is None  # desktop launches create their own record
+
+
 def test_monitor_title_selects_groups_and_running_or_queued_experiments():
     from copy import deepcopy
 

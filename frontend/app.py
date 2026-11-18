@@ -262,8 +262,6 @@ class Window(QMainWindow):
         self.backend_connected = False  # True once the training pipeline imports and composes in-process
         self.active_runs: list[dict] = []  # runs training now (several when the queue runs N at once)
         self.selected = None
-        self._replicate_views: dict[tuple[str, str], dict] = {}
-        self._replicate_metrics: dict[tuple[str, str], list[dict]] = {}
         self.timer = QTimer(self)
         self.timer.setInterval(350)
         self.timer.timeout.connect(self.tick)
@@ -2247,6 +2245,36 @@ class Window(QMainWindow):
         self.on_job_changed(job)  # it may have started (or failed to start) before the run existed
         self.on_queue_changed(self.jobs.queue_state())
 
+    def adopt_terminal_job(self, job):
+        """A run record for a pipeline started from a terminal, so the monitor follows it like a desktop launch.
+
+        Returns None for jobs that are not terminal runs (desktop launches create their record when submitted)."""
+        from src.app.services.terminal_runs import is_terminal
+        if not is_terminal(job):
+            return None
+        experiment_id = job.get("experiment_id") or job.get("experiment") or "terminal run"
+        try:
+            steps = int(job.get("effective_timesteps") or job.get("total_timesteps") or Config.total_timesteps)
+        except (TypeError, ValueError):
+            steps = Config.total_timesteps
+        run = new_run(Config(name=str(experiment_id), total_timesteps=steps), simulated=False)
+        started = job.get("started") or job.get("created")
+        if isinstance(started, (int, float)):
+            run["created"] = datetime.fromtimestamp(started).astimezone().isoformat()
+        status = {"pending": "starting"}.get(job.get("status"), job.get("status"))
+        run.update(origin="cli", status=status, log_since=0, metrics_since=0, metrics_byte=0, backend={
+            key: job.get(key) for key in ("job_id", "experiment", "group", "experiment_id", "agents", "total_timesteps",
+                                          "effective_timesteps")})
+        if not self.persist(run):
+            return None
+        self.runs.insert(0, run)
+        if status in LIVE_STATUSES:
+            self.active_runs.append(run)
+            self.log(f"Following terminal run {job.get('experiment') or experiment_id} ({job['job_id']}).")
+        self.refresh_runs()
+        self.update_launch_state()
+        return run
+
     def run_for_job(self, job_id):
         return next((r for r in self.runs if not r["simulated"] and r["backend"].get("job_id") == job_id), None)
 
@@ -2297,20 +2325,7 @@ class Window(QMainWindow):
         if run is None:
             return
         if " · seed " in str(agent) or " · trial " in str(agent):
-            key = (job_id, str(agent))
-            history = self._replicate_metrics.setdefault(key, [])
-            if reset:
-                history.clear()
-            points = metric_points(rows) if rows else []
-            history.extend(points)
-            view = self._replicate_views.get(key)
-            if view is not None:
-                if reset:
-                    view["metrics"] = []
-                view["metrics"].extend(points)
-                if self.selected is view:
-                    self.render_run()
-            return
+            return  # replicate and trial processes are drawn from their LiveRuns (on_job_records)
         if reset:
             run.pop("_metrics_deferred", None)
             run.pop("_metric_summary", None)
@@ -2423,12 +2438,10 @@ class Window(QMainWindow):
     def on_job_changed(self, job):
         run = self.run_for_job(job["job_id"])
         if run is None:
+            if job.get("status") in ("pending", *LIVE_STATUSES):
+                self.adopt_terminal_job(job)
             return
         status = {"pending": "starting"}.get(job.get("status"), job.get("status"))
-        selected = self.selected
-        if selected and selected.get("_replicate_view") and selected.get("backend", {}).get("job_id") == job["job_id"]:
-            selected["status"] = status
-            self.render_run()
         if run["status"] == "queued" and status in ("starting", "running"):
             self.log(f"Queue: {run['backend']['experiment_id']} started.")
             run["status"] = status
@@ -2661,7 +2674,7 @@ class Window(QMainWindow):
 
     def open_job(self, job_id, method_name=None):
         """Open the selected process in the Training Monitor."""
-        run = self.run_for_job(job_id)
+        run = self.run_for_job(job_id) or self.adopt_terminal_job(self.jobs.job(job_id) or {})
         if run is None:
             self.statusBar().showMessage("That job has no run record in this workspace.", 5000)
             return
@@ -2764,9 +2777,8 @@ class Window(QMainWindow):
         if hasattr(self, "monitor"):
             self.monitor.show_selected(run)
         self.render_run()
-        if not run.get("_replicate_view"):
-            self.backfill_metrics(run)
-            self.load_disk_metrics(run)
+        self.backfill_metrics(run)
+        self.load_disk_metrics(run)
 
     # ── Training monitor (widgets and drawing live in MonitorPanel) ──────────
 
@@ -2859,7 +2871,7 @@ class Window(QMainWindow):
 
     def load_disk_metrics(self, run):
         """Fetch the metrics of a run found in results/logs (the app has none recorded for it)."""
-        if run.get("_replicate_view") or run.get("origin") != "cli" or run["metrics"] or run.get("metrics_requested"):
+        if run.get("origin") != "cli" or run["backend"].get("job_id") or run["metrics"] or run.get("metrics_requested"):
             return
         agents = run["backend"].get("agents") or []
         if not agents:
