@@ -1,19 +1,16 @@
 """Results data layer (frontend/results/data.py): pure logic, no Qt."""
 
-import pytest
 
 from frontend.results.data import (
     Manifest,
     MetricTable,
     Source,
-    aggregate,
     chart_points,
     config_differences,
     decode_text,
     flatten,
     group_metrics,
     read_csv_rows,
-    smooth,
     summarize,
     summarize_metric,
     to_float,
@@ -118,20 +115,6 @@ def test_extend_appends_new_rows_and_new_columns():
     assert table.columns["losses/train/value_loss"] == [3.5, None]
 
 
-def test_smooth_matches_the_monitor_ema():
-    points = [(0, 0.0), (1, 10.0), (2, 10.0)]
-    assert smooth(points, 0) == points
-    assert smooth(points, 0.5) == [(0, 0.0), (1, 5.0), (2, 7.5)]
-
-
-def test_aggregate_across_seeds():
-    seeds = [[(1, 10.0), (2, 20.0)], [(1, 14.0), (2, 20.0)], [(1, 12.0)]]
-    first, second = aggregate(seeds)
-    assert (first.x, first.mean, first.n) == (1, 12.0, 3)
-    assert first.std == pytest.approx(2.0) and first.sem == pytest.approx(2.0 / 3**0.5)
-    assert (second.mean, second.std, second.n) == (20.0, 0.0, 2)
-
-
 def test_summarize_respects_metric_direction():
     reward = summarize([(0, 1.0), (10, 5.0), (20, 3.0)], higher_is_better=True)
     assert (reward.final, reward.best, reward.best_x, reward.auc) == (3.0, 5.0, 10, 70.0)
@@ -207,47 +190,22 @@ def test_flatten_and_config_differences():
     assert [key for key, _ in config_differences({"a": a})] == ["env.name", "methods.ppo.lr", "seed"]
 
 
-def test_series_groups_combine_an_agents_versions():
-    from frontend.results.data import series_groups
+def test_first_reaching():
+    from frontend.results.data import first_reaching
 
-    a0, a1 = Source("g", "e", "ppo", "version_0"), Source("g", "e", "ppo", "version_1")
-    b = Source("g", "e", "iql", "version_0")
-    assert series_groups([a0, a1, b], combine=False) == [(a0.label, [a0]), (a1.label, [a1]), (b.label, [b])]
-    assert series_groups([a0, a1, b], combine=True) == [("e / ppo (mean of 2)", [a0, a1]), (b.label, [b])]
-
-
-def test_seed_curves_from_different_trials_are_never_combined():
-    from frontend.results.data import series_groups
-
-    sources = [Source("g", "e", "ppo", f"version_{trial}_{seed}",
-                      f"search · trial {trial} · seed {seed}", f"trial_{trial}")
-               for trial in (35, 36) for seed in (11, 22)]
-    groups = series_groups(sources, combine=True)
-    assert len(groups) == 2
-    assert groups[0] == ("e / ppo (search · trial 35 · mean of 2)", sources[:2])
-    assert groups[1] == ("e / ppo (search · trial 36 · mean of 2)", sources[2:])
-
-
-def test_combined_points_and_first_reaching():
-    from frontend.results.data import SPREAD, combined_points, first_reaching
-
-    points = combined_points([[(0, 10.0), (1, 20.0)], [(0, 14.0), (1, 20.0)]], "r", "std")
-    assert [(p["step"], p["r"], p["n"]) for p in points] == [(0, 12.0, 2), (1, 20.0, 2)]
-    assert points[0][SPREAD] == pytest.approx(2.828, abs=1e-3) and points[1][SPREAD] == 0.0
     curve = [(0, 1.0), (10, 5.0), (20, 9.0)]
     assert first_reaching(curve, 5.0) == 10 and first_reaching(curve, 10.0) is None
     assert first_reaching([(0, 3.0), (5, 0.5)], 1.0, higher_is_better=False) == 5  # a loss getting below 1
 
 
-def test_summary_rows_and_csv():
-    from frontend.results.data import SUMMARY_COLUMNS, summary_rows, to_csv
+def test_summary_rows():
+    from frontend.results.data import summary_rows
 
     rows = summary_rows([("run", "eval/reward", [(0, 1.0), (10, 3.0)]), ("run", "empty", [])], threshold=2.0)
     assert rows == [["run", "eval/reward", 3.0, 3.0, 10, 1.0, 3.0, 2.0, 20.0, 2, 10]]  # empty series skipped
     # No direction (e.g. time): no "best", min and max only.
     (timing,) = summary_rows([("run", "time/total", [(0, 1.0), (10, 3.0)])])
     assert timing[3:7] == [None, None, 1.0, 3.0]
-    assert to_csv(list(SUMMARY_COLUMNS[:3]), [["a, b", "m", None]]) == 'Series,Metric,Final\n"a, b",m,\n'
 
 
 def test_plot_viewer_reads_csv_text_like_files(tmp_path):

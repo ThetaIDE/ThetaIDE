@@ -219,7 +219,8 @@ DQN/PPO weights with diagnostics enabled and disabled.
 
 Open **Diagnostics** in either the training monitor or the **Results** panel.
 In Results, select a completed run, method and version in the explorer, then open
-its **Diagnostics** tab alongside Files and Curves. The tab uses the same native
+its **Diagnostics** tab beside Files and Monitors. The tab appears only when a
+selected completed run saved rich snapshots. The tab uses the same native
 viewer, including historical steps, playback, layer/probe selectors, display modes
 and checkpoint comparisons. Snapshot metadata and selected arrays load through
 the Results backend on demand, so inspection does not require a training process

@@ -59,7 +59,7 @@ def test_routing_probabilities_and_signed_intervention_effects_have_named_axes()
     assert set(result.visuals) == {'routing', 'intervention_effects', 'interventions'}
     np.testing.assert_allclose(result.arrays['routing_weights'].sum(1), 1.)
     np.testing.assert_allclose(result.arrays['policy_probabilities'].sum(1), 1.)
-    assert result.visuals['routing']['layers'][0]['feature_ids'] == ['logic_0', 'neural_1']
+    assert result.visuals['routing']['layers'][0]['feature_ids'] == ['logic', 'neural']
     assert result.visuals['routing']['layers'][1]['feature_ids'] == ['left', 'noop', 'right']
     assert all(layer['value_range'] == [0., 1.] for layer in result.visuals['routing']['layers'])
     reference = ctx.access.scores(ctx.observations)
@@ -130,7 +130,7 @@ def test_rich_blend_snapshots_render_and_export_with_probability_units(tmp_path)
     view.output.setCurrentIndex(view.output.findData('interp/blend/routing'))
     text = '\n'.join(getattr(item, 'toPlainText', lambda: '')() for item in view.canvas.scene().items())
     assert 'probability' in text and 'fixed scale' in text
-    assert 'logic_0' in text and 'neural_1' in text
+    assert 'logic' in text and 'neural' in text and 'logic_0' not in text
     view.output.setCurrentIndex(view.output.findData('interp/blend/interventions'))
     assert 'unavailable' not in view.caption.text().lower()
     view.close()

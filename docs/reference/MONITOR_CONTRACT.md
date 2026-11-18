@@ -73,6 +73,13 @@ CSV fallback readers honor the same monitor exclusions.
 Outputs excluded by Recorded Metrics appear unchecked and unavailable in the
 Monitors box; stream choices cannot re-enable an output excluded from telemetry.
 
+An eval frequency of 0 (`eval_freq_steps: 0`, shown as **Off** in the Experiment
+box) turns evaluation off. `selection_from_config` then leaves the `eval/`
+section out of every selection, whatever `telemetry.metrics` lists: runners that
+check `keeps_section("eval")` run no evaluation episodes, and no `eval/` metric
+is recorded or streamed. A sweep or objective that needs an `eval/` metric is
+refused while evaluation is off.
+
 Built-in stream sinks declare `live = True`; custom live sinks must do the
 same. Archival sinks receive the original records. CSV declares
 `records_system = False`; custom sinks default to consuming resource records.
@@ -120,7 +127,7 @@ states that the component has not supplied a description. Discovery is cached
 until the displayed run configurations change.
 
 Live chart sections follow the complete metric namespace: for example,
-`blend/train/logic_0/weight_mean` appears under **blend → train → logic_0**.
+`blend/train/logic/weight_mean` appears under **blend → train → logic**.
 Each section can be collapsed independently. Folding a parent preserves child
 collapse choices, and new metrics respect those choices. Counts include all
 descendant plots. Collapsing only changes display; collection and recording
@@ -150,8 +157,12 @@ file in `payload.implementations`. The IDE validates its imports and executes
 only this file, bypassing the component's `__init__`, model, runner and ML
 dependencies. Catalogs must describe outputs without allocating models, probing
 training processes or mutating inputs. They must enumerate individual scalars,
-including every configuration-dependent expert and pair. The BlendRL copy
-shares its expert-name function with its runtime summaries so the two agree.
+including every configuration-dependent expert and pair, each with a readable
+`label` and a `description`. The BlendRL copy shares its expert-name function
+with its runtime summaries so the two agree: an expert is named by its type
+(`logic`, `neural`) and numbered from 1 within that type only when the type
+repeats (`logic_1`, `logic_2`). Per-type totals such as `logic/weight_mean` are
+emitted separately only for repeated types.
 
 Every ordinary configuration box retains the shared `ConfigBox` card identity.
 Section identity lives in `configSection`; shared theme selectors also use the

@@ -8,6 +8,9 @@ live stream and run loggers, and work that only exists to produce unlisted metri
 `keeps_section`): no evaluation episodes without an eval/ metric, no system sampling without a system/
 one. Counters the plots need as an x-axis are always recorded.
 
+An eval frequency of 0 (`eval_freq_steps: 0`) turns evaluation off: the eval/ section is left out of
+every selection, so no evaluation episodes run and no eval/ metric is recorded or streamed.
+
 Plain Python: the GUI's experiment editor and validation import it, so it must not pull in Lightning.
 """
 
@@ -21,25 +24,34 @@ SECTIONS = ("eval", "train", "losses", "diagnostics", "val", "test", "time", "sy
 
 
 class MetricSelection:
-    """`patterns` None or empty: keep everything. Otherwise names, and sections ending in "/"."""
+    """`patterns` None or empty: keep everything. Otherwise names, and sections ending in "/".
 
-    def __init__(self, patterns: Iterable[str] | None = None):
+    `without` names sections that are never kept, whatever `patterns` says (eval when evaluation is off)."""
+
+    def __init__(self, patterns: Iterable[str] | None = None, *, without: Iterable[str] = ()):
         self.patterns = tuple(str(p) for p in patterns or ())
+        self.without = tuple(str(section).rstrip("/") + "/" for section in without)
 
     @property
     def everything(self) -> bool:
-        return not self.patterns
+        return not self.patterns and not self.without
 
     def keeps(self, name: str) -> bool:
-        if self.everything or name in ALWAYS_KEPT:
+        if name in ALWAYS_KEPT:
+            return True
+        if any(name.startswith(section) for section in self.without):
+            return False
+        if not self.patterns:
             return True
         return any(name.startswith(p) if p.endswith("/") else name == p for p in self.patterns)
 
     def keeps_section(self, section: str) -> bool:
         """Whether any metric of `section` (e.g. "eval") is kept, so the work producing it must run."""
-        if self.everything:
-            return True
         prefix = section.rstrip("/") + "/"
+        if prefix in self.without:
+            return False
+        if not self.patterns:
+            return True
         return any(p.startswith(prefix) or (p.endswith("/") and prefix.startswith(p))
                    for p in self.patterns)
 
@@ -49,7 +61,8 @@ class MetricSelection:
         return {key: value for key, value in metrics.items() if self.keeps(str(key))}
 
     def __repr__(self) -> str:
-        return f"MetricSelection({list(self.patterns) or 'everything'})"
+        without = f", without={list(self.without)}" if self.without else ""
+        return f"MetricSelection({list(self.patterns) or 'everything'}{without})"
 
 
 def _section(cfg: Any):
@@ -57,15 +70,28 @@ def _section(cfg: Any):
     return section if hasattr(section, "get") else {}
 
 
+def evaluation_off(cfg: Any) -> bool:
+    """Whether the experiment's eval frequency is 0: no evaluation runs and no eval/ metric is recorded."""
+    if not hasattr(cfg, "get"):
+        return False
+    frequency = cfg.get("eval_freq_steps")
+    if frequency is None:
+        frequency = cfg.get("eval_freq")
+    return isinstance(frequency, (int, float)) and not isinstance(frequency, bool) and frequency == 0
+
+
 def selection_from_config(cfg: Any) -> MetricSelection:
     patterns = _section(cfg).get("metrics")
     if isinstance(patterns, str):
         patterns = [patterns]
-    return MetricSelection(patterns)
+    return MetricSelection(patterns, without=("eval",) if evaluation_off(cfg) else ())
 
 
 def selection_errors(cfg: Any, tuning_metric: str | None = None) -> list[str]:
     """What is wrong with `telemetry.metrics`, if anything. A sweep must keep `tuning_metric`."""
+    if tuning_metric and str(tuning_metric).startswith("eval/") and evaluation_off(cfg):
+        return [f"This experiment sweeps on '{tuning_metric}', but evaluation is off (eval frequency 0), "
+                "so it is never recorded. Set an eval frequency above 0 or sweep on another metric."]
     patterns = _section(cfg).get("metrics")
     if patterns is None:
         return []

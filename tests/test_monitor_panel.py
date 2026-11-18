@@ -479,17 +479,49 @@ def test_play_queues_before_starting_and_opens_the_queued_monitor():
 
     calls = []
     job = {"job_id": "new"}
+    plan = {"group": "g", "experiment_id": "new"}
+
+    def prepare_launch(experiment, overrides, overwrite, active_jobs, callback):
+        calls.append(("check", experiment, overwrite, active_jobs))
+        callback(plan, None)
+
     host = SimpleNamespace(
         check_missing_components=lambda: [], compose_valid=True,
         config=lambda: SimpleNamespace(name="new", overrides=lambda: []), current_experiment="g/new",
-        jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: calls.append(("launch", kw)) or job)),
+        backend=SimpleNamespace(prepare_launch=prepare_launch),
+        jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: calls.append(("launch", kw)) or job),
+                             launch_claims=lambda: [{"job_id": "old"}]),
         log=lambda *a: None, queued=lambda *a: calls.append(("record",)) or {"id": "new"},
         open_job=lambda *a: calls.append(("monitor",)),
         set_queue_running=lambda value: calls.append(("start", value)),
+        statusBar=lambda: SimpleNamespace(showMessage=lambda *a: None),
         active_runs=[{"id": "already_running"}], launch_capacity=lambda: 1)
     host.add_to_queue = lambda **kw: Window.add_to_queue(host, **kw)
     Window.launch_training(host)
-    assert calls == [("launch", {"queue": True, "overwrite": True}), ("record",), ("monitor",), ("start", True)]
+    # The launch check runs in the validation process; the runner receives its plan instead of
+    # composing again on the GUI thread.
+    assert calls == [("check", "g/new", True, [{"job_id": "old"}]),
+                     ("launch", {"queue": True, "overwrite": True, "plan": plan}),
+                     ("record",), ("monitor",), ("start", True)]
+
+
+def test_a_refused_launch_check_is_reported_and_nothing_is_queued():
+    from unittest.mock import Mock
+
+    reported, outcomes = [], []
+    launch = Mock()
+    host = SimpleNamespace(
+        check_missing_components=lambda: [], compose_valid=True,
+        config=lambda: SimpleNamespace(name="new", overrides=lambda: []), current_experiment="g/new",
+        backend=SimpleNamespace(prepare_launch=lambda *a: a[-1](None, "Results already exist for g/new")),
+        jobs=SimpleNamespace(launch=launch, launch_claims=lambda: []),
+        log=lambda *a: None, queued=lambda config, job, error: reported.append((job, error)),
+        statusBar=lambda: SimpleNamespace(showMessage=lambda *a: None),
+        unique_experiment_id=lambda name, is_recover=False: name)
+    Window.queue_current(host, done=lambda run, error: outcomes.append((run, error)))
+    launch.assert_not_called()
+    assert reported == [(None, "Results already exist for g/new")]
+    assert outcomes == [(None, "Results already exist for g/new")]
 
 
 def test_agents_queue_labelled_variants_with_extra_overrides(monkeypatch):
@@ -498,21 +530,27 @@ def test_agents_queue_labelled_variants_with_extra_overrides(monkeypatch):
 
     from src.app.services.config_service import LaunchError
 
-    launches, persisted = [], []
+    launches, persisted, outcomes = [], [], []
     def host(valid=True):
         return SimpleNamespace(
             check_missing_components=lambda: [], compose_valid=valid, compose_error=None if valid else "[compose] bad key",
             config=lambda: SimpleNamespace(name="default_exp", overrides=lambda: []), current_experiment="g/cartpole",
-            jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: launches.append((a, kw)) or {"job_id": "j"})),
+            backend=SimpleNamespace(prepare_launch=lambda *a: a[-1]({"plan": True}, None)),
+            jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: launches.append((a, kw)) or {"job_id": "j"}),
+                                 launch_claims=lambda: []),
             log=lambda *a: None, queued=lambda *a: {"id": "r1"}, persist=lambda run: persisted.append(dict(run)) or True,
             open_job=lambda *a: None, set_queue_running=lambda value: None,
+            statusBar=lambda: SimpleNamespace(showMessage=lambda *a: None),
             unique_experiment_id=lambda name, is_recover=False: name)
 
-    run = Window.queue_current(host(), start=True, extra_overrides=["++model.use_edit=true"], label="edit on", strict=True)
+    Window.queue_current(host(), start=True, extra_overrides=["++model.use_edit=true"], label="edit on", strict=True,
+                         done=lambda run, error: outcomes.append((run, error)))
+    [(run, error)] = outcomes
+    assert error is None
     (experiment, overrides), options = launches[0]
     assert experiment == "g/cartpole"
     assert overrides == ["++model.use_edit=true", "++experiment_id='cartpole-edit-on'"]
-    assert options == {"queue": True, "overwrite": False}  # never replaces earlier results
+    assert options == {"queue": True, "overwrite": False, "plan": {"plan": True}}  # never replaces earlier results
     assert run["overrides"] == ["++model.use_edit=true"] and run["label"] == "edit on"
     assert persisted[-1]["label"] == "edit on"
 

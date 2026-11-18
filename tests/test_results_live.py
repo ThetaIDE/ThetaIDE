@@ -148,7 +148,8 @@ def test_results_lists_active_runs_without_streaming_their_metrics():
     assert panel.explorer.tree.topLevelItem(0) is tree_before
     assert panel.loader.tables[SOURCE].row_count == 1
     names = [panel.tabs.tabText(i) for i in range(panel.tabs.count())]
-    assert "Monitors" in names and not {"Curves", "Summary", "Diagnostics"} & set(names)
+    assert "Monitors" in names and not {"Curves", "Summary"} & set(names)
+    assert not panel.tabs.isTabVisible(panel.tabs.indexOf(panel.diagnostics_page))
     card = panel.grid.cards["eval/reward"]
     assert card.chart.corner.isHidden() and card.value.text() == ""
     assert not panel.tabs.isTabVisible(panel.tabs.indexOf(panel.sweeps_page))
@@ -217,7 +218,6 @@ def test_long_series_are_thinned_for_drawing_only(tmp_path):
     drawn = panel.grid.cards["eval/reward"].chart.series[0][1]
     assert len(drawn) <= 2001
     assert panel.summary.rows[0][-1] == 6000  # Summary uses every point
-    assert len(panel.curves_csv().splitlines()) == 6001  # so does the export (header + every point)
 
 
 def test_metric_table_truncate_and_row():

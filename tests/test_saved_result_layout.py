@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from omegaconf import OmegaConf
 
-from src.app.pipeline.result_paths import iter_run_dirs, result_experiment_id, saved_run_id
+from src.app.pipeline.result_paths import iter_run_dirs, result_experiment_id, saved_run_id, saved_run_label
 from src.app.services import catalog
 
 
@@ -17,8 +17,13 @@ def test_saved_ids_nest_inside_the_experiment(identity):
         assert nested == identity + '/' + suffix.lstrip('_')
         assert result_experiment_id(nested) == identity
         assert saved_run_id(nested, suffix) == nested
-        # A sibling folder is an experiment of its own, not a save of this one.
-        assert result_experiment_id(identity + suffix) == identity + suffix
+        if suffix.startswith('__'):
+            # A cluster execution published beside its experiment belongs to that experiment.
+            assert result_experiment_id(identity + suffix) == identity
+            assert saved_run_label(identity + suffix) == 'a' * 32
+        else:
+            # A timestamped sibling folder is an experiment of its own, not a save of this one.
+            assert result_experiment_id(identity + suffix) == identity + suffix
 
 
 @pytest.fixture
@@ -77,6 +82,7 @@ def test_timestamp_queue_ids_always_nest_and_handle_collisions(tmp_path, monkeyp
 
 def test_results_tree_groups_nested_saves_and_keeps_siblings_apart():
     pytest.importorskip('PyQt6')
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication
     from frontend.results.explorer import RunExplorer
     application = QApplication.instance() or QApplication([])
@@ -85,11 +91,21 @@ def test_results_tree_groups_nested_saves_and_keeps_siblings_apart():
     sibling = 'nested/run_20261111-120000'
     explorer.set_runs([{'group': 'g', 'experiment_id': name, 'agents': [{'name': 'agent'}]} for name in names + [sibling]])
     group = explorer.tree.topLevelItem(0)
-    experiments = {group.child(i).text(0): group.child(i) for i in range(group.childCount())}
+    assert group.childCount() == 1
+    folder = group.child(0)  # the experiments' subdirectory below the group is its own row
+    assert (folder.text(0), folder.data(0, Qt.ItemDataRole.UserRole)) == ('nested', 'folder')
+    experiments = {folder.child(i).text(0): folder.child(i) for i in range(folder.childCount())}
     assert set(experiments) == {'run', 'run_20261111-120000'}
     assert experiments['run'].childCount() == len(names)
     assert explorer.select_run('g', names[1])
+    assert folder.isExpanded() and experiments['run'].isExpanded()
     assert {source.experiment_id for source in explorer.checked_sources()} == {names[1]}
+    explorer.search.setText('run_2026')
+    assert not folder.isHidden() and experiments['run'].isHidden()
+    explorer.search.setText('nested')
+    assert not experiments['run'].isHidden() and not experiments['run_20261111-120000'].isHidden()
+    explorer.tree.setCurrentItem(folder)
+    assert len(explorer.deletion_targets()) == len(names) + 1
     explorer.deleteLater()
 
 
@@ -141,3 +157,32 @@ def test_renaming_experiment_moves_nested_runs_and_execution_references(mixed_re
     assert document['result_experiment_id'] == document['runs'][0]['experiment_id'] == 'renamed/20261112-120000'
     for root in catalog.RESULT_ROOTS:
         assert (mixed_results / 'src/usr/results' / root / 'g/renamed/20261112-120000/config.yaml').exists()
+
+
+def test_failed_launch_nested_in_an_experiment_is_listed(tmp_path):
+    logs = tmp_path / 'logs'
+    (logs / 'g' / 'exp').mkdir(parents=True)
+    (logs / 'g' / 'exp' / 'a.stderr.log').write_text('')
+    (logs / 'g' / 'exp' / '20261104-090046').mkdir()
+    (logs / 'g' / 'exp' / '20261104-090046' / 'b.stderr.log').write_text('boom')
+    assert [path.relative_to(logs).as_posix() for path in iter_run_dirs(logs)] == [
+        'g/exp', 'g/exp/20261104-090046']
+
+
+def test_an_experiment_that_also_holds_experiments_is_one_row():
+    pytest.importorskip('PyQt6')
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+    from frontend.results.explorer import RunExplorer
+    application = QApplication.instance() or QApplication([])
+    explorer = RunExplorer()
+    explorer.set_runs([{'group': 'g', 'experiment_id': name, 'agents': [{'name': 'agent'}], 'finished': True}
+                       for name in ('Cartpole', 'Cartpole/smoke', 'Final Sweep__' + 'b' * 32)])
+    group = explorer.tree.topLevelItem(0)
+    rows = {group.child(i).text(0): group.child(i) for i in range(group.childCount())}
+    assert set(rows) == {'Cartpole', 'Final Sweep'}
+    cartpole = rows['Cartpole']
+    assert cartpole.data(0, Qt.ItemDataRole.UserRole) == 'experiment'
+    assert [cartpole.child(i).text(0) for i in range(cartpole.childCount())] == ['Run', 'smoke']
+    assert rows['Final Sweep'].child(0).text(0) == 'b' * 32
+    explorer.deleteLater()

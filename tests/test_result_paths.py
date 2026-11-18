@@ -23,7 +23,6 @@ def isolate_provider_snapshot(monkeypatch):
 ])
 def test_nested_recipe_identity_reaches_every_provider(fixture_workspace, monkeypatch, override, expected):
     from hydra.core.override_parser.overrides_parser import OverridesParser
-    import src.app.pipeline.compose as composition
 
     monkeypatch.chdir(fixture_workspace)
     root = fixture_workspace / "src/usr/config"
@@ -87,33 +86,3 @@ def test_nested_result_paths_reject_traversal(path):
         check_result_path(path)
 
 
-@pytest.mark.parametrize("consolidate", [False, True])
-def test_slurm_nested_results_use_valid_script_names(tmp_path, tmp_path_factory, monkeypatch, consolidate):
-    import sys
-    from pathlib import Path
-    from types import SimpleNamespace
-    from component_fixtures import install_optional
-    from src.app.sites.execution import submit
-
-    install_optional(tmp_path, "slurm", tmp_path_factory.mktemp("archives"))
-    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "run_pipeline.py").write_text("# pipeline")
-    submitted = []
-    def sbatch(arguments, **kwargs):
-        assert arguments[0] == "sbatch"
-        submitted.append(Path(arguments[-1]).read_text())
-        return SimpleNamespace(returncode=0, stdout="123\n", stderr="")
-    monkeypatch.setattr("subprocess.run", sbatch)
-    cfg = OmegaConf.create({"group": "group", "experiment_id": "path/dir/run",
-                            "site": {"name": "cluster", "scheduler": "slurm", "python_executable": sys.executable},
-                            "paradigm": "online_rl", "consolidate": consolidate, "plots": ["losses"]})
-    from bundle_fixtures import fake_bundles
-    fake_bundles(monkeypatch, cfg)
-    record = submit(tmp_path, "group/path/dir/run", [], cfg)
-    directory = tmp_path / "src/usr/results/sites" / record["execution_id"]
-    assert (directory / "job.sbatch").is_file()
-    assert len(submitted) == 1
-    assert record["result_experiment_id"] == "path/dir/run/" + record["execution_id"]
-    assert "#SBATCH --job-name=theta_" in submitted[0]
-    assert not (tmp_path / "src/usr/results/plots/group/path/dir/run").exists()

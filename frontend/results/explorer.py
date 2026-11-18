@@ -1,8 +1,12 @@
-"""Run explorer: a tree of group → experiment → run → agent → version.
+"""Run explorer: a tree of group → folders → experiment → run → agent → version.
+
+Folders mirror the experiment's subdirectories below its group (BlendRL/Cartpole/LearnFast shows
+BlendRL → Cartpole → LearnFast).
 
 It looks and behaves like the Experiment tab's tree, from the same code (frontend/tree_tools.py): the
 square reload / collapse all / expand all / search buttons (Esc closes the search), bold group headings
-with a rule under them, and folders for experiments. Runs, agents and versions can be selected.
+with a rule under them, and folders for experiments. Runs, agents and versions can be selected. Its sync
+button, like the Experiment tab's, shows only for a run that ran on a site other than local.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QMenu, QTreeWidget, QT
 from ..tree_tools import (DraggableToolButton, GroupItemDelegate, TreeHeaderActions, TreeHeaderWidget,
                           TreeToolbarPersistence, folder_icon, refresh_tool_icons, style_tool_button)
 from .data import Manifest, Source
-from src.app.pipeline.result_paths import SAVED_RUN_NAME, result_experiment_id
+from src.app.pipeline.result_paths import SAVED_RUN_NAME, result_experiment_id, saved_run_label
 
 
 def _results_label() -> str:
@@ -71,6 +75,8 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.btn_search = button("search", "Filter runs")
         self.btn_archive = button("archive", "Archive selected run")
         self.btn_delete = button("trash", "Delete selected folders")
+        self.btn_sync = button("sync", "Sync site data")  # driven by the panel's RunSiteSyncControl
+        self.btn_sync.hide()
         self.btn_archive.clicked.connect(lambda: self._request_selected(self.archive_requested))
         self.btn_delete.clicked.connect(self._request_delete_selection)
         self.header_widget = TreeHeaderWidget(self)
@@ -104,7 +110,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             "row1_left": [self.btn_refresh, self.btn_collapse, self.btn_expand, self.btn_search],
             "row1_right": [],
             "row2_left": [self.btn_archive, self.btn_delete],
-            "row2_right": [],
+            "row2_right": [self.btn_sync],
         }
 
     # ── Theme ────────────────────────────────────────────────────────────────
@@ -113,7 +119,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Re-render the header and folder icons in the current theme's colors."""
         refresh_tool_icons(self)
         for item in self._items():
-            if item.data(0, _KIND) in ("experiment", "run"):
+            if item.data(0, _KIND) in ("folder", "experiment", "run"):
                 item.setIcon(0, folder_icon())
 
     # ── Building ─────────────────────────────────────────────────────────────
@@ -126,7 +132,22 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self._emitting = False
         self.tree.clear()
         groups: dict[str, QTreeWidgetItem] = {}
+        # One row per (group, path): an experiment whose folder also holds other experiments is both.
         experiments: dict[tuple[str, str], QTreeWidgetItem] = {}
+
+        def folder(group: str, path: PurePosixPath) -> QTreeWidgetItem:
+            """The item that holds `path`'s children: the group itself, or a folder below it."""
+            if path == PurePosixPath("."):
+                return groups[group]
+            key = (group, path.as_posix())
+            if key not in experiments:
+                item = self._item(folder(group, path.parent), path.name, "folder", key,
+                                  Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                item.setToolTip(0, f"{_results_label()}/logs/{group}/{path.as_posix()}")
+                item.setIcon(0, folder_icon())
+                experiments[key] = item
+            return experiments[key]
+
         for entry in sorted(entries, key=lambda e: (e["group"], e["experiment_id"])):
             group, exp = entry["group"], entry["experiment_id"]
             agents = [a["name"] for a in entry.get("agents") or [] if a.get("name")]
@@ -141,12 +162,13 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             key = (group, name)
             if key not in experiments:
                 exp_label = PurePosixPath(name).name.removeprefix(group + "_")
-                exp_item = self._item(groups[group], exp_label, "experiment", key,
+                exp_item = self._item(folder(group, PurePosixPath(name).parent), exp_label, "experiment", key,
                                       Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 exp_item.setToolTip(0, f"{_results_label()}/logs/{group}/{name}")
                 exp_item.setIcon(0, folder_icon())
                 experiments[key] = exp_item
-            run_label = "Run" if exp == name else PurePosixPath(exp).name
+            experiments[key].setData(0, _KIND, "experiment")  # a folder row that turns out to be an experiment too
+            run_label = "Run" if exp == name else saved_run_label(exp)
             run_item = self._item(experiments[key], run_label, "run", f"{group}/{exp}", _PARENT)
             times = [a.get("started") for a in entry.get("agents") or [] if isinstance(a.get("started"), str)]
             stamp = SAVED_RUN_NAME.fullmatch(PurePosixPath(exp).name)
@@ -189,9 +211,10 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if target is None:
             return False
         self.tree.setCurrentItem(target)
-        target.setExpanded(True)
-        target.parent().setExpanded(True)
-        target.parent().parent().setExpanded(True)
+        parent = target
+        while parent:
+            parent.setExpanded(True)
+            parent = parent.parent()
         self.manifest_wanted.emit(group, experiment)
         return True
 
@@ -279,7 +302,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if not item:
             return []
         kind = item.data(0, _KIND)
-        if kind in ("group", "experiment"):
+        if kind in ("group", "folder", "experiment"):
             runs = [child for child in self._descendants(item) if child.data(0, _KIND) == "run"]
             if not runs:
                 return []
@@ -318,7 +341,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     # ── Events ───────────────────────────────────────────────────────────────
 
     def _run_for_item(self, item):
-        while item and item.data(0, _KIND) not in ("run", "experiment", "group"):
+        while item and item.data(0, _KIND) not in ("run", "experiment", "folder", "group"):
             item = item.parent()
         if item and item.data(0, _KIND) == "run":
             return tuple(item.data(0, _DATA).split("/", 1))
@@ -330,12 +353,12 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             signal.emit(*run)
 
     def deletion_targets(self):
-        """Expand experiment folders and remove overlapping group/run targets."""
+        """Expand folders and experiments into their runs, and remove overlapping group/run targets."""
         items = self.tree.selectedItems()
         groups = {item.data(0, _DATA) for item in items if item.data(0, _KIND) == "group"}
         runs = set()
         for item in items:
-            if item.data(0, _KIND) == "experiment":
+            if item.data(0, _KIND) in ("folder", "experiment"):
                 runs.update(self._run_for_item(child) for child in self._descendants(item)
                             if child.data(0, _KIND) == "run")
             else:
@@ -400,20 +423,20 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self.selection_changed.emit(self.checked_sources())
 
     def apply_filter(self, text):
-        """Show experiments whose group/name contains `text`, and the groups that hold them."""
+        """Show experiments whose group/path contains `text`, and the folders and groups that hold them."""
         needle = text.strip().lower()
-        for g in range(self.tree.topLevelItemCount()):
-            group = self.tree.topLevelItem(g)
-            any_visible = False
-            for e in range(group.childCount()):
-                exp = group.child(e)
-                matches_experiment = not needle or needle in "/".join(exp.data(0, _DATA)).lower()
+
+        def show(item, matched: bool) -> bool:
+            kind, data = item.data(0, _KIND), item.data(0, _DATA)
+            if kind == "run":
+                visible = matched or needle in data.lower()
+            else:
+                matched = matched or (kind != "group" and needle in "/".join(data).lower())
                 visible = False
-                for r in range(exp.childCount()):
-                    run = exp.child(r)
-                    run_visible = matches_experiment or needle in run.data(0, _DATA).lower()
-                    run.setHidden(not run_visible)
-                    visible |= run_visible
-                exp.setHidden(not visible)
-                any_visible |= visible
-            group.setHidden(not any_visible)
+                for i in range(item.childCount()):
+                    visible |= show(item.child(i), matched)
+            item.setHidden(not visible)
+            return visible
+
+        for g in range(self.tree.topLevelItemCount()):
+            show(self.tree.topLevelItem(g), not needle)

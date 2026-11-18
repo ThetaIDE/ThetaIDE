@@ -26,7 +26,7 @@ def test_new_launch_does_not_follow_an_earlier_study_snapshot(tmp_path):
     job = dict(job_id="new", group="g", experiment_id="e", status="running", agents=["m"], started=time.time())
     path = tmp_path / "src/usr/results/checkpoints/g/e/m/tuning_summary.json"
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"component": "optuna", "study": "old", "stop_reason": "running", "trials": []}))
+    path.write_text(json.dumps({"component": "search", "study": "old", "stop_reason": "running", "trials": []}))
     os.utime(path, (job["started"] - 60, job["started"] - 60))
     assert manager_for(tmp_path, job)._sweep_summaries(job) == []
 
@@ -60,27 +60,3 @@ def test_stopped_trial_closes_only_its_unfinished_runs(tmp_path, monkeypatch):
     assert statuses("two") == ["completed", "running", "pending"]
 
 
-def test_cancelled_method_closes_only_current_launch_trials_and_seed_records(tmp_path, monkeypatch):
-    import optuna
-    from src.app.pipeline.variability import finish_trial_runs
-    from component_fixtures import optional_module
-    _optuna_component = optional_module('optuna', 'component.py')
-    OptunaTuner = _optuna_component.OptunaTuner
-    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
-    storage = f"sqlite:///{tmp_path / 'study.db'}"
-    study = optuna.create_study(study_name="s", storage=storage)
-    study.ask()  # An earlier launch's outstanding trial is not owned by this cancellation.
-    study.set_user_attr("theta_initial_trials", 1)
-    study.ask()
-    for key, pid, method in [("current", 11, "m"), ("sibling", 11, "other"), ("earlier", 22, "m")]:
-        path = tmp_path / "src/usr/results/executions/g/e" / key / "manifest.json"
-        path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({"owner_pid": pid, "parent": {"method": method}, "runs": [{"status": "running"}]}))
-    finish_trial_runs("g", "e", None, "cancelled", owner_pid=11, method="m")
-    cfg = OmegaConf.create({"group": "g", "experiment_id": "e"})
-    OptunaTuner().cancel(cfg, "m", storage, "s")
-    trials = optuna.load_study(study_name="s", storage=storage).trials
-    assert [trial.state.name for trial in trials] == ["RUNNING", "PRUNED"]
-    for key, expected in [("current", "cancelled"), ("sibling", "running"), ("earlier", "running")]:
-        path = tmp_path / "src/usr/results/executions/g/e" / key / "manifest.json"
-        assert json.loads(path.read_text())["runs"][0]["status"] == expected

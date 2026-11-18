@@ -11,7 +11,7 @@ import csv
 import io
 import math
 from dataclasses import dataclass, field
-from statistics import fmean, stdev
+from statistics import fmean
 
 from src.app.core.plotting.thinning import MAX_DRAWN_POINTS, thin_by, thin_xy
 
@@ -125,44 +125,6 @@ def group_metrics(names: list[str]) -> dict[str, list[str]]:
     for name in sorted(names, key=lambda n: (group_sort_key(metric_group(n)), n)):
         groups.setdefault(metric_group(name), []).append(name)
     return groups
-
-
-def smooth(points: list[Point], factor: float) -> list[Point]:
-    """Exponential moving average, matching the Training monitor's chart (0 = raw)."""
-    if factor <= 0 or len(points) <= 1:
-        return list(points)
-    out, last = [], None
-    for x, y in points:
-        last = y if last is None else last * factor + y * (1.0 - factor)
-        out.append((x, last))
-    return out
-
-
-@dataclass(frozen=True)
-class AggregatePoint:
-    x: float
-    mean: float
-    std: float
-    sem: float
-    n: int
-
-
-def aggregate(series: list[list[Point]]) -> list[AggregatePoint]:
-    """Mean, std and standard error across runs (e.g. seeds) at each x they share.
-
-    Runs are matched on exact x values, which holds for seeds of one experiment (they
-    evaluate on the same schedule). An x reported by only some runs uses those runs.
-    """
-    by_x: dict[float, list[float]] = {}
-    for points in series:
-        for x, y in points:
-            by_x.setdefault(x, []).append(y)
-    result = []
-    for x in sorted(by_x):
-        ys = by_x[x]
-        sd = stdev(ys) if len(ys) > 1 else 0.0
-        result.append(AggregatePoint(x, fmean(ys), sd, sd / math.sqrt(len(ys)), len(ys)))
-    return result
 
 
 @dataclass(frozen=True)
@@ -393,38 +355,7 @@ def config_differences(configs: dict[str, dict]) -> list[tuple[str, list]]:
     return rows
 
 
-# ── Comparisons: combining versions, summaries, export ───────────────────────
-
-# Chart-point key holding the spread (std or SEM) of a combined series; the chart shades ± this.
-SPREAD = "__spread"
-COMBINE_MODES = {None: "Separate", "std": "Mean ± std", "sem": "Mean ± SEM"}
-
-
-def series_groups(sources: list[Source], combine: bool) -> list[tuple[str, list[Source]]]:
-    """How ticked sources become plotted series: (legend label, the sources it covers).
-
-    Combine repeated versions of each agent, keeping seeds of different tuning trials
-    in separate series.
-    """
-    if not combine:
-        return [(source.label, [source]) for source in sources]
-    groups: dict[tuple, list[Source]] = {}
-    for source in sources:
-        groups.setdefault((source.group, source.experiment_id, source.agent, source.trial_version), []).append(source)
-    result = []
-    for (_, experiment_id, agent, trial), members in groups.items():
-        trial_label = members[0].display_version.rsplit(" · seed ", 1)[0] if trial and members[0].display_version else None
-        suffix = f"{trial_label} · mean of {len(members)}" if trial_label else f"mean of {len(members)}"
-        label = members[0].label if len(members) == 1 else f"{experiment_id} / {agent} ({suffix})"
-        result.append((label, members))
-    return result
-
-
-def combined_points(series: list[list[Point]], metric: str, spread: str) -> list[dict]:
-    """Chart points for the mean of several series, with SPREAD holding the std or SEM at each x."""
-    return [
-        {"step": p.x, metric: p.mean, SPREAD: p.std if spread == "std" else p.sem, "n": p.n} for p in aggregate(series)
-    ]
+# ── Summaries ────────────────────────────────────────────────────────────────
 
 
 def first_reaching(points: list[Point], threshold: float, higher_is_better: bool | None = True) -> float | None:
@@ -466,11 +397,3 @@ def summary_rows(entries: list[tuple[str, str, list[Point]]], threshold: float |
         rows.append(row)
     return rows
 
-
-def to_csv(headers: list[str], rows: list[list]) -> str:
-    """CSV text; None becomes an empty cell. Line endings are left to the file the caller writes."""
-    out = io.StringIO()
-    writer = csv.writer(out, lineterminator=chr(10))
-    writer.writerow(headers)
-    writer.writerows([["" if v is None else v for v in row] for row in rows])
-    return out.getvalue()

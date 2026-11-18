@@ -55,6 +55,9 @@ def test_running_only_run_is_not_published_and_contract_completion_is_supported(
         catalog.run_manifest("group", "run", completed_only=True)
     write_json(directory / "runtime.json", {"completed_at": "2026-11-03T10:00:00Z"})
     assert catalog.list_runs(completed_only=True)[0]["finished"]
+    # The full listing (what the Results browser reads) agrees: the run is not left "in progress".
+    entry, = catalog.list_runs()
+    assert entry["finished"] and entry["agents"][0]["finished"] == "2026-11-03T10:00:00Z"
 
 
 @pytest.mark.parametrize("run", ["run", "path/dir/run"])

@@ -1,4 +1,4 @@
-"""Results panel (frontend/results): explorer, one chart per metric, hiding plots, axes, smoothing."""
+"""Results panel (frontend/results): explorer, one chart per metric, artifacts and site sync."""
 
 from urllib.parse import urlencode
 import os
@@ -175,7 +175,7 @@ def make_panel(settings=None):
     return panel, backend
 
 
-def test_artifact_context_menu_renames_and_refreshes_all_browsers(monkeypatch):
+def test_artifact_context_menu_renames_and_refreshes_the_browser(monkeypatch):
     from pathlib import PurePosixPath
     from PyQt6.QtCore import QPoint
     from PyQt6.QtWidgets import QInputDialog, QMenu
@@ -186,10 +186,9 @@ def test_artifact_context_menu_renames_and_refreshes_all_browsers(monkeypatch):
     monkeypatch.setitem(FILES, run_key, dict(FILES[run_key]))
     panel, backend = make_panel()
     panel.explorer.select_run("cartpole", "ppo_run")
-    files, reports = panel.browser("Files"), panel.browser("Reports")
+    files = panel.browser("Files")
     panel.update_artifacts()
     assert files.select(run_key, old_path)
-    assert reports.select(run_key, old_path)
     assert (run_key, old_path) in panel.loader.files
     calls = []
 
@@ -213,7 +212,7 @@ def test_artifact_context_menu_renames_and_refreshes_all_browsers(monkeypatch):
     files._context_menu(QPoint())
     assert calls == [("cartpole", "ppo_run", old_path, "renamed.md")]
     assert (run_key, old_path) not in panel.loader.files
-    for browser in (files, reports):
+    for browser in (files,):
         assert browser.current[1]["path"] == new_path
         assert browser.tree.currentItem().text(0) == "renamed.md"
         assert "Hyperparameters" in browser.viewers["text"].browser.toPlainText()
@@ -382,7 +381,7 @@ def test_results_run_tree_drag_after_visiting_curves():
         panel.deleteLater()
 
 
-@pytest.mark.parametrize("tab", ["Files", "Reports", "Config"])
+@pytest.mark.parametrize("tab", ["Files", "Config"])
 def test_results_preview_content_does_not_pin_tree_width(tab):
     panel, _ = make_panel()
     panel.resize(1100, 800)
@@ -452,17 +451,6 @@ def browser_select(panel, tab, suffix):
     run_key, artifact = next((k, a) for k, a in browser.artifacts() if a["path"].endswith(suffix))
     assert browser.select(run_key, artifact["path"])
     return browser
-
-
-# ── Phase 5: comparisons ─────────────────────────────────────────────────────
-
-
-def set_combine(panel, mode):
-    panel.combine_select.setCurrentIndex(panel.combine_select.findData(mode))
-
-
-def set_primary(panel, name):
-    panel.primary_select.setCurrentIndex(panel.primary_select.findData(name))
 
 
 def test_chart_hover_snaps_only_to_the_primary_series():
@@ -566,6 +554,49 @@ def test_open_run_selects_its_curves_after_listing():
     assert panel.tabs.currentWidget() is panel.curves_page
     assert panel.run_keys() == ["cartpole/ppo_run"]
     assert "eval/reward" in panel.grid.cards
+
+
+def test_selected_run_is_titled_above_the_tabs():
+    panel, _ = make_panel()
+    assert panel.run_title.isHidden()
+    assert not {"Executions", "Reports"} & {panel.tabs.tabText(i) for i in range(panel.tabs.count())}
+    panel.explorer.tree.setCurrentItem(tree_items(panel)["sb3_run"])
+    assert not panel.run_title.isHidden()
+    assert panel.run_title.text() == "sb3 / sb3_run"
+    assert panel.run_title.toolTip().endswith("/logs/sb3/sb3_run")
+    panel.explorer.tree.setCurrentItem(None)
+    assert panel.run_title.isHidden()
+
+
+def test_monitors_tab_has_no_controls_row():
+    from PyQt6.QtWidgets import QComboBox, QSlider, QToolButton
+
+    panel, _ = make_panel()
+    panel.explorer.tree.setCurrentItem(tree_items(panel)["sb3_run"])
+    assert "eval/reward" in panel.grid.cards
+    assert not panel.curves_page.findChildren(QComboBox) and not panel.curves_page.findChildren(QSlider)
+    assert not [b for b in panel.curves_page.findChildren(QToolButton) if b.text().endswith("▾")]
+
+
+def test_run_tree_sync_button_shows_only_for_a_run_on_a_remote_site(monkeypatch):
+    monkeypatch.setitem(RUNS[0], "remote", {"site": "local", "execution_id": "local-1"})
+    monkeypatch.setitem(RUNS[1], "remote", {"site": "cluster/cpu", "execution_id": "exec-1",
+                                            "result_experiment_id": "sb3_run"})
+    panel, _ = make_panel()
+    button = panel.explorer.btn_sync
+    assert button in panel.explorer.header_layout.groups["row2_right"]
+    assert button.isHidden()  # nothing selected
+    calls = []
+    monkeypatch.setattr(panel.site_sync, "start", lambda *args, **kwargs: calls.append((args, kwargs)))
+    panel.explorer.tree.setCurrentItem(tree_items(panel)["sb3_run"])
+    assert not button.isHidden()
+    assert "cluster/cpu" in button.toolTip()
+    button.click()
+    assert calls == [(("cluster/cpu", "experiment"), {"execution_id": "exec-1"})]
+    panel.explorer.tree.setCurrentItem(tree_items(panel)["ppo_run"])  # ran on the local site
+    assert button.isHidden()
+    panel.explorer.tree.setCurrentItem(None)
+    assert button.isHidden()
 
 
 def test_failed_run_without_metrics_opens_error_log(monkeypatch):

@@ -1,6 +1,6 @@
 """Artifact browser: every file a run produced, with a preview for each kind.
 
-One ArtifactBrowser backs the Reports, Config and Files tabs; each tab only
+One ArtifactBrowser backs the Config and Files tabs; each tab only
 chooses which kinds it lists. Previews reuse the Plot viewer's canvases (frontend/plots.py).
 """
 

@@ -80,7 +80,7 @@ def test_unset_and_empty_exclusions_keep_current_and_future_outputs():
     assert MonitorSelection().keeps("future/metric")
     assert monitor_errors(config()) == []
     assert MonitorSelection(["blend/train/"]).keeps("blend/eval/entropy")
-    assert not MonitorSelection(["blend/train/"]).keeps("blend/train/neural_0/weight_std")
+    assert not MonitorSelection(["blend/train/"]).keeps("blend/train/neural/weight_std")
 
 
 def test_removed_sets_filter_streams_and_box_bypass_preserves_them(tmp_path):
@@ -281,7 +281,7 @@ def test_all_individual_diagnostics_removed_skip_optional_collection(tmp_path):
            "model": {"name": "blendrl-dev", "neural": {"name": "dnn"}, "symbolic": {"name": "nsfr"}}}
     specs = available_monitors(cfg)
     removed = [spec.name for spec in specs if spec.name.startswith("blend/train/")]
-    assert "blend/train/logic_0/weight_mean" in removed
+    assert "blend/train/logic/weight_mean" in removed
     assert all(not name.endswith("/") for name in removed)
     cfg.update(config(*removed))
     with Run(tmp_path / "model", ["stream"], config=cfg, system_interval=0) as run:

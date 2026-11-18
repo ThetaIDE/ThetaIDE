@@ -20,21 +20,21 @@ def test_nested_monitor_groups_preserve_independent_collapse_states():
 
     grid = PlotGrid()
     grid.configure(collapsible=True)
-    metrics = ["blend/train/entropy", "blend/train/logic_0/weight_mean",
-               "blend/eval/logic_0/weight_mean", "eval/reward"]
+    metrics = ["blend/train/entropy", "blend/train/logic_1/weight_mean",
+               "blend/eval/logic_1/weight_mean", "eval/reward"]
     grid.show_metrics(metrics)
     train = grid.cards[metrics[1]]
     evaluation = grid.cards[metrics[2]]
-    grid.toggle_group("blend/train/logic_0")
+    grid.toggle_group("blend/train/logic_1")
     assert grid.grid.indexOf(train) == -1
     assert grid.grid.indexOf(evaluation) >= 0
     grid.toggle_group("blend")
     assert grid.grid.indexOf(evaluation) == -1
-    grid.show_metrics(metrics + ["blend/eval/logic_1/weight_mean"])
+    grid.show_metrics(metrics + ["blend/eval/logic_2/weight_mean"])
     grid.toggle_group("blend")
     assert grid.grid.indexOf(train) == -1
     assert grid.grid.indexOf(evaluation) >= 0
-    grid.toggle_group("blend/train/logic_0")
+    grid.toggle_group("blend/train/logic_1")
     assert grid.grid.indexOf(train) >= 0
     assert len(grid.cards) == len(metrics) + 1
     grid.close()
