@@ -6,6 +6,7 @@ resolves exactly like the same experiment launched from the command line.
 
 from __future__ import annotations
 
+import functools
 import json
 import threading
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, OmegaConf
 
+from src.app.core.provider_discovery import provider_discovery_snapshot
 from src.app.pipeline.config import resolve_experiment_config_name
 from src.app.pipeline.result_paths import result_identity
 from src.app.pipeline.tuning_config import tuning_disabled, tuning_enabled
@@ -29,6 +31,17 @@ def composition_workspace(config_dir=None, workspace=None):
     if config_dir is not None:
         return WorkspacePaths.from_config_root(config_dir)
     return WorkspacePaths.for_process()
+
+def one_discovery(function):
+    """Run `function` as one discovery read: workspace manifests, the provider catalog and config
+    resolvers are built once and shared by every lookup inside it (and by an enclosing caller's).
+    Without this, one validation rescans the workspace about ninety times."""
+    @functools.wraps(function)
+    def scoped(*args, **kwargs):
+        with provider_discovery_snapshot():
+            return function(*args, **kwargs)
+    return scoped
+
 
 # The compose API cannot parse Optuna sweep operators or hydra internal configs
 _SWEEP_MARKERS = ("interval(", "choice(", "range(", "hydra.", "hydra/")
@@ -56,6 +69,7 @@ class ComposedExperiment:
         return ["python", "run_pipeline.py", self.experiment, *self.extra_args]
 
 
+@one_discovery
 def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, ...] = (), *, config_dir: Path | None = None, workspace: WorkspacePaths | None = None) -> ComposedExperiment:
     """Compose the Hydra config for an experiment plus CLI-style overrides.
 
@@ -109,6 +123,7 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
     return ComposedExperiment(experiment, cfg, extra_args, launch_args, is_sweep, config_dir, workspace)
 
 
+@one_discovery
 def validate_composed(composed: ComposedExperiment) -> list[str]:
     """Run pre-flight paradigm validation. Returns notices; raises ConfigurationError."""
     notices = validate_experiment_config(
@@ -187,6 +202,7 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
         except Exception as exc:
             raise ConfigurationError(f"Method '{name}' trial configuration cannot be composed: {exc}") from exc
 
+@one_discovery
 def method_plans(composed: ComposedExperiment) -> dict[str, dict[str, Any]]:
     """Per-method settings after tier merging, plus the exact overrides each training subprocess receives.
 

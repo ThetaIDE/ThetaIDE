@@ -2060,6 +2060,14 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             return
 
         menu = QMenu(self)
+        if data["type"] == "file" and self.mode in ("experiments", "experiment"):
+            experiment_path = Path(data["rel_path"]).with_suffix("")
+            if experiment_path.parts[0] in ("experiment", "experiments"):
+                experiment_path = Path(*experiment_path.parts[1:])
+            action_copy_name = menu.addAction("Copy Full Experiment Name")
+            action_copy_name.triggered.connect(
+                lambda: QApplication.clipboard().setText(experiment_path.as_posix())
+            )
         selected = self.tree.selectedItems()
         selected_data = [selected_item.data(0, Qt.ItemDataRole.UserRole) for selected_item in selected]
         if item in selected and len(selected_data) > 1 and all(
@@ -2075,14 +2083,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             action_select.triggered.connect(lambda: self._on_item_clicked(item, 0))
             action_new_tab = menu.addAction("Open in New Tab")
             action_new_tab.triggered.connect(lambda: self._on_item_double_clicked(item, 0))
-            if self.mode in ("experiments", "experiment"):
-                experiment_path = Path(data["rel_path"]).with_suffix("")
-                if experiment_path.parts[0] in ("experiment", "experiments"):
-                    experiment_path = Path(*experiment_path.parts[1:])
-                action_copy_name = menu.addAction("Copy Full Experiment Name")
-                action_copy_name.triggered.connect(
-                    lambda: QApplication.clipboard().setText(experiment_path.as_posix())
-                )
             label_dup = (
                 "Copy YAML…" if self.mode == "components"
                 else "Duplicate Experiment…" if self.mode in ("experiments", "experiment")

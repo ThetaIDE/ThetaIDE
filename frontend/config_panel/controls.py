@@ -364,6 +364,14 @@ def _parameter_title(title):
     return title_widget
 
 
+def _caption_text(caption) -> str:
+    """A row caption's text: the label itself, or the label inside a composite caption."""
+    if isinstance(caption, QLabel):
+        return caption.text()
+    label = caption.findChild(QLabel)
+    return label.text() if label is not None else caption.accessibleName()
+
+
 def _collapsible_parameter_label(title, children, *, expanded=True, on_toggled=None):
     """Shared disclosure control, before the label and outside the child block."""
     container = QWidget()
@@ -512,7 +520,7 @@ class ParameterForm(QFormLayout):
                 items[1]._parameter_caption = weakref.ref(item.widget())
             editor = getattr(items[1], "editor", items[1])
             if isinstance(editor, QWidget) and not editor.accessibleName() and item and item.widget():
-                editor.setAccessibleName(item.widget().text())
+                editor.setAccessibleName(_caption_text(item.widget()))
         elif len(items) == 1:
             self._configure(items[0])
 
@@ -762,8 +770,12 @@ def _make_param_adder_button(
     on_chosen,
     parent_widget: QWidget | None = None,
     allow_custom: bool = True,
+    custom_prompt: tuple[str, str] = ("Add Parameter", "Parameter name:"),
 ) -> QToolButton:
-    """Create a subtle plus button that opens a focused dropdown menu for selecting a parameter."""
+    """Create a subtle plus button that opens a focused dropdown menu for selecting a parameter.
+
+    ``custom_prompt`` is the (title, label) of the dialog behind **+ Custom...**.
+    """
     btn = _make_subtle_tool_button("plus", tooltip, size=22, icon_size=12)
     btn.setProperty("parameterAdd", True)
     btn.setStyleSheet("""
@@ -815,7 +827,7 @@ def _make_param_adder_button(
         act_custom = menu.addAction("+ Custom...")
 
         def _prompt_custom():
-            val, ok = QInputDialog.getText(parent_widget or btn, "Add Parameter", "Parameter name:")
+            val, ok = QInputDialog.getText(parent_widget or btn, *custom_prompt)
             if ok and val.strip():
                 on_chosen(val.strip())
 

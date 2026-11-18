@@ -132,13 +132,10 @@ class ConfigViewer(QWidget):
         self.field_widgets = {}
         self._preamble = ""
         self.auto_save = False
-        # Field edits (typing) auto-save after a pause instead of on every keystroke: each save
-        # rewrites the YAML, invalidates the config tree cache (a rescan of every config on the
-        # next lookup) and triggers a pipeline compose.
-        self._autosave_timer = QTimer(self)
-        self._autosave_timer.setSingleShot(True)
-        self._autosave_timer.setInterval(400)
-        self._autosave_timer.timeout.connect(self.flush_pending_save)
+        # While a text or number box is being typed into, edits update the document (and the
+        # pipeline check) but are written only when the box is submitted with Enter or loses
+        # focus. A save rewrites the YAML and refreshes the config tree; per keystroke it lagged.
+        self._editing_field = None
         self._render_timer = QTimer(self)
         self._render_timer.setSingleShot(True)
         self._render_timer.timeout.connect(self._render_boxes)
@@ -198,6 +195,13 @@ class ConfigViewer(QWidget):
         self._render_boxes()
 
     def _init_ui(self):
+        # Keep discarded cards owned and off-screen until deferred deletion.
+        # Qt may still have queued show requests for freshly inserted cards.
+        # This hidden owner is outside the editor tree so findChild/findChildren
+        # cannot select stale controls during the same event-loop turn.
+        self._retired_widgets = QWidget()
+        self.destroyed.connect(self._retired_widgets.deleteLater)
+        self._retired_widgets.hide()
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(8)
@@ -703,15 +707,13 @@ class ConfigViewer(QWidget):
             item = self.boxes_layout.takeAt(0)
             w = item.widget()
             if w:
-                w.setParent(None)
-                w.deleteLater()
+                self._retire_widget(w)
             elif item.layout():
                 while item.layout().count():
                     sub = item.layout().takeAt(0)
                     sw = sub.widget()
                     if sw:
-                        sw.setParent(None)
-                        sw.deleteLater()
+                        self._retire_widget(sw)
 
         # Update header
         group = self._group_name()
@@ -787,6 +789,12 @@ class ConfigViewer(QWidget):
             self.boxes_layout.insertWidget(0, notice)
             self.file_title.setToolTip("Hub component is read-only. Make a component copy to edit it.")
         self._block_updates = False
+
+    def _retire_widget(self, widget):
+        """Remove a stale editor without turning it into a top-level window."""
+        widget.hide()
+        widget.setParent(self._retired_widgets)
+        widget.deleteLater()
 
     def _setup_parameter_reordering(self, only_box=None):
         """Attach the same sibling-list behavior to ordinary parameter layouts."""
@@ -1636,10 +1644,14 @@ class ConfigViewer(QWidget):
     @property
     def document(self):
         # raw_data is intentionally still assignable by loaders and callers.
-        # Resolve state on access so bindings never retain a previous file.
+        # Resolve state on access so bindings never retain a previous file. It is read on every
+        # keystroke, so its lookups share one discovery instead of rescanning components each.
+        from src.app.core.provider_discovery import provider_discovery_snapshot
+        with provider_discovery_snapshot():
+            resolved, read_only = self._get_resolved_defaults(), self._hub_read_only()
         return ConfigDocument(
-            self.raw_data, self._get_resolved_defaults(),
-            read_only=self._hub_read_only(),
+            self.raw_data, resolved,
+            read_only=read_only,
             on_change=lambda result: self._mark_dirty(),
             selector_identity=component_identity,
         )
@@ -2175,9 +2187,7 @@ class ConfigViewer(QWidget):
             self.boxes_layout.insertWidget(index, new)
             new.show()
             self._parameter_reorders = [c for c in self._parameter_reorders if c.host is not old]
-            old.hide()
-            old.setParent(None)
-            old.deleteLater()
+            self._retire_widget(old)
             self._setup_parameter_reordering(new)
             self.container.layout().activate()
             self.container.adjustSize()
@@ -2382,15 +2392,52 @@ class ConfigViewer(QWidget):
         self._render_boxes()
 
     def flush_pending_save(self):
-        """Write a pending auto-save now (before anything reads the file from disk, or on close)."""
-        self._autosave_timer.stop()
+        """Write edits a box is still holding: on Enter or focus loss, before anything reads the file
+        from disk, and on close."""
+        self._release_editing_field()
         if getattr(self, "auto_save", False) and self.is_dirty:
             self.save_to_disk()
 
-    def _typing_in_text_field(self) -> bool:
-        """True while the user is typing into one of this viewer's text boxes."""
+    _TYPED_EDITORS = (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox)
+
+    def _field_being_edited(self):
+        """This viewer's text or number box that has keyboard focus, if any."""
         focus = QApplication.focusWidget()
-        return isinstance(focus, (QLineEdit, QPlainTextEdit, QTextEdit)) and self.isAncestorOf(focus)
+        if isinstance(focus, QLineEdit) and isinstance(focus.parentWidget(), QAbstractSpinBox):
+            focus = focus.parentWidget()
+        return focus if isinstance(focus, self._TYPED_EDITORS) and self.isAncestorOf(focus) else None
+
+    def _save_when_editing_finishes(self, field):
+        if self._editing_field is field:
+            return
+        self._release_editing_field()
+        self._editing_field = field
+        finished = getattr(field, "editingFinished", None)  # Enter, or focus loss, for one-line boxes
+        if finished is not None:
+            finished.connect(self.flush_pending_save)
+        QApplication.instance().focusChanged.connect(self._on_focus_changed)  # multi-line boxes
+
+    def _release_editing_field(self):
+        field, self._editing_field = self._editing_field, None
+        if field is None:
+            return
+        try:
+            QApplication.instance().focusChanged.disconnect(self._on_focus_changed)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            field.editingFinished.disconnect(self.flush_pending_save)
+        except (AttributeError, TypeError, RuntimeError):  # no such signal, or the box was deleted
+            pass
+
+    def _on_focus_changed(self, _old, new):
+        field = self._editing_field
+        try:
+            still_editing = new is not None and (new is field or field.isAncestorOf(new))
+        except RuntimeError:  # the box was replaced while it held an edit
+            still_editing = False
+        if not still_editing:
+            self.flush_pending_save()
 
     def _model_row_slot(self, method_name: str, current_model: str):
         """The extension point beside a method's model picker.
@@ -2430,10 +2477,11 @@ class ConfigViewer(QWidget):
 
     def _mark_dirty(self):
         self.is_dirty = True
-        if getattr(self, "auto_save", False) and self._typing_in_text_field():
-            self._autosave_timer.start()  # restarts on each keystroke; saves once typing pauses
+        field = self._field_being_edited() if getattr(self, "auto_save", False) else None
+        if field is not None:
+            self._save_when_editing_finishes(field)  # not while typing: on Enter or focus loss
         elif getattr(self, "auto_save", False):
-            self._autosave_timer.stop()  # this save covers any pending text edit
+            self._release_editing_field()  # this save covers any edit a box was holding
             self.save_to_disk()
         else:
             self._update_dirty_ui()
@@ -2532,8 +2580,11 @@ class ConfigViewer(QWidget):
             enabled = lookup(data, path)
             if enabled is not MISSING:
                 overrides.append(f"++{'.'.join(path)}={str(bool(enabled)).lower()}")
-        if "save_dataset" in data and data["save_dataset"]:
+        if "save_dataset" in data:
             overrides.append(f"save_dataset={str(data['save_dataset']).lower()}")
+        if data.get("save_dataset_path"):
+            import json
+            overrides.append(f"++save_dataset_path={json.dumps(data['save_dataset_path'])}")
         if "recover" in data and data["recover"]:
             overrides.append(f"recover={str(data['recover']).lower()}")
         if "no_plot" in data:

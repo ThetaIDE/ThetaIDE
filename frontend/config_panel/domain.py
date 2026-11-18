@@ -590,7 +590,8 @@ def _experiment_budget_candidates(self, data: dict, resolved: dict, rules) -> li
             possible.append(("eval_episodes", "Eval Episodes", int(resolved.get("eval_episodes") or 100)))
         possible.extend(
             [
-                ("eval_freq_steps", "Eval Frequency (Steps)", int(resolved.get("eval_freq_steps") or 10000)),
+                ("eval_freq_steps", "Eval Frequency (Steps)",
+                 int(resolved["eval_freq_steps"] if resolved.get("eval_freq_steps") is not None else 10000)),
                 ("num_checkpoints", "Checkpoints", DEFAULT_CHECKPOINTS),
             ]
         )
@@ -609,7 +610,7 @@ def _experiment_budget_candidates(self, data: dict, resolved: dict, rules) -> li
         if lookup(data, path) is MISSING:
             candidates.append((".".join(path), title, True))
     for key, title in (
-        ("save_dataset", "Save Dataset"),
+        ("save_dataset", "Save trajectories"),
         ("recover", "Recover Checkpoint"),
         ("no_plot", "No Plots"),
     ):
@@ -1657,7 +1658,8 @@ def _add_experiment_param(self, key: str, default_val: Any = None, *, render: bo
     elif key == "eval_episodes":
         self.raw_data[key] = int(self._get_resolved_defaults().get("eval_episodes") or 100)
     elif key == "eval_freq_steps":
-        self.raw_data[key] = int(self._get_resolved_defaults().get("eval_freq_steps") or 10000)
+        inherited = self._get_resolved_defaults().get("eval_freq_steps")
+        self.raw_data[key] = int(inherited if inherited is not None else 10000)  # 0 (evaluation off) is kept
     elif key in ("save_dataset", "recover", "no_plot"):
         self.raw_data[key] = True
     else:

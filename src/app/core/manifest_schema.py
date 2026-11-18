@@ -45,6 +45,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                            "entry_point": {"type": "string", "minLength": 1},
                            "aliases": {"type": "array", "items": {"type": "string"}},
                            "label": {"type": "string", "minLength": 1},
+                           "description": {"type": "string", "minLength": 1},
                            "activation_plugin": {"type": "string", "minLength": 1},
                            "contribution_api": {"type": "integer", "minimum": 1},
                            "readiness": {"type": "object", "additionalProperties": False, "properties": {

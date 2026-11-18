@@ -67,3 +67,31 @@ def test_component_change_revalidates_selected_experiment(action, previously_val
     # obsolete success or missing-component result while the refresh is queued.
     Window.compose_finished(window, 7, None, {"valid": previously_valid}, None)
     assert not window.compose_valid
+
+
+def _saving_window(serial, draft):
+    viewer = SimpleNamespace(current_rel_path="experiment/g/e.yaml", _preamble="# @package _global_\n",
+                             raw_data={"seed": 3})
+    timer = Mock()
+    window = SimpleNamespace(config_viewer=viewer, compose_serial=serial, _compose_request=(4, draft),
+                             compose_timer=timer, statusBar=lambda: SimpleNamespace(showMessage=Mock()))
+    return window, viewer, timer
+
+
+def test_saving_the_checked_draft_does_not_check_it_again():
+    import yaml
+    window, viewer, timer = _saving_window(4, "# @package _global_\n" + yaml.safe_dump({"seed": 3}, sort_keys=False))
+    Window.on_config_saved(window, viewer)
+    timer.start.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["edited since", "normalized differently", "another file saved", "never checked"])
+def test_saving_new_content_checks_it(case):
+    import yaml
+    checked = "# @package _global_\n" + yaml.safe_dump({"seed": 3}, sort_keys=False)
+    window, viewer, timer = _saving_window(5 if case == "edited since" else 4, None if case == "never checked" else checked)
+    if case == "normalized differently":
+        viewer.raw_data = {"seed": 4}
+    saved = SimpleNamespace() if case == "another file saved" else viewer  # e.g. an inherited _base.yaml
+    Window.on_config_saved(window, saved)
+    timer.start.assert_called_once_with()

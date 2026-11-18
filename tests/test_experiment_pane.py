@@ -55,6 +55,35 @@ class TestConfigTree(unittest.TestCase):
         self.tree_widget.close()
         self.temp_dir.cleanup()
 
+    def test_context_menu_copies_clicked_experiment_name_with_multiple_selected(self):
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtWidgets import QMenu
+
+        experiment = self.root / "experiment/blendrl/cartpole/learnfast.yaml"
+        experiment.parent.mkdir(parents=True)
+        experiment.write_text("experiment_id: different_id\n", encoding="utf-8")
+        widget = ConfigTreeWidget(root_dir=self.root, mode="experiments")
+        self.addCleanup(widget.close)
+        widget.select_file("experiment/cartpole/exp1.yaml", emit_signal=False)
+        other = widget.tree.currentItem()
+        widget.select_file("experiment/blendrl/cartpole/learnfast.yaml", emit_signal=False)
+        clicked = widget.tree.currentItem()
+
+        def choose_copy(menu, *_args):
+            actions = {action.text(): action for action in menu.actions()}
+            actions["Copy Full Experiment Name"].trigger()
+
+        for multiple in (False, True):
+            with self.subTest(multiple=multiple):
+                other.setSelected(multiple)
+                clicked.setSelected(True)
+                app.clipboard().clear()
+                with patch.object(widget.tree, "itemAt", return_value=clicked), patch.object(
+                    QMenu, "exec", choose_copy
+                ):
+                    widget.tree.customContextMenuRequested.emit(QPoint(0, 0))
+                self.assertEqual(app.clipboard().text(), "blendrl/cartpole/learnfast")
+
     def test_selected_group_scopes_expansion_and_delete_key(self):
         from PyQt6.QtTest import QTest
 
@@ -321,7 +350,7 @@ class TestConfigTree(unittest.TestCase):
     def test_hyperparameter_sweepers_folder_renamed(self):
         from PyQt6.QtWidgets import QTreeWidgetItem
         (self.root / "hydra" / "sweeper").mkdir(parents=True)
-        (self.root / "hydra" / "sweeper" / "optuna.yaml").write_text("n_trials: 10\n", encoding="utf-8")
+        (self.root / "hydra" / "sweeper" / "grid.yaml").write_text("n_trials: 10\n", encoding="utf-8")
         tree = ConfigTreeWidget(root_dir=self.root, mode="components")
         try:
             sweeper_items = []
@@ -339,7 +368,7 @@ class TestConfigTree(unittest.TestCase):
 
 
 @unittest.skipIf(not HAS_PYQT6, "PyQt6 not installed in current environment")
-@pytest.mark.usefixtures("optuna_workspace")  # the tuning box needs an installed tuner
+@pytest.mark.usefixtures("tuner_workspace")  # the tuning box needs an installed tuner
 class TestConfigViewer(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -730,7 +759,7 @@ class TestConfigViewer(unittest.TestCase):
         actions = self.viewer.btn_add_block.menu().actions()
         action = next(a for a in actions if a.text() == "Hyperparameter Sweep")
         action.trigger()
-        self.assertEqual(self.viewer.raw_data["tuning"]["options"]["optuna"]["n_trials"], 40)
+        self.assertEqual(self.viewer.raw_data["tuning"]["options"]["search"]["n_trials"], 40)
         self.assertIsNotNone(self.viewer.findChild(QLineEdit, "sweepMetric"))
         from frontend.widgets import ToggleSlider
         enabled = self.viewer.findChild(ToggleSlider, "sweepEnabled")
@@ -743,29 +772,29 @@ class TestConfigViewer(unittest.TestCase):
         self.viewer.remove_block("tuning")
         self.assertNotIn("tuning", self.viewer.raw_data)
 
-    def test_optuna_component_settings_are_saved_in_its_options(self):
+    def test_tuner_settings_are_saved_in_its_options(self):
         from PyQt6.QtWidgets import QComboBox
         from frontend.widgets import SpinBox
 
         self.viewer.add_block("tuning")
         selector = self.viewer.findChild(QComboBox, "sweepComponent")
-        self.assertEqual(selector.currentText(), "optuna")
+        self.assertEqual(selector.currentText(), "search")
         sampler = self.viewer.findChild(QComboBox, "sweep_sampler")
         sampler.setCurrentText("random")
-        self.viewer._add_tuner_option("optuna", "seed", 42)
+        self.viewer._add_tuner_option("search", "seed", 42)
         seed = self.viewer.findChild(SpinBox, "sweep_seed")
         seed.setValue(17)
-        options = self.viewer.raw_data["tuning"]["options"]["optuna"]
+        options = self.viewer.raw_data["tuning"]["options"]["search"]
         self.assertEqual(options["sampler"], "random")
         self.assertEqual(options["seed"], 17)
-        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
-        self.viewer.findChild(QComboBox, "sweep_sampler").setCurrentText("tpe")
-        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
-        self.viewer._add_tuner_option("optuna", "tpe_candidates", 24)
-        self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_tpe_candidates"))
+        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_candidates"))
+        self.viewer.findChild(QComboBox, "sweep_sampler").setCurrentText("adaptive")
+        self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_candidates"))
+        self.viewer._add_tuner_option("search", "candidates", 24)
+        self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_candidates"))
         self.assertIsNone(self.viewer.findChild(SpinBox, "sweep_pruner_startup_trials"))
-        self.viewer._add_tuner_option("optuna", "pruner", "median")
-        self.viewer._add_tuner_option("optuna", "pruner_startup_trials", 5)
+        self.viewer._add_tuner_option("search", "pruner", "median")
+        self.viewer._add_tuner_option("search", "pruner_startup_trials", 5)
         self.assertIsNotNone(self.viewer.findChild(SpinBox, "sweep_pruner_startup_trials"))
 
     def test_tuner_component_supplies_its_own_editor_fields(self):
@@ -807,18 +836,18 @@ class TestConfigViewer(unittest.TestCase):
             self.assertEqual(profile.text(), "fast")
             profile.setText("thorough")
             self.assertEqual(self.viewer.raw_data["tuning"]["options"]["other"]["profile"], "thorough")
-            self.viewer.findChild(QComboBox, "sweepComponent").setCurrentText("optuna")
+            self.viewer.findChild(QComboBox, "sweepComponent").setCurrentText("search")
             self.assertEqual(self.viewer.raw_data["tuning"]["options"]["other"]["profile"], "thorough")
 
     def test_invalid_tuner_values_remain_visible_for_correction(self):
         from PyQt6.QtWidgets import QComboBox, QLineEdit
 
         self.viewer.add_block("tuning")
-        self.viewer.raw_data["tuning"]["options"] = {"optuna": {"sampler": "unknown", "seed": "bad"}}
+        self.viewer.raw_data["tuning"]["options"] = {"search": {"sampler": "unknown", "seed": "bad"}}
         self.viewer._render_boxes()
         self.assertEqual(self.viewer.findChild(QComboBox, "sweep_sampler").currentText(), "unknown")
         self.assertEqual(self.viewer.findChild(QLineEdit, "sweep_seed").text(), "bad")
-        self.assertEqual(self.viewer.raw_data["tuning"]["options"]["optuna"]["seed"], "bad")
+        self.assertEqual(self.viewer.raw_data["tuning"]["options"]["search"]["seed"], "bad")
 
     def test_parameter_sweep_range_edit_and_remove(self):
         from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox, QLineEdit, QToolButton

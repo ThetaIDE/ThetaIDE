@@ -59,7 +59,7 @@ class ConfigTabManager(QTabWidget):
     file_renamed = pyqtSignal(str, str)            # (old_rel, new_rel)
     dirty_state_changed = pyqtSignal(str, bool)    # (rel_path, is_dirty)
     dirty_changed = pyqtSignal(bool)               # is_dirty of current viewer
-    save_requested = pyqtSignal()
+    save_requested = pyqtSignal(object)  # the viewer that saved
     config_changed = pyqtSignal()
 
     def __init__(self, settings_manager=None, parent=None, plugin_manager=None, *, workspace=None):
@@ -307,7 +307,7 @@ class ConfigTabManager(QTabWidget):
 
         viewer.config_changed.connect(self.config_changed.emit)
         viewer.save_requested.connect(lambda v=viewer: self._remember_saved_file(v))
-        viewer.save_requested.connect(self.save_requested.emit)
+        viewer.save_requested.connect(lambda v=viewer: self.save_requested.emit(v))
         viewer.dirty_state_changed.connect(lambda p, d, v=viewer: self._on_viewer_dirty_state_changed(v, d))
         viewer.dirty_changed.connect(lambda d, v=viewer: self._on_viewer_dirty_changed(v, d))
         viewer.file_renamed.connect(self._on_viewer_file_renamed)

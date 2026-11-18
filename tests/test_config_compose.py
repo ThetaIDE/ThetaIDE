@@ -58,7 +58,7 @@ def test_builder_command_is_a_valid_pipeline_invocation():
 def test_absent_tuning_does_not_compile_as_a_sweep():
     composed = compose_experiment(
         BASE_EXPERIMENT,
-        ["++tuning=null", "--multirun", "hydra/sweeper=theta_optuna"],
+        ["++tuning=null", "--multirun", "hydra/sweeper=theta_search"],
     )
     assert not composed.is_sweep
     assert "--multirun" not in composed.launch_args
@@ -68,12 +68,12 @@ def test_absent_tuning_does_not_compile_as_a_sweep():
 def test_composed_tuning_inherits_group_defaults_and_null_masks_them(fixture_workspace):
     group = fixture_workspace / "src/usr/config/experiment/implicit_tuning"
     group.mkdir()
-    (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: optuna}\n")
+    (group / "_base.yaml").write_text("# @package _global_\ntuning: {component: search}\n")
     (group / "inherited.yaml").write_text(
         "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\n")
     composed = compose_experiment("implicit_tuning/inherited")
     assert composed.is_sweep
-    assert composed.cfg.tuning.component == "optuna"
+    assert composed.cfg.tuning.component == "search"
     (group / "ordinary.yaml").write_text(
         "# @package _global_\ndefaults: [/experiment/implicit_tuning/_base, _self_]\ntuning: null\n")
     composed = compose_experiment("implicit_tuning/ordinary")
@@ -116,12 +116,12 @@ def test_builder_values_reach_the_method_config(config):
 
 def test_sweep_preflight_checks_actual_trial_hydra_paths(fixture_workspace, tmp_path_factory, monkeypatch):
     import src.app.pipeline.compose as pipeline
-    from component_fixtures import install_optional
+    from component_fixtures import install_fixture
     from src.app.pipeline.exceptions import ConfigurationError
-    install_optional(fixture_workspace, "optuna", tmp_path_factory.mktemp("archives"))
+    install_fixture(fixture_workspace, "search-tuner", tmp_path_factory.mktemp("archives"))
 
     composed = compose_experiment(REFERENCE, [
-        "++tuning.component=optuna",
+        "++tuning.component=search",
         "++methods.ppo.tune.model.missing.type=choice",
         "++methods.ppo.tune.model.missing.values=[1,2]",
     ])

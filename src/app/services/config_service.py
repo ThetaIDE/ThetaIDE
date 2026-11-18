@@ -23,16 +23,17 @@ from src.app.pipeline.compose import (
     compose_experiment,
     effective_config,
     method_plans,
+    one_discovery,
     validate_composed,
 )
 from src.app.pipeline.config import normalize_agent_name
 from src.app.workspace import WorkspacePaths
 
 
-# A Hydra compose costs ~130-200 ms, and the GUI asks for the same one again and again: at startup,
-# on every Settings visit, on reopening an experiment, after an undo. The result depends only on its
-# arguments, the effective config profiles, and the agent registry (auto-discovered from src/usr), so
-# results are reused while all of those are byte-for-byte unchanged (~3 ms to check).
+# A full check (compose, validate, method plans) costs 0.2-0.4 s, and the GUI asks for the same one
+# again and again: at startup, on reopening an experiment, after an undo. The result depends only on
+# its arguments, the effective config profiles, provider sources and manifests, and the agent registry,
+# so results are reused while all of those are byte-for-byte unchanged (tens of ms to check).
 def _workspace(workspace=None):
     return workspace if workspace is not None else WorkspacePaths.for_process()
 _COMPOSE_CACHE: OrderedDict[tuple, tuple[bool, Any]] = OrderedDict()
@@ -53,23 +54,34 @@ def _authored_sources(paths):
     return sorted(found)
 
 
-def _inputs_fingerprint(workspace=None) -> int:
-    """Hash of everything a compose can depend on: the files (paths and exact contents) and the
-    agents registered in memory (hot reload and tests register agents without touching files)."""
-    registry_module = sys.modules.get("src.app.core.agent_registry")  # don't import it just to look
-    registry = getattr(registry_module, "AGENT_REGISTRY", None) or {}
-    parts: list[Any] = [tuple(sorted((name, id(cls)) for name, cls in registry.items()))]
+def provider_fingerprint(workspace=None) -> int:
+    """Hash of what imported provider code depends on: authored Python and manifests under src/usr,
+    every package manifest, and provider selection/enablement. Config YAML is not part of it: a
+    process that imported providers only has to re-import them when this changes."""
     paths = _workspace(workspace)
-    parts.append((str(paths.root), str(paths.application), str(paths.data_dir)))
-    files = [path for root in paths.config_roots() for pattern in ("*.yaml", "*.yml") for path in sorted(root.rglob(pattern))]
-    files.extend(_authored_sources(paths))
-    for path in files:
+    parts: list[Any] = [(str(paths.root), str(paths.application), str(paths.data_dir))]
+    for path in [*_authored_sources(paths), *paths.manifests(),
+                 paths.data_dir / "provider_overrides.json", paths.data_dir / "extensions.json"]:
         try:
             parts.append((str(path), path.read_bytes()))
         except OSError:
             continue
-    for path in [*paths.manifests(), paths.data_dir / "provider_overrides.json", paths.data_dir / "extensions.json"]:
-        if path.is_file(): parts.append((str(path), path.read_bytes()))
+    return hash(tuple(parts))
+
+
+def _inputs_fingerprint(workspace=None) -> int:
+    """Hash of everything a compose can depend on: provider inputs, every effective config file
+    (paths and exact contents), and the agents registered in memory (hot reload and tests register
+    agents without touching files)."""
+    registry_module = sys.modules.get("src.app.core.agent_registry")  # don't import it just to look
+    registry = getattr(registry_module, "AGENT_REGISTRY", None) or {}
+    paths = _workspace(workspace)
+    parts: list[Any] = [tuple(sorted((name, id(cls)) for name, cls in registry.items())), provider_fingerprint(paths)]
+    for path in (path for root in paths.config_roots() for pattern in ("*.yaml", "*.yml") for path in sorted(root.rglob(pattern))):
+        try:
+            parts.append((str(path), path.read_bytes()))
+        except OSError:
+            continue
     return hash(tuple(parts))
 
 
@@ -78,6 +90,7 @@ def _cached_on_inputs(fn):
     same inputs a failed compose fails again. Callers get copies, so they can't alter the cache."""
 
     @functools.wraps(fn)
+    @one_discovery
     def wrapper(*args, **kwargs):
         key = (fn.__name__, repr(args), repr(sorted(kwargs.items())), _inputs_fingerprint(kwargs.get("workspace")))
         with _COMPOSE_CACHE_LOCK:
@@ -98,7 +111,7 @@ def _cached_on_inputs(fn):
             raise value.with_traceback(None)
         return copy.deepcopy(value)
 
-    wrapper.uncached = fn
+    wrapper.uncached = one_discovery(fn)
     return wrapper
 
 
@@ -232,6 +245,7 @@ def _compose_report(experiment, overrides, config_dir, *, workspace=None):
     }
 
 
+@one_discovery
 def prepare_launch(
     experiment: str, overrides: list[str] | None = None, overwrite: bool = False, active_jobs: list[dict] | None = None,
     *, workspace=None,
@@ -278,19 +292,24 @@ def prepare_launch(
             "running both would overwrite one run's results with the other's.",
             conflict=True,
         )
+    return {**describe_launch(composed, plans), "overrides": overrides}
+
+
+def describe_launch(composed, plans) -> dict[str, Any]:
+    """The job record fields of a composed local experiment, shared by desktop and terminal launches."""
+    cfg = composed.cfg
     agents = [plan["settings"].get("name", normalize_agent_name(name)) for name, plan in plans.items()]
     from src.app.services.resource_budget import uses_accelerator, workload_estimate
     resource_config = effective_config(cfg)
     return {
         "experiment": composed.experiment,
-        "overrides": overrides,
         "group": cfg.group,
         "experiment_id": cfg.experiment_id,
         "agents": agents,
         "total_timesteps": cfg.get("total_timesteps"),
         "effective_timesteps": effective_timesteps(plans, cfg.get("total_timesteps")),
         "run_in_parallel": bool(cfg.get("run_in_parallel", False)),
-        "local": True,  # remote schedulers were refused above
+        "local": True,  # only local launches are described; remote sites submit elsewhere
         "accelerator": uses_accelerator(resource_config, paths=composed.workspace),
         "resource_estimate": workload_estimate(resource_config, paths=composed.workspace),
     }

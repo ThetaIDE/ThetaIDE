@@ -210,6 +210,7 @@ FIXED_BOX_KEYS = frozenset(
         "resources",
         "no_plot",
         "save_dataset",
+        "save_dataset_path",
         "recover",
         # Dataset values are rendered in the inputs card; Hydra settings are not
         # experiment parameters.

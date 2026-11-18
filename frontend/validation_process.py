@@ -60,6 +60,9 @@ class ValidationProcess:
                     raise RuntimeError("Validation process timed out")
                 time.sleep(.02)  # This runs on LocalBackend's worker, never the GUI thread.
             response = json.loads(reply.read_text())
+            if "launch_conflict" in response:
+                from src.app.services.config_service import LaunchError
+                raise LaunchError(response["error"], conflict=response["launch_conflict"])
             if response.get("error"):
                 raise RuntimeError(response["error"])
             return response["data"]

@@ -663,7 +663,7 @@ symbolic:
         title="Cluster Execution & Slurm Runner",
         category="Workflow & Tools",
         summary="How to submit jobs to HPC clusters using Slurm site profiles, resource limits, and email notifications.",
-        keywords=["slurm", "cluster", "hpc", "ncshare", "arc", "sbatch", "gpu"],
+        keywords=["slurm", "cluster", "hpc", "site", "sbatch", "gpu"],
         html_content="""
 <h2>Cluster & Slurm Execution</h2>
 <p>Theta-IDE supports seamless transitions between local testing and cluster-scale execution via Slurm.</p>
@@ -671,10 +671,9 @@ symbolic:
 <h3>Site Profiles (<code>site</code>)</h3>
 <ul>
   <li><code>site=local/default</code> (default): Interactive local execution inside subprocesses.</li>
-  <li><code>site=ncshare/default</code> / <code>site=arc/default</code>: Slurm batch submission. These profiles ship with the optional Slurm scheduler component and are available only once it is installed in the workspace.</li>
-  <li><code>site=ncshare/gpu</code> / <code>site=ncshare/common</code>: NCShare's GPU partition (all methods in one job), or its CPU common partition (one job per method).</li>
+  <li><code>site=SITE/VARIANT</code>: a cluster site you author under <code>src/usr/sites/SITE</code>, for example <code>site=cluster/cpu</code> or <code>site=cluster/gpu</code>. Create one with <code>run_pipeline.py site configure SITE --scheduler slurm --host ALIAS --remote-root PATH</code>, then edit its profiles in Components.</li>
 </ul>
-<p>Every non-local site profile names its scheduler with <code>site.scheduler</code>. Edit a component's site template through Components; Theta saves the edit as your own copy under <code>src/usr/config/site/</code>. Add <code>consolidate=true</code> to ask the scheduler to put every method into one allocation.</p>
+<p>Every non-local site profile names its scheduler with <code>site.scheduler</code>. Slurm submission needs the Slurm scheduler component from Components → Hub; it ships no site profiles. Add <code>consolidate=true</code> to ask the scheduler to put every method into one allocation.</p>
 
 <p>Run uploads the experiment's bundle before opening the cluster terminal: the application, the packages and configuration that experiment selects, and nothing else. Results, datasets and other experiments stay on your machine. From a terminal, <code>run_pipeline.py site push SITE EXPERIMENT</code> does the same.</p>
 
@@ -1158,7 +1157,7 @@ python run_pipeline.py <group>/<experiment></code></pre>
   <tr><td><code>no_plot=false</code></td><td>Enable plotting of configured figures and tables (disabled by default)</td></tr>
   <tr><td><code>no_online=true</code> / <code>no_offline=true</code></td><td>Skip the online or offline training phase</td></tr>
   <tr><td><code>experiment_id=&lt;name&gt;</code></td><td>Override the results directory name</td></tr>
-  <tr><td><code>site=ncshare/default</code> / <code>site=arc/default</code> (and <code>ncshare/gpu</code>, <code>ncshare/common</code>)</td><td>Submit to a Slurm cluster instead of running locally (see <a href="cluster_slurm">Cluster Execution</a>)</td></tr>
+  <tr><td><code>site=SITE/VARIANT</code> (a site you author, such as <code>cluster/cpu</code>)</td><td>Submit to a Slurm cluster instead of running locally (see <a href="cluster_slurm">Cluster Execution</a>)</td></tr>
   <tr><td><code>consolidate=true</code></td><td>Put every method into one Slurm GPU job</td></tr>
   <tr><td><code>remake=true</code></td><td>Recalculate summaries</td></tr>
 </table>
@@ -1175,10 +1174,10 @@ python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt;
 python -m src.app.core.plotting.manager &lt;group&gt;/&lt;experiment_id&gt; --wipe</code></pre>
 
 <h3>Optuna Hyperparameter Sweeps</h3>
-<p>Sweeps use the optional Optuna tuner component. Install it into the workspace (for example <code>python run_pipeline.py component install optuna-1.0.0.zip</code>, built with <code>scripts/package_optional_components.py</code>) and install its declared Python dependencies. Without an installed tuner the editor shows no sweep controls.</p>
+<p>Sweeps use the Optuna tuner component. Install <b>Optuna</b> from Components → Hub and install its declared Python dependencies. Without an installed tuner the editor shows no sweep controls.</p>
 <p>Add a Hyperparameter Sweep block in the experiment editor, choose an objective metric and direction, and mark the method parameters to search. The <code>tuning</code> block holds only <code>component</code>, <code>metric</code>, <code>direction</code> and <code>options</code>; tuner settings go under <code>tuning.options.&lt;component&gt;</code>, and each method's search space under its <code>tune</code>. Methods with search spaces cannot run without a tuning block. Each tuning trial writes its own checkpoint, and the winning checkpoint and parameters are saved in the method's checkpoint folder.</p>
 <p>The Optuna tuner offers TPE, random, or scrambled Sobol QMC sampling, a sampler seed, trial count, batch size and storage. QMC samples categorical parameters independently. A batch runs concurrently only with a parallel Hydra launcher. Select <b>new</b> to create a study or <b>resume</b> and enter its exact name to add more trials. For multiple methods, include <code>{method}</code> in a custom study name so each method has its own study.</p>
-<p>Median early stopping reports the selected objective after each Lightning validation epoch and can prune underperforming trials. Configure how many trials finish first and how many validation epochs to wait. The objective must be logged during validation; SB3 pruning and multi-process Lightning are not yet supported. A time budget prevents new batches after it expires, while allowing an active batch to finish.</p>
+<p>Median early stopping prunes trials whose progress falls below the median of earlier trials at the same evaluation checkpoint. A single-run metric trial reports after each Lightning validation epoch or SB3 evaluation; a trial with an objective component or several training seeds reports the objective's intermediate score once every seed reaches a checkpoint, and pruning stops all of its seeds. Configure how many trials finish first and how many checkpoints to wait. Multi-process Lightning is not supported. A time budget prevents new batches after it expires, while allowing an active batch to finish.</p>
 <p>Search dimensions support scalar choices, integer and numeric ranges, optional numeric steps, and positive log-scaled numeric ranges.</p>
 <p>The failed-trial allowance controls how many trial failures a sweep can continue past in the current run. Pruned trials do not count as failures.</p>
 <p>Add the <code>tuning</code> figure in Figures and Tables to generate a trial table and objective-history plot from the saved tuning summary.</p>

@@ -424,7 +424,8 @@ def build_trainer(cfg, model=None, *, context=None):
         if evaluates and (not cfg.get("variability_run_id") or int(cfg.get("eval_episodes", 0) or 0) > 0):
             callbacks.append(EnvironmentEvaluatorCallback(cfg))
         else:
-            print("[Metrics] Evaluation episodes are disabled or no eval/ metric is recorded; skipping evaluation.")
+            print("[Metrics] Evaluation is off (eval frequency 0), evaluation episodes are disabled, or no eval/ metric "
+                  "is recorded; skipping evaluation.")
 
         interval = checkpoint_interval(cfg)
         if interval:

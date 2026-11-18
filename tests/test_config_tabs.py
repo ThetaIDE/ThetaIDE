@@ -64,7 +64,7 @@ class TestConfigTabManager(unittest.TestCase):
     def test_refresh_button_reloads_all_open_forms_and_removes_deleted_sweep(self):
         from frontend.config_tree import ConfigTreeWidget
         from frontend.config_panel.controls import ConfigBox
-        self.f1.write_text("methods: {BlendRL: {agent: ppo, model: dnn}}\ntuning: {component: optuna}\n")
+        self.f1.write_text("methods: {BlendRL: {agent: ppo, model: dnn}}\ntuning: {component: search}\n")
         v1 = self.mgr.open_file(self.f1, "experiment/demo/exp1.yaml", pinned=True)
         v2 = self.mgr.open_file(self.f2, "experiment/demo/exp2.yaml", pinned=True)
         self.mgr._poll_timer.stop()  # Exercise the button without relying on watchers.

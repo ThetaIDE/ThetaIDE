@@ -272,7 +272,7 @@ class Window(QMainWindow):
         self.jobs = JobManager(
             project_root=workspace_dir,
             logs_dir=WorkspacePaths(workspace_dir, ide_data_dir).results / "logs",
-            store_path=Path(data_dir) / "jobs" / "jobs.db",
+            store_path=paths.jobs / "jobs.db",
             settings_path=self.settings_manager.workspace_settings_path,
             enabled_plugins_provider=lambda: list(self.plugin_manager.instances),
             defer_telemetry=True,
@@ -659,11 +659,23 @@ class Window(QMainWindow):
             if ok and viewer.current_rel_path:
                 self.statusBar().showMessage(f"Saved {viewer.current_rel_path}", 4000)
 
-    def on_config_saved(self):
+    def on_config_saved(self, saved=None):
         viewer = self.config_viewer
         if viewer and viewer.current_rel_path:
             self.statusBar().showMessage(f"Saved {viewer.current_rel_path}", 4000)
+        if saved is not None and saved is viewer and Window._last_check_covers(self, viewer):
+            return  # the check already requested for this exact content stays valid
         self.compose_timer.start()  # debounced: an edit's config_changed has usually queued one already
+
+    def _last_check_covers(self, viewer):
+        """Whether the latest validation request checked `viewer`'s content as it now is on disk.
+
+        Saving normalizes the YAML, so the saved data is compared with the draft that was checked; any
+        edit since that request has advanced compose_serial."""
+        request = getattr(self, "_compose_request", None)
+        if request is None or request[0] != self.compose_serial or request[1] is None:
+            return False
+        return request[1] == viewer._preamble + yaml.safe_dump(viewer.raw_data, sort_keys=False)
 
     def on_config_file_renamed(self, old_rel, new_rel):
         viewer = self.config_viewer
@@ -1848,6 +1860,7 @@ class Window(QMainWindow):
         self.compose_error = None
         self.composed_config = None
         self.update_launch_state()
+        self._compose_request = (serial, draft)
         startup_mark("validation_requested", experiment=exp_target)
         self.backend.compose(exp_target, overrides,
                              lambda data, error: self.compose_finished(serial, config, data, error), draft_yaml=draft)
@@ -2462,14 +2475,15 @@ class Window(QMainWindow):
     def add_to_queue(self, *, start=False):
         Window.queue_current(self, start=start)
 
-    def queue_current(self, *, start=False, extra_overrides=(), label="", strict=False):
-        """Queue the selected experiment and return its run record, or None when it was refused.
+    def queue_current(self, *, start=False, extra_overrides=(), label="", strict=False, done=None):
+        """Queue the selected experiment.
 
-        The Queue and Run buttons call this with no options. Agents comparing variants (the AI Assistant,
-        and agents connected through it) pass `extra_overrides`, appended to the command line and recorded on
-        the run, and a `label`, which gives the variant its own results folder (<experiment id>-<label>), so
-        variants never overwrite each other or earlier results. A refusal is shown in the status bar, or with
-        `strict` raised as LaunchError so the caller can report it."""
+        The Queue and Run buttons call this with no options. Agents comparing variants pass
+        `extra_overrides`, appended to the command line and recorded on the run, and a `label`, which gives
+        the variant its own results folder (<experiment id>-<label>), so variants never overwrite each other
+        or earlier results. A refusal before the launch check is shown in the status bar, or with `strict`
+        raised as LaunchError. The launch check itself runs in the validation process, off the GUI thread;
+        `done(run, error)` receives its outcome (run is None when the launch was refused)."""
 
         def refuse(message, timeout=5000):
             if strict:
@@ -2513,13 +2527,26 @@ class Window(QMainWindow):
         overrides = [] if hasattr(self, "config_viewer") else config.overrides()
         overrides = [o for o in [*overrides, *extra] if not o.startswith("++experiment_id=")] + [f"++experiment_id='{experiment_id}'"]
         self.log(f"Queuing {experiment_id}:\n  python run_pipeline.py {exp_target} {' '.join(overrides)}")
-        try:
-            job = self.jobs.launch(exp_target, overrides, queue=True, overwrite=not (timestamp or label))
-        except LaunchError as exc:
-            if strict:
-                raise
-            self.queued(config, None, str(exc))
-            return None
+        overwrite = not (timestamp or label)
+
+        def prepared(plan, error):
+            run = None
+            if error is None:
+                try:
+                    job = self.jobs.launch(exp_target, overrides, queue=True, overwrite=overwrite, plan=plan)
+                except LaunchError as exc:
+                    error = str(exc)
+                else:
+                    run = Window._record_queued(self, config, job, extra, label, start)
+            if error is not None:
+                self.queued(config, None, error)
+            if done is not None:
+                done(run, error)
+
+        self.statusBar().showMessage(f"Checking {experiment_id} before queueing…")
+        self.backend.prepare_launch(exp_target, overrides, overwrite, self.jobs.launch_claims(), prepared)
+
+    def _record_queued(self, config, job, extra, label, start):
         run = self.queued(config, job, None)
         if run is not None and (extra or label):
             run["overrides"] = extra

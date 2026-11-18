@@ -107,7 +107,7 @@ _RUN_METADATA_CACHE: dict[Path, tuple[tuple, dict[str, Any]]] = {}
 # reused while the file still matches it, as in memory, so a run that changed while the app was closed is
 # read again. The file is a convenience: if it can't be read or written, listing works as before.
 _PERSISTED_CACHES = {"agents": _SUMMARY_CACHE, "configs": _CONFIG_SUMMARY_CACHE, "metadata": _RUN_METADATA_CACHE}
-_PERSISTED_FORMAT = 2
+_PERSISTED_FORMAT = 3
 _persisted_loaded_for: Path | None = None  # the logs folder whose cache file has been read this session
 _cache_dirty = False  # an entry was computed since the cache file was last written
 
@@ -213,6 +213,16 @@ def _mark_cache_dirty() -> None:
     _cache_dirty = True
 
 
+def runtime_started(runtime: dict[str, Any]) -> str | None:
+    """When a version started, as Lightning (start_time_iso) or the metrics contract (timestamp) records it."""
+    return runtime.get("start_time_iso") or runtime.get("timestamp")
+
+
+def runtime_finished(runtime: dict[str, Any]) -> str | None:
+    """When a version finished, as Lightning (end_time_iso) or the metrics contract (completed_at) records it."""
+    return runtime.get("end_time_iso") or runtime.get("completed_at")
+
+
 def _read_agent_summary(agent_dir: Path, runtime_file: Path | None, metrics_file: Path | None) -> dict[str, Any] | None:
     if runtime_file is None and metrics_file is None:
         return None
@@ -240,8 +250,8 @@ def _read_agent_summary(agent_dir: Path, runtime_file: Path | None, metrics_file
             pass
     return {
         "name": agent_dir.name,
-        "started": runtime.get("start_time_iso"),
-        "finished": runtime.get("end_time_iso"),
+        "started": runtime_started(runtime),
+        "finished": runtime_finished(runtime),
         "training_time_seconds": _float(runtime.get("training_time_seconds")),
         "timesteps": timesteps,
         "best_reward": max(rewards) if rewards else None,
@@ -389,7 +399,7 @@ def _result_snapshot(run_dir: Path, replicates=None, *, workspace=None):
                 if key in replicates:
                     terminal = replicates[key]["status"] in ("completed", "failed", "cancelled")
                 if remote_available or terminal is True or (terminal is None and not version.name.startswith("version_sweep_") and
-                                        (runtime.get("end_time_iso") or runtime.get("completed_at"))):
+                                        runtime_finished(runtime)):
                     completed.append(version.name)
             if completed:
                 versions[agent_dir.name] = sorted(completed, key=lambda name: (_version_number(name), name))
@@ -417,30 +427,10 @@ def list_runs(completed_only: bool = False, *, workspace=None) -> list[dict[str,
         from src.app.sites.result_state import results_available, results_complete
 
         runs = []
-        # Older repeated executions gave every replicate its own experiment ID.
-        # They remain available in the Executions browser, but should not flood the
-        # ordinary experiment list as if every seed were a separate experiment.
-        replicate_experiments = set()
-        execution_root = logs_dir.parent / "executions"
-        for manifest_path in execution_root.rglob("manifest.json"):
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                result_id = manifest.get("result_experiment_id")
-                if result_id:
-                    continue
-                group = manifest.get("group")
-                for replicate in manifest.get("runs", []):
-                    experiment_id = replicate.get("experiment_id")
-                    if experiment_id and experiment_id != manifest.get("experiment_id"):
-                        replicate_experiments.add((group, experiment_id))
-            except (OSError, ValueError):
-                continue
         _load_persisted_summaries(workspace=workspace)
         seen: dict[str, set[Path]] = {name: set() for name in _PERSISTED_CACHES}
         for run_dir in iter_run_dirs(logs_dir):
             group, experiment_id = run_dir.relative_to(logs_dir).as_posix().split("/", 1)
-            if (group, experiment_id) in replicate_experiments:
-                continue
             metadata = _cached_by_stamp(_RUN_METADATA_CACHE, run_dir / "runtime.json", _read_run_metadata)
             agent_dirs = sorted(p for p in run_dir.iterdir() if p.is_dir())
             seen["metadata"].add(run_dir / "runtime.json")
@@ -456,7 +446,7 @@ def list_runs(completed_only: bool = False, *, workspace=None) -> list[dict[str,
                     if not (version / "metrics.csv").is_file():
                         continue
                     summary = _read_agent_summary(run_dir / name, version / "runtime.json", version / "metrics.csv")
-                    summary["finished"] = summary["finished"] or _read_json(version / "runtime.json").get("completed_at") or True
+                    summary["finished"] = summary["finished"] or True
                     agents.append(summary)
                 if not agents and not remote_available:
                     continue

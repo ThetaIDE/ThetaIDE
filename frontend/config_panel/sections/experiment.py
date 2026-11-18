@@ -25,12 +25,13 @@ from ..controls import (
     ConfigBox,
     IndentedHierarchyBlock,
     ParameterForm,
+    _make_param_adder_button,
     _make_subtle_tool_button,
     _parameter_row,
     _reveal_remove_on_row_hover,
 )
 from ..document import MISSING, lookup
-from ..editors import value_editor
+from ..editors import DirectoryField, value_editor
 from ..layout import two_column_form
 
 
@@ -100,9 +101,14 @@ def runtime(host, data, resolved, tree, paradigm, show_resolved):
         if freq_key in data or show_resolved and freq_key in resolved:
             field = value_editor(
                 data.get(freq_key, resolved.get(freq_key)),
-                {"type": "integer", "minimum": 10},
+                {"type": "integer", "minimum": 0},
                 lambda value: host._on_field_edited(freq_key, value),
             )
+            # 0 turns evaluation off (src/app/telemetry/selection.py: evaluation_off).
+            field.setToolTip("Steps between evaluations. 0 turns evaluation off: no evaluation episodes run "
+                             "and no eval/ metrics are recorded or streamed.")
+            if hasattr(field, "setSpecialValueText"):
+                field.setSpecialValueText("Off")
             host.field_widgets[freq_key] = field
             form.add_parameter(
                 (freq_key,), "Eval Frequency", _parameter_row(field, remove=host._parameter_remove((freq_key,)))
@@ -136,6 +142,7 @@ def runtime(host, data, resolved, tree, paradigm, show_resolved):
         "dataset_path",
         "no_plot",
         "save_dataset",
+        "save_dataset_path",
         "recover",
         "hydra",
         "plots",
@@ -352,7 +359,7 @@ def build(self):
 
     # Runtime & execution options (logging, recovery, plotting, and parallel methods)
     OPTIONAL_RUNTIME_FLAGS = [
-        (("save_dataset",), "Save Dataset"),
+        (("save_dataset",), "Save trajectories"),
         (("recover",), "Recover Checkpoint"),
         (("no_plot",), "No Plots"),
         (("run_in_parallel",), "Run methods in parallel"),
@@ -407,7 +414,7 @@ def build(self):
         chk = ToggleSlider(checked=bool(value is not MISSING and value))
         if flag_path in TOOLTIPS:
             chk.setToolTip(TOOLTIPS[flag_path])
-        if flag_path in ALWAYS_SHOWN or flag_path == ("no_plot",):
+        if flag_path in ALWAYS_SHOWN or flag_path in (("no_plot",), ("save_dataset",)):
             chk.toggled.connect(lambda value, fp=flag_path: set_flag(fp, value))
         else:
             chk.toggled.connect(
@@ -415,6 +422,14 @@ def build(self):
             )
         row_flag.addWidget(chk)
         chk_widgets[flag_path] = chk
+        if flag_path == ("save_dataset",):
+            add_location = _make_param_adder_button(
+                "Choose where to save trajectories",
+                ["Save location"],
+                lambda _: self.field_widgets["save_dataset_path"].browse(),
+                allow_custom=False,
+            )
+            row_flag.addWidget(add_location)
 
         if explicit is not MISSING:
             btn_del_flag = _make_subtle_tool_button("close", f"Remove '{flag_key}' override", size=18, icon_size=11)
@@ -443,6 +458,26 @@ def build(self):
 
     box_budget.add_layout(form_budget)
     box_budget.add_layout(runtime_form)
+    if self.chk_save_ds is not None:
+        trajectory_children = IndentedHierarchyBlock()
+        trajectory_children.setProperty("parameterPath", "save_dataset")
+        destination = data.get("save_dataset_path", resolved.get("save_dataset_path"))
+        workspace = tree.workspace if tree else None
+        field = DirectoryField(
+            destination,
+            lambda value: self._on_field_edited("save_dataset_path", value),
+            initial_directory=workspace.root if workspace else Path.home(),
+        )
+        field.setObjectName("trajectorySaveLocation")
+        field.setToolTip(str(destination or "Choose a folder for saved trajectories."))
+        self.field_widgets["save_dataset_path"] = field
+        trajectory_children.form_layout.add_parameter(
+            ("save_dataset_path",), "Save location",
+            _parameter_row(field, remove=self._parameter_remove(("save_dataset_path",))),
+        )
+        trajectory_children.setVisible(self.chk_save_ds.isChecked())
+        self.chk_save_ds.toggled.connect(trajectory_children.setVisible)
+        box_budget.layout.addWidget(trajectory_children)
     shared_spec = self.raw_data.get("methods", {}).get("params", {})
     if isinstance(shared_spec, dict):
         experiment_sweeps = ParameterForm()
