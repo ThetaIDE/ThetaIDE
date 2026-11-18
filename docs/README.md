@@ -17,7 +17,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 
 ## Reference
 
-- [Theta SDK](reference/SDK.md) — SDK 3.2: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
+- [Theta SDK](reference/SDK.md) — SDK 3.4: the supported `src.app.api` import surface for components and app plugins, the `PluginContext` host facade, SDK version checks and boundary enforcement.
 - [Discussion figure contract](reference/FIGURE_CONTRACT.md) — Vega-Lite plot components, live parameters, regeneration and storage.
 - [Layer ownership and configuration provenance](reference/LAYER_BOUNDARIES.md) — active architecture contract, source-aware resolution, the exception register and inventory command.
 - [Method execution contract v1](reference/EXECUTION_CONTRACT.md) — provider features, resource hints and tuner objective/pruning compatibility.
@@ -48,6 +48,8 @@ Documentation is organized by purpose and shared by human contributors and codin
 ## Plans
 
 - [Discussion panel plan](plans/DISCUSSION_PANEL_PLAN.md) — implementation and verification status for per-experiment figures and discussion text. [Implementation prompt](plans/DISCUSSION_PANEL_IMPLEMENTATION_PROMPT.md).
+- [Discussion figures enhancement plan](plans/DISCUSSION_FIGURES_ENHANCEMENT_PLAN.md) — Phases 1–4 implemented (pickers, figure management, grouped parameters, eight figure types, interaction); export, reports and cross-target figures remain.
+- [BlendRL Bets plan](plans/BLENDRL_BETS_PLAN.md) — phases 0–3 implemented (component `blendrl_bets`, sb3-suite 2.2.0 protocols); confidence-aware blending (free signals, per-expert value bets, GPI arbitration) and module dropout as one `blendrl_bets` component, the SB3 adapter protocols it needs, and the CartPole ablation matrix.
 - [UI refinements during the layer refactor](plans/UI_REFINEMENTS_20261115.md) — config forms, Monitor/Results consolidation, retired panels and terminal shell controls; Vega deferred.
 
 These documents describe proposals, intended behavior, or remaining work. Consult the current guides and implementation status above for supported behavior.
@@ -66,6 +68,8 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 - [Mechanistic monitoring roadmap](plans/MECHANISTIC_MONITORS_ROADMAP.md) — remaining work after the initial foundation.
 
 ## Reports
+
+- [BlendRL Bets CartPole ablations](reports/BLENDRL_BETS_CARTPOLE_ABLATIONS_20261118.md) — 12 methods × 5 seeds: ceiling at initialization, no method distinguishable from BlendRL, gate trust in the logic expert explains the gap to DNN.
 
 - [Discussion panel verification](reports/DISCUSSION_PANEL_VERIFICATION_20261117.md) — focused tests, stamped-run isolation and pending native visual acceptance.
 
