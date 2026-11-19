@@ -44,8 +44,18 @@ Phase 5, step 2 (MountainCar) is in progress:
   - `_v3` BlendRL stopped after trial 6: its YAML was edited mid-run and Hydra re-composes each
     trial from disk. It was resumed at trial 7 with sampler seed 4686 and the same training and
     evaluation seeds. Launches now compose from a config snapshot ([launches](../reference/LAUNCHES.md)).
-- **Ablation.** `Variant/Bets/MountainCar Ablations` validates but holds placeholder PPO settings
-  until the sweep finishes. Each launch draws 10 fresh training seeds and an evaluation seed, kept
+  - Results (finished 2026-11-18): DNN best 0.652 (trial 56), median of completed trials 0.348;
+    BlendRL best 0.703 (trial 38), median 0.435. Each study had 64 trials: DNN 45 complete and 19
+    pruned; BlendRL 44 complete, 20 pruned and 1 failed (the mid-run edit).
+    Both settle on batch 32, n_steps 256 and 10 epochs, with learning rates of 1.4–1.8e-3. They
+    differ elsewhere, and each study's top five agree on these choices: BlendRL takes a wider clip
+    range (0.28 against 0.15), gamma 0.999 against 0.99, a tenth of DNN's entropy coefficient
+    (0.0009 against 0.008), a lower max_grad_norm (0.35 against 0.79), and a constant learning rate
+    where DNN takes linear decay. BlendRL's best has blender_lr 2.6e-4, logic_lr 6.9e-3 and logic
+    confidence floor 0.034. Each best is the top of 64 configurations scored on four seeds, so it is
+    likely optimistic; the ablation measures it on fresh seeds.
+- **Ablation.** `Variant/Bets/MountainCar Ablations` carries the best v3 settings: DNN uses DNN
+  trial 56; Logic, BlendRL and every Bets variant use BlendRL trial 38. Each launch draws 10 fresh training seeds and an evaluation seed, kept
   clear of every recorded seed (including the sweep's), and records them in the execution manifest.
 
 Decisions made during implementation:
