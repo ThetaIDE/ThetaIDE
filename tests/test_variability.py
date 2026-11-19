@@ -127,17 +127,19 @@ def test_aggregate_uses_run_means_without_extrapolation(tmp_path, monkeypatch):
     assert ExecutionData(path).aggregate("m", [-1, 20]) == []
 
 
-def test_cancel_only_matching_execution(tmp_path, monkeypatch):
+@pytest.mark.parametrize("experiment", ["e", "Task/sweep"])
+def test_cancel_only_matching_execution(tmp_path, monkeypatch, experiment):
     from src.app.pipeline.variability import mark_cancelled
     from src.app.workspace import WorkspacePaths
     monkeypatch.chdir(tmp_path.parent)  # the desktop's working directory is not the workspace
+    root = tmp_path / "src/usr/results/executions/g" / experiment
     for name, pid in [("first", 123), ("second", 456)]:
-        path = tmp_path / "src/usr/results/executions/g/e" / name / "manifest.json"
+        path = root / name / "manifest.json"
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({"owner_pid": pid, "runs": [{"status": "completed"},
                                                                  {"status": "running"}, {"status": "queued"}]}))
-    mark_cancelled("g", "e", 123, paths=WorkspacePaths(tmp_path))
-    first = json.loads((tmp_path / "src/usr/results/executions/g/e/first/manifest.json").read_text())
-    second = json.loads((tmp_path / "src/usr/results/executions/g/e/second/manifest.json").read_text())
+    mark_cancelled("g", experiment, 123, paths=WorkspacePaths(tmp_path))
+    first = json.loads((root / "first/manifest.json").read_text())
+    second = json.loads((root / "second/manifest.json").read_text())
     assert [r["status"] for r in first["runs"]] == ["completed", "cancelled", "cancelled"]
     assert second["runs"][1]["status"] == "running"

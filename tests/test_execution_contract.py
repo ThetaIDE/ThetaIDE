@@ -188,6 +188,32 @@ def test_worker_finalizes_exception_and_cancellation(tmp_path, monkeypatch, outc
     assert closed == [True]
 
 
+def test_worker_unwinds_on_sigterm_so_a_sweeper_can_close_its_trials(monkeypatch):
+    import os
+    import signal
+    from src.app.pipeline import provider_worker
+    unwound = []
+    def sweep(script, args):
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except KeyboardInterrupt:
+            unwound.append(script)
+            raise
+    from contextlib import nullcontext
+    from src.app.services import worker_priority
+    previous = signal.getsignal(signal.SIGTERM)
+    monkeypatch.delenv('THETA_RESOURCE_POOL', raising=False)
+    monkeypatch.setattr(worker_priority, 'research_activity', nullcontext)
+    monkeypatch.setattr(provider_worker, 'run', sweep)
+    monkeypatch.setattr(sys, 'argv', ['provider_worker', 'src/app/pipeline/repeated_task.py'])
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            provider_worker.main()
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert unwound == ['src/app/pipeline/repeated_task.py']
+
+
 def test_selected_obsolete_provider_names_owner_and_remedy(tmp_path, monkeypatch):
     sentinel_workspace(tmp_path)
     monkeypatch.setenv('THETA_WORKSPACE', str(tmp_path))

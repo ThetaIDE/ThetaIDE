@@ -89,8 +89,16 @@ def run(script, args=(), run_name="__main__"):
             else: sys.modules[run_name] = previous
 
 
+def _interrupt_on_terminate(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main():
     if len(sys.argv) < 2: raise SystemExit("Usage: python -m src.app.pipeline.provider_worker SCRIPT [ARGS...]")
+    # Cancellation sends SIGTERM. Unwind like Ctrl-C so owners such as a tuning
+    # sweeper close their open trials; the default action would exit without cleanup.
+    import signal
+    signal.signal(signal.SIGTERM, _interrupt_on_terminate)
     from src.app.services.worker_priority import research_activity
     from src.app.services.resource_budget import configure_worker_threads
     configure_worker_threads()

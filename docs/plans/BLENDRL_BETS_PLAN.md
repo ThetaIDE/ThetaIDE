@@ -25,14 +25,22 @@ Phase 5, step 2 (MountainCar) is in progress:
   `sb3_dev` 0.1.0 (`src/usr/algorithms/sb3_dev`, copied from sb3-suite 2.2.0; not published). It
   keeps velocity's sign and zero, so the rules are unchanged: Logic's step-0 returns match the raw run
   seed for seed.
-- **Sweep.** `BlendRL/MountainCar/sweep` was launched on 2026-11-18:
+- **Sweep.** `BlendRL/MountainCar/sweep` tunes for rapid convergence. It was relaunched on
+  2026-11-18 as studies `MountainCar/sweep_{DNN,BlendRL}_v3`, run one after the other:
   - DNN and BlendRL studies over the same PPO ranges, including n_steps 32–1024 per environment and
     target_kl.
-  - 64 trials × 4 seeds × 300k, num_envs 4, `sb3_dev/ppo` with bounds scaling.
+  - 64 trials × 4 seeds × 120k, num_envs 4, `sb3_dev/ppo` with bounds scaling; evaluation with 10
+    episodes every 5k.
   - Median pruning (Optuna 1.3.0, `return_curve` intermediate scores): starts after 16 trials, with a
-    warmup of 5 checkpoints (100k).
-  - Studies `MountainCar/sweep_{DNN,BlendRL}_v2`; `_v0` and `_v1` are aborted launches. The 300k budget follows the pilots (`Variant/Bets/MountainCar
-  Pilot`): learning seeds leave −200 between 70k and 260k.
+    warmup of 10 checkpoints (50k).
+  - `_v2` used a 300k budget with 5-episode evaluations every 20k. Tuned seeds left −200 by 40k–160k
+    and then plateaued, so most of the area was the shared plateau plus evaluation noise. The top
+    BlendRL scores lay within 0.04 of each other, about the noise level, and configurations that
+    converged twice as slowly scored nearly the same. `_v2` is superseded; `_v0` and `_v1` are
+    aborted launches.
+  - `_v2` also exposed a resume bug: the seeded TPE sampler restarted on resume and replayed trials
+    0–3 as 13–16. It is fixed in the optuna source (`theta-plugins-v3`) but not yet released. The
+    installed 1.3.0 still replays suggestions on resume, so start a fresh study instead of resuming one.
 - **Ablation.** `Variant/Bets/MountainCar Ablations` validates but holds placeholder PPO settings
   until the sweep finishes. It uses 10 held-out seeds (2234679–2234688, evaluation seed 20000000),
   disjoint from the sweep's.

@@ -299,11 +299,11 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
 
 def mark_cancelled(group, experiment_id, owner_pid, *, paths=None):
     """Mark a terminated GUI launch's unfinished replicates, preserving completed work."""
-    from src.app.services.catalog import check_path_segment
+    from src.app.services.catalog import check_path_segment, check_result_path
 
     try:
         check_path_segment(str(group))
-        check_path_segment(str(experiment_id))
+        check_result_path(str(experiment_id))  # nested ids such as "MountainCar/sweep"
     except ValueError:
         return
     for path in _executions(paths, group, experiment_id).glob("*/manifest.json"):
