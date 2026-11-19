@@ -39,11 +39,14 @@ Phase 5, step 2 (MountainCar) is in progress:
     converged twice as slowly scored nearly the same. `_v2` is superseded; `_v0` and `_v1` are
     aborted launches.
   - `_v2` also exposed a resume bug: the seeded TPE sampler restarted on resume and replayed trials
-    0–3 as 13–16. It is fixed in the optuna source (`theta-plugins-v3`) but not yet released. The
-    installed 1.3.0 still replays suggestions on resume, so start a fresh study instead of resuming one.
+    0–3 as 13–16. Optuna 1.3.1 (theta-plugins `main`) fixes it but is not yet released to the Hub;
+    with the installed 1.3.0, resume with a new sampler seed (`tuning.options.optuna.seed`).
+  - `_v3` BlendRL stopped after trial 6: its YAML was edited mid-run and Hydra re-composes each
+    trial from disk. It was resumed at trial 7 with sampler seed 4686 and the same training and
+    evaluation seeds. Launches now compose from a config snapshot ([launches](../reference/LAUNCHES.md)).
 - **Ablation.** `Variant/Bets/MountainCar Ablations` validates but holds placeholder PPO settings
-  until the sweep finishes. It uses 10 held-out seeds (2234679–2234688, evaluation seed 20000000),
-  disjoint from the sweep's.
+  until the sweep finishes. Each launch draws 10 fresh training seeds and an evaluation seed, kept
+  clear of every recorded seed (including the sweep's), and records them in the execution manifest.
 
 Decisions made during implementation:
 
