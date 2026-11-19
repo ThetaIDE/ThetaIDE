@@ -74,6 +74,17 @@ Phase 5, step 2 (MountainCar) is in progress:
     - GPIResidual and ValueBets are level with BlendRL.
     - Caveats: the variants use vanilla BlendRL's tuned settings, and 10 seeds across 14
       comparisons leave the borderline intervals (Logic, GPIResidual early area) weak evidence.
+- **Variant sweep.** `BlendRL/MountainCar/bets_sweep` was launched 2026-11-19 as studies
+  `MountainCar/bets_sweep_<variant>_v0`, one variant after another. It tunes each Bets variant's own
+  settings, with PPO, blender and logic settings held at BlendRL v3 trial 38:
+  - RouteEpisode: routing epsilon start and decay span.
+  - FreeSignals: the logic confidence floor.
+  - ValueBets: value-head ensemble size, pessimism, loss weight and learning rate.
+  - ValueBetsRouted: routing and value heads.
+  - GPIResidual: routing, value heads and GPI temperature.
+  - Every variant also searches the gate entropy bonus and the blender learning rate.
+  The objective, budget and evaluation match the PPO sweep. Each variant runs 32 trials on 4
+  seeds drawn at launch. The tuned variants are then rerun in the ablation on fresh seeds.
 
 Decisions made during implementation:
 
