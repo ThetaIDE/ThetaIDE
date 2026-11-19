@@ -5,7 +5,7 @@ import yaml
 from omegaconf import OmegaConf
 
 from src.app.pipeline.seeds import (DRAWN_KEY, SEED_LIMIT, SPACING, draw_seeds, pin_study_seeds, recorded_seeds,
-                                    resolve_launch_seeds, study_seeds)
+                                    resolve_launch_seeds, settle_worker_seed, study_seeds)
 from src.app.workspace import WorkspacePaths
 
 
@@ -69,3 +69,15 @@ def test_a_continued_study_keeps_its_recorded_seeds(tmp_path):
     from src.app.pipeline.exceptions import ConfigurationError
     with pytest.raises(ConfigurationError, match="different seeds"):
         study_seeds(paths, "g", {"e_DNN_v1", "e_DNN_v0"})
+
+
+def test_a_worker_started_outside_a_launch_draws_and_records_its_seed(tmp_path):
+    log = tmp_path / "src/usr/results/logs/g/e/m/version_0/config.yaml"
+    log.parent.mkdir(parents=True)
+    log.write_text("seed: 5000000\n")
+    cfg = OmegaConf.create({"seed": None})
+    settle_worker_seed(cfg, WorkspacePaths(tmp_path))
+    assert abs(cfg.seed - 5000000) >= SPACING and cfg[DRAWN_KEY] == ["seed"]
+    pinned = OmegaConf.create({"seed": 7})
+    settle_worker_seed(pinned, WorkspacePaths(tmp_path))
+    assert pinned.seed == 7 and DRAWN_KEY not in pinned

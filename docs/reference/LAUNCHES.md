@@ -26,6 +26,8 @@ Set a seed in the config only to reproduce a recorded run: copy its recorded `se
 
 Draws use the operating system's secure generator (`secrets`) and stay below 2^32, the limit of NumPy's legacy seeding that Stable-Baselines3 uses. Runners derive further streams with small offsets (a vector environment seeds worker `i` with `seed + i`; evaluation uses `evaluation_seed + event_index`). Each draw is therefore at least 2^16 from the launch's other draws and from every seed recorded under `results/` (execution manifests and saved launch configs), so no two runs share an environment or evaluation stream. Gymnasium hashes seeds through NumPy's `SeedSequence`, so distinct seeds give independent streams.
 
+A method worker started on its own (`python -m src.app.train ...`, as component tests do) is a launch of one run: with `seed` unset it draws one the same way and records it in its effective config.
+
 Implementation: `src/app/pipeline/seeds.py`.
 
 ### Records

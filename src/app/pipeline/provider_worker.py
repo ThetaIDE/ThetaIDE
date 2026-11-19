@@ -121,6 +121,8 @@ def execute_method(cfg):
     from src.app.services.cancellation import requested, TrainingCancelled
 
     paths = WorkspacePaths.for_process()
+    from src.app.pipeline.seeds import settle_worker_seed
+    settle_worker_seed(cfg, paths)
     execution_backend(cfg, paths=paths)
     definition = load_paradigm_definition(cfg.get("paradigm"))
     run_id = uuid.uuid4().hex
@@ -134,7 +136,7 @@ def execute_method(cfg):
         directory = method_root / str(cfg.get("variability_version") or run_id)
     directory.mkdir(parents=True, exist_ok=True)
     targets = json.loads(os.environ.get("THETA_CANCEL_TARGETS", "[]"))
-    seed = int(agent.get("seed", cfg.get("seed", 42)))
+    seed = int(agent.get("seed", cfg.seed))
     context = RunContext(run_id, paths, seed, directory,
                          checkpoint=cfg.get("resume_from"),
                          cancelled=lambda: requested(targets, os.environ.get("THETA_CANCEL_DIR")))

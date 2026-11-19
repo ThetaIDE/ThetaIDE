@@ -144,3 +144,13 @@ def with_launch_seeds(cfg, methods):
     copy = OmegaConf.create(OmegaConf.to_container(cfg, resolve=False))
     resolve_launch_seeds(copy, methods)
     return copy
+
+
+def settle_worker_seed(cfg, paths):
+    """Draw the seed of a worker started outside a launch (``python -m src.app.train``); it is its own launch."""
+    if cfg.get("seed") is not None:
+        return
+    seed = draw_seeds(1, recorded_seeds(paths))[0]
+    with open_dict(cfg):
+        cfg.seed = seed
+        cfg[DRAWN_KEY] = [*(cfg.get(DRAWN_KEY) or []), "seed"]
