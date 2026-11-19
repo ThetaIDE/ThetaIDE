@@ -57,6 +57,23 @@ Phase 5, step 2 (MountainCar) is in progress:
 - **Ablation.** `Variant/Bets/MountainCar Ablations` carries the best v3 settings: DNN uses DNN
   trial 56; Logic, BlendRL and every Bets variant use BlendRL trial 38. Each launch draws 10 fresh training seeds and an evaluation seed, kept
   clear of every recorded seed (including the sweep's), and records them in the execution manifest.
+  - Run 2026-11-19 (execution `b25335dd`, 80 of 80 runs complete in 1 h 24 min). The figures below
+    use sampled evaluation and matched seeds, with 95% bootstrap intervals; area is normalized so
+    that −200 scores 0 and −100 scores 1.
+    - BlendRL has the best early area: 0.743 over 0–120k against DNN's 0.652, a difference of
+      +0.09 [0.05, 0.13]. By 300k the areas are level (0.809 against 0.796). DNN ends higher:
+      −103 against −115, a final-return gap of 11.8 [5.4, 18.5]. The rules give BlendRL its head
+      start, and BlendRL then plateaus near Logic's −118.
+    - Logic is identical on every seed: −118, leaving −200 by 0–20k.
+    - No Bets variant beats vanilla BlendRL on area.
+    - ValueBetsRouted matches BlendRL's area and ends 7.7 [1.7, 13.9] higher, at −107, with the
+      tightest worst seed (−119). It is the only variant ahead of BlendRL on final return.
+    - RouteEpisode is slower early (−0.041 [−0.07, −0.01] area over 0–120k) but ends higher, at
+      −107 (interval includes 0).
+    - FreeSignals ends lowest (−121).
+    - GPIResidual and ValueBets are level with BlendRL.
+    - Caveats: the variants use vanilla BlendRL's tuned settings, and 10 seeds across 14
+      comparisons leave the borderline intervals (Logic, GPIResidual early area) weak evidence.
 
 Decisions made during implementation:
 
