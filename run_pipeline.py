@@ -31,7 +31,13 @@ def cli():
         print(f"Initializing Theta pipeline for: {command} ...", flush=True)
     from src.app.components.transactions import provider_lease
     with provider_lease(paths):
-        main(paths)
+        if command in (None, "-h", "--help", "scaffold", "new-plugin"):
+            main(paths)
+        else:
+            # The launch and all of its processes compose from the config as it is now.
+            from src.app.pipeline.launch_config import frozen_config
+            with frozen_config(paths):
+                main(paths)
     return 0
 
 
@@ -117,8 +123,37 @@ def main(paths):
         sys.exit(1)
 
     cfg = composed.cfg
-    sanitized_extra_args = composed.launch_args
     is_sweep = composed.is_sweep
+
+    # Draw the seeds the config leaves open, once for the whole launch; every method,
+    # trial and replicate (and a scheduler allocation) receives them as explicit overrides.
+    if not cfg.get("dry_run", False):
+        from src.app.pipeline.config import parse_methods_dict
+        from src.app.pipeline.seeds import pin_study_seeds, recorded_seeds, resolve_launch_seeds, study_seeds
+
+        try:
+            methods = parse_methods_dict(cfg)
+            continued = []
+            if is_sweep:
+                # A study continued by this launch keeps the seeds its earlier trials used.
+                from src.app.pipeline.config import normalize_agent_name
+                from src.app.pipeline.tuners import get_tuner
+
+                tuner = get_tuner(cfg, paths=composed.workspace)
+                studies = {tuner.study_name(cfg, normalize_agent_name(name)) for name in methods}
+                continued = pin_study_seeds(cfg, study_seeds(composed.workspace, cfg.group, studies))
+            drawn = resolve_launch_seeds(cfg, methods, taken=recorded_seeds(composed.workspace))
+        except ConfigurationError as e:
+            print(f"\n{e}\n")
+            sys.exit(1)
+        for pinned in (continued, drawn):
+            composed.extra_args.extend(pinned)
+            composed.launch_args.extend(pinned)
+        if continued:
+            print("Seeds of the continued study: " + ", ".join(arg.lstrip("+") for arg in continued), flush=True)
+        if drawn:
+            print("Seeds drawn for this launch: " + ", ".join(arg.lstrip("+") for arg in drawn[:-1]), flush=True)
+    sanitized_extra_args = composed.launch_args
 
     # Pre-flight validation
     try:

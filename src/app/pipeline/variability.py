@@ -27,36 +27,33 @@ def _executions(paths, group, experiment_id):
     return (paths or WorkspacePaths.for_process()).results / "executions" / str(group) / str(experiment_id)
 
 
+VARIABILITY_KEYS = frozenset({"training_runs", "training_seeds", "evaluation_seed", "parallel_runs"})
+
+
 def make_plan(cfg, context):
     variability = cfg.get("variability")
     if variability is None:
         return None
     if not hasattr(variability, "get"):
         raise ConfigurationError("variability must be a mapping")
-    explicit_seeds = variability.get("training_seeds")
-    has_count = variability.get("training_runs") is not None
-    has_start = variability.get("starting_seed") is not None
-    if explicit_seeds is not None and (has_count or has_start):
-        raise ConfigurationError(
-            "Choose either variability.training_seeds or variability.training_runs with starting_seed; do not configure both forms."
-        )
-    if explicit_seeds is not None:
-        seeds = explicit_seeds
-    else:
-        count = variability.get("training_runs", 1)
-        start = variability.get("starting_seed", cfg.get("seed", 1))
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-            raise ConfigurationError("variability.training_runs must be a positive integer")
-        if isinstance(start, bool) or not isinstance(start, int) or not 0 <= start <= 2**32 - 1:
-            raise ConfigurationError("variability.starting_seed must be an integer between 0 and 4294967295")
-        if start + count - 1 > 2**32 - 1:
-            raise ConfigurationError("variability.starting_seed plus training_runs exceeds the supported seed range")
-        seeds = list(range(start, start + count))
+    unknown = sorted(set(variability) - VARIABILITY_KEYS)
+    if unknown:
+        raise ConfigurationError(f"Unknown variability settings {unknown}; expected {sorted(VARIABILITY_KEYS)}. "
+                                 "Seeds are drawn per launch; list training_seeds only to reproduce a run.")
+    count = variability.get("training_runs")
+    if count is not None and (isinstance(count, bool) or not isinstance(count, int) or count < 1):
+        raise ConfigurationError("variability.training_runs must be a positive integer")
+    seeds = variability.get("training_seeds")
+    if seeds is None:
+        # Launches draw open seeds (src/app/pipeline/seeds.py) before planning.
+        raise ConfigurationError("variability.training_seeds is unset; the launch draws them from training_runs")
     if not isinstance(seeds, (list, tuple)) and not OmegaConf.is_list(seeds):
         raise ConfigurationError("variability.training_seeds must be a nonempty list of unique integer seeds")
     seeds = list(seeds)
     if not seeds or any(isinstance(s, bool) or not isinstance(s, int) or not 0 <= s <= 2**32 - 1 for s in seeds) or len(set(seeds)) != len(seeds):
         raise ConfigurationError("variability.training_seeds must contain unique integers between 0 and 4294967295")
+    if count is not None and count != len(seeds):
+        raise ConfigurationError(f"variability.training_runs is {count} but training_seeds lists {len(seeds)} seeds")
     parallel = variability.get("parallel_runs", 1)
     if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
         raise ConfigurationError("variability.parallel_runs must be a positive integer")
@@ -70,13 +67,26 @@ def make_plan(cfg, context):
         raise ConfigurationError("variability is not yet supported for scheduler-site launches")
     if cfg.get("recover"):
         raise ConfigurationError("variability cannot yet be combined with recovery")
-    capabilities = {}
+    capabilities = method_capabilities(cfg, context["methods"])
+    for name, capability in capabilities.items():
+        if evaluation_seed is not None and not capability["evaluation_seed_control"]:
+            raise ConfigurationError(f"Method {name!r} does not support the requested variability.evaluation_seed; omit it to use the runner's existing evaluation protocol")
+    from src.app.pipeline.seeds import DRAWN_KEY
+    return {"training_seeds": seeds, "evaluation_seed": evaluation_seed, "parallel_runs": parallel,
+            "eval_episodes": episodes, "capabilities": capabilities,
+            "drawn_seeds": list(cfg.get(DRAWN_KEY) or [])}
+
+
+def method_capabilities(cfg, methods):
+    """Each method's runner and whether it records evaluation episodes under a controlled seed."""
     from src.app.telemetry.selection import selection_from_config
+    episodes = cfg.get("eval_episodes", 0)
     selection = selection_from_config(cfg)
     if (cfg.get("paradigm") == "online_rl" and isinstance(episodes, int) and episodes > 0
             and selection.keeps_section("eval") and not selection.keeps("eval/reward")):
         raise ConfigurationError("variability evaluation requires telemetry.metrics to include eval/reward")
-    for name, method in context["methods"].items():
+    capabilities = {}
+    for name, method in methods.items():
         script = resolve_engine(method, cfg)[0]
         runner_supports_eval = runner_supports_episode_outcomes({**dict(cfg.items()), **method})
         episode_events = (runner_supports_eval and cfg.get("paradigm") == "online_rl"
@@ -85,10 +95,7 @@ def make_plan(cfg, context):
         capabilities[name] = {"runner": script, "episode_events": episode_events,
                               "evaluation_seed_control": episode_events,
                               "training_seed": "passed to runner; component support varies"}
-        if evaluation_seed is not None and not episode_events:
-            raise ConfigurationError(f"Method {name!r} does not support the requested variability.evaluation_seed; omit it to use the runner's existing evaluation protocol")
-    return {"training_seeds": seeds, "evaluation_seed": evaluation_seed, "parallel_runs": parallel,
-            "eval_episodes": episodes, "capabilities": capabilities}
+    return capabilities
 
 
 def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_failure=True, on_manifest=None):

@@ -72,13 +72,15 @@ def runtime(host, data, resolved, tree, paradigm, show_resolved):
     form.setProperty("parameterContext", "experiment.runtime")
     declarations = [
         ("total_timesteps", "Total Timesteps", "spin_timesteps", 10000, 100),
-        ("seed", "Random Seed", "spin_seed", 42, 0),
+        ("seed", "Random Seed", "spin_seed", None, 0),
         ("eval_episodes", "Eval Episodes", "spin_eval_ep", 100, 0),
         ("epochs", "Epochs", "spin_epochs", 10, 1),
         ("eval_every_n_epochs", "Eval Frequency (Epochs)", "spin_eval_every", 1, 1),
     ]
     for key, title, attribute, default, minimum in declarations:
         value = data.get(key, resolved.get(key, default))
+        if key == "seed" and value is None:
+            continue  # unset: each launch draws its seed; adding one pins it to reproduce a run
         field = value_editor(
             value, {"type": "integer", "minimum": minimum}, lambda value, k=key: host._on_field_edited(k, value)
         )

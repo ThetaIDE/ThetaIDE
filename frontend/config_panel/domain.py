@@ -578,13 +578,22 @@ def _set_experiment_dataset_override(self) -> None:
     QTimer.singleShot(0, self._render_boxes)
 
 
+def _reproduction_seed(resolved: dict) -> int:
+    """The value a newly added seed starts from: the inherited seed, or a fresh draw to replace with a recorded one."""
+    if resolved.get("seed") is not None:
+        return int(resolved["seed"])
+    from src.app.pipeline.seeds import draw_seeds
+
+    return draw_seeds(1)[0]
+
+
 def _experiment_budget_candidates(self, data: dict, resolved: dict, rules) -> list[tuple]:
     """Return budget and runtime options available from the Experiment header."""
     candidates = []
     if rules and rules.budget_unit == "timesteps":
         possible = [
             ("total_timesteps", "Total Timesteps", int(resolved.get("total_timesteps") or 10000)),
-            ("seed", "Random Seed", int(resolved.get("seed") if resolved.get("seed") is not None else 42)),
+            ("seed", "Random Seed", _reproduction_seed(resolved)),
         ]
         if rules.field_enabled("eval_episodes"):
             possible.append(("eval_episodes", "Eval Episodes", int(resolved.get("eval_episodes") or 100)))
@@ -598,7 +607,7 @@ def _experiment_budget_candidates(self, data: dict, resolved: dict, rules) -> li
     else:
         possible = [
             ("epochs", "Epochs", int(resolved.get("epochs") or 10)),
-            ("seed", "Random Seed", int(resolved.get("seed") if resolved.get("seed") is not None else 42)),
+            ("seed", "Random Seed", _reproduction_seed(resolved)),
             ("eval_every_n_epochs", "Eval Frequency (Epochs)", int(resolved.get("eval_every_n_epochs") or 1)),
         ]
     for key, title, default in possible:
@@ -1424,11 +1433,7 @@ def add_block(self, block_name: str):
             "options": {component: options},
         }
     elif block_name == "variability":
-        self.raw_data["variability"] = {
-            "training_runs": 1,
-            "starting_seed": int(self._get_resolved_defaults().get("seed", 1) or 1),
-            "parallel_runs": 1,
-        }
+        self.raw_data["variability"] = {"training_runs": 1, "parallel_runs": 1}
     elif block_name == "env":
         self.raw_data["env"] = {}
     elif block_name == "dataset":
@@ -1653,8 +1658,7 @@ def _add_experiment_param(self, key: str, default_val: Any = None, *, render: bo
     elif key == "total_timesteps":
         self.raw_data[key] = int(self._get_resolved_defaults().get("total_timesteps") or 10000)
     elif key == "seed":
-        res_seed = self._get_resolved_defaults().get("seed")
-        self.raw_data[key] = int(res_seed if res_seed is not None else 42)
+        self.raw_data[key] = _reproduction_seed(self._get_resolved_defaults())
     elif key == "eval_episodes":
         self.raw_data[key] = int(self._get_resolved_defaults().get("eval_episodes") or 100)
     elif key == "eval_freq_steps":

@@ -9,7 +9,7 @@ defaults:
 experiment_id: "default_exp"
 experiment_name: "ungrouped/default_exp"
 group: "ungrouped"
-seed: 1
+seed: null  # drawn once per launch; set it only to reproduce a recorded run
 total_timesteps: 10000
 eval_episodes: 0
 save_dataset: false

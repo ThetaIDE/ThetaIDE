@@ -97,12 +97,25 @@ def test_repetition_is_independent_of_paradigm_and_runner():
         make_plan(cfg, ctx)
 
 
-def test_default_seed_and_masked_tuning():
+def test_plan_needs_the_launch_to_settle_training_seeds():
     cfg = config()
     del cfg.variability.training_seeds
+    cfg.variability.training_runs = 2
     cfg.seed = 17
-    cfg.tuning = None
-    assert make_plan(cfg, context())["training_seeds"] == [17]
+    with pytest.raises(ConfigurationError, match="launch draws them"):
+        make_plan(cfg, context())
+    cfg.variability.starting_seed = 1
+    with pytest.raises(ConfigurationError, match=r"Unknown variability settings \['starting_seed'\]"):
+        make_plan(cfg, context())
+    del cfg.variability.starting_seed
+    cfg.variability.training_seeds = [5, 6, 7]
+    with pytest.raises(ConfigurationError, match="training_runs is 2"):
+        make_plan(cfg, context())
+    cfg.variability.training_seeds = [5, 6]
+    cfg.theta_drawn_seeds = ["variability.training_seeds"]
+    plan = make_plan(cfg, context())
+    assert plan["training_seeds"] == [5, 6]
+    assert plan["drawn_seeds"] == ["variability.training_seeds"]
 
 
 def test_aggregate_uses_run_means_without_extrapolation(tmp_path, monkeypatch):

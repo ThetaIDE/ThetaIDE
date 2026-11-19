@@ -141,8 +141,11 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
 
         choices = composed.cfg.get("hydra", {}).get("runtime", {}).get("choices", {})
         site = choices.get("site") or (composed.cfg.get("site") or {}).get("name") or "local"
-        make_plan(composed.cfg, {"methods": parse_methods_dict(composed.cfg),
-                                 "is_sweep": composed.is_sweep, "is_interactive": True})
+        from src.app.pipeline.seeds import with_launch_seeds
+
+        methods = parse_methods_dict(composed.cfg)
+        make_plan(with_launch_seeds(composed.cfg, methods),
+                  {"methods": methods, "is_sweep": composed.is_sweep, "is_interactive": True})
     return notices
 
 

@@ -27,9 +27,7 @@ objective:
       method: lower_tail
       fraction: 0.2
 variability:
-  training_runs: 20
-  starting_seed: 100
-  evaluation_seed: 10000
+  training_runs: 20      # each launch draws 20 fresh seeds and an evaluation seed
   parallel_runs: 2
 eval_episodes: 10
 eval_freq_steps: 1000

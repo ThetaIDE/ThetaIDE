@@ -621,11 +621,10 @@ def test_parameter_mouse_drop_commits_and_outside_release_cancels(viewer):
 def test_two_column_and_budget_reordering_preserves_fields(viewer):
     viewer[1].paradigms["online_rl"].raw["training"] = {"budget": "timesteps"}
     widget = load(viewer, {"methods": {}, "paradigm": "online_rl", "seed": 7, "total_timesteps": 1000, "eval_episodes": 10,
-                           "variability": {"training_runs": 2, "starting_seed": 4, "evaluation_seed": 7}})
-    controller = parameter_controller(widget, "Training runs per method", "Starting training seed", "Evaluation seed")
+                           "variability": {"training_runs": 2, "parallel_runs": 2, "evaluation_seed": 7}})
+    controller = parameter_controller(widget, "Training runs per method", "Evaluation seed", "Maximum parallel runs")
     move_parameter(widget, controller, "Training runs per method", "Evaluation seed")
-    assert [g.caption.text() for g in controller.rows.groups][:3] == [
-        "Starting training seed", "Evaluation seed", "Training runs per method"]
+    assert [g.caption.text() for g in controller.rows.groups][:2] == ["Evaluation seed", "Training runs per method"]
     budget = parameter_controller(widget, "Random Seed", "Total Timesteps")
     field = widget.spin_seed
     move_parameter(widget, budget, "Random Seed", "Total Timesteps")
@@ -745,7 +744,7 @@ def test_component_open_action_uses_latest_value_and_preserves_form(viewer):
 
 def test_variability_label_columns_fit_their_text_and_collapse_when_narrow(viewer):
     from frontend.config_panel.controls import ParameterLabel
-    widget = load(viewer, {"variability": {"training_runs": 3, "starting_seed": 1,
+    widget = load(viewer, {"variability": {"training_runs": 3,
                                          "parallel_runs": 2, "evaluation_seed": 5}, "eval_episodes": 8})
     box = next(box for box in boxes(widget) if "Variability" in title(box))
     captions = box.findChildren(ParameterLabel)
@@ -1739,7 +1738,7 @@ def test_real_component_monitors_show_individual_toggles_before_a_run(tmp_path):
 
 def test_sweep_and_variability_use_two_columns_without_seed_summary(viewer):
     widget = load(viewer, {"methods": {}, "tuning": {"component": "search", "direction": "maximize"},
-                           "variability": {"training_runs": 2, "starting_seed": 4,
+                           "variability": {"training_runs": 2, "parallel_runs": 2,
                                            "evaluation_seed": 7}, "eval_episodes": 10})
     for name in ("Hyperparameter Sweep", "Training and Evaluation Variability"):
         box = next(box for box in boxes(widget) if title(box) == name)
@@ -1754,6 +1753,19 @@ def test_sweep_and_variability_use_two_columns_without_seed_summary(viewer):
         assert grid.columnCount() == 2
     variance = next(box for box in boxes(widget) if title(box) == "Training and Evaluation Variability")
     assert not any(label.text().startswith("Training seeds:") for label in variance.findChildren(QLabel))
+
+
+def test_unset_seeds_are_drawn_per_launch_and_pinning_offers_reproduction(viewer):
+    viewer[1].paradigms["online_rl"].raw["training"] = {"budget": "timesteps"}
+    widget = load(viewer, {"methods": {}, "paradigm": "online_rl", "seed": None,
+                           "variability": {"training_runs": 3}, "eval_episodes": 10})
+    assert "seed" not in widget.field_widgets
+    variance = next(box for box in boxes(widget) if title(box) == "Training and Evaluation Variability")
+    assert variance.findChild(QLineEdit, "variabilityStartingSeed") is None
+    widget = load(viewer, {"methods": {}, "paradigm": "online_rl", "seed": None, "eval_episodes": 10,
+                           "variability": {"training_seeds": [], "evaluation_seed": None}})
+    seeds = widget.findChild(QLineEdit, "variabilityTrainingSeeds")
+    assert seeds is not None and seeds.placeholderText() == "Recorded seeds of the run to reproduce"
 
 
 def test_variability_parallel_limit_uses_shared_optional_parameter_row(viewer):

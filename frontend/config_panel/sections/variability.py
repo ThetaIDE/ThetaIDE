@@ -28,11 +28,9 @@ def _render_variability_box(self, data, resolved):
     if not isinstance(value, dict):
         return
     box = ConfigBox()
-    inherited_seed = int(resolved.get("seed", 1) or 1)
     defaults = {
         "training_runs": 1,
-        "starting_seed": inherited_seed,
-        "training_seeds": [inherited_seed],
+        "training_seeds": [],
         "evaluation_seed": None,
         "eval_episodes": int(resolved.get("eval_episodes", 0) or 0),
         "parallel_runs": 1,
@@ -42,7 +40,7 @@ def _render_variability_box(self, data, resolved):
         if (
             key == "training_seeds"
             and not explicit_seed_mode
-            or key in ("training_runs", "starting_seed")
+            or key == "training_runs"
             and explicit_seed_mode
         ):
             switch_seed_mode()
@@ -71,20 +69,17 @@ def _render_variability_box(self, data, resolved):
     box.add_layout(header)
     form = ParameterForm()
     explicit_seed_mode = value.get("training_seeds") is not None
-    inherited_seed = int(resolved.get("seed", 1) or 1)
     training_count = integer_field(
         int(value.get("training_runs") if value.get("training_runs") is not None else 1), minimum=1
     )
-    start_seed = QLineEdit(
-        str(value.get("starting_seed") if value.get("starting_seed") is not None else inherited_seed)
-    )
-    start_seed.setObjectName("variabilityStartingSeed")
-    start_seed.setToolTip("First seed; subsequent runs use consecutive seeds")
+    training_count.setToolTip("Each launch draws this many fresh training seeds and records them")
     seeds = QLineEdit(", ".join(str(x) for x in (value.get("training_seeds") or [])))
     seeds.setObjectName("variabilityTrainingSeeds")
-    seeds.setToolTip("Unique integer seeds, separated by commas")
-    evaluation = QLineEdit(str(value.get("evaluation_seed", "")))
-    evaluation.setPlaceholderText("Runner default")
+    seeds.setPlaceholderText("Recorded seeds of the run to reproduce")
+    seeds.setToolTip("Unique integer seeds, separated by commas. Set them only to reproduce a recorded run; "
+                     "otherwise each launch draws fresh seeds.")
+    evaluation = QLineEdit("" if value.get("evaluation_seed") is None else str(value["evaluation_seed"]))
+    evaluation.setPlaceholderText("Drawn each launch")
     episodes = integer_field(int(data.get("eval_episodes", resolved.get("eval_episodes", 0)) or 0), minimum=0)
     episodes.setToolTip("0 disables evaluation where supported; adding this box does not change the inherited value")
 
@@ -99,17 +94,6 @@ def _render_variability_box(self, data, resolved):
             return
         self._on_nested_edited("variability", "training_seeds", parsed)
 
-    def set_start_seed():
-        text = start_seed.text().strip()
-        try:
-            val = int(text)
-        except ValueError:
-            from ..editors import set_error
-
-            set_error(start_seed, "Enter an integer seed")
-            return
-        self._on_nested_edited("variability", "starting_seed", val)
-
     def set_count(value_count):
         self._on_nested_edited("variability", "training_runs", value_count)
 
@@ -118,23 +102,9 @@ def _render_variability_box(self, data, resolved):
 
         updated = copy.deepcopy(self.raw_data.get("variability") or {})
         if explicit_seed_mode:
-            updated.update(training_seeds=None, training_runs=1, starting_seed=inherited_seed)
+            updated.update(training_seeds=None, training_runs=max(1, len(value.get("training_seeds") or [])))
         else:
-            try:
-                first = int(start_seed.text())
-                count = training_count.value()
-                if not 1 <= count <= 100000:
-                    from ..editors import set_error
-
-                    set_error(
-                        training_count,
-                        "Keep large run counts in consecutive-seed mode; at most 100000 seeds can be expanded into a list.",
-                    )
-                    return
-                generated = list(range(first, first + count))
-            except ValueError:
-                return
-            updated.update(training_runs=None, starting_seed=None, training_seeds=generated)
+            updated.update(training_runs=None, training_seeds=[])
         result = self.document.set(("variability",), updated)
         if result.changed:
             self._render_boxes()
@@ -146,12 +116,11 @@ def _render_variability_box(self, data, resolved):
         except ValueError:
             from ..editors import set_error
 
-            set_error(evaluation, "Enter an integer seed or leave blank")
+            set_error(evaluation, "Enter an integer seed, or leave blank to draw one each launch")
             return
         self._on_nested_edited("variability", "evaluation_seed", val)
 
     seeds.editingFinished.connect(set_seeds)
-    start_seed.editingFinished.connect(set_start_seed)
     training_count.valueChanged.connect(set_count)
     evaluation.editingFinished.connect(set_evaluation)
     episodes.valueChanged.connect(lambda v: self._on_field_edited("eval_episodes", v))
@@ -167,12 +136,6 @@ def _render_variability_box(self, data, resolved):
                 ("variability", "training_runs"),
                 "Training runs per method",
                 _parameter_row(training_count, remove=self._parameter_remove(("variability", "training_runs"))),
-            )
-        if value.get("starting_seed") is not None:
-            form.add_parameter(
-                ("variability", "starting_seed"),
-                "Starting training seed",
-                _parameter_row(start_seed, remove=self._parameter_remove(("variability", "starting_seed"))),
             )
     if "evaluation_seed" in value:
         form.add_parameter(

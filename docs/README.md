@@ -25,6 +25,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Extension contributions and readiness v1](reference/EXTENSION_CONTRIBUTIONS.md) — metadata-only discovery, enablement, lifecycle cleanup and tuner controls/monitor availability.
 - [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership and installing the optional Slurm component.
 - [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and receipts.
+- [What a launch fixes at start](reference/LAUNCHES.md) — the config snapshot every trial composes from, seeds drawn once per launch, and reproducing a run.
 - [Saved result layout](reference/RESULT_STORAGE.md) — experiment folders, unique runs, and legacy compatibility.
 - [Pipeline and component service API](reference/API.md)
 - [Provider packages, storage, and ownership](reference/PLUGIN_STORAGE.md) — package format v3, profile resolution and declared cross-package exports.

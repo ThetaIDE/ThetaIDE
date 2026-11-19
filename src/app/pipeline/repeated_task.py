@@ -66,7 +66,7 @@ def run_objective(cfg, *, execute=None):
     planning_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     if planning_cfg.get("variability") is None:
         with open_dict(planning_cfg):
-            planning_cfg.variability = {"training_runs": 1, "starting_seed": int(cfg.get("seed", 1))}
+            planning_cfg.variability = {"training_seeds": [int(cfg.seed)]}
     plan = make_plan(planning_cfg, {"methods": {name: {}}, "is_interactive": True})
     version = trial_log_version(cfg) or "version_execution_" + uuid.uuid4().hex[:12]
     runtime = cfg.get("theta_tuning") or {}

@@ -21,6 +21,8 @@ COMPONENT_DIRECTORIES = {
     "experiment": "src/usr/experiments", "suite": "src/usr/packages", "package": "src/usr/packages",
 }
 # src/usr directories with a fixed purpose; a package's workspace resource cannot claim one.
+CONFIG_SNAPSHOT_ENV = "THETA_CONFIG_SNAPSHOT"
+"""Set for a launch's processes: they compose from the config tree as it was at launch."""
 RESERVED_RESEARCH_DIRECTORIES = frozenset({"config", "datasets", "results", "discussion", *(Path(d).name for d in COMPONENT_DIRECTORIES.values())})
 
 
@@ -39,7 +41,17 @@ class WorkspacePaths:
         object.__setattr__(self, "data_dir", Path(state).expanduser().resolve() if state is not None else self.root / ".thetaide")
 
     @property
-    def config(self): return self.research / "config"
+    def config(self):
+        """The workspace config tree; inside a launch, the snapshot taken when it started."""
+        frozen = self.launch_config_snapshot()
+        return frozen if frozen is not None else self.research / "config"
+
+    def launch_config_snapshot(self):
+        """The config snapshot of the launch this process belongs to, if any (src/app/pipeline/launch_config.py)."""
+        frozen, selected = os.environ.get(CONFIG_SNAPSHOT_ENV), os.environ.get("THETA_WORKSPACE")
+        if frozen and selected and Path(selected).expanduser().resolve() == self.root:
+            return Path(frozen)
+        return None
     @property
     def framework_defaults(self): return self.framework_config
 
@@ -184,7 +196,7 @@ class WorkspacePaths:
     def config_file(self, value: str | Path) -> Path:
         path = Path(value).expanduser()
         if not path.is_absolute():
-            path = self.root / path if path.parts[:3] == ("src", "usr", "config") else self.config / path
+            path = self.config / (Path(*path.parts[3:]) if path.parts[:3] == ("src", "usr", "config") else path)
         if not path.suffix: path = path.with_suffix(".yaml")
         path = path.resolve()
         if not path.is_relative_to(self.config.resolve()) or path.suffix not in (".yaml", ".yml"):
@@ -197,6 +209,9 @@ class WorkspacePaths:
     @classmethod
     def from_config_root(cls, config_root):
         root = Path(config_root).resolve()
+        frozen, selected = os.environ.get(CONFIG_SNAPSHOT_ENV), os.environ.get("THETA_WORKSPACE")
+        if frozen and selected and root == Path(frozen).resolve():
+            return cls(Path(selected))
         if root.parts[-3:] == ("src", "usr", "config"):
             return cls(root.parents[2])
         if root.parts[-3:] == ("src", "app", "config_defaults"):
