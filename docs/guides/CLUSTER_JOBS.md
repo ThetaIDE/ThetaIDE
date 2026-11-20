@@ -87,7 +87,7 @@ New work uploads/publications get current mtimes, while bundle archive/input met
 
 ## Submission and concurrency
 
-In the desktop, **Run switches to the Terminal pane and creates a new shell** in its existing shell list. That shell shows snapshot preparation, live rsync progress, verification, and then the interactive SSH session. Upload errors remain visible there and prevent the SSH handoff. Existing shells stay available in the list.
+In the desktop, **Run switches to the Terminal pane and creates a new shell** in its existing shell list. That shell shows snapshot preparation, live rsync progress and verification. With a standard batch site it then opens an interactive SSH session. Upload errors remain visible in the shell and stop the launch. Existing shells stay available in the list.
 
 Use **Close shell** to terminate that shell's upload/SSH process and close its connection. Switching panes or selecting another shell keeps the session running. Closing the main window also closes its terminal sessions. A late startup callback cannot reopen a closed shell. Jobs already accepted by Slurm continue independently.
 
@@ -112,6 +112,12 @@ The receipt prints the execution ID and job ID. Each attempt gets fresh executio
 Slurm admits **one active trial and one active training seed per allocation**. Requests for Optuna `n_jobs > 1` or `variability.parallel_runs > 1` fail clearly. Local parallel trials retain the workstation resource pool and remain supported. Within-allocation parallel admission/contention is not qualified. A two-seed experiment can run its seeds serially with `parallel_runs: 1`.
 
 `plot_only` on Slurm is rejected before plotting starts. Plot synced prior results locally with their original result identity and `wipe=false`. Workflow DAGs, remote dashboards, automatic requeue, and `recover=true` are unsupported.
+
+### Interactive Slurm allocations
+
+For a site that already has a local allocation helper, add `interactive_allocation` to its private site profile. Set `command` to the helper's local argv prefix. The Slurm component appends one shell-quoted argument string containing the allocation flags and an `srun` command. The helper must pass that string to `salloc` as command-line text. An optional `prepare` argv runs locally first, for example to make the network available for the upload. Keep personal site settings in an ignored workspace override under `src/usr/config/site/`.
+
+**Run** prepares the connection, uploads the bundle, then calls the helper. `srun` starts Theta on the compute node. Theta checks that the step belongs to a Slurm allocation and verifies the uploaded bundle identity before preparing the usual receipt, scratch runtime and result publication. Keep the terminal connected through the run because closing the shell can end an interactive allocation. The site requires a scratch execution policy.
 
 ## Allocation-owned publication
 

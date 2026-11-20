@@ -41,9 +41,14 @@ def synced_execution_sources(project_root, group, experiment):
 def trial_execution(logs_root, method, trial):
     """The seed execution a trial's log version links to, or None."""
     version = trial.get("log_version")
-    if not version:
+    from src.app.pipeline.result_paths import LEGACY_TRIAL_VERSION
+    from src.app.pipeline.trial_artifacts import trial_logs
+    if "id" not in trial and (match := LEGACY_TRIAL_VERSION.fullmatch(version or "")):
+        trial = dict(trial, id=int(match[1]))
+    method_dir = Path(logs_root) / method
+    directory = trial_logs(method_dir, trial)
+    if directory == method_dir:
         return None
-    directory = Path(logs_root) / method / version
     try:
         pointer = json.loads((directory / "execution.json").read_text(encoding="utf-8"))
         path = Path(pointer["manifest"])
@@ -170,3 +175,21 @@ class ExecutionData:
                 result.append({"step": step, "mean": statistics.mean(values), "n": len(values),
                                "std": statistics.stdev(values) if len(values) >= 2 else None})
         return result
+
+
+def trial_worker_results(paths, group, experiment, method, log_version):
+    """Return seed-indexed worker execution records, including failed workers."""
+    logs = paths.results / "logs" / str(group) / str(experiment)
+    execution = trial_execution(logs, method, {"log_version": log_version}) or {}
+    records = {}
+    for run in execution.get("runs", ()):
+        try:
+            path = (paths.root / run["checkpoints"] / "execution.json").resolve()
+            if not path.is_relative_to(paths.results.resolve()):
+                continue
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(record, dict):
+                records[run["training_seed"]] = record
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return records

@@ -29,15 +29,13 @@ def cli():
     os.environ.update(paths.process_environment())
     if command not in (None, "-h", "--help"):
         print(f"Initializing Theta pipeline for: {command} ...", flush=True)
-    from src.app.components.transactions import provider_lease
-    with provider_lease(paths):
-        if command in (None, "-h", "--help", "scaffold", "new-plugin"):
+    if command in (None, "-h", "--help", "scaffold", "new-plugin"):
+        main(paths)
+    else:
+        # Workers read private inputs; live components stay editable during the launch.
+        from src.app.pipeline.launch_config import frozen_config
+        with frozen_config(paths):
             main(paths)
-        else:
-            # The launch and all of its processes compose from the config as it is now.
-            from src.app.pipeline.launch_config import frozen_config
-            with frozen_config(paths):
-                main(paths)
     return 0
 
 
@@ -127,22 +125,29 @@ def main(paths):
 
     # Draw the seeds the config leaves open, once for the whole launch; every method,
     # trial and replicate (and a scheduler allocation) receives them as explicit overrides.
-    if not cfg.get("dry_run", False):
+    dry_run = cfg.get("dry_run", False)
+    component = OmegaConf.select(cfg, "tuning.component")
+    study_mode = OmegaConf.select(cfg, f"tuning.options.{component}.study_mode") if isinstance(component, str) else None
+    resumed = None
+    if not dry_run or (is_sweep and study_mode == "resume"):
         from src.app.pipeline.config import parse_methods_dict
         from src.app.pipeline.seeds import pin_study_seeds, recorded_seeds, resolve_launch_seeds, study_seeds
 
         try:
-            methods = parse_methods_dict(cfg)
+            methods = parse_methods_dict(cfg, paths=composed.workspace)
             continued = []
-            if is_sweep:
+            if is_sweep and study_mode != "new" and not cfg.get("remake", False):
                 # A study continued by this launch keeps the seeds its earlier trials used.
                 from src.app.pipeline.config import normalize_agent_name
                 from src.app.pipeline.tuners import get_tuner
 
                 tuner = get_tuner(cfg, paths=composed.workspace)
                 studies = {tuner.study_name(cfg, normalize_agent_name(name)) for name in methods}
-                continued = pin_study_seeds(cfg, study_seeds(composed.workspace, cfg.group, studies))
-            drawn = resolve_launch_seeds(cfg, methods, taken=recorded_seeds(composed.workspace))
+                resumed = study_seeds(composed.workspace, cfg.group, studies,
+                                      require_records=study_mode == "resume")
+                continued = pin_study_seeds(cfg, resumed, methods=methods)
+            drawn = [] if dry_run else resolve_launch_seeds(
+                cfg, methods, taken=recorded_seeds(composed.workspace), resuming=resumed is not None)
         except ConfigurationError as e:
             print(f"\n{e}\n")
             sys.exit(1)
@@ -157,7 +162,7 @@ def main(paths):
 
     # Pre-flight validation
     try:
-        notices = validate_composed(composed)
+        notices = validate_composed(composed, resuming=resumed is not None)
         for n in notices:
             print(f"[Config Notice] {n}")
     except ConfigurationError as e:
@@ -215,6 +220,25 @@ def main(paths):
         from src.app.sites.execution import submit
         submit(composed.workspace.root, composed.experiment, composed.extra_args, cfg)
         return
+    from src.app.services.terminal_runs import RUNNER_JOB_VARIABLE, announced
+
+    # Desktop jobs and scheduler allocations already supply their result IDs.
+    # A fresh terminal launch also gets its own timestamped directory by default.
+    if (not nested and not in_allocation and not os.environ.get(RUNNER_JOB_VARIABLE) and not cfg.get("recover", False)
+            and study_mode != "resume" and cfg.get("timestamp_experiment", True)
+            and not any(arg.lstrip("+").startswith("experiment_id=") for arg in extra_args)):
+        import json
+        import uuid
+        from datetime import datetime
+        from src.app.pipeline.result_paths import saved_run_id
+
+        result_id = saved_run_id(str(cfg.experiment_id), f"{datetime.now():%Y%m%d-%H%M%S}_{uuid.uuid4().hex[:8]}")
+        cfg.experiment_id = result_id
+        override = f"++experiment_id={json.dumps(result_id)}"
+        composed.extra_args.append(override)
+        sanitized_extra_args = [arg for arg in sanitized_extra_args
+                                if not arg.lstrip("+").startswith("experiment_id=")] + [override]
+        composed.launch_args = sanitized_extra_args
     print(f"Execution Mode: {'Interactive (Local CLI)' if is_interactive else f'Remote site ({site_name})'}")
 
     methods_dict = parse_methods_dict(cfg)
@@ -269,8 +293,6 @@ def main(paths):
     }
 
     from src.app.pipeline.variability import make_plan, run_execution
-    from src.app.services.terminal_runs import announced
-
     variability_plan = make_plan(cfg, context)
 
     # An open ThetaIDE follows terminal launches as its own jobs.

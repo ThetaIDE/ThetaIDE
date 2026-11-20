@@ -32,7 +32,8 @@ def extension_key(package, capability):
 
 def _state(paths):
     path = paths.data_dir / 'extensions.json'
-    value = json.loads(path.read_text()) if path.is_file() else {'schema': STATE_SCHEMA, 'disabled': []}
+    inputs = paths.launch_inputs_snapshot()
+    value = inputs['extensions'] if inputs is not None and 'extensions' in inputs else json.loads(path.read_text()) if path.is_file() else {'schema': STATE_SCHEMA, 'disabled': []}
     if not isinstance(value, dict) or value.get('schema') != STATE_SCHEMA or not isinstance(value.get('disabled'), list) or any(not isinstance(x, str) for x in value['disabled']):
         raise ValueError('Invalid extension state; expected theta.extension-state/v1')
     return value

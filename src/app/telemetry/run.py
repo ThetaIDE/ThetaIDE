@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import atexit
 from contextlib import contextmanager
+from contextvars import ContextVar
 import math
 import os
 import platform
@@ -30,6 +31,7 @@ from .monitors import available_monitors, monitors_from_config, system_monitors
 from .sinks import DEFAULT_SINKS, Sink, resolve_sink
 from .system import DEFAULT_INTERVAL, SystemSampler
 
+_worker_log_version = ContextVar("worker_log_version", default=None)
 
 class Run:
     """One training run's telemetry, written to a list of sinks. Safe to call from several threads."""
@@ -238,9 +240,11 @@ def version_dir_for(
         from src.app.workspace import WorkspacePaths
         base_dir = WorkspacePaths.for_process().results / "logs"
 
-    return ContractLogger._resolve_version_dir(
-        Path(base_dir) / group / experiment_id / agent.replace("/", "_"), version
-    )
+    method = agent.replace("/", "_")
+    worker_version = _worker_log_version.get()
+    if worker_version is not None and worker_version[:3] == (group, experiment_id, method):
+        version = worker_version[3]
+    return ContractLogger._resolve_version_dir(Path(base_dir) / group / experiment_id / method, version)
 
 
 def init(

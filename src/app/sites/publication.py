@@ -65,7 +65,7 @@ def sqlite_export(source, target, *, seconds=20):
 
 class Publisher:
     def __init__(self, runtime, work, record, policy, *, clock=time.monotonic):
-        self.runtime, self.work = Path(runtime), Path(work)
+        self.runtime, self.work = Path(runtime).resolve(), Path(work)
         self.record, self.policy, self.clock = record, policy, clock
         from src.app.pipeline.tuner_execution import record_plan
         from src.app.workspace import WorkspacePaths

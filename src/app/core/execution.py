@@ -24,6 +24,12 @@ class RunContext:
     metadata: dict = field(default_factory=dict)
     _cleanup: list[Callable] = field(default_factory=list, repr=False)
 
+    def report_progress(self, unit: str, completed: int):
+        """Retain last measured work so failure records can account for it."""
+        if not unit or type(completed) is not int or completed < 0:
+            raise ValueError("Execution progress requires a unit and nonnegative integer count")
+        self.metadata["progress"] = {"unit": unit, "completed": completed}
+
     def check_cancelled(self):
         if self.cancelled():
             from src.app.services.cancellation import TrainingCancelled
@@ -130,6 +136,10 @@ def execution_backend(cfg, *, paths=None):
         raise ValueError(f"Unresolved selected algorithm: {cfg.get('agent')}")
     else:
         backend = "lightning"
+    if cfg.get("theta_dynamic") is not None and (
+        selected is None or "dynamic_configuration.v1" not in selected[1].metadata.get("provides", [])
+    ):
+        raise ValueError("Selected execution provider does not support dynamic configuration v1")
     explicit = cfg.get("backend") or profile.get("backend")
     if explicit and explicit != backend:
         raise ValueError(f"Selected backend {explicit!r} conflicts with component backend {backend!r}")
@@ -150,3 +160,27 @@ def execute_backend(cfg, context):
     from src.app.core.provider_loader import load_capability
     adapter = load_capability(*selected, paths=context.workspace)
     return adapter(cfg, context)
+
+
+def runner_tuning_profile(cfg, *, paths=None):
+    """Read the selected algorithm's budget and mutation contract without fitting."""
+    from dataclasses import replace
+
+    from src.app.core.provider_loader import load_capability
+    from src.app.workspace import WorkspacePaths
+
+    paths = paths or WorkspacePaths.for_process()
+    agent, selected = algorithm_selection(cfg, paths=paths)
+    reference = selected[1].metadata.get("tuning_profile_hook") if selected else None
+    if not reference:
+        raise ValueError("Selected algorithm does not advertise a transition-budget tuning profile")
+    package, capability = selected
+    hook = load_capability(package, replace(capability, entry_point=reference), paths=paths)
+    profile = hook(cfg, agent=agent, paths=paths)
+    if (not isinstance(profile, dict) or profile.get("api_version") != 1
+            or type(profile.get("quantum")) is not int or profile["quantum"] <= 0
+            or not isinstance(profile.get("unit"), str) or not profile["unit"]
+            or not isinstance(profile.get("budget_path"), str) or not profile["budget_path"]
+            or not isinstance(profile.get("metrics"), (tuple, list))):
+        raise ValueError(f"Invalid tuning profile v1 from algorithm {capability.id}")
+    return profile

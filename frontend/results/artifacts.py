@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
-    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -34,7 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..plots import ImageCanvas, PlotCanvas, read_metrics_csv_text
-from ..tree_tools import folder_icon
+from ..tree_tools import FileTreeWidget, folder_icon
 from ..widgets import SortableItem, YamlHighlighter, label
 from .data import Manifest, decode_text, read_csv_rows, to_float
 
@@ -239,12 +238,16 @@ VIEWER_FOR_KIND = {
 # ── Browser ──────────────────────────────────────────────────────────────────
 
 
-class ArtifactBrowser(QWidget):
+class ArtifactBrowser(FileTreeWidget):
     """Files of the ticked runs (optionally only some kinds) on the left, a preview on the right."""
 
-    def __init__(self, loader, kinds: tuple[str, ...] | None = None, empty_text: str = "", parent=None):
+    mode = "result_files"
+
+    def __init__(self, loader, kinds: tuple[str, ...] | None = None, empty_text: str = "", parent=None,
+                 *, settings_manager=None):
         super().__init__(parent)
         self.loader = loader
+        self.settings_manager = settings_manager
         self.kinds = kinds
         self.empty_text = empty_text or "The ticked runs have no files of this kind."
         self.current: tuple[str, dict] | None = None
@@ -255,15 +258,19 @@ class ArtifactBrowser(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(8)
         splitter.setChildrenCollapsible(False)
+        self.file_pane = QWidget()
+        files_layout = QVBoxLayout(self.file_pane)
+        files_layout.setContentsMargins(0, 0, 0, 0)
+        self._init_tree_toolbar(files_layout)
         self.tree = QTreeWidget()
         self.tree.setColumnCount(1)
         self.tree.setHeaderHidden(True)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.setMinimumWidth(160)
         self.tree.currentItemChanged.connect(self._current_changed)
-        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self._context_menu)
-        splitter.addWidget(self.tree)
+        self._connect_file_tree(self.tree)
+        files_layout.addWidget(self.tree, 1)
+        splitter.addWidget(self.file_pane)
 
         right = QWidget()
         # File paths and hidden preview widgets must not raise the splitter's
@@ -351,6 +358,7 @@ class ArtifactBrowser(QWidget):
             self.save_button.setEnabled(False)
             self.info.show_info(None, self.empty_text if self.tree.topLevelItemCount() == 0 else "")
             self.stack.setCurrentWidget(self.info)
+        self._update_delete_action()
 
     def artifacts(self) -> list[tuple[str, dict]]:
         return [data for item in self._items() if (data := item.data(0, _ARTIFACT))]
@@ -421,16 +429,34 @@ class ArtifactBrowser(QWidget):
         self.stack.setCurrentWidget(viewer)
         self.detail.setText(f"{artifact.get('kind')} · {human_size(artifact.get('size'))} · {summary}")
 
-    def _context_menu(self, position):
-        item = self.tree.itemAt(position)
-        data = item.data(0, _ARTIFACT) if item is not None else None
-        if not data:
+    def _add_context_actions(self, menu, item, _items):
+        data = item.data(0, _ARTIFACT)
+        if data:
+            menu.addAction("Rename…", lambda: self._ask_rename(*data))
+            menu.addAction("Save a copy…", self._ask_save)
+
+    def deletion_targets(self, items):
+        targets = []
+        for item in items:
+            data = item.data(0, _ARTIFACT)
+            if data and not data[1]["path"].startswith("sites/"):
+                targets.append((data[0], data[1]["path"]))
+        return targets
+
+    def _prompt_delete_targets(self, targets):
+        run_key, path = targets[0]
+        answer = QMessageBox.question(
+            self, "Delete result file", f"Permanently delete {_results_label()}/{path}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
             return
-        self.tree.setCurrentItem(item)
-        menu = QMenu(self.tree)
-        menu.addAction("Rename…", lambda: self._ask_rename(*data))
-        menu.addAction("Save a copy…", self._ask_save)
-        menu.exec(self.tree.viewport().mapToGlobal(position))
+
+        def finished(error):
+            if error:
+                QMessageBox.warning(self, "Delete failed", str(error))
+
+        self.loader.delete_file(run_key, path, finished)
 
     def _ask_rename(self, run_key, artifact):
         path = artifact["path"]

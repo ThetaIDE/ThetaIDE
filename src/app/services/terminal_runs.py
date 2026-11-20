@@ -35,22 +35,35 @@ def _write(path: Path, record: dict):
     temporary.replace(path)
 
 
+def _process_birth_time(process):
+    # psutil on macOS adjusts public create_time() after clock changes, relative
+    # to when each interpreter imported psutil. A long-lived tracker and a new
+    # pipeline can therefore disagree about the same PID after sleep/wake.
+    # Use the kernel birth time, retaining PID-reuse protection without that
+    # interpreter-local adjustment. Other platforms use the public API.
+    if sys.platform == "darwin":
+        return process._proc.create_time(monotonic=True)
+    return process.create_time()
+
+
 def _process_started(pid: int):
     import psutil
     try:
-        return psutil.Process(pid).create_time()
+        return _process_birth_time(psutil.Process(pid))
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return None
 
 
-def process_alive(pid, started) -> bool:
-    """Whether the announced process still runs; a reused PID belongs to a different process."""
+def process_alive(pid, started) -> bool | None:
+    """Process identity, or None if inspection is denied (not evidence of exit)."""
     import psutil
     try:
         process = psutil.Process(int(pid))
         return (process.status() != psutil.STATUS_ZOMBIE
-                and (started is None or abs(process.create_time() - float(started)) < 1e-2))
-    except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError, ValueError):
+                and (started is None or abs(_process_birth_time(process) - float(started)) < 1e-2))
+    except psutil.AccessDenied:
+        return None
+    except (psutil.NoSuchProcess, TypeError, ValueError):
         return False
 
 

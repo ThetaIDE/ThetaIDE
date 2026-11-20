@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..tree_tools import refresh_tool_icons
 from ..widgets import ElidedLabel, label
 from .artifacts import ArtifactBrowser
 from .config_diff import run_config_path
@@ -163,6 +164,7 @@ class ResultsPanel(QWidget):
         self.loader.runs_listed.connect(self._runs_listed)
         self.loader.manifest_loaded.connect(self.explorer.add_manifest)
         self.loader.manifest_loaded.connect(lambda _manifest: self.update_artifacts())
+        self.loader.file_deleted.connect(self._artifact_deleted)
         self.loader.table_loaded.connect(lambda _source: self.redraw())
         self.loader.failed.connect(lambda message: self.status.setText(f"Could not load: {message}"))
 
@@ -428,8 +430,9 @@ class ResultsPanel(QWidget):
         """The artifact browser of one tab, built on first use."""
         if name not in self.browsers:
             kinds, empty = ARTIFACT_TABS[name]
-            browser = self.browsers[name] = ArtifactBrowser(self.loader, kinds, empty)
+            browser = self.browsers[name] = ArtifactBrowser(self.loader, kinds, empty, settings_manager=self.settings)
             if name == "Config":
+                browser.file_pane.hide()
                 browser.tree.hide()
                 browser.title.hide()
                 browser.detail.hide()
@@ -438,6 +441,16 @@ class ResultsPanel(QWidget):
             layout.addWidget(browser)
             self.update_artifacts()
         return self.browsers[name]
+
+    def refresh_icons(self):
+        self.explorer.refresh_icons()
+        for browser in self.browsers.values():
+            refresh_tool_icons(browser)
+
+    def _artifact_deleted(self):
+        self.refresh()
+        self.redraw()
+        self.update_artifacts()
 
     def _tab_opened(self, index):
         name = self.tabs.tabText(index)
@@ -516,8 +529,8 @@ class ResultsPanel(QWidget):
         from pathlib import PurePosixPath
         parts = PurePosixPath(path.removeprefix(f"logs/{run_key}/")).parts
         manifest = self.loader.manifests.get(run_key)
-        if manifest and len(parts) == 3:
-            agent, version, _ = parts
+        if manifest and len(parts) >= 3:
+            agent, version = parts[0], "/".join(parts[1:-1])
             details = manifest.version_details.get(agent, {})
             if any(info.get("trial_version") == version for info in details.values()):
                 if self.explorer.select_version(run_key, agent, version):

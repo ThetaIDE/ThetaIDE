@@ -12,11 +12,14 @@ derived from these by the plot component and never stored.
 from __future__ import annotations
 
 import copy
+import csv
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 import yaml
+
+from src.app.core.plotting.metric_sources import FIGURE_SOURCES, metric_files, selected_metric_files
 
 FIGURE_KEYS = ("plotter", "params")
 LIVE = "x-theta-live"
@@ -188,6 +191,17 @@ def _validation_error(schema: dict, params: dict) -> str | None:
     except jsonschema.ValidationError as exc:
         where = ".".join(str(p) for p in exc.absolute_path)
         return f"{where}: {exc.message}" if where else exc.message
+    from src.app.pipeline.result_paths import check_result_path
+    for key, node in properties.items():
+        if node.get(FIGURE_SOURCES):
+            for source in merged.get(key, ()):
+                try:
+                    for part, value in source.items():
+                        check_result_path(value, nested=part != "method")
+                    if "version" in source and "method" not in source:
+                        return "Select a method before specifying a version."
+                except ValueError as exc:
+                    return str(exc)
     return None
 
 
@@ -404,29 +418,25 @@ class TargetRuns:
 
 def _metric_files(paths, target: str) -> list[Path]:
     """The ``metrics.csv`` files plotters read for a target (``BasePlotter.load_metrics``)."""
-    root = paths.results / "logs" / _check_rel(target)
-    if not root.is_dir():
-        return []
-    return sorted({*root.glob("*/version_*/metrics.csv"), *root.glob("*/metrics.csv")})
+    return [entry.path for entry in metric_files(paths, target)]
 
 
-def target_runs(paths, target: str) -> TargetRuns:
+def target_runs(paths, target: str, *, sources=(), methods=()) -> TargetRuns:
     """Methods and metrics from the header of each of the target's metric files."""
     from frontend.results.metrics_catalog import COUNTER_COLUMNS, group_sort_key, metric_group
-    root = paths.results / "logs" / _check_rel(target)
-    methods, metrics = set(), set()
-    for path in _metric_files(paths, target):
+    logged_methods, metrics = set(), set()
+    for _, entry in selected_metric_files(paths, target, sources, methods, allow_missing=True):
         try:
-            with path.open(encoding="utf-8") as stream:
-                header = stream.readline().strip()
-        except OSError:
+            with entry.path.open(encoding="utf-8", newline="") as stream:
+                header = next(csv.reader(stream), [])
+        except (OSError, UnicodeError, csv.Error):
             continue
         if not header:
             continue
-        methods.add(path.relative_to(root).parts[0])
-        metrics.update(column for column in header.split(",") if column and column not in COUNTER_COLUMNS)
+        logged_methods.add(entry.method)
+        metrics.update(column for column in header if column and column not in COUNTER_COLUMNS)
     ordered = sorted(metrics, key=lambda name: (group_sort_key(metric_group(name)), name))
-    return TargetRuns(tuple(sorted(methods)), tuple(ordered))
+    return TargetRuns(tuple(sorted(logged_methods)), tuple(ordered))
 
 
 def target_stamp(paths, target: str) -> tuple:

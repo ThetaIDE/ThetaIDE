@@ -1,0 +1,4 @@
+noop(X):-idle(A).
+fire_left(X):-correct_left(A).
+fire_main(X):-thrust(A).
+fire_right(X):-correct_right(A).

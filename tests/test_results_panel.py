@@ -205,7 +205,7 @@ def test_artifact_context_menu_renames_and_refreshes_the_browser(monkeypatch):
     monkeypatch.setattr(files.tree, "itemAt", lambda position: item)
 
     def choose_rename(menu, position):
-        assert [action.text() for action in menu.actions()] == ["Rename…", "Save a copy…"]
+        assert [action.text() for action in menu.actions()] == ["Rename…", "Save a copy…", "", "Delete…"]
         menu.actions()[0].trigger()
 
     monkeypatch.setattr(QMenu, "exec", choose_rename)
@@ -245,6 +245,35 @@ def test_artifact_rename_cancel_and_failure_preserve_current_file(monkeypatch):
     assert len(calls) == 1 and errors == ["A file with that name already exists"]
     assert browser.current[1]["path"] == path
     assert browser.select("cartpole/ppo_run", path)
+    panel.close()
+
+
+def test_artifact_delete_confirms_and_refreshes_the_browser(monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+
+    run_key = "cartpole/ppo_run"
+    path = f"plots/{run_key}/hyperparameters_report.md"
+    monkeypatch.setitem(FILES, run_key, dict(FILES[run_key]))
+    panel, backend = make_panel()
+    panel.explorer.select_run("cartpole", "ppo_run")
+    files = panel.browser("Files")
+    assert files.select(run_key, path)
+    calls = []
+
+    def delete(group, experiment, target, callback):
+        calls.append((group, experiment, target))
+        FILES[run_key].pop(target)
+        callback(None, None)
+
+    answers = iter([QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes])
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: next(answers))
+    monkeypatch.setattr(backend, "delete_run_file", delete, raising=False)
+    files.btn_delete.click()
+    assert not calls and files.current[1]["path"] == path
+    files.build_context_menu(files.tree.currentItem()).actions()[-1].trigger()
+    assert calls == [("cartpole", "ppo_run", path)]
+    assert (run_key, path) not in panel.loader.files
+    assert not files.select(run_key, path)
     panel.close()
 
 
@@ -327,8 +356,13 @@ def test_results_tree_splitters_resize_without_snapping_closed(tree_name):
     panel.resize(1800, 800)
     panel.show()
     app.processEvents()
-    tree = panel.explorer if tree_name == "runs" else panel.browser("Files").tree
-    splitter = tree.parentWidget()
+    if tree_name == "runs":
+        tree = panel.explorer
+        splitter = tree.parentWidget()
+    else:
+        browser = panel.browser("Files")
+        tree = browser.tree
+        splitter = browser.file_pane.parentWidget()
     try:
         splitter.moveSplitter(240, 1)
         app.processEvents()
@@ -389,7 +423,7 @@ def test_results_preview_content_does_not_pin_tree_width(tab):
     panel.tabs.setCurrentWidget(panel._pages[tab])
     panel.show()
     app.processEvents()
-    splitter = browser.tree.parentWidget()
+    splitter = browser.file_pane.parentWidget()
     try:
         # An unbroken filename in the info preview used to raise the minimum
         # width of both nested splitters, preventing either tree from resizing.

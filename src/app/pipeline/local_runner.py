@@ -168,6 +168,8 @@ def _run_methods_sequential(cfg, context) -> None:
         if tuner is not None:
             engine_script, engine_python = tuner.job_entrypoint(cfg, method_cfg, engine_script, engine_python)
         repeated = cfg.get("objective") is not None or (method_is_sweep and cfg.get("variability") is not None)
+        if method_is_sweep and getattr(tuner, "requires_repeated_objective", False):
+            repeated = True
         if repeated:
             import json
             from omegaconf import OmegaConf

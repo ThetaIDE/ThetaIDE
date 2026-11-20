@@ -43,17 +43,19 @@ class Run:
     y: np.ndarray
 
 
-def _x_values(df: pd.DataFrame, rows: pd.Index, quantity: str) -> tuple[np.ndarray, str]:
+def _x_values(df: pd.DataFrame, rows: pd.Index, quantity: str, *, allow_single=False) -> tuple[np.ndarray, str]:
     for column in dict.fromkeys((quantity, "step", "epoch")):
         if column in df.columns:
             full = pd.to_numeric(df[column], errors="coerce").interpolate(method="linear").ffill().bfill()
             values = full.loc[rows]
-            if not values.empty and not values.isna().any() and values.nunique() > 1:
+            if not values.empty and not values.isna().any() and (
+                    values.nunique() > 1 or (allow_single and len(values) == 1)):
                 return values.to_numpy(dtype=float), column
     return np.arange(len(rows), dtype=float), "index"
 
 
-def metric_runs(runs_data: dict, metric: str, x_quantity: str = "transitions") -> tuple[list[Run], str]:
+def metric_runs(runs_data: dict, metric: str, x_quantity: str = "transitions",
+                *, common_x: bool = False) -> tuple[list[Run], str]:
     """Every version's (x, y) for ``metric``, and the x label of the quantity actually used.
 
     The x quantity falls back to ``step``, ``epoch`` and finally the logged-point index for a
@@ -68,9 +70,14 @@ def metric_runs(runs_data: dict, metric: str, x_quantity: str = "transitions") -
             rows = y.dropna().index
             if rows.empty:
                 continue
-            x, column = _x_values(df, rows, x_quantity)
+            x, column = _x_values(df, rows, x_quantity, allow_single=common_x)
             yv = y.loc[rows].to_numpy(dtype=float)
             keep = np.isfinite(x) & np.isfinite(yv)
+            if not np.any(keep):
+                continue
+            if common_x and used is not None and used != column:
+                raise ValueError(f"Selected runs logging {metric!r} use different x-axis quantities. "
+                                 "Choose an x-axis quantity recorded by all of them.")
             order = np.argsort(x[keep], kind="stable")
             runs.append(Run(method, str(version), x[keep][order], yv[keep][order]))
             used = used or column

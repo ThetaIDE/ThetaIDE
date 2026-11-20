@@ -5,7 +5,7 @@ import numpy as np
 from src.app.api.plotting import (STATISTICS, BasePlotter, auto_text, bootstrap_interval, final_scores, metric_runs,
                                   vega_lite_figure, zoom_param)
 
-from .common import colors, finite, legend_opacity, legend_param, load_runs, method_styles, metric_title, tooltip, \
+from .common import colors, data_title, finite, legend_opacity, legend_param, load_runs, method_styles, metric_title, tooltip, \
     y_encoding
 
 LIVE = ["title", "opacity", "y_label", "y_min", "y_max"]
@@ -18,9 +18,9 @@ def method_scores(plotter, exp_id: str, params: dict):
     runs, _ = metric_runs(runs_data, params["metric"])
     scores = final_scores(runs, fraction=params.get("final_fraction", 0.1), score=params["score"])
     if not scores:
-        raise ValueError(f"No run of {exp_id} logged {params['metric']!r}.")
+        raise ValueError(f"No run of {data_title(exp_id, params)} logged {params['metric']!r}.")
     methods = sorted(scores)
-    return group, scores, method_styles(plotter, exp_id, group, methods), methods
+    return group, scores, method_styles(plotter, exp_id, group, methods, sources=params.get("sources")), methods
 
 
 class FinalPerformancePlotter(BasePlotter):
@@ -86,5 +86,5 @@ class FinalPerformancePlotter(BasePlotter):
             layers.append({"transform": [{"filter": "datum.kind === 'summary'"}],
                            "mark": {"type": "tick", "thickness": 2, "size": 30},
                            "encoding": {"y": y, "tooltip": summary_tips}})
-        return vega_lite_figure(params, LIVE, rows, title=auto_text("title", f"{exp_id} · {metric}"),
+        return vega_lite_figure(params, LIVE, rows, title=auto_text("title", f"{data_title(exp_id, params)} · {metric}"),
                                 encoding={"x": x, "color": color}, layer=layers)

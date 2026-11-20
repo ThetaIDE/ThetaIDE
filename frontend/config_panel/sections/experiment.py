@@ -371,7 +371,7 @@ def build(self):
     OPTIONAL_RUNTIME_FLAGS[0:0] = run_loggers
     ALWAYS_SHOWN = (("run_in_parallel",), ("timestamp_experiment",))
     TOOLTIPS = {
-        ("timestamp_experiment",): "Add a timestamp when results already exist to keep previous runs.",
+        ("timestamp_experiment",): "Save each launch under its own timestamp to keep previous runs.",
         ("run_in_parallel",): "Train every configured method in a separate process at the same time.",
     }
 
@@ -406,6 +406,8 @@ def build(self):
         explicit = lookup(data, flag_path)
         inherited = lookup(resolved, flag_path)
         value = explicit if explicit is not MISSING else inherited
+        if flag_path == ("timestamp_experiment",) and value is MISSING:
+            value = True
         flag = QWidget()
         flag.setProperty("parameterBoolean", True)
         flag.setProperty("parameterPath", flag_key)

@@ -99,6 +99,7 @@ temp/
 /src/usr/rules/*
 !/src/usr/rules/.gitkeep
 # Personal profiles and recipes in the workspace config root stay local.
+/src/usr/discussion/
 /src/usr/config/agent/*
 !/src/usr/config/agent/.gitkeep
 /src/usr/config/experiment/*
@@ -107,6 +108,8 @@ temp/
 !/src/usr/config/model/.gitkeep
 /src/usr/config/env/*
 !/src/usr/config/env/.gitkeep
+/src/usr/config/site/*
+!/src/usr/config/site/.gitkeep
 /src/usr/config/data/*
 !/src/usr/config/data/.gitkeep
 /src/usr/config/plot/*

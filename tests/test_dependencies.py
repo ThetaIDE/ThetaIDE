@@ -49,3 +49,28 @@ class TestDependencies:
     def test_load_requirements_missing_file(self, tmp_path):
         missing_file = tmp_path / "does_not_exist.txt"
         assert load_requirements_from_file(missing_file) == []
+
+
+def test_dependency_check_uses_distribution_identity_and_version(monkeypatch):
+    from importlib import metadata
+    from types import SimpleNamespace
+
+    installed = {
+        "ConfigSpace": SimpleNamespace(version="1.2.2", requires=[]),
+        "pyarrow": SimpleNamespace(version="26.0.1", requires=[]),
+        "gymnasium": SimpleNamespace(
+            version="1.2.0", requires=["ale-py>=0.9; extra == 'atari'"]),
+    }
+
+    def distribution(name):
+        if name not in installed:
+            raise metadata.PackageNotFoundError(name)
+        return installed[name]
+
+    monkeypatch.setattr(metadata, "distribution", distribution)
+    assert check_missing_dependencies([
+        "ConfigSpace>=1,<2",
+        "pyarrow>=16.1,<24",
+        "gymnasium[atari]",
+        "missing-package; sys_platform == 'never'",
+    ]) == ["pyarrow>=16.1,<24", "gymnasium[atari]"]

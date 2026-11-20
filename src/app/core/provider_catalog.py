@@ -101,10 +101,16 @@ class ProviderCatalog:
         self.packages: list[Package] = []
         self.diagnostics: list[str] = []
         overrides = self.paths.data_dir / "provider_overrides.json"
-        self.overrides = json.loads(overrides.read_text()) if overrides.is_file() else {}
+        inputs = self.paths.launch_inputs_snapshot()
+        self.overrides = inputs["overrides"] if inputs is not None else json.loads(overrides.read_text()) if overrides.is_file() else {}
         self._discover(manifests)
 
     def _origin(self, root, meta):
+        inputs = self.paths.launch_inputs_snapshot()
+        if inputs is not None:
+            for record in inputs["packages"]:
+                if root == Path(record["manifest"]).parent.resolve():
+                    return record["origin"]
         if any(root.is_relative_to(p.resolve()) for p in self.paths.bundled_roots):
             return "bundled" if any(root == (self.paths.application / item["root"]).resolve() and meta.get("id") == item["id"]
                                     for item in self.distribution_inventory) else "unknown"

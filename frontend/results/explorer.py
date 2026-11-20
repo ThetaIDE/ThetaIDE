@@ -14,12 +14,14 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QMenu, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 
-from ..tree_tools import (DraggableToolButton, GroupItemDelegate, TreeHeaderActions, TreeHeaderWidget,
-                          TreeToolbarPersistence, folder_icon, refresh_tool_icons, style_tool_button)
+from ..tree_tools import (DraggableToolButton, FileTreeWidget, GroupItemDelegate, TOOL_ICON_COLORS,
+                          refresh_tool_icons, style_tool_button, svg_icon)
 from .data import Manifest, Source
-from src.app.pipeline.result_paths import SAVED_RUN_NAME, result_experiment_id, saved_run_label
+from src.app.pipeline.result_paths import (
+    LEGACY_TRIAL_VERSION, SAVED_RUN_NAME, SEED_NAME, TRIAL_NAME, result_experiment_id, saved_run_label,
+)
 
 
 def _results_label() -> str:
@@ -29,9 +31,11 @@ def _results_label() -> str:
     return WorkspacePaths.for_process().results_relative
 
 _KIND, _DATA, _TIME = Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 1, Qt.ItemDataRole.UserRole + 2
+_VERSIONS = Qt.ItemDataRole.UserRole + 3
 _CHECKABLE = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 _PARENT = _CHECKABLE
 _HEADING = _CHECKABLE
+_ROW_ICONS = {"folder": "folder", "experiment": "config", "run": "folder", "agent": "gear"}
 
 
 class _RunGroupDelegate(GroupItemDelegate):
@@ -42,7 +46,7 @@ class _RunGroupDelegate(GroupItemDelegate):
 
 
 
-class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
+class RunExplorer(FileTreeWidget):
     """Select a run, agent or version to display its results.
     """
 
@@ -55,11 +59,14 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     archive_group_requested = pyqtSignal(str)
     delete_group_requested = pyqtSignal(str)
     rename_requested = pyqtSignal(str, str, str)  # kind, group, experiment/run ID (empty for groups)
+    add_figure_requested = pyqtSignal(str)  # group/experiment or group/run ID
+    delete_toolbar_group = "row2_left"
 
     def __init__(self, parent=None, settings_manager=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
         self.mode = "results"
+        self.runs: list[dict] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -73,17 +80,14 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.btn_expand = button("expand_all", "Expand all groups and experiments")
         self.btn_expand.clicked.connect(self.expand_all)
         self.btn_search = button("search", "Filter runs")
+        self.btn_add_figure = button("plus", "Add figure in Discussion")
+        self.btn_add_figure.setEnabled(False)
+        self.btn_add_figure.clicked.connect(self._request_add_figure)
         self.btn_archive = button("archive", "Archive selected run")
-        self.btn_delete = button("trash", "Delete selected folders")
         self.btn_sync = button("sync", "Sync site data")  # driven by the panel's RunSiteSyncControl
         self.btn_sync.hide()
         self.btn_archive.clicked.connect(lambda: self._request_selected(self.archive_requested))
-        self.btn_delete.clicked.connect(self._request_delete_selection)
-        self.header_widget = TreeHeaderWidget(self)
-        self.header_widget.set_groups(self._load_toolbar_groups())
-        self.header_widget.layout_changed.connect(self._save_toolbar_layout)
-        self.header_layout = self.header_widget.header_layout
-        layout.addWidget(self.header_widget)
+        self._init_tree_toolbar(layout)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Filter runs…")
         self.search.setClearButtonEnabled(True)
@@ -95,8 +99,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.tree.setHeaderHidden(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setIndentation(20)
-        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self._context_menu)
+        self._connect_file_tree(self.tree)
         self.tree.currentItemChanged.connect(self._current_changed)
         self.tree.itemExpanded.connect(self._item_expanded)
         self.tree.itemCollapsed.connect(self._item_collapsed)
@@ -105,11 +108,11 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self._emitting = True
         self._restore_sources: set[Source] = set()
 
-    def _default_toolbar_groups(self):
+    def _toolbar_groups(self):
         return {
             "row1_left": [self.btn_refresh, self.btn_collapse, self.btn_expand, self.btn_search],
-            "row1_right": [],
-            "row2_left": [self.btn_archive, self.btn_delete],
+            "row1_right": [self.btn_add_figure],
+            "row2_left": [self.btn_archive],
             "row2_right": [self.btn_sync],
         }
 
@@ -119,13 +122,20 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         """Re-render the header and folder icons in the current theme's colors."""
         refresh_tool_icons(self)
         for item in self._items():
-            if item.data(0, _KIND) in ("folder", "experiment", "run"):
-                item.setIcon(0, folder_icon())
+            self._set_row_icon(item)
+
+    @staticmethod
+    def _set_row_icon(item):
+        kind = item.data(0, _KIND)
+        icon = "file" if kind == "agent" and not item.data(0, _DATA).agent else _ROW_ICONS.get(kind)
+        if icon:
+            item.setIcon(0, svg_icon(icon, TOOL_ICON_COLORS))
 
     # ── Building ─────────────────────────────────────────────────────────────
 
     def set_runs(self, entries: list[dict]):
         """(Re)build from catalog.list_runs items, keeping the selection and expanded rows."""
+        self.runs = entries
         current = self.tree.currentItem()
         selected = (current.data(0, _KIND), current.data(0, _DATA)) if current else None
         expanded = {(item.data(0, _KIND), item.data(0, _DATA)) for item in self._items() if item.isExpanded()}
@@ -144,7 +154,6 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 item = self._item(folder(group, path.parent), path.name, "folder", key,
                                   Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 item.setToolTip(0, f"{_results_label()}/logs/{group}/{path.as_posix()}")
-                item.setIcon(0, folder_icon())
                 experiments[key] = item
             return experiments[key]
 
@@ -161,13 +170,13 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                     else result_experiment_id(exp))
             key = (group, name)
             if key not in experiments:
-                exp_label = PurePosixPath(name).name.removeprefix(group + "_")
+                exp_label = PurePosixPath(name).name
                 exp_item = self._item(folder(group, PurePosixPath(name).parent), exp_label, "experiment", key,
                                       Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 exp_item.setToolTip(0, f"{_results_label()}/logs/{group}/{name}")
-                exp_item.setIcon(0, folder_icon())
                 experiments[key] = exp_item
             experiments[key].setData(0, _KIND, "experiment")  # a folder row that turns out to be an experiment too
+            self._set_row_icon(experiments[key])
             run_label = "Run" if exp == name else saved_run_label(exp)
             run_item = self._item(experiments[key], run_label, "run", f"{group}/{exp}", _PARENT)
             times = [a.get("started") for a in entry.get("agents") or [] if isinstance(a.get("started"), str)]
@@ -176,15 +185,14 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             run_item.setData(0, _TIME, max(times, default=fallback_time))
             note = f"{_results_label()}/logs/{group}/{exp}"
             if not entry.get("finished"):
-                run_item.setText(0, run_item.text(0) + " · in progress")
                 note += "\nIn progress — see Monitor for live monitoring. Generated files are available here."
             if entry.get('incomplete_results'):
-                run_item.setText(0, run_item.text(0) + ' · incomplete results')
                 note += '\nJob ended before result publication completed. Showing the downloaded partial results.'
             run_item.setToolTip(0, note)
-            run_item.setIcon(0, folder_icon())
             for agent in agents:
-                self._item(run_item, agent or "Run files", "agent", Source(group, exp, agent), _CHECKABLE)
+                method = self._item(run_item, agent or "Run files", "agent", Source(group, exp, agent), _CHECKABLE)
+                if agent:
+                    method.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
         for item in self._items():
             group = item.data(0, _KIND) == "group"
             if (group and item.data(0, _DATA) not in self._collapsed_groups) or (item.data(0, _KIND), item.data(0, _DATA)) in expanded:
@@ -219,27 +227,46 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         return True
 
     def add_manifest(self, manifest: Manifest):
-        """Turn each multi-version agent of this run into a parent with one child per version."""
+        """Show trials and their seed runs below each method."""
         self._emitting = False
-        for item in self._items():
+        current = self.tree.currentItem()
+        selected = current.data(0, _DATA) if current and current.data(0, _KIND) == "version" else None
+        for item in [row for row in self._items() if row.data(0, _KIND) == "agent"]:
             source = item.data(0, _DATA)
-            if item.data(0, _KIND) != "agent" or source.run_key != manifest.run_key or item.childCount():
+            if source.run_key != manifest.run_key:
                 continue
             versions = manifest.agents.get(source.agent) or []
-            if len(versions) < 2:
-                continue
-            item.setFlags(_PARENT)
             details = manifest.version_details.get(source.agent, {})
-            seeds = {}
+            signature = (tuple(versions), details)
+            if signature == item.data(0, _VERSIONS):
+                continue
+            item.setData(0, _VERSIONS, signature)
+            expanded = {child.data(0, _DATA) for child in self._descendants(item) if child.isExpanded()}
+            item.takeChildren()
+            item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicatorWhenChildless)
+            branches = {}
             for version in versions:
-                parent = details.get(version, {}).get("trial_version")
-                if parent:
-                    seeds.setdefault(parent, []).append(version)
-            parents = list(dict.fromkeys([details.get(v, {}).get("trial_version") or v for v in versions]))
-            for version in parents:
-                seed_versions = seeds.get(version, [])
-                info = details.get(seed_versions[0], {}) if seed_versions else details.get(version, {})
-                title = f"{info.get('study')} · trial {info['trial_number']}" if seed_versions else version
+                info = details.get(version, {})
+                trial, _, seed_name = version.partition("/")
+                number, seed = info.get("trial_number"), info.get("seed")
+                if match := TRIAL_NAME.fullmatch(trial):
+                    number = int(match[1])
+                    if SEED_NAME.fullmatch(seed_name):
+                        seed = int(seed_name[5:])
+                elif match := LEGACY_TRIAL_VERSION.fullmatch(info.get("trial_version") or version):
+                    number = int(match[1])
+                key = trial if seed_name else info.get("trial_version") or version
+                if seed is not None and number is None and key == version:
+                    key = "trial_0"
+                title = (f"trial_{number}" if number is not None else
+                         "trial_0" if seed is not None else version)
+                _, seeds = branches.setdefault(key, (title, []))
+                if seed is not None:
+                    seeds.append((seed, version))
+                    branches[key] = (title, seeds)
+            if len(versions) < 2 and not any(TRIAL_NAME.fullmatch(title) for title, _ in branches.values()):
+                continue
+            for version, (title, seed_versions) in branches.items():
                 child = self._item(
                     item,
                     title,
@@ -248,13 +275,14 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                     _CHECKABLE,
                 )
                 child.setToolTip(0, version)
-                for seed_version in sorted(seed_versions, key=lambda v: details[v].get("seed") or 0):
-                    seed = details[seed_version].get("seed")
-                    leaf = self._item(child, f"Seed {seed}", "version",
+                for seed, seed_version in sorted(seed_versions):
+                    leaf = self._item(child, f"seed_{seed}", "version",
                                       Source(source.group, source.experiment_id, source.agent, seed_version,
-                                             f"{title} · seed {seed}", version), _CHECKABLE)
+                                             f"{title} / seed_{seed}", version), _CHECKABLE)
                     leaf.setToolTip(0, seed_version)
-        restored = next((s for s in self._restore_sources if s.run_key == manifest.run_key), None)
+                if child.data(0, _DATA) in expanded:
+                    child.setExpanded(True)
+        restored = next((s for s in self._restore_sources if s.run_key == manifest.run_key), selected)
         if restored:
             target = next((item for item in self._items() if item.data(0, _KIND) == "version"
                            and item.data(0, _DATA) == restored), None)
@@ -282,6 +310,7 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         item.setData(0, _KIND, kind)
         item.setData(0, _DATA, data)
         item.setFlags(flags)
+        self._set_row_icon(item)
         return item
 
     # ── Reading ──────────────────────────────────────────────────────────────
@@ -352,9 +381,22 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if run:
             signal.emit(*run)
 
-    def deletion_targets(self):
+    def _figure_target(self) -> str:
+        item = self.tree.currentItem()
+        if item is not None and item.data(0, _KIND) == "experiment":
+            return "/".join(item.data(0, _DATA))
+        run = self._run_for_item(item)
+        return "/".join(run) if run else ""
+
+    def _request_add_figure(self):
+        target = self._figure_target()
+        if target:
+            self.add_figure_requested.emit(target)
+
+    def deletion_targets(self, items=None):
         """Expand folders and experiments into their runs, and remove overlapping group/run targets."""
-        items = self.tree.selectedItems()
+        if items is None:
+            items = self.tree.selectedItems()
         groups = {item.data(0, _DATA) for item in items if item.data(0, _KIND) == "group"}
         runs = set()
         for item in items:
@@ -368,20 +410,11 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         return ([(group, None) for group in sorted(groups)]
                 + [run for run in sorted(runs) if run[0] not in groups])
 
-    def _request_delete_selection(self):
-        targets = self.deletion_targets()
-        if targets:
-            self.delete_selection_requested.emit(targets)
+    def _prompt_delete_targets(self, targets):
+        self.delete_selection_requested.emit(targets)
 
-    def _context_menu(self, position):
-        item = self.tree.itemAt(position)
-        if not item:
-            return
-        # Right-clicking any selected row must preserve the entire selection.
-        if not item.isSelected():
-            self.tree.setCurrentItem(item)
-        menu = QMenu(self.tree)
-        if len(self.tree.selectedItems()) == 1:
+    def _add_context_actions(self, menu, item, items):
+        if len(items) == 1:
             kind, identity = item.data(0, _KIND), item.data(0, _DATA)
             if kind in ("group", "experiment", "run"):
                 group, experiment = ((identity, "") if kind == "group" else
@@ -394,9 +427,6 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 run = self._run_for_item(item)
                 if run:
                     menu.addAction("Archive run…", lambda: self.archive_requested.emit(*run))
-        if self.deletion_targets():
-            menu.addAction("Delete selected folders…", self._request_delete_selection)
-        menu.exec(self.tree.viewport().mapToGlobal(position))
 
     def _current_changed(self, item, _previous):
         if not self._emitting:
@@ -417,9 +447,13 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if item.data(0, _KIND) == "run":
             group, exp = item.data(0, _DATA).split("/", 1)
             self.manifest_wanted.emit(group, exp)
+        if item.data(0, _KIND) == "agent":
+            source = item.data(0, _DATA)
+            self.manifest_wanted.emit(source.group, source.experiment_id)
 
     def _emit(self):
         if self._emitting:
+            self.btn_add_figure.setEnabled(bool(self._figure_target()))
             self.selection_changed.emit(self.checked_sources())
 
     def apply_filter(self, text):
@@ -440,3 +474,4 @@ class RunExplorer(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         for g in range(self.tree.topLevelItemCount()):
             show(self.tree.topLevelItem(g), not needle)
+        self._update_delete_action()

@@ -59,3 +59,24 @@ def test_multirun_flag_before_overrides_launches_trials(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "TRIAL_PROBE 1" in result.stdout
     assert "TRIAL_PROBE 2" in result.stdout
+
+
+@pytest.mark.parametrize("status", ["failed", "pending"])
+def test_failed_replicates_never_become_objective_scores(tmp_path, monkeypatch, status):
+    import json
+    from src.app.pipeline import repeated_task
+    from src.app.objectives import evaluation
+    from src.app.pipeline import trial_pruning
+    monkeypatch.setenv("THETA_WORKSPACE", str(tmp_path))
+    path = tmp_path / "execution.json"
+    path.write_text(json.dumps({"runs": [{"status": "completed"}, {"status": status}]}))
+    monkeypatch.setattr(repeated_task, "make_plan", lambda *a, **k: {})
+    monkeypatch.setattr(repeated_task, "run_execution", lambda *a, **k: path)
+    monkeypatch.setattr(trial_pruning, "progress_pruning", lambda *a, **k: None)
+    def score(*a, **k):
+        pytest.fail("An incomplete trial must never reach the scoring component")
+    monkeypatch.setattr(evaluation, "score_execution", score)
+    cfg = OmegaConf.create({"group": "G", "experiment_id": "E", "seed": 1,
+                            "paradigm": "online_rl", "agent": {"name": "toy"}})
+    with pytest.raises(RuntimeError, match="Cannot score trial: 1"):
+        repeated_task.run_objective(cfg)

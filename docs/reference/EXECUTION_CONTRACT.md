@@ -192,3 +192,55 @@ objectives and repeated runs. Its query owns namespaced, flat,
 Hydra and worker-runtime option precedence. Ordinary objective scoring with no
 tuning configuration or tuner runtime does not load a tuner. Objective validation
 also accepts explicit workspace paths for method and feature resolution.
+
+## Dynamic configuration v1
+
+A provider that declares `dynamic_configuration.v1` can expose safe mutation
+boundaries through `src.app.api.dynamic`. Its adapter declares the mutable
+paths and constraints, calls the controller with the completed step, available
+metrics and effective values, validates the response, and applies the changes.
+The adapter records each applied mapping at its effective step. A step-zero
+entry sets initial values as part of replay.
+
+The SB3 development PPO provider supports native PPO and a constant learning
+rate. It accepts `theta_dynamic.api_version: 1` and a `schedule` of
+`{step, parameters}` entries. Mutable paths are `agent.learning_rate`
+(positive) and `agent.ent_coef` (nonnegative). After each completed rollout
+optimizer call the adapter can change both before the next rollout starts.
+Setting a learning rate updates the SB3 schedule and all optimizer groups.
+
+A new segment can set `start` to a positive completed step and provide a
+`source` pointing to a compatible v1 PPO training checkpoint. The checkpoint
+contains policy and optimizer state, effective values, and progress counters.
+The current native runner constructs unnormalized environments. The adapter
+checks the algorithm runtime, configuration, and spaces and loads the donor
+state before applying the recipient schedule. The fresh environment resets
+using the recipient seed plus the completed transition count. See the
+[HPO examples](../guides/LOCAL_RL_TUNING.md) for the local recipes.
+
+### Runner profiles for transition-budget tuning
+
+An algorithm can declare a `tuning_profile_hook` on its capability. This is a
+read-only package hook with signature `(cfg, *, agent, paths)`, where `cfg` is
+the composed method and `agent` includes the selected agent profile and
+overrides. The v1 profile declares:
+
+- `api_version: 1`, the progress `unit`, the positive integral budget
+  `quantum`, and the `budget_path` written by the tuner.
+- `metrics` supported by a final evaluation. On a budgeted job,
+  `theta_final_evaluation: true` requests evaluation after the final update
+  with the assigned evaluation seed.
+- Optional `protected_paths` whose values must stay fixed for comparable
+  evaluations, such as the rollout size.
+- Optional `mutable_parameters` mapping paths to SDK constraints and a
+  `transfer_format` for a checkpoint usable as the source of a v1 dynamic
+  segment.
+
+During execution, a runner reports work with
+`context.report_progress(unit, completed)` and returns the final measured work
+through `RunResult.progress`. The worker retains the last report in its
+execution record on cancellation or failure. Progress is work done by the
+current job. An adapter can retain cumulative progress in its training-state
+checkpoint. Artifact roles `training_state` and `final` identify transferable
+training state and the final inference model. The runner writes both into
+`context.artifacts`.

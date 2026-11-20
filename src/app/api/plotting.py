@@ -14,6 +14,7 @@ Discussion figures
     ``FIGURE_CONTRACT``  ``"figure/vega-lite-v1"``: a plotter capability that lists it in
                          ``provides`` implements ``figure_spec(exp_id, params)``.
     ``thin_xy``          thin long ``(x, y)`` series for drawing, keeping extrema and the last point.
+    ``load_selected_metrics``   load the result, method, and seed selections from a figure's Data sources.
 
 Figure data (SDK 3.3; ``src.app.core.plotting.figure_data``)
     ``metric_runs``, ``Run``, ``by_method``, ``smooth``, ``aggregate``, ``final_scores``, ``iqm``,
@@ -33,6 +34,7 @@ _EXPORTS = {name: f"{_BASE}:{name}" for name in (
     "get_method_aliases", "get_canonical_method_name", "moving_average", "deep_update")}
 _EXPORTS["FIGURE_CONTRACT"] = "src.app.core.plotting.figures:FIGURE_CONTRACT"
 _EXPORTS["thin_xy"] = "src.app.core.plotting.thinning:thin_xy"
+_EXPORTS["load_selected_metrics"] = "src.app.core.plotting.metric_sources:load_selected_metrics"
 _EXPORTS.update({name: f"src.app.core.plotting.figure_data:{name}" for name in (
     "metric_runs", "Run", "by_method", "smooth", "aggregate", "final_scores", "iqm", "STATISTICS",
     "bootstrap_interval", "performance_profile", "study_summaries", "X_QUANTITIES", "X_LABELS",

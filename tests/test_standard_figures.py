@@ -92,6 +92,29 @@ def test_convergence_aggregates_seeds_into_a_mean_and_band_and_can_show_runs(pat
     assert {row["method"] for row in rows(spec)} == {"ppo"} and len({row["run"] for row in runs}) == 3
 
 
+@pytest.mark.parametrize("plotter", [p for p in FIGURES if not p.startswith("sweep_")])
+def test_standard_metric_figures_combine_selected_sources(paths, target, plotter):
+    other = write_seeded_runs(paths, "other/solo/20261117-100000")
+    sources = [{"target": target, "method": "ppo", "version": "version_0"},
+               {"target": other, "method": "ppo", "version": "version_2"}]
+    _, spec = figure(paths, target, plotter, sources=sources, methods=["a2c"])
+    assert {row["method"] for row in rows(spec)} == {f"ppo · {target}", f"ppo · {other}"}
+
+
+def test_convergence_uses_only_selected_seeds_logging_the_metric(paths, target):
+    other = write_seeded_runs(paths, "other/solo/20261117-100000")
+    csv = paths.results / "logs" / other / "ppo" / "version_2" / "metrics.csv"
+    csv.write_text("transitions,eval/other\n8,21\n16,22\n")
+    sources = [{"target": target, "method": "ppo", "version": "version_0"},
+               {"target": other, "method": "ppo", "version": "version_2"}]
+    _, spec = figure(paths, target, "convergence", sources=sources, show_runs=True, smoothing="none",
+                     metric="train/reward")
+    assert {row["method"] for row in rows(spec)} == {f"ppo · {target}"}
+    traces = [row for row in rows(spec) if row["kind"] == "run"]
+    assert {row["run"].split(" · ")[-1] for row in traces} == {"version_0"}
+    assert traces[0]["y"] == 0.0
+
+
 def test_final_performance_scores_the_last_points_of_each_run(paths, target):
     _, spec = figure(paths, target, "final_performance", metric="train/reward", final_fraction=0.025)
     points = sorted(row["value"] for row in rows(spec) if row.get("kind") == "run" and row["method"] == "ppo")

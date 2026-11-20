@@ -101,6 +101,11 @@ def assert_idle(paths, package_id=None):
 
 @contextmanager
 def provider_lease(paths, packages=(), purpose="active job"):
+    if paths.launch_inputs_snapshot() is not None:
+        # This process uses private copies, so live component lifecycle operations
+        # cannot replace its inputs and need not wait for the job to finish.
+        yield None
+        return
     lease = paths.root / ".thetaide/provider_leases" / (uuid.uuid4().hex + ".json")
     with workspace_lock(paths, wait=True):
         write_json(lease, {"pid": os.getpid(), "machine": machine_id(), "packages": list(packages), "purpose": purpose})

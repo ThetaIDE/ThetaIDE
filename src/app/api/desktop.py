@@ -9,7 +9,7 @@ Shared controls and appearance
     ``label``, ``ComboBox``, ``SpinBox``, ``DoubleSpinBox``, ``svg_icon``,
     ``theme_color``, ``current_theme``, ``style_tool_button``, ``refresh_tool_icons``
 Shared tree toolbars (persist through ``PluginContext.tree_toolbar_store()``)
-    ``TreeHeaderWidget``, ``DraggableToolButton``, ``TreeToolbarPersistence``
+    ``FileTreeWidget``, ``TreeHeaderWidget``, ``DraggableToolButton``, ``TreeToolbarPersistence``
 """
 from ._exports import lazy_exports
 
@@ -27,6 +27,7 @@ _EXPORTS = {
     "style_tool_button": "frontend.tree_tools:style_tool_button",
     "refresh_tool_icons": "frontend.tree_tools:refresh_tool_icons",
     "TreeHeaderWidget": "frontend.tree_tools:TreeHeaderWidget",
+    "FileTreeWidget": "frontend.tree_tools:FileTreeWidget",
     "DraggableToolButton": "frontend.tree_tools:DraggableToolButton",
     "TreeToolbarPersistence": "frontend.tree_tools:TreeToolbarPersistence",
 }

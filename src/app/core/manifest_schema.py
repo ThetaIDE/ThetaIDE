@@ -79,6 +79,7 @@ COMPONENT_MANIFEST_SCHEMA: Dict[str, Any] = {
                            "provides": {"type": "array", "items": {"type": "string", "minLength": 1},
                                         "description": "Opaque contract IDs this capability satisfies."},
                            "preflight": {"type": "string", "pattern": r"^.+\.py:.+$"},
+                           "tuning_profile_hook": {"type": "string", "pattern": r"^.+\.py:.+$"},
                            "resource_hint_hook": {"type": "string", "pattern": r"^.+\.py:.+$"},
                            "resource_hints": {"type": "object", "additionalProperties": False, "properties": {
                                "base_memory_gib": {"type": "number", "exclusiveMinimum": 0},

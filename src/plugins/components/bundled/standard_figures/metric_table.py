@@ -7,7 +7,7 @@ import numpy as np
 from src.app.api.plotting import (STATISTICS, BasePlotter, auto_text, bootstrap_interval, final_scores, metric_runs,
                                   vega_lite_figure)
 
-from .common import load_runs, method_styles, metric_title, tooltip
+from .common import data_title, load_runs, method_styles, metric_title, tooltip
 
 DEFAULT_METRICS = ("eval/reward", "train/reward")
 
@@ -32,9 +32,9 @@ class MetricTablePlotter(BasePlotter):
             for method, values in final_scores(runs, fraction=params["final_fraction"], score=params["score"]).items():
                 cells[(method, metric)] = values
         if not cells:
-            raise ValueError(f"No run of {exp_id} logged {', '.join(metrics) or 'eval/reward or train/reward'}.")
+            raise ValueError(f"No run of {data_title(exp_id, params)} logged {', '.join(metrics) or 'eval/reward or train/reward'}.")
         methods = sorted({method for method, _ in cells})
-        styles = method_styles(self, exp_id, group, methods)
+        styles = method_styles(self, exp_id, group, methods, sources=params.get("sources"))
 
         def fmt(value):
             return f"{value:.{decimals}f}"
@@ -63,7 +63,7 @@ class MetricTablePlotter(BasePlotter):
         tips = tooltip(("method", "Method", "nominal"), ("metric", "Metric", "nominal"),
                        ("value", statistic.upper(), "quantitative"), ("runs", "Runs", "quantitative"))
         return vega_lite_figure(
-            params, ["title", "font_size"], rows, title=auto_text("title", f"{exp_id} · {statistic} of {params['score']} scores"),
+            params, ["title", "font_size"], rows, title=auto_text("title", f"{data_title(exp_id, params)} · {statistic} of {params['score']} scores"),
             encoding={
                 "x": {"field": "metric", "type": "nominal", "title": None, "sort": [metric_title(m) for m in metrics],
                       "axis": {"orient": "top", "labelAngle": 0, "domain": False, "ticks": False, "labelFontWeight": "bold"}},

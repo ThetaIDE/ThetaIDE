@@ -37,7 +37,10 @@ Publishing and pushing remain separate actions.
 
 A root `.theta_component.json` explicitly declares `storage_version: 3`,
 `api_version: 1`, capabilities, payload, and dependencies. Missing versions and
-older formats are rejected before writes. Native packages cannot declare
+older formats are rejected before writes. A package that uses a versioned
+host extension can declare a PEP 440 SDK range in `compatibility.sdk`. The
+installer checks the range before writing the package, and discovery checks it
+before exposing the package's capabilities. Native packages cannot declare
 `target_path`, `legacy_paths`, `module_aliases` or `legacy_archive`.
 
 ```json

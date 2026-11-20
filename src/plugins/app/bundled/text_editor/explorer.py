@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import QDir, QSize, QSortFilterProxyModel, Qt, pyqtSignal
+from PyQt6.QtCore import QDir, QFile, QSize, QSortFilterProxyModel, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QLabel,
+    QMessageBox,
     QSizePolicy,
     QSplitter,
     QTreeView,
@@ -24,8 +25,7 @@ except ImportError:
 
 from src.app.api.desktop import (
     DraggableToolButton,
-    TreeHeaderWidget,
-    TreeToolbarPersistence,
+    FileTreeWidget,
     current_theme,
     refresh_tool_icons,
     style_tool_button,
@@ -80,15 +80,18 @@ class _ScopeFilter(QSortFilterProxyModel):
         return any(path == owned or path.is_relative_to(owned) or owned.is_relative_to(path) for owned in self.owned)
 
 
-class FileExplorer(TreeToolbarPersistence, QWidget):
+class FileExplorer(FileTreeWidget):
     fileActivated = pyqtSignal(object)
+    pathTrashed = pyqtSignal(object)
     openFolderRequested = pyqtSignal()
     actionRequested = pyqtSignal(str)
     toggleRequested = pyqtSignal()
+    delete_toolbar_group = "row2_right"
 
-    def __init__(self, parent=None, settings_manager=None):
+    def __init__(self, parent=None, settings_manager=None, *, is_managed=None):
         super().__init__(parent)
         self.settings_manager = settings_manager
+        self.is_managed = is_managed
         self.mode = "text_editor"
         self._expanded_toolbar_groups = None
         self.setObjectName("editorFileExplorer")
@@ -140,11 +143,8 @@ class FileExplorer(TreeToolbarPersistence, QWidget):
         self.toggle_button = self.action_buttons["toggle"]
         self.toggle_button.clicked.connect(self.toggleRequested.emit)
         self.action_buttons["wrap"].setCheckable(True)
-        self.header_widget = TreeHeaderWidget(self)
-        self.header_widget.set_groups(self._load_toolbar_groups())
-        self.header_widget.layout_changed.connect(self._save_toolbar_layout)
+        self._init_tree_toolbar(layout)
         self.action_buttons["recover"].hide()
-        layout.addWidget(self.header_widget)
         title = QLabel("EXPLORER")
         title.setObjectName("explorerHeading")
         layout.addWidget(title)
@@ -182,7 +182,7 @@ class FileExplorer(TreeToolbarPersistence, QWidget):
         self.related_section.hide()
         self.apply_theme()
 
-    def _default_toolbar_groups(self):
+    def _toolbar_groups(self):
         buttons = self.action_buttons
         return {
             "row1_left": [buttons[action] for action in ("new", "open", "open_folder", "up", "save", "save_as")],
@@ -219,13 +219,54 @@ class FileExplorer(TreeToolbarPersistence, QWidget):
         tree.setAnimated(False)
         tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         tree.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         for column in (1, 2, 3):
             tree.hideColumn(column)
         tree.clicked.connect(lambda index: self._click(tree, index))
         tree.activated.connect(lambda index: self._activate(tree, index))
         tree.doubleClicked.connect(lambda index: self._enter_directory(tree, index))
+        self._connect_file_tree(tree)
         return tree
+
+    def _add_context_actions(self, menu, index, _items):
+        source = index.model().mapToSource(index)
+        if source.isValid() and not self.file_model.isDir(source):
+            path = Path(self.file_model.filePath(source))
+            menu.addAction("Open", lambda: self.fileActivated.emit(path))
+
+    def deletion_targets(self, items):
+        for index in items:
+            proxy = index.model()
+            source = proxy.mapToSource(index)
+            if not source.isValid() or self.root is None:
+                continue
+            path = Path(self.file_model.filePath(source))
+            if proxy is self.source_filter:
+                scopes = (self.root,) if path != self.root else ()
+            else:
+                scopes = self._related_paths
+            # A link can be trashed itself. Its children may resolve beyond the explorer's scope.
+            location = path.parent.resolve() / path.name
+            if any(path.is_relative_to(scope) and location.is_relative_to(scope) for scope in scopes):
+                return [path]
+        return []
+
+    def _prompt_delete_targets(self, targets):
+        path = targets[0]
+        if self.is_managed is not None and self.is_managed(path, include_descendants=path.is_dir()):
+            QMessageBox.warning(self, "Cannot delete", "This item belongs to or contains an installed component.")
+            return
+        answer = QMessageBox.question(
+            self, "Delete file or folder", f"Move this item to the system Trash?\n\n{path}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            moved, _ = QFile.moveToTrash(str(path))
+            if moved:
+                self.pathTrashed.emit(path)
+            else:
+                QMessageBox.warning(self, "Delete failed", f"Could not move {path} to the system Trash.")
 
     def _click(self, tree, index):
         source = tree.model().mapToSource(index)
@@ -273,11 +314,14 @@ class FileExplorer(TreeToolbarPersistence, QWidget):
         common = Path(os.path.commonpath([str(root), *(str(path.parent) for path in related)]))
         self.file_model.setRootPath(str(common))
         self.source_tree.setRootIndex(self.source_filter.mapFromSource(self.file_model.index(str(root))))
+        self.source_tree.clearSelection()
         self.source_tree.collapseAll()
         self.related_filter.set_owned_paths(related)
         self.related_tree.setRootIndex(self.related_filter.mapFromSource(self.file_model.index(str(common))))
+        self.related_tree.clearSelection()
         self.related_tree.collapseAll()
         self.related_section.setVisible(bool(related))
+        self._update_delete_action()
         self.setToolTip(str(root))
 
     def collapse_all(self):

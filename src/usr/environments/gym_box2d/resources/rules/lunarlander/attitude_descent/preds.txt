@@ -1,0 +1,6 @@
+noop:1:oagent
+fire_left:1:oagent
+fire_main:1:oagent
+fire_right:1:oagent
+logic_agent:1:oenv
+neural_agent:1:oenv

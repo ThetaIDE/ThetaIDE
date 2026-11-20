@@ -23,6 +23,7 @@ class ResultsLoader(QObject):
     file_loaded = pyqtSignal(str, str)  # run key, artifact path now in self.files
     file_failed = pyqtSignal(str, str, str)  # run key, artifact path, error
     file_renamed = pyqtSignal(str, str, str)  # run key, old path, new path
+    file_deleted = pyqtSignal()
     failed = pyqtSignal(str)
 
     def __init__(self, backend, parent=None):
@@ -133,6 +134,16 @@ class ResultsLoader(QObject):
             callback(None)
 
         self.backend.rename_run_file(group, experiment_id, path, new_name, received)
+
+    def delete_file(self, run_key: str, path: str, callback):
+        group, experiment_id = run_key.split("/", 1)
+
+        def received(_, error):
+            if not error:
+                self.file_deleted.emit()
+            callback(error)
+
+        self.backend.delete_run_file(group, experiment_id, path, received)
 
     def clear(self):
         """Forget cached data, so the next requests re-read results/ (e.g. after Refresh)."""

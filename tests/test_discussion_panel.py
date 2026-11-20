@@ -1,4 +1,4 @@
-"""The Discussion tab (offscreen Qt): tree, + menu, parameters, figure updates and discussion text.
+"""The Discussion tab (offscreen Qt): tree, figure picker, parameters, updates and discussion text.
 
 The WebEngine figure view is replaced by a recorder; tests/test_figure_contract.py covers the specs.
 """
@@ -7,7 +7,7 @@ import pytest
 import yaml
 from types import SimpleNamespace
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QFrame, QLabel
 
@@ -42,54 +42,39 @@ def find(tree, rel):
 # ── Tree ─────────────────────────────────────────────────────────────────────
 
 
-def test_tree_mirrors_the_experiment_tree_with_figure_leaves(app, paths):
+def test_tree_shows_only_branches_with_figures(app, paths):
     tree = DiscussionTree(paths)
-    assert item_texts(tree) == ["figs", "other"]
+    assert item_texts(tree) == ["figs"]
     figs = find(tree, "figs")
     assert figs.data(0, Qt.ItemDataRole.UserRole)["is_group"]
-    assert item_texts(tree, figs) == ["sweeps", "online"]
+    assert item_texts(tree, figs) == ["online"]
     assert item_texts(tree, find(tree, "figs/online")) == ["fixture_curve"]
-    assert item_texts(tree, find(tree, "other/solo")) == []
     assert tree.mode == "discussion"
     groups = tree.header_widget.header_layout.groups
     assert [b.button_id for b in groups["row1_left"]] == ["reload", "collapse_all", "expand_all", "search"]
-    assert [b.button_id for b in groups["row1_right"]] == ["plus"]
+    assert [b.button_id for b in groups["row1_right"]] == ["trash"]
     assert all(b.width() == b.height() == 30 for g in groups.values() for b in g)
 
 
-def test_selection_drives_the_add_button(app, paths):
+def test_selection_emits_the_figure_and_its_target(app, paths):
     tree = DiscussionTree(paths)
     figures, experiments = [], []
     tree.figure_selected.connect(figures.append)
     tree.experiment_selected.connect(experiments.append)
-    assert not tree.btn_add.isEnabled()
-
     tree.tree.setCurrentItem(find(tree, "figs/online"))
-    assert tree.btn_add.isEnabled()
     assert experiments[-1] == "figs/online" and figures[-1] is None
 
     figure = paths.discussion / "figs/online/fixture_curve.yaml"
     tree.select_figure(figure)
-    assert tree.btn_add.isEnabled()
     assert figures[-1] == figure and experiments[-1] == "figs/online"
 
-    tree.tree.setCurrentItem(find(tree, "figs/sweeps"))
-    assert not tree.btn_add.isEnabled()
+    tree.tree.setCurrentItem(find(tree, "figs"))
     assert figures[-1] is None and experiments[-1] == ""
 
 
 def picker_for(paths, experiment, **kwargs):
     picker = FigurePicker(experiment, kwargs.get("candidates") or (lambda rel: model.figure_candidates(paths, rel)))
     return picker, {card.selector: card for card in picker.cards}
-
-
-def test_plus_requests_the_picker_of_the_selected_experiment(app, paths):
-    tree = DiscussionTree(paths)
-    requested = []
-    tree.add_requested.connect(requested.append)
-    tree.select_figure(paths.discussion / "figs/online/fixture_curve.yaml")
-    tree.btn_add.click()
-    assert requested == ["figs/online"]
 
 
 def test_picker_omits_blocked_candidates_and_marks_warned_ones(app, paths):
@@ -103,7 +88,7 @@ def test_picker_omits_blocked_candidates_and_marks_warned_ones(app, paths):
     assert status.text() == "Off-label: Fixture curves are tuned for DQN."
     assert not [w for w in cards["convergence"].findChildren(QLabel) if w.objectName() == "compatibilityStatus"]
     texts = [w.text() for w in cards["convergence"].findChildren(QLabel)]
-    assert "Learning curve" in texts and "16 parameters · 7 live" in texts
+    assert "Learning curve" in texts and "17 parameters · 7 live" in texts
 
     _, cards = picker_for(paths, "figs/sweeps/offline")
     assert set(cards) == {"convergence", "final_performance", "performance_profile", "run_variability", "losses", "metric_table"}
@@ -144,10 +129,15 @@ def test_add_figure_creates_and_selects_the_figure(app, paths):
     tree.add_figure("other/solo", "convergence")
     assert item_texts(tree, find(tree, "other/solo")) == ["convergence", "convergence_2"]
     assert tree.selected_figure().name == "convergence_2.yaml"
+    tree.delete_figure(tree.selected_figure())
+    tree.delete_figure(created)
+    assert find(tree, "other") is None
 
 
 def test_search_filters_figures_and_experiments(app, paths):
     tree = DiscussionTree(paths)
+    tree.add_figure("figs/sweeps/offline", "convergence")
+    tree.add_figure("other/solo", "convergence")
     tree.toggle_search(True)
     tree.search.setText("fixture")
     assert not find(tree, "figs/online").isHidden()
@@ -326,6 +316,9 @@ class Doc:
     def values(self):
         return {"metric": self.value}
 
+    def schema(self):
+        return {"properties": {}}
+
     def live_params(self):
         return []
 
@@ -466,26 +459,41 @@ def test_panel_is_laid_out_like_the_experiment_tab(panel, paths):
     assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (12, 10, 12, 16)
 
 
-def test_panel_picker_replaces_the_parameters_box_until_chosen_or_closed(panel, paths):
-    path = open_fixture(panel, paths)
-    panel.tree.btn_add.click()
+def test_results_add_figure_opens_picker_for_an_experiment_without_figures(panel, paths):
+    from frontend.app import Window
+    from frontend.results.explorer import RunExplorer
+
+    explorer = RunExplorer()
+    explorer.set_runs([{"group": "other", "experiment_id": "solo", "agents": [{"name": "ppo"}]}])
+    opened_tabs = []
+    window = SimpleNamespace(discussion_panel=panel, results_view=SimpleNamespace(explorer=explorer),
+                             tabs=SimpleNamespace(setCurrentWidget=opened_tabs.append))
+    explorer.add_figure_requested.connect(lambda target: Window.open_discussion_figure_picker(window, target))
+    experiment = explorer.tree.topLevelItem(0).child(0)
+    explorer.tree.setCurrentItem(experiment)
+
+    open_fixture(panel, paths)
+    panel.tree.search.setText("fixture")
+    explorer.btn_add_figure.click()
+    assert opened_tabs == [panel]
     assert panel.parameter_stack.currentIndex() == panel.PICKER_PAGE
-    assert panel.picker.experiment == "figs/online" and panel.doc.path == path
+    assert panel.picker.experiment == "other/solo" and panel.doc is None
+    assert panel.title.text() == "other / solo"
     assert panel.picker.property("configBox") and panel.picker.title_label.text() == "Add figure"
     assert all(panel.picker.isAncestorOf(card) for card in panel.picker.cards)
+    panel.tree.set_runs(explorer.runs)  # the asynchronous Discussion listing may arrive while choosing
+    assert panel.picker.experiment == "other/solo"
     panel.picker.cancelled.emit()
-    assert panel.picker is None and panel.parameter_stack.currentIndex() == panel.PARAMETERS_PAGE
-
-    panel.tree.btn_add.click()
-    panel.tree.tree.setCurrentItem(find(panel.tree, "other/solo"))  # selecting elsewhere closes it
     assert panel.picker is None and panel.parameter_stack.currentIndex() == 0
+    assert find(panel.tree, "other") is None
 
-    panel.tree.btn_add.click()
+    explorer.btn_add_figure.click()
     next(c for c in panel.picker.cards if c.selector == "convergence").clicked.emit()
     created = paths.discussion / "other/solo/convergence.yaml"
     assert panel.picker is None and panel.doc.path == created
     assert panel.parameter_stack.currentIndex() == panel.PARAMETERS_PAGE
     assert panel.parameters.title_label.text() == "convergence"
+    assert not find(panel.tree, "other/solo").isHidden()
 
 
 def test_panel_live_edits_and_debounced_regeneration(panel, paths):
@@ -512,7 +520,7 @@ def test_panel_discussion_autosaves_and_flushes_on_switch_and_close(panel, paths
     panel.discussion.setPlainText("Autosaved note\nwith a second line.")
     assert wait_until(lambda: model.read_discussion(path) == "Autosaved note\nwith a second line.")
     panel.discussion.setPlainText("Saved on selection")
-    panel.tree.tree.setCurrentItem(find(panel.tree, "other/solo"))
+    panel.tree.tree.setCurrentItem(find(panel.tree, "figs/online"))
     assert model.read_discussion(path) == "Saved on selection"
     open_fixture(panel, paths)
     assert panel.discussion.toPlainText() == "Saved on selection"
@@ -549,25 +557,23 @@ def test_stamped_run_selection_creates_a_figure_and_plots_only_that_run(panel, p
     from src.app.services.catalog import list_runs
     panel.tree.set_runs(list_runs(workspace=paths))
     target = "figs/online/20261116-120000"
-    run = find(panel.tree, target)
-    assert run is not None and run.text(0).startswith("20261116-120000")
-    panel.tree.tree.setCurrentItem(run)
-    assert panel.tree.selected_experiment() == target
-    assert panel.tree.btn_add.isEnabled()
-    panel.tree.btn_add.click()
+    assert find(panel.tree, target) is None
+    panel.open_picker(target)
     assert panel.parameter_stack.currentIndex() == panel.PICKER_PAGE
     next(c for c in panel.picker.cards if c.selector == "fixture_curve").clicked.emit()
     assert panel.parameter_stack.currentIndex() == panel.PARAMETERS_PAGE
     assert wait_until(lambda: any(c[0] == "render" for c in panel.figure_view.calls), timeout=30)
     assert panel.doc.path == paths.discussion / target / "fixture_curve.yaml"
+    run = find(panel.tree, target)
+    assert run is not None and run.text(0).startswith("20261116-120000")
     spec = next(c[1] for c in panel.figure_view.calls if c[0] == "render")
     assert [row["value"] for row in spec["data"]["values"]] == [101, 102]
     panel.discussion.setPlainText("This stamped run improved.")
-    panel.tree.tree.setCurrentItem(find(panel.tree, "figs/online/20261116-130000"))
+    panel.tree.tree.setCurrentItem(find(panel.tree, "figs/online"))
     assert model.read_discussion(paths.discussion / target / "fixture_curve.yaml") == "This stamped run improved."
     panel.tree.search.setText("120000")
     assert not find(panel.tree, target).isHidden()
-    assert find(panel.tree, "figs/online/20261116-130000").isHidden()
+    assert find(panel.tree, "figs/online/20261116-130000") is None
     panel.tree.set_runs(list_runs(workspace=paths))
     assert find(panel.tree, target).childCount() == 1
 
@@ -589,7 +595,8 @@ def test_panel_loads_runs_lazily_through_the_results_backend(app, paths, monkeyp
     panel.show()
     app.processEvents()
     assert backend.calls == 1
-    assert find(panel.tree, "figs/online/20261116-120000") is not None
+    assert panel.tree.runs
+    assert find(panel.tree, "figs/online/20261116-120000") is None
     panel.tree.btn_refresh.click()
     assert backend.calls == 2
     panel.close()
@@ -651,8 +658,47 @@ def test_metric_and_method_parameters_offer_the_targets_logged_runs(app, paths):
     assert saved(doc.path) == {"methods": ["ppo"]}
     methods.remove("ppo")
     assert saved(doc.path) == {"methods": []}
-    # Nothing logged yet: the metric is typed.
-    assert isinstance(convergence_box(paths)[0].editors["metric"], QLineEdit)
+
+
+def test_nested_source_picker_updates_metric_choices_and_persists_seed(app, paths):
+    target = "other/solo/20261117-090000"
+    base = paths.results / "logs" / target / "ppo" / "trial_0"
+    for seed, metric in ((12, "eval/selected"), (24, "eval/other")):
+        folder = base / f"seed_{seed}"
+        folder.mkdir(parents=True)
+        (folder / "metrics.csv").write_text(f"step,{metric}\n1,42\n")
+    box, doc = convergence_box(paths)
+
+    def action(menu, text):
+        return next(a for a in menu.actions() if a.text() == text)
+
+    editor = box.editors["sources"]
+    add = next(b for b in editor.findChildren(QToolButton) if b.property("choiceAdd"))
+    menu = add.menu()
+    menu.popup(QPoint(0, 0))
+    try:
+        run = action(action(action(menu, "other").menu(), "solo").menu(), "20261117-090000").menu()
+        run.aboutToShow.emit()
+        method = action(run, "ppo").menu()
+        action(action(method, "trial_0").menu(), "seed_12").trigger()
+    finally:
+        menu.close()
+    app.processEvents()
+
+    expected = [{"target": target, "method": "ppo", "version": "trial_0/seed_12"}]
+    assert FigureDoc.load(doc.path, paths=paths).values()["sources"] == expected
+    assert "methods" not in box.editors
+    metric = box.editors["metric"]
+    assert [metric.itemData(i) for i in range(metric.count())] == ["eval/selected"]
+    assert metric.currentIndex() == -1
+    metric.setCurrentIndex(0)
+    assert saved(doc.path)["metric"] == "eval/selected"
+
+    editor = box.editors["sources"]
+    remove = next(b for b in editor.findChildren(QToolButton) if b.property("choiceRemove"))
+    remove.click()
+    app.processEvents()
+    assert saved(doc.path)["sources"] == [] and "methods" in box.editors
 
 
 def test_choice_list_editor_writes_the_whole_list_and_offers_remaining_choices(app):
@@ -705,6 +751,19 @@ def test_builder_serves_unchanged_figures_from_the_cache_until_forced_or_changed
     assert wait_until(lambda: len(builds) == 4 and not builder.busy)
 
 
+def test_builder_cache_includes_sources_outside_the_figures_experiment(app, paths):
+    _, doc = convergence_box(paths)
+    source = {"target": "other/solo", "method": "ppo"}
+    csv = paths.results / "logs/other/solo/ppo/version_0/metrics.csv"
+    csv.parent.mkdir(parents=True)
+    csv.write_text("step,eval/reward\n1,42\n")
+    doc.set_param("sources", [source])
+    builder = FigureBuilder(paths)
+    before = builder.cache_key(doc)
+    csv.write_text("step,eval/reward\n1,42\n2,43\n")
+    assert builder.cache_key(doc) != before
+
+
 # ── Renaming, duplicating and deleting from the tree ─────────────────────────
 
 
@@ -719,7 +778,6 @@ def shortcut(tree, key):
 
 def test_figure_context_menu_and_shortcuts(app, paths, monkeypatch):
     tree = DiscussionTree(paths)
-    assert tree.build_context_menu(find(tree, "figs/online")) is None
     menu = tree.build_context_menu(figure_item(tree, paths))
     assert [a.text() for a in menu.actions()] == ["Rename…", "Duplicate", "", "Delete…"]
     renames = []
@@ -735,11 +793,50 @@ def test_figure_context_menu_and_shortcuts(app, paths, monkeypatch):
 
     answers = iter([QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes])
     monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: next(answers))
-    shortcut(tree, "Del").activated.emit()
+    tree.btn_delete.click()
     assert copy.is_file()  # declined
-    shortcut(tree, "Del").activated.emit()
+    tree.build_context_menu(tree.tree.currentItem()).actions()[-1].trigger()
     assert not copy.exists() and tree.selected_experiment() == "figs/online" and tree.selected_figure() is None
     assert item_texts(tree, find(tree, "figs/online")) == ["fixture_curve"]
+
+
+def test_folder_delete_removes_every_figure_and_its_discussion(app, paths, monkeypatch):
+    from src.app.services.catalog import list_runs
+
+    tree = DiscussionTree(paths)
+    tree.set_runs(list_runs(workspace=paths))
+    target = "figs/online/20261116-120000"
+    run_figure = tree.add_figure(target, "convergence")
+    model.write_discussion(run_figure, "Run discussion")
+    recipe_figure = paths.discussion / "figs/online/fixture_curve.yaml"
+    other = tree.add_figure("other/solo", "convergence")
+    tree.search.setText("fixture_curve")
+    assert find(tree, target).isHidden()
+    folder = find(tree, "figs")
+    tree.tree.setCurrentItem(folder)
+    assert tree.btn_delete.isEnabled()
+
+    prompts = []
+    answers = iter([QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes])
+
+    def confirm(_parent, _title, message, *_buttons):
+        prompts.append(message)
+        return next(answers)
+
+    monkeypatch.setattr(QMessageBox, "question", confirm)
+    tree.btn_delete.click()
+    assert recipe_figure.exists() and run_figure.exists()
+    menu = tree.build_context_menu(folder)
+    assert [action.text() for action in menu.actions()] == ["Delete…"]
+    menu.actions()[0].trigger()
+
+    assert len(prompts) == 2 and all("all 2 figures" in message for message in prompts)
+    for figure in (recipe_figure, run_figure):
+        assert not figure.exists() and not model.discussion_path(figure).exists()
+    assert find(tree, "figs") is None
+    assert other.exists()
+    assert (paths.config / "experiment/figs/online.yaml").exists()
+    assert (paths.results / "logs" / target / "config.yaml").exists()
 
 
 def test_panel_renames_the_open_figure_inline_and_reports_a_taken_name(panel, paths):

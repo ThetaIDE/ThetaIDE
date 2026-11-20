@@ -2,21 +2,34 @@
 
 import math
 
-from src.app.api.plotting import (NUMBER_FORMAT, auto_text, color_encoding, hover_opacity, hover_param,
-                                  legend_opacity, legend_param, zoom_param)
+from src.app.api.plotting import (NUMBER_FORMAT, QUALITATIVE_PALETTE, auto_text, color_encoding, hover_opacity,
+                                  hover_param, legend_opacity, legend_param, load_selected_metrics, zoom_param)
 
 
 def load_runs(plotter, exp_id: str, params: dict) -> tuple[str, dict]:
-    """The target's group and ``{method: {version: DataFrame}}``, limited to ``params["methods"]``."""
+    """Load the explicit results, or the home target with its existing method filters."""
     group = exp_id.split("/", 1)[0]
+    if params.get("sources"):
+        return group, load_selected_metrics(plotter.workspace, params["sources"])
     runs_data = plotter.load_metrics(group, exp_id)
     if params.get("methods"):
         runs_data = {name: versions for name, versions in runs_data.items() if name in params["methods"]}
     return group, runs_data
 
 
-def method_styles(plotter, exp_id: str, group: str, methods: list) -> dict:
+def data_title(exp_id: str, params: dict) -> str:
+    return "Selected results" if params.get("sources") else exp_id
+
+
+def method_styles(plotter, exp_id: str, group: str, methods: list, *, sources=()) -> dict:
     """``{method: {"label", "color", …}}`` from the experiment's method styles, as saved plots use."""
+    if sources:
+        styles = {}
+        for index, key in enumerate(methods):
+            target, _, method = key.rpartition("/")
+            styles[key] = {"label": f"{method} · {target}",
+                           "color": QUALITATIVE_PALETTE[index % len(QUALITATIVE_PALETTE)]}
+        return styles
     experiment = plotter.get_experiment_config(exp_id)
     cfg = {**plotter.default_cfg, "methods": experiment.get("methods") or {}}
     return plotter.resolve_method_styles(list(methods), cfg, group)

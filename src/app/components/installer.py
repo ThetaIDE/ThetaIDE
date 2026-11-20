@@ -203,10 +203,18 @@ class HubInstaller:
                 return {**package.manifest, "target_dir": package.root, "origin": package.origin, "writable": package.writable}
         return None
 
-    def is_installed_file(self, path: str | Path) -> bool:
-        """Whether a file belongs to a bundled or installed package rather than the user."""
+    def is_installed_file(self, path: str | Path, *, include_descendants=False) -> bool:
+        """Check package ownership, optionally including packages inside a directory."""
+        managed = ("bundled", "hub", "local_archive", "unknown")
         owner = self.find_component_for_path(path)
-        return bool(owner) and owner.get("origin") in ("bundled", "hub", "local_archive", "unknown")
+        if owner and owner.get("origin") in managed:
+            return True
+        if not include_descendants:
+            return False
+        from src.app.core.provider_catalog import get_catalog
+        target = (self.workspace_dir / path).resolve()
+        return any(package.origin in managed and package.root.resolve().is_relative_to(target)
+                   for package in get_catalog(self.paths).packages)
 
     def _sha256_file(self, path: Path) -> str | None:
         try:

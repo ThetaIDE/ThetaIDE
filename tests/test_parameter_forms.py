@@ -1245,10 +1245,13 @@ def test_grouped_figure_parameters_follow_the_shared_conventions(tmp_path, monke
     disclosures = [b for b in box.findChildren(QToolButton) if b.property("parameterDisclosure")]
     assert [b.accessibleName() for b in disclosures] == [f"Expand or collapse {g}" for g in ("Data", "Axes", "Style")]
     # Editors in every group line up in one column.
-    lefts = {box.editors[k].mapTo(box, QPoint(0, 0)).x() for k in ("metric", "x_label", "line_width")}
+    lefts = {box.editors[k].mapTo(box, QPoint(0, 0)).x() for k in ("sources", "metric", "x_label", "line_width")}
     assert len(lefts) == 1
     assert box.editors["metric"].accessibleName() == "metric"
     assert isinstance(box.editors["methods"], ChoiceListEditor)
+    sources = box.editors["sources"]
+    assert isinstance(sources, ChoiceListEditor) and sources.accessibleName() == "Data sources"
+    assert any(button.property("choiceAdd") for button in sources.findChildren(QToolButton))
 
 
 def test_array_of_enum_values_edits_as_a_choice_list():
@@ -1384,8 +1387,8 @@ def test_runtime_booleans_wrap_as_complete_controls_and_still_edit(viewer):
     controller = parameter_controller(widget, "Run methods in parallel", "Timestamp experiment")
     move_parameter(widget, controller, "Timestamp experiment", "Run methods in parallel")
     assert not widget.is_dirty
-    widget.chk_timestamp_experiment.setChecked(True)
-    assert widget.raw_data["timestamp_experiment"] is True
+    widget.chk_timestamp_experiment.setChecked(False)
+    assert widget.raw_data["timestamp_experiment"] is False
     custom = next(control for control in controls if control.property("parameterPath") == "custom_flag")
     custom.findChild(ToggleSlider).setChecked(True)
     assert widget.raw_data["custom_flag"] is True

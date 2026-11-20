@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 
 from PyQt6.QtCore import Qt
 
+from src.app.pipeline.result_paths import trial_result_version
 from ..monitor.sweep_view import SweepView
 
 
@@ -57,11 +58,18 @@ class SweepResultsView(SweepView):
                 continue
             found[(run_key, method, study["study"])] = study
         for (run_key, method, name), study in found.items():
+            log_method = study.get("log_method") or method
+            manifest = self.loader.manifests.get(run_key)
+            versions = manifest.agents.get(log_method, []) if manifest else []
             for trial in study["trials"]:
                 version = trial.get("log_version")
+                number = trial.get("id")
+                if version not in versions and type(number) is int and number >= 0:
+                    result_version = trial_result_version(number)
+                    version = next((v for v in versions if v == result_version or v.startswith(result_version + "/")),
+                                   version)
                 if version:
-                    label = f"{run_key} / {method} · {name} · trial {trial['id']}"
-                    log_method = study.get("log_method") or method
+                    label = f"{run_key} / {method} · {name} · trial {number}"
                     self._trial_files[label] = (run_key, f"logs/{run_key}/{log_method}/{version}/metrics.csv")
         self.set_studies([(f"{run_key} / {method}", study)
                           for (run_key, method, _name), study in found.items()])

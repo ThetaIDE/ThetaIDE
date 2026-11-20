@@ -7,7 +7,7 @@ import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QWidget
 
-from ..widgets import ScientificDoubleSpinBox, ToggleSlider, WrappingFlowWidget, integer_field
+from ..widgets import ElidedLabel, ScientificDoubleSpinBox, ToggleSlider, WrappingFlowWidget, integer_field
 from .controls import (NUMBER_FIELD_WIDTH, TEXT_FIELD_WIDTH, ComboBox, _make_param_adder_button,
                        _make_subtle_tool_button)
 from .document import validation_error
@@ -120,19 +120,22 @@ def numeric_editor(value, schema, write):
 
 
 class ChoiceListEditor(WrappingFlowWidget):
-    """A list of strings as content-sized entries, each with an ×, and a trailing **+** that
-    offers the remaining ``choices`` and a custom entry. Entries stay on one line while they fit
-    and wrap with the shared ``FlowLayout`` beyond that. Every add or removal writes the whole list."""
+    """A wrapping list of removable entries with a **+** menu for adding choices."""
 
     changed = pyqtSignal(list)
 
-    def __init__(self, values, choices, write, *, noun="value", parent=None):
+    def __init__(self, values, choices, write, *, noun="value", parent=None,
+                 allow_custom=True, label=None, populate=None, empty_text=""):
         super().__init__(parent, spacing=6, vertical_alignment=Qt.AlignmentFlag.AlignVCenter, fit_contents=True)
         self.setProperty("parameterChoiceList", True)
-        self.values = [str(v) for v in values or []]
+        self.values = list(values or []) if label else [str(v) for v in values or []]
         self.choices = [str(c) for c in choices or []]
         self.noun = noun
         self._write = write
+        self._label = label
+        self._populate = populate
+        self._allow_custom = allow_custom
+        self._empty_text = empty_text
         self.flow = self.layout()
         self._render()
 
@@ -142,6 +145,8 @@ class ChoiceListEditor(WrappingFlowWidget):
             if widget is not None:
                 widget.hide()
                 widget.deleteLater()
+        if not self.values and self._empty_text:
+            self.flow.addWidget(QLabel(self._empty_text))
         for value in self.values:
             entry = QFrame()
             entry.setProperty("choiceEntry", True)
@@ -149,14 +154,22 @@ class ChoiceListEditor(WrappingFlowWidget):
             row = QHBoxLayout(entry)
             row.setContentsMargins(8, 1, 1, 1)
             row.setSpacing(2)
-            row.addWidget(QLabel(value))
-            remove = _make_subtle_tool_button("close", f"Remove {value}", size=18, icon_size=10)
+            name = self._label(value) if self._label else value
+            if self._label:
+                caption = ElidedLabel(name)
+                caption.setMaximumWidth(TEXT_FIELD_WIDTH)
+                caption.setToolTip(name)
+            else:
+                caption = QLabel(name)
+            row.addWidget(caption)
+            remove = _make_subtle_tool_button("close", f"Remove {name}", size=18, icon_size=10)
             remove.setProperty("choiceRemove", value)
             remove.clicked.connect(lambda _=False, v=value: self.remove(v))
             row.addWidget(remove)
             self.flow.addWidget(entry)
         remaining = [choice for choice in self.choices if choice not in self.values]
         add = _make_param_adder_button(f"Add a {self.noun}", remaining, self.add, parent_widget=self,
+                                       allow_custom=self._allow_custom, populate=self._populate,
                                        custom_prompt=(f"Add {self.noun}", f"{self.noun.capitalize()}:"))
         add.setProperty("choiceAdd", True)
         self.flow.addWidget(add)
@@ -176,16 +189,18 @@ class ChoiceListEditor(WrappingFlowWidget):
         QTimer.singleShot(0, self._render)  # an entry's own × may be the sender
 
 
-def _value_editor(value, schema, write, *, choices=None):
+def _value_editor(value, schema, write, *, choices=None, strict_choices=False):
     schema = schema if isinstance(schema, dict) else {}
     if schema_kind(schema) == "array" and (choices is not None or (schema.get("items") or {}).get("enum")):
         options = choices if choices is not None else schema["items"]["enum"]
-        return ChoiceListEditor(value if isinstance(value, list) else [], options, write)
+        return ChoiceListEditor(value if isinstance(value, list) else [], options, write,
+                                allow_custom=not strict_choices)
     choices = schema.get("enum") if choices is None else choices
-    if isinstance(choices, list) and choices:
+    if isinstance(choices, list) and (choices or strict_choices):
         widget = ComboBox()
         widget.setMaximumWidth(TEXT_FIELD_WIDTH)
-        widget.addItem("", None)
+        if not strict_choices:
+            widget.addItem("", None)
         for choice in choices:
             widget.addItem(str(choice), choice)
         index = next(
@@ -196,10 +211,15 @@ def _value_editor(value, schema, write, *, choices=None):
             ),
             -1,
         )
-        if index < 0 and value is not None:
+        if strict_choices:
+            widget.setPlaceholderText("Select a value" if choices else "No choices available")
+            widget.setCurrentIndex(index)
+            widget.setEnabled(bool(choices))
+        elif index < 0 and value is not None:
             widget.insertItem(1, str(value), value)
             index = 1
-        widget.setCurrentIndex(max(0, index))
+        if not strict_choices:
+            widget.setCurrentIndex(max(0, index))
         widget.currentIndexChanged.connect(lambda i: write(widget.itemData(i)))
         return widget
     kind = schema_kind(schema)
@@ -232,7 +252,7 @@ def _value_editor(value, schema, write, *, choices=None):
     return widget
 
 
-def value_editor(value, schema, write, *, choices=None):
+def value_editor(value, schema, write, *, choices=None, strict_choices=False):
     """Preserve loaded values, expose validation, and only emit typed valid edits."""
     field = None
 
@@ -242,7 +262,7 @@ def value_editor(value, schema, write, *, choices=None):
         if not error:
             write(edited)
 
-    field = _value_editor(value, schema, commit, choices=choices)
+    field = _value_editor(value, schema, commit, choices=choices, strict_choices=strict_choices)
     error = validation_error(value, schema)
     if error:
         set_error(field, error)

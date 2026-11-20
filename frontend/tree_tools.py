@@ -1,8 +1,4 @@
-"""What the Experiment tab's tree (config_tree.py) and the Results run selector (results/explorer.py) share.
-
-One source for their look and their header behaviour: the themed 30 × 30 header buttons, the bold group
-headings with a rule under them, the folder icon, and the search / collapse / expand actions.
-"""
+"""Shared filetree widgets, toolbar layout, selection actions and appearance."""
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ import re
 from PyQt6.QtCore import QByteArray, QMimeData, QPoint, QRect, QSettings, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QDrag, QFont, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (QApplication, QLayout, QMenu, QStyledItemDelegate, QStyleOptionViewItem,
-                             QToolButton, QWidget, QWidgetItem)
+                             QToolButton, QTreeWidget, QWidget, QWidgetItem)
 
 from .sidetabs import svg_icon
 from .theme import theme_color
@@ -121,7 +117,7 @@ class TreeHeaderActions:
             self.search.clear()
 
     def eventFilter(self, obj, event):
-        if obj is self.search and event.type() == event.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+        if obj is getattr(self, "search", None) and event.type() == event.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
             self.toggle_search(False)
             return True
         return super().eventFilter(obj, event)
@@ -260,7 +256,7 @@ class TreeHeaderWidget(QWidget):
 
     layout_changed = pyqtSignal()
 
-    def __init__(self, tree_widget: "ConfigTreeWidget", parent=None):
+    def __init__(self, tree_widget: "FileTreeWidget", parent=None):
         super().__init__(parent)
         self.tree_widget = tree_widget
         self.setAcceptDrops(True)
@@ -486,4 +482,108 @@ class TreeToolbarPersistence:
         """Reset the header toolbar buttons to their default 2-row layout."""
         self.header_widget.set_groups(self._default_toolbar_groups())
         self._save_toolbar_layout()
+
+
+class FileTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
+    """Filetree chrome and commands. Subclasses resolve items to targets and confirm deletion."""
+
+    delete_toolbar_group = "row1_right"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._file_views = set()
+        self._active_file_view = None
+        self.btn_delete = style_tool_button(DraggableToolButton("trash"), "trash", "Delete selected items")
+        self.btn_delete.setEnabled(False)
+        self.btn_delete.clicked.connect(self._request_delete)
+
+    def _default_toolbar_groups(self):
+        groups = self._toolbar_groups()
+        groups.setdefault(self.delete_toolbar_group, []).append(self.btn_delete)
+        return groups
+
+    def _toolbar_groups(self):
+        return {}
+
+    def _init_tree_toolbar(self, layout):
+        self.header_widget = TreeHeaderWidget(self)
+        self.header_widget.set_groups(self._load_toolbar_groups())
+        self.header_widget.layout_changed.connect(self._save_toolbar_layout)
+        self.header_layout = self.header_widget.header_layout
+        layout.addWidget(self.header_widget)
+
+    def _connect_file_tree(self, tree):
+        self._file_views.add(tree)
+        if self._active_file_view is None:
+            self._active_file_view = tree
+        tree.installEventFilter(self)
+        if isinstance(tree, QTreeWidget):
+            tree.itemSelectionChanged.connect(lambda: self._file_selection_changed(tree))
+        else:
+            tree.selectionModel().selectionChanged.connect(lambda: self._file_selection_changed(tree))
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tree.customContextMenuRequested.connect(lambda position: self._context_menu(position, tree))
+
+    @staticmethod
+    def _selected_items(tree):
+        if isinstance(tree, QTreeWidget):
+            return tree.selectedItems()
+        return tree.selectionModel().selectedRows(0)
+
+    def _file_selection_changed(self, tree):
+        if self._selected_items(tree):
+            self._active_file_view = tree
+        self._update_delete_action()
+
+    def eventFilter(self, obj, event):
+        if obj in self._file_views:
+            if event.type() == event.Type.FocusIn:
+                self._active_file_view = obj
+                self._update_delete_action()
+            elif event.type() == event.Type.KeyPress and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                self._delete_from_view(obj)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _update_delete_action(self):
+        self.btn_delete.setEnabled(bool(self.deletion_targets(self._selected_items(self._active_file_view))))
+
+    def _request_delete(self):
+        self._delete_from_view(self._active_file_view)
+
+    def _delete_from_view(self, tree):
+        targets = self.deletion_targets(self._selected_items(tree))
+        if targets:
+            self._prompt_delete_targets(targets)
+
+    def build_context_menu(self, item, tree=None):
+        tree = self._active_file_view if tree is None else tree
+        menu = QMenu(tree)
+        selected = self._selected_items(tree)
+        items = selected if item in selected else [item]
+        self._add_context_actions(menu, item, items)
+        targets = self.deletion_targets(items)
+        if targets:
+            if menu.actions():
+                menu.addSeparator()
+            menu.addAction(self.btn_delete.icon(), "Delete…", lambda: self._prompt_delete_targets(targets))
+        if menu.actions():
+            return menu
+        menu.deleteLater()
+        return None
+
+    def _context_menu(self, position, tree=None):
+        tree = self._active_file_view if tree is None else tree
+        item_widget = isinstance(tree, QTreeWidget)
+        item = tree.itemAt(position) if item_widget else tree.indexAt(position)
+        if item is None or (not item_widget and not item.isValid()):
+            return
+        menu = self.build_context_menu(item, tree)
+        if menu is not None:
+            self._active_file_view = tree
+            if item not in self._selected_items(tree):
+                (tree.setCurrentItem if item_widget else tree.setCurrentIndex)(item)
+            self._update_delete_action()
+            menu.exec(tree.viewport().mapToGlobal(position))
+            menu.deleteLater()
 

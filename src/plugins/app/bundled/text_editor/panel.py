@@ -92,12 +92,13 @@ class TextEditorPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 10)
         layout.setSpacing(8)
 
-        self.file_explorer = FileExplorer(settings_manager=context.tree_toolbar_store())
+        self.file_explorer = FileExplorer(settings_manager=context.tree_toolbar_store(), is_managed=context.is_managed_file)
         workspace = context.workspace_paths()
         if workspace.research.is_dir():
             self.file_explorer.open_root(workspace.research)
         self.component_tree = self.file_explorer.source_tree
         self.file_explorer.fileActivated.connect(self.open_file)
+        self.file_explorer.pathTrashed.connect(lambda _path: context.notify_config_files_changed())
         self.file_explorer.openFolderRequested.connect(self.choose_folder)
         self.file_explorer.actionRequested.connect(self.perform_action)
         self.file_explorer.toggleRequested.connect(self.toggle_file_tree)

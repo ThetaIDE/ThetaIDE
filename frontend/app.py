@@ -515,6 +515,7 @@ class Window(QMainWindow):
         from .discussion.panel import DiscussionPanel
         self.discussion_panel = DiscussionPanel(self.workspace_paths, self.settings_manager, backend=self.backend)
         self.tabs.addTab(self.discussion_panel, "Discussion", "discussion", "Discussion", tab_id="discussion")
+        self.results_view.explorer.add_figure_requested.connect(self.open_discussion_figure_picker)
 
         # 8. Terminal Panel
         command, cwd, env = self.terminal_config()
@@ -1682,7 +1683,7 @@ class Window(QMainWindow):
             if tree is not None:
                 tree.refresh_icons()
         if hasattr(self, "results_view"):
-            self.results_view.explorer.refresh_icons()
+            self.results_view.refresh_icons()
         if hasattr(self, "discussion_panel"):
             self.discussion_panel.apply_theme()
         if hasattr(self, "monitor") and self.selected:
@@ -2162,7 +2163,7 @@ class Window(QMainWindow):
                 self.builder_status.setText(f"✗ Missing component: {missing_str}")
                 self.builder_status.setStyle(self.builder_status.style())
         elif remote_site:
-            tip = "Upload project in a new shell in the Terminal pane, then connect to SSH. Paste and Enter to submit."
+            tip = "Open a cluster terminal to follow the upload and launch."
             btn_text = "Open cluster terminal"
         elif not runner_ready:
             tip = getattr(self.jobs, "readiness_error", "Training runner is connecting")
@@ -2526,8 +2527,12 @@ class Window(QMainWindow):
         is_recover = False
         if hasattr(self, "config_viewer") and getattr(self.config_viewer, "raw_data", None):
             is_recover = bool(self.config_viewer.raw_data.get("recover", False))
-        timestamp = bool(getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
-                         and self.config_viewer.chk_timestamp_experiment.isChecked())
+        timestamp_toggle = getattr(getattr(self, "config_viewer", None), "chk_timestamp_experiment", None)
+        timestamp = timestamp_toggle.isChecked() if timestamp_toggle is not None else True
+        tuning = (getattr(self, "composed_config", None) or {}).get("tuning") or {}
+        tuner_options = (tuning.get("options") or {}).get(tuning.get("component")) or {}
+        if tuner_options.get("study_mode") == "resume":
+            timestamp = False
         from src.app.pipeline.result_paths import result_identity
         _, result_id = result_identity(exp_target, experiment_id=config.name)
         label = str(label or "").strip()
@@ -2933,6 +2938,11 @@ class Window(QMainWindow):
             return None
 
         return "Could not load saved configuration for this run."
+
+    def open_discussion_figure_picker(self, target):
+        # Results already has the run catalog, even before Discussion's first refresh returns.
+        self.tabs.setCurrentWidget(self.discussion_panel)
+        self.discussion_panel.open_picker(target, runs=self.results_view.explorer.runs)
 
     def load_results_config(self, run_key):
         """The Results panel's Load in experiment builder: find the run record for a results/logs folder."""

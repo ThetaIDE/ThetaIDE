@@ -206,3 +206,31 @@ def test_desktop_runner_and_terminal_share_one_job_folder(tmp_path):
     from src.app.workspace import WorkspacePaths
     assert WorkspacePaths(tmp_path).jobs == (tmp_path / ".thetaide/runs/jobs").resolve()
     assert WorkspacePaths(tmp_path, tmp_path / "state").jobs == (tmp_path / "state/runs/jobs").resolve()
+
+
+def test_macos_process_identity_survives_clock_adjustment(monkeypatch):
+    import psutil
+    kernel = SimpleNamespace(create_time=lambda *, monotonic: 100.0 if monotonic else 500.0)
+    process = SimpleNamespace(_proc=kernel, status=lambda: "running", create_time=lambda: 500.0)
+    monkeypatch.setattr(terminal_runs.sys, "platform", "darwin")
+    monkeypatch.setattr(psutil, "Process", lambda pid: process)
+    assert terminal_runs._process_started(123) == 100.0
+    assert terminal_runs.process_alive(123, 100.0) is True
+    assert terminal_runs.process_alive(123, 99.0) is False  # reused PID
+
+
+def test_denied_process_inspection_does_not_settle_live_terminal_job(tmp_path, monkeypatch):
+    import psutil
+    terminal = Terminal(tmp_path)
+    manager = runner(tmp_path)
+    try:
+        settle(manager, lambda: manager.job("terminal-a"))
+        def denied(pid):
+            raise psutil.AccessDenied(pid)
+        monkeypatch.setattr(psutil, "Process", denied)
+        assert terminal_runs.process_alive(terminal.process.pid, terminal.record["process_started"]) is None
+        manager.adopt_terminal_runs()
+        assert manager.job("terminal-a")["status"] == "running"
+        assert terminal.path.exists()
+    finally:
+        terminal.exit()

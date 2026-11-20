@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import importlib.util
+from importlib import metadata
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from packaging.requirements import InvalidRequirement, Requirement
 
 # Mapping of PyPI package names to their canonical Python import module names
 PACKAGE_TO_MODULE_MAP = {
@@ -55,16 +58,47 @@ def is_module_installed(module_name: str) -> bool:
         return False
 
 
+def _requirement_is_installed(requirement: Requirement, checked: set[str]) -> bool:
+    # Cyclic extras can refer back to the distribution currently being checked.
+    key = str(requirement)
+    if key in checked:
+        return True
+    try:
+        distribution = metadata.distribution(requirement.name)
+    except metadata.PackageNotFoundError:
+        # Retain support for bare import names (including standard-library modules).
+        return not (requirement.specifier or requirement.extras or requirement.url) and is_module_installed(
+            parse_package_name(requirement.name)[1])
+    if requirement.url or not requirement.specifier.contains(distribution.version, prereleases=True):
+        return False
+    if not requirement.extras:
+        return True
+    checked.add(key)
+    for value in distribution.requires or ():
+        dependency = Requirement(value)
+        if dependency.marker and any(dependency.marker.evaluate({"extra": extra}) for extra in requirement.extras):
+            if not _requirement_is_installed(dependency, checked):
+                return False
+    return True
+
+
 def check_missing_dependencies(requirements: List[str]) -> List[str]:
-    """Inspect a list of requirement specifiers and return those that are not installed."""
+    """Return requirements that the current interpreter does not satisfy."""
     missing = []
     for req in requirements:
-        req_clean = req.strip()
-        if not req_clean or req_clean.startswith("#"):
+        candidate = re.split(r"\s+#", req.strip(), maxsplit=1)[0]
+        if not candidate or candidate.startswith("#"):
             continue
-        pkg_name, mod_name = parse_package_name(req_clean)
-        if not is_module_installed(mod_name):
-            missing.append(req_clean)
+        try:
+            requirement = Requirement(candidate)
+        except InvalidRequirement:
+            # Let pip handle requirements-file syntax it supports.
+            missing.append(candidate)
+            continue
+        if requirement.marker and not requirement.marker.evaluate():
+            continue
+        if not _requirement_is_installed(requirement, set()):
+            missing.append(candidate)
     return missing
 
 

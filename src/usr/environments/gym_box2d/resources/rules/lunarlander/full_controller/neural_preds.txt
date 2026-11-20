@@ -1,0 +1,6 @@
+main_needed:1:oagent
+descent_priority:1:oagent
+attitude_priority:1:oagent
+rotate_left:1:oagent
+rotate_right:1:oagent
+attitude_settled:1:oagent

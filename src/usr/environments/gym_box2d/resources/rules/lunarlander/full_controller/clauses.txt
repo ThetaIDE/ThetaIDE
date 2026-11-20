@@ -1,0 +1,4 @@
+noop(X):-attitude_priority(A),attitude_settled(A).
+fire_left(X):-attitude_priority(A),rotate_left(A).
+fire_main(X):-main_needed(A),descent_priority(A).
+fire_right(X):-attitude_priority(A),rotate_right(A).

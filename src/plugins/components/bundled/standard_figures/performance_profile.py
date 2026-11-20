@@ -2,7 +2,7 @@
 
 from src.app.api.plotting import BasePlotter, auto_text, performance_profile, vega_lite_figure
 
-from .common import colors, hover_points, interactive_line, metric_title, tooltip, x_axis
+from .common import colors, data_title, hover_points, interactive_line, metric_title, tooltip, x_axis
 from .final_performance import SCORE_TITLES, method_scores
 
 LIVE = ["title", "line_width", "opacity", "x_label", "y_label"]
@@ -30,7 +30,7 @@ class PerformanceProfilePlotter(BasePlotter):
         tips = tooltip(("method", "Method", "nominal"), ("x", "Threshold", "quantitative"),
                        ("y", "Fraction above", "quantitative"))
         return vega_lite_figure(
-            params, LIVE, rows, title=auto_text("title", f"{exp_id} · {metric} profile"),
+            params, LIVE, rows, title=auto_text("title", f"{data_title(exp_id, params)} · {metric} profile"),
             encoding={"x": {"field": "x", "type": "quantitative", "axis": x_axis(x_title), "scale": {"zero": False}},
                       "color": colors(styles, methods, params["legend"])},
             layer=[line, hover_points("true", y, tips)])

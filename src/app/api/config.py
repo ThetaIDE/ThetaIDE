@@ -7,6 +7,8 @@
                         the compatibility findings of a composed configuration: every
                         selected capability's ``requires`` rules and ``preflight`` hook,
                         per method (``.capability``, ``.method``, ``.level``, ``.message``).
+``compose_experiment(selector, *, workspace)``
+    compose a saved experiment for validation and resource selection.
 """
 from ._exports import lazy_exports
 
@@ -14,6 +16,7 @@ _EXPORTS = {
     "parse_methods_dict": "src.app.pipeline.config:parse_methods_dict",
     "ConfigurationFiles": "src.app.components.configuration:ConfigurationFiles",
     "compatibility": "src.app.core.requirements:compatibility",
+    "compose_experiment": "src.app.pipeline.compose:compose_experiment",
 }
 __all__ = sorted(_EXPORTS)
 __getattr__, __dir__ = lazy_exports(__name__, _EXPORTS)

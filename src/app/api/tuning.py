@@ -31,6 +31,11 @@ _EXPORTS = {
     "trial_checkpoint_dir": "src.app.pipeline.trial_artifacts:trial_checkpoint_dir",
     "trial_checkpoint_dir_from_config": "src.app.pipeline.trial_artifacts:trial_checkpoint_dir_from_config",
     "trial_monitor": "src.app.pipeline.tuners:trial_monitor",
+    **{name: f"src.app.pipeline.local_budget_tuning:{name}" for name in (
+        "LocalBudgetTuner", "LocalBudgetSweeper", "hydra_value", "progress",
+    )},
+    "trial_worker_results": "src.app.pipeline.execution_data:trial_worker_results",
+    "runner_tuning_profile": "src.app.core.execution:runner_tuning_profile",
     "finish_trial_runs": "src.app.pipeline.variability:finish_trial_runs",
     "tuning_enabled": "src.app.pipeline.tuning_config:tuning_enabled",
 }

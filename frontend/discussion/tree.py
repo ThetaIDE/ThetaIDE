@@ -6,21 +6,20 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QAbstractItemView, QLineEdit, QMenu, QMessageBox, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QMessageBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout
 
 from ..sidetabs import svg_icon
-from ..tree_tools import (TOOL_ICON_COLORS, DraggableToolButton, GroupItemDelegate, TreeHeaderActions,
-                          TreeHeaderWidget, TreeToolbarPersistence, folder_icon, group_heading_font,
+from ..tree_tools import (TOOL_ICON_COLORS, DraggableToolButton, FileTreeWidget, GroupItemDelegate,
+                          folder_icon, group_heading_font,
                           refresh_tool_icons, style_tool_button)
 from . import model
 
-class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
+class DiscussionTree(FileTreeWidget):
     """Experiment tree with figure leaves.
 
     ``figure_selected`` carries the selected figure file, or None when the selection is not a
     figure; ``experiment_selected`` carries the experiment of the selection ("" for a group or
-    folder). ``add_requested`` asks for the figure picker of the selected experiment.
+    folder).
 
     Figure leaves have a context menu (Rename…, Duplicate, Delete…), F2 and Delete.
     ``rename_requested`` asks the panel to rename a figure; ``about_to_modify`` is emitted
@@ -29,7 +28,6 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
     figure_selected = pyqtSignal(object)
     experiment_selected = pyqtSignal(str)
-    add_requested = pyqtSignal(str)
     rename_requested = pyqtSignal(object)
     about_to_modify = pyqtSignal(object)
     refresh_requested = pyqtSignal()
@@ -50,10 +48,10 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         button = style_tool_button(DraggableToolButton(button_id), icon_name, tooltip)
         return button
 
-    def _default_toolbar_groups(self):
+    def _toolbar_groups(self):
         return {
             "row1_left": [self.btn_refresh, self.btn_collapse, self.btn_expand, self.btn_search],
-            "row1_right": [self.btn_add],
+            "row1_right": [],
             "row2_left": [],
             "row2_right": [],
         }
@@ -70,13 +68,8 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.btn_expand = self._tool_button("expand_all", "Expand all folders in the tree", "expand_all")
         self.btn_expand.clicked.connect(self.expand_all)
         self.btn_search = self._tool_button("search", "Filter experiments, runs and figures", "search")
-        self.btn_add = self._tool_button("plus", "Add a figure from a compatible plot component", "plus")
-        self.btn_add.clicked.connect(lambda: self.add_requested.emit(self.selected_experiment()))
 
-        self.header_widget = TreeHeaderWidget(self)
-        self.header_widget.set_groups(self._load_toolbar_groups())
-        self.header_widget.layout_changed.connect(self._save_toolbar_layout)
-        layout.addWidget(self.header_widget)
+        self._init_tree_toolbar(layout)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Filter experiments, runs and figures…")
@@ -90,15 +83,11 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.tree.setItemDelegate(GroupItemDelegate(self.tree))
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.currentItemChanged.connect(self._current_changed)
-        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self._show_context_menu)
-        for key, action in ((QKeySequence.StandardKey.Delete, self._delete_selected),
-                            (Qt.Key.Key_Backspace, self._delete_selected), (Qt.Key.Key_F2, self._rename_selected)):
-            shortcut = QShortcut(QKeySequence(key), self.tree)
-            shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
-            shortcut.activated.connect(action)
+        self._connect_file_tree(self.tree)
+        shortcut = QShortcut(QKeySequence(Qt.Key.Key_F2), self.tree)
+        shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        shortcut.activated.connect(self._rename_selected)
         layout.addWidget(self.tree, 1)
-        self._update_actions()
 
     def refresh_icons(self):
         refresh_tool_icons(self)
@@ -129,8 +118,8 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         else:
             item.setIcon(0, QIcon())
 
-    def _item(self, parent, text, data):
-        item = QTreeWidgetItem(parent, [text])
+    def _item(self, text, data):
+        item = QTreeWidgetItem([text])
         item.setData(0, Qt.ItemDataRole.UserRole, data)
         item.setToolTip(0, data["rel"])
         self._set_icon(item, data)
@@ -149,9 +138,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         try:
             self.tree.clear()
             for node in model.experiment_tree(self.paths, self.runs):
-                self._add_node(self.tree, node)
-            if select is not None:
-                expanded |= self._ancestors(model.figure_experiment(self.paths, select))
+                self._add_node(self.tree.invisibleRootItem(), node)
             self._visit(lambda item: item.setExpanded(
                 item.data(0, Qt.ItemDataRole.UserRole)["rel"] in expanded
                 or (first and bool(item.data(0, Qt.ItemDataRole.UserRole).get("is_group")))))
@@ -161,10 +148,17 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             self.tree.blockSignals(blocked)
         item = self._find(current) if current else None
         if item is not None:
+            if select is not None:
+                if item.isHidden():
+                    self.search.clear()
+                parent = item.parent()
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
             self.tree.setCurrentItem(item)  # emits the selection again
         elif current:
             self._current_changed(None, True)  # the selection is gone
-        self._update_actions()
+        self._update_delete_action()
 
     def set_runs(self, entries):
         """Use the same catalog entries and saved-run identities as Results."""
@@ -175,21 +169,18 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.populate()
         self.refresh_requested.emit()
 
-    @staticmethod
-    def _ancestors(rel: str) -> set[str]:
-        parts = rel.split("/")
-        return {"/".join(parts[:i]) for i in range(1, len(parts) + 1)}
-
     def _add_node(self, parent, node):
         data = {"type": node.kind, "rel": node.rel, "is_group": node.kind == "group"}
-        item = self._item(parent, node.name, data)
+        item = self._item(node.name, data)
         for child in node.children:
             self._add_node(item, child)
         if node.kind in ("experiment", "run"):
             for path in model.figures(self.paths, node.rel):
-                self._item(item, path.stem, {"type": "figure", "rel": f"{node.rel}/{path.stem}",
-                                             "path": str(path), "experiment": node.rel})
-        return item
+                figure = self._item(path.stem, {"type": "figure", "rel": f"{node.rel}/{path.stem}",
+                                                "path": str(path), "experiment": node.rel})
+                item.addChild(figure)
+        if item.childCount():
+            parent.addChild(item)
 
     def _find(self, target):
         """The item of a figure path, or of a group, folder or experiment rel."""
@@ -219,6 +210,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         for index in range(self.tree.topLevelItemCount()):
             match(self.tree.topLevelItem(index))
+        self._update_delete_action()
 
     # ── Selection ────────────────────────────────────────────────────────────
 
@@ -241,11 +233,7 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         if item is not None:
             self.tree.setCurrentItem(item)
 
-    def _update_actions(self):
-        self.btn_add.setEnabled(bool(self.selected_experiment()))
-
     def _current_changed(self, current, previous):
-        self._update_actions()
         if previous is None and current is None:
             return
         self.experiment_selected.emit(self.selected_experiment())
@@ -264,32 +252,54 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         data = (item.data(0, Qt.ItemDataRole.UserRole) or {}) if item is not None else {}
         return Path(data["path"]) if data.get("type") == "figure" else None
 
-    def build_context_menu(self, item) -> QMenu | None:
+    def _add_context_actions(self, menu, item, _items):
         path = self._figure_at(item)
-        if path is None:
-            return None
-        menu = QMenu(self)
-        menu.addAction("Rename…", lambda: self.rename_requested.emit(path))
-        menu.addAction("Duplicate", lambda: self.duplicate_figure(path))
-        menu.addSeparator()
-        menu.addAction("Delete…", lambda: self.prompt_delete(path))
-        return menu
+        if path is not None:
+            menu.addAction("Rename…", lambda: self.rename_requested.emit(path))
+            menu.addAction("Duplicate", lambda: self.duplicate_figure(path))
 
-    def _show_context_menu(self, position):
-        menu = self.build_context_menu(self.tree.itemAt(position))
-        if menu is not None:
-            menu.exec(self.tree.viewport().mapToGlobal(position))
-            menu.deleteLater()
+    def deletion_targets(self, items):
+        if not items:
+            return []
+        item = items[0]  # Discussion uses single selection.
+        path = self._figure_at(item)
+        if path is not None:
+            return [(None, [path])]
+
+        paths = []
+
+        def collect(child):
+            path = self._figure_at(child)
+            if path is not None:
+                paths.append(path)
+
+        self._visit(collect, item)
+        if not paths:
+            return []
+        folder = item.data(0, Qt.ItemDataRole.UserRole)["rel"]
+        return [(folder, paths)]
+
+    def _prompt_delete_targets(self, targets):
+        folder, paths = targets[0]
+        if folder is None:
+            self.prompt_delete(paths[0])
+            return
+        count = len(paths)
+        figures = "figure" if count == 1 else "figures"
+        answer = QMessageBox.question(
+            self, "Delete discussion folder",
+            f"Delete '{folder}' and all {count} {figures} and associated discussion text inside it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        errors = self._delete_figures(paths)
+        if errors:
+            QMessageBox.warning(self, "Delete failed", "\n".join(f"{path.name}: {error}" for path, error in errors))
 
     def _rename_selected(self):
         path = self.selected_figure()
         if path is not None:
             self.rename_requested.emit(path)
-
-    def _delete_selected(self):
-        path = self.selected_figure()
-        if path is not None:
-            self.prompt_delete(path)
 
     def duplicate_figure(self, path: Path) -> Path:
         self.about_to_modify.emit(Path(path))
@@ -305,16 +315,31 @@ class DiscussionTree(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             return False
-        self.delete_figure(path)
+        try:
+            self.delete_figure(path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Delete failed", str(exc))
+            return False
         return True
 
     def delete_figure(self, path: Path):
-        path = Path(path)
-        self.about_to_modify.emit(path)
-        model.delete_figure(path)
-        if self.selected_figure() == path:
-            item = self._find(path)
+        errors = self._delete_figures([Path(path)])
+        if errors:
+            raise errors[0][1]
+
+    def _delete_figures(self, paths: list[Path]) -> list[tuple[Path, OSError]]:
+        errors = []
+        selected = self.selected_figure()
+        for path in paths:
+            self.about_to_modify.emit(path)
+            try:
+                model.delete_figure(path)
+            except OSError as exc:
+                errors.append((path, exc))
+        if selected is not None and selected in paths and not selected.is_file():
+            item = self._find(selected)
             parent = item.parent() if item is not None else None
             if parent is not None:
-                self.tree.setCurrentItem(parent)  # the experiment stays selected
+                self.tree.setCurrentItem(parent)
         self.populate()
+        return errors

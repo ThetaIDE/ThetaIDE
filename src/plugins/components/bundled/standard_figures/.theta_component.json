@@ -18,6 +18,25 @@
    "parameter_schema": {
     "type": "object",
     "properties": {
+     "sources": {
+      "type": "array",
+      "title": "Data sources",
+      "items": {
+       "type": "object",
+       "properties": {
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "version": {"type": "string"}
+       },
+       "required": ["target"],
+       "additionalProperties": false
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-sources": true,
+      "description": "Pick results, methods, or individual seeds. Empty uses this figure's experiment or run.",
+      "x-theta-group": "Data"
+     },
      "metric": {
       "type": "string",
       "default": "eval/reward",
@@ -181,6 +200,25 @@
    "parameter_schema": {
     "type": "object",
     "properties": {
+     "sources": {
+      "type": "array",
+      "title": "Data sources",
+      "items": {
+       "type": "object",
+       "properties": {
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "version": {"type": "string"}
+       },
+       "required": ["target"],
+       "additionalProperties": false
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-sources": true,
+      "description": "Pick results, methods, or individual seeds. Empty uses this figure's experiment or run.",
+      "x-theta-group": "Data"
+     },
      "metric": {
       "type": "string",
       "default": "eval/reward",
@@ -327,6 +365,25 @@
    "parameter_schema": {
     "type": "object",
     "properties": {
+     "sources": {
+      "type": "array",
+      "title": "Data sources",
+      "items": {
+       "type": "object",
+       "properties": {
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "version": {"type": "string"}
+       },
+       "required": ["target"],
+       "additionalProperties": false
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-sources": true,
+      "description": "Pick results, methods, or individual seeds. Empty uses this figure's experiment or run.",
+      "x-theta-group": "Data"
+     },
      "metric": {
       "type": "string",
       "default": "eval/reward",
@@ -430,6 +487,25 @@
    "parameter_schema": {
     "type": "object",
     "properties": {
+     "sources": {
+      "type": "array",
+      "title": "Data sources",
+      "items": {
+       "type": "object",
+       "properties": {
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "version": {"type": "string"}
+       },
+       "required": ["target"],
+       "additionalProperties": false
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-sources": true,
+      "description": "Pick results, methods, or individual seeds. Empty uses this figure's experiment or run.",
+      "x-theta-group": "Data"
+     },
      "metric": {
       "type": "string",
       "default": "eval/reward",
@@ -583,6 +659,25 @@
    "parameter_schema": {
     "type": "object",
     "properties": {
+     "sources": {
+      "type": "array",
+      "title": "Data sources",
+      "items": {
+       "type": "object",
+       "properties": {
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "version": {"type": "string"}
+       },
+       "required": ["target"],
+       "additionalProperties": false
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-sources": true,
+      "description": "Pick results, methods, or individual seeds. Empty uses this figure's experiment or run.",
+      "x-theta-group": "Data"
+     },
      "metrics": {
       "type": "array",
       "items": {
@@ -970,6 +1065,25 @@
    "parameter_schema": {
     "type": "object",
     "properties": {
+     "sources": {
+      "type": "array",
+      "title": "Data sources",
+      "items": {
+       "type": "object",
+       "properties": {
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "version": {"type": "string"}
+       },
+       "required": ["target"],
+       "additionalProperties": false
+      },
+      "uniqueItems": true,
+      "default": [],
+      "x-theta-sources": true,
+      "description": "Pick results, methods, or individual seeds. Empty uses this figure's experiment or run.",
+      "x-theta-group": "Data"
+     },
      "metrics": {
       "type": "array",
       "items": {

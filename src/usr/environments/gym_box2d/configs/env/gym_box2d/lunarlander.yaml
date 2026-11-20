@@ -1,0 +1,18 @@
+name: gym_box2d/lunarlander
+env_id: LunarLander-v3
+symbolic_name: lunarlander
+monitor_metric: eval/reward
+preprocess_on_load: false
+num_envs: 4
+num_steps: 1024
+gamma: 0.99
+gae_lambda: 0.95
+action_meanings:
+- noop
+- fire_left
+- fire_main
+- fire_right
+default_plots:
+- convergence
+- losses
+- reports

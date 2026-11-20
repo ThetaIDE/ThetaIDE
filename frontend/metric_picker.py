@@ -13,6 +13,7 @@ from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
+from src.app.pipeline.result_paths import iter_result_versions, nested_run_names
 from src.app.telemetry.selection import ALWAYS_KEPT, SECTIONS
 
 from .widgets import ToggleSlider, label
@@ -29,17 +30,23 @@ def logged_metrics(logs_dir: Path, group: str, experiment: str) -> list[str]:
     folder = Path(logs_dir) / group
     if not group or not experiment or not folder.is_dir():
         return []
-    runs = [p for p in folder.iterdir() if p.is_dir() and (p.name == experiment or p.name.startswith(experiment + "_"))]
+    location = folder / experiment
+    runs = [path for path in location.parent.glob(location.name + "_*") if path.is_dir()]
+    if location.is_dir():
+        runs.extend(location / name for name in nested_run_names(location))
+        if any(next(iter_result_versions(method), None) for method in location.iterdir()):
+            runs.append(location)
     if not runs:
         return []
     newest = max(runs, key=lambda p: p.stat().st_mtime)
     names: set[str] = set()
-    for metrics_csv in newest.glob("*/version_*/metrics.csv"):
-        try:
-            with metrics_csv.open(encoding="utf-8", newline="") as stream:
-                names.update(next(csv.reader(stream), []))
-        except OSError:
-            continue
+    for method in newest.iterdir():
+        for version in iter_result_versions(method):
+            try:
+                with (version / "metrics.csv").open(encoding="utf-8", newline="") as stream:
+                    names.update(next(csv.reader(stream), []))
+            except OSError:
+                continue
     return sorted(name for name in names if "/" in name and name not in ALWAYS_KEPT)
 
 

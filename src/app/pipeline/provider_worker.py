@@ -37,7 +37,7 @@ def provider_snapshot(paths=None):
 def _workspace_resources(paths):
     """Digests of the workspace resource directories packages declare."""
     from src.app.core.workspace_resources import workspace_directories
-    return {file.relative_to(paths.root).as_posix(): file_hash(file)
+    return {(Path("src/usr") / directory.name / file.relative_to(directory)).as_posix(): file_hash(file)
             for directory in workspace_directories(paths) for file in directory.rglob('*')
             if file.is_file() and '__pycache__' not in file.parts}
 
@@ -130,10 +130,12 @@ def execute_method(cfg):
     name = str(agent.get("name") or "run").replace("/", "_")
     # Each normal execution owns an isolated directory, as do repeats and trials.
     from src.app.pipeline.trial_artifacts import trial_checkpoint_dir_from_config
+    from src.app.pipeline.result_paths import training_result_version
+    from src.app.telemetry.run import _worker_log_version
     method_root = paths.results / "checkpoints" / str(cfg.get("group", "default_group")) / str(cfg.get("experiment_id", "default_exp")) / name
-    directory = trial_checkpoint_dir_from_config(method_root, cfg)
-    if directory is None:
-        directory = method_root / str(cfg.get("variability_version") or run_id)
+    version = training_result_version(cfg)
+    directory = (method_root / version if version else
+                 trial_checkpoint_dir_from_config(method_root, cfg) or method_root / run_id)
     directory.mkdir(parents=True, exist_ok=True)
     targets = json.loads(os.environ.get("THETA_CANCEL_TARGETS", "[]"))
     seed = int(agent.get("seed", cfg.seed))
@@ -154,6 +156,10 @@ def execute_method(cfg):
     previous_signals = {}
     for signum in (signal.SIGTERM, signal.SIGINT):
         previous_signals[signum] = signal.signal(signum, cancelled_signal)
+    log_identity = (str(cfg.get("group", "default_group")), str(cfg.get("experiment_id", "default_exp")), name)
+    if version and "/" in version:
+        (paths.results / "logs" / Path(*log_identity) / version).mkdir(parents=True, exist_ok=True)
+    token = _worker_log_version.set((*log_identity, version) if version else None)
     try:
         with provider_lease(paths):
             snapshot = os.environ.get("THETA_PROVIDER_SNAPSHOT")
@@ -165,6 +171,16 @@ def execute_method(cfg):
                 raise TypeError(f"Runner {definition.raw['runner']} must return RunResult v1")
             if result.status == "cancelled":
                 raise TrainingCancelled()
+            if version and "/" in version and cfg.get("theta_tuning"):
+                # Older tuner packages promote a single-seed winner by its trial-level filename.
+                trial_dir = trial_checkpoint_dir_from_config(method_root, cfg)
+                if trial_dir is not None:
+                    for checkpoint in ("best_model.ckpt", "best_model.zip"):
+                        if (directory / checkpoint).is_file():
+                            trial_dir.mkdir(parents=True, exist_ok=True)
+                            alias = trial_dir / checkpoint
+                            if not alias.exists() and not alias.is_symlink():
+                                alias.symlink_to(os.path.relpath(directory / checkpoint, trial_dir))
             status.update(status=result.status, result=asdict(result), metadata=context.metadata)
             return result
     except (TrainingCancelled, KeyboardInterrupt):
@@ -181,6 +197,7 @@ def execute_method(cfg):
             status.update(status='failed', cleanup_error=f'{type(exc).__name__}: {exc}')
             raise
         finally:
+            _worker_log_version.reset(token)
             status["metadata"] = context.metadata
             for signum, previous in previous_signals.items():
                 signal.signal(signum, previous)

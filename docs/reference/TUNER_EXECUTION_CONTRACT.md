@@ -111,6 +111,10 @@ The desktop imports the same function as `frontend.monitor.sweep_view.study_summ
 Providers export `tuning_summary.json` under a method checkpoint directory or its
 `sweeps/<study>/` archive. A current method export wins over its archived copy of
 the same study. `started` excludes earlier-launch exports for active queues.
+For stamped launches, the host resolves a summary's trial ID to `trial_<id>`
+under the method. Each training replicate writes under that trial's
+`seed_<training seed>` directory. A provider's `log_version` still identifies
+its trial for cancellation and for lookup of previously saved results.
 Summaries contain `schema_version: 1`, a nonempty `component` capability selector,
 a nonempty `study`, and `trials`. Each trial has a unique nonnegative integer `id`,
 a nonempty string `state`, optional finite `value`/`duration_seconds`, and optional
@@ -153,3 +157,17 @@ returns the plan or `None`, `record_config(record)` a copy of the saved
 configuration and `record_overrides(record)` the saved Hydra overrides for replay.
 Reading receipt metadata executes no provider code. Unknown portable plan schemas
 are rejected.
+
+## Local tuners with explicit budgets
+
+A local tuner can declare `requires_repeated_objective = True` to dispatch
+through Theta's repeated objective executor, including for a one-seed panel.
+The optional `validate_runner(cfg, *, paths)` hook checks the same resolved
+method configuration that will be used at launch.
+
+Use `runner_tuning_profile(cfg, paths=paths)` from `src.app.api.tuning` to
+negotiate the budget quantum, objective metrics, and optional dynamic
+checkpoint support from the selected algorithm. Use
+`trial_worker_results(paths, group, experiment, method, log_version)` to
+read seed-indexed progress and checkpoint references from the standard execution
+records. The runner owns its checkpoints and the tuner owns its study records.

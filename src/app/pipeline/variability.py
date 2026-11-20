@@ -19,7 +19,7 @@ from omegaconf import OmegaConf, open_dict
 from src.app.pipeline.engine import resolve_engine, runner_supports_episode_outcomes
 from src.app.pipeline.exceptions import ConfigurationError
 from src.app.pipeline.config import normalize_agent_name
-from src.app.pipeline.result_paths import saved_run_id, result_experiment_id as experiment_folder
+from src.app.pipeline.result_paths import saved_run_id, result_experiment_id as experiment_folder, trial_result_version
 from src.app.workspace import WorkspacePaths
 
 
@@ -125,13 +125,18 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     for method in context["methods"]:
         for version_index, seed in enumerate(plan["training_seeds"]):
             run_id = uuid.uuid4().hex
-            version = (f"{parent['log_version']}_sample_{execution_id[:10]}_seed_{version_index}" if parent
-                       else f"version_{version_index}")
+            if experiment_folder(result_experiment_id) != result_experiment_id:
+                version = trial_result_version(int((parent or {}).get("trial_number") or 0), seed)
+            elif parent:
+                version = f"{parent['log_version']}_sample_{execution_id[:10]}_seed_{version_index}"
+            else:
+                version = f"version_{version_index}"
             agent = str(context["methods"][method].get("name") or normalize_agent_name(method)).replace("/", "_")
             runs.append({"run_id": run_id, "method": method, "training_seed": seed,
                          "status": "queued", "experiment_id": result_experiment_id,
                          "version": version, "agent": agent,
-                         "output_log": str(relative_root / "runs" / f"{run_id}.log"),
+                         "output_log": str(relative_logs / agent / version / "worker.log"
+                                           if "/" in version else relative_root / "runs" / f"{run_id}.log"),
                          "logs": str(relative_logs),
                          "event_path": str(relative_logs / agent / version / "evaluation_events.jsonl"),
                          "checkpoints": str(Path(paths.results_relative) / "checkpoints" / str(cfg.group) / result_experiment_id / agent / version)})
@@ -263,7 +268,7 @@ def run_execution(cfg, context, plan, *, dispatch=None, parent=None, raise_on_fa
     if parent:
         # A portable link lets existing trial consumers discover the same seed
         # manifest that ordinary repeated experiments expose.
-        link = logs_root / parent["method"] / parent["log_version"] / "execution.json"
+        link = logs_root / parent["method"] / parent.get("result_version", parent["log_version"]) / "execution.json"
         link.parent.mkdir(parents=True, exist_ok=True)
         link.write_text(json.dumps({"manifest": os.path.relpath(path, link.parent)}) + "\n", encoding="utf-8")
     print(f"Execution manifest: {path}")

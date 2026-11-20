@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
-    QMenu,
     QMessageBox,
     QPushButton,
     QStyle,
@@ -44,10 +43,9 @@ from .sidetabs import svg_icon
 from .tree_tools import (
     TOOL_ICON_COLORS,
     DraggableToolButton,
+    FileTreeWidget,
     GroupItemDelegate,
-    TreeHeaderActions,
     TreeHeaderWidget,
-    TreeToolbarPersistence,
     folder_icon,
     group_heading_font,
     refresh_tool_icons,
@@ -108,15 +106,7 @@ class ComponentConfigTree(QTreeWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.move_handler = None
-        self.delete_handler = None
         self.move_many_handler = None
-
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.delete_handler:
-            self.delete_handler()
-            event.accept()
-            return
-        super().keyPressEvent(event)
 
     def _dragged_yamls(self):
         items = self.selectedItems()
@@ -324,7 +314,7 @@ def find_config_root():
     return WorkspacePaths.for_process().config
 
 
-class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
+class ConfigTreeWidget(FileTreeWidget):
     """File tree over src/usr/config and package profiles that allows selecting, duplicating,
 
     and creating experiments in groups.
@@ -338,6 +328,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     new_in_group_requested = pyqtSignal()
     save_requested = pyqtSignal()
     refresh_requested = pyqtSignal()
+    delete_toolbar_group = "row2_right"
 
     def __init__(self, root_dir=None, parent=None, mode="all", settings_manager=None):
         super().__init__(parent)
@@ -352,7 +343,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self._init_ui()
         self.populate()
 
-    def _default_toolbar_groups(self) -> dict[str, list[DraggableToolButton]]:
+    def _toolbar_groups(self) -> dict[str, list[DraggableToolButton]]:
         if self.mode == "components":
             return {
                 "row1_left": [self.btn_refresh, self.btn_collapse, self.btn_expand, self.btn_search],
@@ -484,12 +475,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.btn_save = None
 
         # Two-row header widget with draggable, reorderable button groups
-        self.header_widget = TreeHeaderWidget(self)
-        groups = self._load_toolbar_groups()
-        self.header_widget.set_groups(groups)
-        self.header_widget.layout_changed.connect(self._save_toolbar_layout)
-        self.header_layout = self.header_widget.header_layout
-        layout.addWidget(self.header_widget)
+        self._init_tree_toolbar(layout)
 
         # Search filter (hidden by default, toggled via magnifying glass button)
         self.search = QLineEdit()
@@ -506,7 +492,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         # Tree widget
         self.tree = ComponentConfigTree()
-        self.tree.delete_handler = self._delete_selection
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setItemDelegate(GroupItemDelegate(self.tree))
         self.tree.setStyleSheet(
@@ -517,8 +502,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
         self.tree.itemClicked.connect(self._on_item_clicked)
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.tree.currentItemChanged.connect(self._on_tree_current_changed)
-        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self._show_context_menu)
+        self._connect_file_tree(self.tree)
         if self.mode in ("components", "experiments", "experiment"):
             if self.mode == "components":
                 self.tree.move_handler = self._handle_component_tree_drop
@@ -558,23 +542,28 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
     def collapse_all(self):
         self._set_group_expansion(False)
 
-    def _delete_selection(self):
-        selected = self.tree.selectedItems()
-        entries = [item.data(0, Qt.ItemDataRole.UserRole) for item in selected]
+    def deletion_targets(self, items):
+        entries = [item.data(0, Qt.ItemDataRole.UserRole) for item in items]
         if not entries or any(not entry for entry in entries):
-            return
+            return []
         if all(entry.get("type") == "file" for entry in entries):
-            paths = [entry["rel_path"] for entry in entries]
-            if len(paths) == 1:
-                self.prompt_delete(paths[0])
-            else:
-                self.prompt_delete_files(paths)
-        elif len(entries) == 1 and entries[0].get("type") == "dir":
+            return [("file", entry["rel_path"]) for entry in entries]
+        if len(entries) == 1 and entries[0].get("type") == "dir":
             entry = entries[0]
-            # Component headings are category roots, not removable folders.
             if self.mode == "components" and entry.get("is_group"):
-                return
-            self.prompt_delete_dir(entry["rel_path"])
+                return []
+            if entry["rel_path"] != "system" or self.mode in ("experiments", "experiment"):
+                return [("dir", entry["rel_path"])]
+        return []
+
+    def _prompt_delete_targets(self, targets):
+        kind, path = targets[0]
+        if kind == "dir":
+            self.prompt_delete_dir(path)
+        elif len(targets) == 1:
+            self.prompt_delete(path)
+        else:
+            self.prompt_delete_files([path for _, path in targets])
 
     def get_expanded_paths(self) -> set[str]:
         """Return the set of relative directory paths that are currently expanded."""
@@ -1099,6 +1088,7 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
 
         for i in range(self.tree.topLevelItemCount()):
             match_and_filter(self.tree.topLevelItem(i))
+        self._update_delete_action()
 
     def find_file_item(self, target_rel_path: str):
         """Find the QTreeWidgetItem corresponding to a relative path."""
@@ -2051,15 +2041,11 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             if error:
                 QMessageBox.warning(self, "Rename failed", error)
 
-    def _show_context_menu(self, position):
-        item = self.tree.itemAt(position)
-        if not item:
-            return
+    def _add_context_actions(self, menu, item, items):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
             return
 
-        menu = QMenu(self)
         if data["type"] == "file" and self.mode in ("experiments", "experiment"):
             experiment_path = Path(data["rel_path"]).with_suffix("")
             if experiment_path.parts[0] in ("experiment", "experiments"):
@@ -2068,15 +2054,10 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             action_copy_name.triggered.connect(
                 lambda: QApplication.clipboard().setText(experiment_path.as_posix())
             )
-        selected = self.tree.selectedItems()
-        selected_data = [selected_item.data(0, Qt.ItemDataRole.UserRole) for selected_item in selected]
-        if item in selected and len(selected_data) > 1 and all(
+        selected_data = [selected_item.data(0, Qt.ItemDataRole.UserRole) for selected_item in items]
+        if len(selected_data) > 1 and all(
             entry and entry.get("type") == "file" for entry in selected_data
         ):
-            paths = [entry["rel_path"] for entry in selected_data]
-            action_delete = menu.addAction(f"Delete {len(paths)} Files…")
-            action_delete.triggered.connect(lambda: self.prompt_delete_files(paths))
-            menu.exec(self.tree.viewport().mapToGlobal(position))
             return
         if data["type"] == "file":
             action_select = menu.addAction("Load in Config Viewer")
@@ -2116,8 +2097,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
             rel = data["rel_path"]
             action_rename = menu.addAction("Rename…")
             action_rename.triggered.connect(lambda: self.prompt_rename(rel))
-            action_delete = menu.addAction("Delete…")
-            action_delete.triggered.connect(lambda: self.prompt_delete(rel))
         elif data["type"] == "dir":
             rel = data["rel_path"]
             dir_path = Path(data["path"])
@@ -2131,8 +2110,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 action_new_folder.triggered.connect(lambda: self.prompt_new_folder(rel))
                 action_refresh = menu.addAction("Refresh Group")
                 action_refresh.triggered.connect(self.populate)
-                action_delete_dir = menu.addAction("Delete Group…")
-                action_delete_dir.triggered.connect(lambda: self.prompt_delete_dir(rel))
             elif is_exp:
                 action_new = menu.addAction("New Experiment…")
                 action_new.triggered.connect(lambda: self.prompt_new_in_folder(rel))
@@ -2140,8 +2117,6 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                 action_new_folder.triggered.connect(lambda: self.prompt_new_folder(rel))
                 action_rename_dir = menu.addAction("Rename Folder…")
                 action_rename_dir.triggered.connect(lambda: self.prompt_rename_dir(rel))
-                action_delete_dir = menu.addAction("Delete Folder…")
-                action_delete_dir.triggered.connect(lambda: self.prompt_delete_dir(rel))
             else:
                 if rel == "system":
                     action_new_folder = menu.addAction("New Subfolder…")
@@ -2155,16 +2130,12 @@ class ConfigTreeWidget(TreeToolbarPersistence, TreeHeaderActions, QWidget):
                     if not data.get("is_group"):
                         action_rename_dir = menu.addAction("Rename Folder…")
                         action_rename_dir.triggered.connect(lambda: self.prompt_rename_dir(rel))
-                        action_delete_dir = menu.addAction("Delete Folder…")
-                        action_delete_dir.triggered.connect(lambda: self.prompt_delete_dir(rel))
 
         menu.addSeparator()
         action_collapse = menu.addAction("Collapse All")
         action_collapse.triggered.connect(self.collapse_all)
         action_expand = menu.addAction("Expand All")
         action_expand.triggered.connect(self.expand_all)
-
-        menu.exec(self.tree.viewport().mapToGlobal(position))
 
     def _create_in_specific_group(self, group_name):
         self.prompt_new_in_group(group=group_name)

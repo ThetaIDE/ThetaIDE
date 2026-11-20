@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QFile, QPoint, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QTreeView
+from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QTreeView
 
 from src.plugins.app.bundled.text_editor.explorer import FileExplorer
 
@@ -75,6 +75,44 @@ def test_native_hierarchy_and_lazy_live_filesystem_updates(explorer, tmp_path, m
     wait_for(lambda: index_for(explorer, added).isValid())
     added.unlink()
     wait_for(lambda: not index_for(explorer, added).isValid())
+
+
+def test_delete_targets_the_active_section_and_preserves_managed_items(explorer, tmp_path, monkeypatch):
+    root = tmp_path / "source"
+    root.mkdir()
+    normal = root / "normal.py"
+    normal.touch()
+    managed = root / "packages"
+    managed.mkdir()
+    related = tmp_path / "profiles" / "related.yaml"
+    related.parent.mkdir()
+    related.touch()
+    explorer.open_root(root, [related])
+    trashed, warnings = [], []
+
+    def move_to_trash(name):
+        trashed.append(Path(name))
+        return True, ""
+
+    monkeypatch.setattr(explorer, "is_managed", lambda path, *, include_descendants: path == managed and include_descendants)
+    monkeypatch.setattr(QFile, "moveToTrash", move_to_trash)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args[-1]))
+
+    explorer.reveal(normal)
+    wait_for(explorer.btn_delete.isEnabled)
+    explorer.btn_delete.click()
+    explorer.reveal(managed)
+    wait_for(lambda: explorer.source_tree.currentIndex() == index_for(explorer, managed))
+    QTest.keyClick(explorer.source_tree, Qt.Key.Key_Delete)
+    assert warnings and trashed == [normal]
+
+    explorer.reveal(related)
+    wait_for(lambda: explorer.related_tree.currentIndex().isValid())
+    monkeypatch.setattr(QMenu, "exec", lambda menu, _pos: menu.actions()[-1].trigger())
+    tree = explorer.related_tree
+    tree.customContextMenuRequested.emit(tree.visualRect(tree.currentIndex()).center())
+    assert trashed == [normal, related]
 
 
 def test_related_paths_are_scoped_and_activate_actual_files(explorer, tmp_path):

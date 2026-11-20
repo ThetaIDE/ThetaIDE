@@ -230,8 +230,9 @@ def setup_loggers(cfg, results_root):
     )
     log_dir = os.path.join(results_root, "logs", group_name, exp_id)
     logger_kwargs = {}
-    if cfg.get("variability_run_id"):
-        logger_kwargs["version"] = str(cfg.get("variability_version", "version_0")).removeprefix("version_")
+    from src.app.pipeline.result_paths import training_result_version
+    if version := training_result_version(cfg):
+        logger_kwargs["version"] = version.removeprefix("version_") if version.startswith("version_") else version
     else:
         from src.app.pipeline.trial_artifacts import trial_log_version
         version = trial_log_version(cfg)

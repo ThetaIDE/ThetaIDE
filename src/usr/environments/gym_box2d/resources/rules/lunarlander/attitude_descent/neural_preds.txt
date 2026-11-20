@@ -1,0 +1,4 @@
+idle:1:oagent
+correct_left:1:oagent
+thrust:1:oagent
+correct_right:1:oagent

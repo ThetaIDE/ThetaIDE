@@ -7,7 +7,8 @@ functionality from the modules of this package only:
 ``src.app.api.errors``     shared exception types
 ``src.app.api.config``     method parsing and editable configuration files
 ``src.app.api.execution``  engines, worker processes, interpreters and resource admission
-``src.app.api.tuning``     portable tuner execution, objectives and trial artifacts
+``src.app.api.tuning``     tuner execution, objectives and trial artifacts
+``src.app.api.dynamic``    safe-boundary configuration and schedule replay
 ``src.app.api.models``     model provider registration and construction (loads PyTorch)
 ``src.app.api.agents``     Lightning agent base classes and registration (loads Lightning)
 ``src.app.api.environments`` vectorized environment base class
@@ -34,13 +35,13 @@ it.
 """
 from __future__ import annotations
 
-SDK_VERSION = "3.4"
+SDK_VERSION = "3.5"
 
 
 def sdk_requirement_error(spec) -> str | None:
     """Explain why an SDK requirement is unsatisfied, or return None.
 
-    Every app plugin must declare the range it was written for.
+    App plugins require an SDK range. Native components may also declare one.
     """
     if spec is None:
         return "declares no sdk requirement; declare the range it was written for, such as '>=3.0,<4'"

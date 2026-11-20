@@ -162,15 +162,19 @@ class LossesPlotter(BasePlotter):
         from src.app.api.plotting import (aggregate, auto_text, by_method, hover_param, legend_opacity, legend_param,
                                           metric_runs, smooth, thin_xy, vega_lite_figure, zoom_param)
 
-        from .common import colors, load_runs, method_styles, tooltip, x_axis
+        from .common import colors, data_title, load_runs, method_styles, tooltip, x_axis
 
         group, runs_data = load_runs(self, exp_id, params)
         logged = sorted({column for versions in runs_data.values() for df in versions.values()
                          for column in df.columns if str(column).startswith("losses/")})
         losses = list(params["metrics"]) or logged
         rows, methods, x_title = [], set(), None
+        common_x = bool(params.get("sources"))
         for loss in losses:
-            runs, used = metric_runs(runs_data, loss, params["x_quantity"])
+            runs, used = metric_runs(runs_data, loss, params["x_quantity"], common_x=common_x)
+            if common_x and runs and x_title and used != x_title:
+                raise ValueError("Selected losses use different x-axis quantities. "
+                                 "Choose an x-axis quantity recorded for all of them.")
             x_title = x_title or (used if runs else None)
             for method, method_runs in by_method(runs).items():
                 methods.add(method)
@@ -185,9 +189,9 @@ class LossesPlotter(BasePlotter):
                     rows.append(row)
         if not rows:
             wanted = ", ".join(losses) if losses else "any losses/ metric"
-            raise ValueError(f"No run of {exp_id} logged {wanted}.")
+            raise ValueError(f"No run of {data_title(exp_id, params)} logged {wanted}.")
         methods = sorted(methods)
-        styles = method_styles(self, exp_id, group, methods)
+        styles = method_styles(self, exp_id, group, methods, sources=params.get("sources"))
         for row in rows:
             row["method"] = styles[row["method"]]["label"]
         x_title = x_title or "Transitions"
@@ -213,6 +217,6 @@ class LossesPlotter(BasePlotter):
                  "layer": layers}
         return vega_lite_figure(
             params, ["title", "line_width", "opacity", "x_label"], rows, container=False,
-            title=auto_text("title", f"{exp_id} · losses"),
+            title=auto_text("title", f"{data_title(exp_id, params)} · losses"),
             facet={"field": "loss", "type": "nominal", "title": None, "sort": losses},
             columns=params["columns"], spec=panel, resolve={"scale": {"y": "independent"}})

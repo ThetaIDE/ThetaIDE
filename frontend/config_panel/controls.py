@@ -771,6 +771,7 @@ def _make_param_adder_button(
     parent_widget: QWidget | None = None,
     allow_custom: bool = True,
     custom_prompt: tuple[str, str] = ("Add Parameter", "Parameter name:"),
+    populate=None,
 ) -> QToolButton:
     """Create a subtle plus button that opens a focused dropdown menu for selecting a parameter.
 
@@ -835,7 +836,15 @@ def _make_param_adder_button(
 
     btn.setMenu(menu)
     btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-    btn.setEnabled(not menu.isEmpty())
+    if populate is not None:
+        def refresh():
+            submenus = [action.menu() for action in menu.actions() if action.menu() is not None]
+            menu.clear()
+            for submenu in submenus:
+                submenu.deleteLater()
+            populate(menu)
+        menu.aboutToShow.connect(refresh)
+    btn.setEnabled(populate is not None or not menu.isEmpty())
     return btn
 
 

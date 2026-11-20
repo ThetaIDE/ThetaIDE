@@ -40,7 +40,7 @@ def findings(paths, experiment):
 def test_sdk_exports_the_contract():
     from src.app.api import SDK_VERSION, plotting
     from src.app.core.plotting import thinning
-    assert SDK_VERSION == "3.4"
+    assert SDK_VERSION == "3.5"
     assert plotting.FIGURE_CONTRACT == FIGURE_CONTRACT == "figure/vega-lite-v1"
     assert plotting.thin_xy is thinning.thin_xy
 

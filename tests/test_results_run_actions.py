@@ -117,3 +117,21 @@ def test_rename_run_file_rejects_conflicts_and_unsafe_paths(tmp_path, monkeypatc
     assert source.read_text() == "keep"
     assert (folder / "existing.txt").read_text() == "existing"
     assert outside.read_text() == "outside"
+
+
+def test_delete_run_file_only_removes_the_owned_artifact(workspace_results):
+    run = workspace_results / "logs/group/run"
+    nested = run / "20261120-120000"
+    nested.mkdir(parents=True)
+    (nested / "config.yaml").touch()
+    artifact = run / "report.txt"
+    artifact.touch()
+    (run / "alias.txt").symlink_to(artifact)
+
+    with pytest.raises(PermissionError, match="nested saved run"):
+        catalog.delete_run_file("group", "run", "logs/group/run/20261120-120000/config.yaml")
+    with pytest.raises(ValueError, match="symbolic links"):
+        catalog.delete_run_file("group", "run", "logs/group/run/alias.txt")
+    catalog.delete_run_file("group", "run", "logs/group/run/report.txt")
+    assert not artifact.exists()
+    assert (nested / "config.yaml").exists() and (run / "alias.txt").is_symlink()

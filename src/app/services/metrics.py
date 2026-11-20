@@ -6,16 +6,16 @@ import csv
 import os
 from pathlib import Path
 
+from src.app.pipeline.result_paths import iter_result_versions, result_version_order
+
 
 def latest_version_file(agent_dir: Path, name: str) -> Path | None:
-    """`name` inside the newest version_N folder of an agent's log directory (by N, so version_10 > version_9)."""
+    """Find a file in the latest numeric trial/seed or legacy version directory."""
 
-    def number(path: Path) -> int:
-        suffix = path.parent.name.removeprefix("version_")
-        return int(suffix) if suffix.isdigit() else -1
-
-    files = sorted(agent_dir.glob(f"version_*/{name}"), key=number)
-    return files[-1] if files else None
+    directories = (path for path in iter_result_versions(agent_dir) if (path / name).is_file())
+    latest = max(directories, key=lambda path: result_version_order(path.relative_to(agent_dir).as_posix()),
+                 default=None)
+    return latest / name if latest is not None else None
 
 
 def latest_metrics_csv(agent_dir: Path) -> Path | None:
@@ -167,11 +167,6 @@ class StreamTail:
         return [rec for line in lines if (rec := decode(line)) is not None], reset
 
 
-def _version_number(path: Path) -> int:
-    suffix = path.name.removeprefix("version_")
-    return int(suffix) if suffix.isdigit() else -1
-
-
 class AgentFeed:
     """Every telemetry record of one agent's newest run, read incrementally.
 
@@ -195,10 +190,10 @@ class AgentFeed:
         if self.version is not None:
             path = self.agent_dir / self.version
             return path if (path / "events.jsonl").exists() or (path / "metrics.csv").exists() else None
-        candidates = [
-            d for d in self.agent_dir.glob("version_*") if (d / "events.jsonl").exists() or (d / "metrics.csv").exists()
-        ]
-        return max(candidates, key=_version_number) if candidates else None
+        candidates = (path for path in iter_result_versions(self.agent_dir)
+                      if (path / "events.jsonl").is_file() or (path / "metrics.csv").is_file())
+        return max(candidates, key=lambda path: result_version_order(path.relative_to(self.agent_dir).as_posix()),
+                   default=None)
 
     @property
     def pending(self):

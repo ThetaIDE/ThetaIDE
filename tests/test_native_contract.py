@@ -142,3 +142,19 @@ def test_config_destinations_are_logical_selectors(tmp_path, destination):
     (source / 'profile.yaml').write_text('architecture: native\n')
     with pytest.raises(ValueError, match='config selector'):
         validate_native_package(meta, source)
+
+
+def test_native_package_sdk_requirement_blocks_incompatible_install(tmp_path):
+    source = tmp_path / "source"
+    meta = package(source, compatibility={"sdk": ">=99"})
+    archive = tmp_path / "native.zip"
+    with ZipFile(archive, "w") as bundle:
+        for file in source.iterdir():
+            bundle.write(file, file.name)
+
+    installer = HubInstaller(tmp_path / "workspace", tmp_path / "state")
+    component = HubComponent.from_dict(meta)
+    component.releases = {component.version: ReleaseInfo(component.version, archive.as_uri(), "")}
+    with pytest.raises(ValueError, match="requires Theta SDK >=99"):
+        installer.install(component, install_dependencies=False)
+    assert not installer.paths.installed_components.exists()

@@ -3,7 +3,7 @@
 from src.app.api.plotting import (BasePlotter, aggregate, auto_text, by_method, hover_param, metric_runs, smooth,
                                   thin_xy, vega_lite_figure, zoom_param)
 
-from .common import load_runs, method_styles, metric_title, tooltip, x_axis, y_encoding
+from .common import data_title, load_runs, method_styles, metric_title, tooltip, x_axis, y_encoding
 
 LIVE = ["title", "line_width", "run_opacity", "x_label", "y_label", "y_min", "y_max"]
 
@@ -20,12 +20,12 @@ class RunVariabilityPlotter(BasePlotter):
     def figure_spec(self, exp_id: str, params: dict) -> dict:
         group, runs_data = load_runs(self, exp_id, params)
         metric = params["metric"]
-        runs, x_title = metric_runs(runs_data, metric, params["x_quantity"])
+        runs, x_title = metric_runs(runs_data, metric, params["x_quantity"], common_x=bool(params.get("sources")))
         if not runs:
-            raise ValueError(f"No run of {exp_id} logged {metric!r}.")
+            raise ValueError(f"No run of {data_title(exp_id, params)} logged {metric!r}.")
         grouped = by_method(runs)
         methods = sorted(grouped)
-        styles = method_styles(self, exp_id, group, methods)
+        styles = method_styles(self, exp_id, group, methods, sources=params.get("sources"))
         rows = []
         for method in methods:
             label = styles[method]["label"]
@@ -63,6 +63,6 @@ class RunVariabilityPlotter(BasePlotter):
             ],
         }
         return vega_lite_figure(
-            params, LIVE, rows, title=auto_text("title", f"{exp_id} · {metric} by run"), container=False,
+            params, LIVE, rows, title=auto_text("title", f"{data_title(exp_id, params)} · {metric} by run"), container=False,
             facet={"field": "method", "type": "nominal", "title": None, "sort": labels},
             columns=params["columns"], spec=panel, resolve={"scale": {"y": "shared"}})

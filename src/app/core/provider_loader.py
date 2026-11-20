@@ -29,7 +29,12 @@ def _namespace(name, directory):
 
 def module_prefix(package, paths):
     if package.origin == "bundled":
-        return ".".join(package.root.relative_to(paths.application).parts)
+        source = package.root
+        inputs = paths.launch_inputs_snapshot()
+        if inputs is not None:
+            source = next(Path(record["source"]) for record in inputs["packages"]
+                          if Path(record["manifest"]).parent == package.root)
+        return ".".join(source.relative_to(paths.application).parts)
     identity = hashlib.sha256((paths.identity + "\0" + package.id).encode()).hexdigest()[:24]
     return "src.plugins._workspace.p_" + identity
 
@@ -41,7 +46,7 @@ def load_module(package, relative="__init__.py", *, paths=None, fresh=False):
     if source.is_dir(): source = source / "__init__.py"
     if not source.is_file(): raise ImportError(f"Provider {package.id}: missing entry point {source}")
     prefix = module_prefix(package, paths)
-    if package.origin == "bundled":
+    if package.origin == "bundled" and paths.launch_inputs_snapshot() is None:
         suffix = source.relative_to(package.root).with_suffix("").parts
         if suffix[-1] == "__init__": suffix = suffix[:-1]
         name = ".".join((prefix, *suffix))
@@ -110,11 +115,11 @@ def load_capability(package, capability, *, paths=None):
     return value
 
 
-def invalidate(paths=None, package_root=None, package_id=None):
+def invalidate(paths=None, package_root=None, package_id=None, *, include_bundled=False):
     """Remove only objects owned by this workspace/package, including decorator entries."""
     paths = paths or WorkspacePaths.for_process()
     prefixes = {module_prefix(p, paths) for p in __import__("src.app.core.provider_catalog", fromlist=["get_catalog"]).get_catalog(paths).packages
-                if p.origin not in ("python_distribution", "bundled") and (package_root is None or p.root == Path(package_root).resolve()) and (package_id is None or p.id == package_id)}
+                if p.origin != "python_distribution" and (include_bundled or p.origin != "bundled") and (package_root is None or p.root == Path(package_root).resolve()) and (package_id is None or p.id == package_id)}
     canonical_prefix = "src.plugins._workspace.p_" + hashlib.sha256((paths.identity + "\0" + str(package_id)).encode()).hexdigest()[:24] if package_id else None
     if canonical_prefix: prefixes.add(canonical_prefix)
     prefixes.update(name for name, (ws, root) in _OWNED.items()

@@ -12,6 +12,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf, open_dict
 
 from src.app.pipeline.variability import make_plan, run_execution
+from src.app.pipeline.result_paths import result_experiment_id, trial_result_version
 from src.app.services.cancellation import TrainingCancelled
 from src.app.workspace import WorkspacePaths
 
@@ -66,18 +67,23 @@ def run_objective(cfg, *, execute=None):
     planning_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
     if planning_cfg.get("variability") is None:
         with open_dict(planning_cfg):
-            planning_cfg.variability = {"training_seeds": [int(cfg.seed)]}
+            planning_cfg.variability = {"training_seeds": [int(cfg.seed)],
+                                        "evaluation_seed": cfg.get("variability_evaluation_seed")}
     plan = make_plan(planning_cfg, {"methods": {name: {}}, "is_interactive": True})
     version = trial_log_version(cfg) or "version_execution_" + uuid.uuid4().hex[:12]
     runtime = cfg.get("theta_tuning") or {}
+    identity = str(cfg.experiment_id)
+    result_version = (trial_result_version(int(runtime.get("trial_number") or 0))
+                      if result_experiment_id(identity) != identity else version)
     parent = {"kind": "trial" if runtime.get("study_name") else "method", "method": name,
-              "study": runtime.get("study_name"), "trial_number": runtime.get("trial_number"), "log_version": version}
+              "study": runtime.get("study_name"), "trial_number": runtime.get("trial_number"),
+              "log_version": version, "result_version": result_version}
     paths = WorkspacePaths.for_process()
     logs = paths.results / "logs" / str(cfg.group) / str(cfg.experiment_id) / name
-    output = logs / version
+    output = logs / result_version
     output.mkdir(parents=True, exist_ok=True)
     checkpoint_root = paths.results / "checkpoints" / str(cfg.group) / str(cfg.experiment_id) / name
-    artifact_root = trial_checkpoint_dir_from_config(checkpoint_root, cfg) or checkpoint_root / version
+    artifact_root = trial_checkpoint_dir_from_config(checkpoint_root, cfg) or checkpoint_root / result_version
     artifact_root.mkdir(parents=True, exist_ok=True)
 
     def dispatch(child, run, on_start, on_wait):
@@ -103,6 +109,10 @@ def run_objective(cfg, *, execute=None):
         scoring_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
         with open_dict(scoring_cfg):
             scoring_cfg.objective = {"component": "final_metric", "params": {"metric": metric}}
+            # The scorer is an internal adapter for metric mode. Compatibility
+            # and pruning are checked against the original launch configuration.
+            scoring_cfg.tuning = None
+            scoring_cfg.theta_tuning = None
     from src.app.pipeline.trial_pruning import progress_pruning
     pruning = progress_pruning(cfg, scoring_cfg, version, output, paths=paths)
     try:
@@ -114,15 +124,16 @@ def run_objective(cfg, *, execute=None):
             pruning.stop()
     if pruning and pruning.error:
         raise pruning.error
-    if pruning and pruning.pruned:
-        raise TrainingCancelled()
     execution = json.loads(path.read_text(encoding="utf-8"))
-    if any(run["status"] == "cancelled" for run in execution["runs"]):
+    failed = [run for run in execution["runs"] if run["status"] not in ("completed", "cancelled")]
+    if failed:
+        raise RuntimeError(f"Cannot score trial: {len(failed)} training replicate(s) failed; see {path}")
+    if (pruning and pruning.pruned) or any(run["status"] == "cancelled" for run in execution["runs"]):
         raise TrainingCancelled()
     result, result_path = score_execution(scoring_cfg, path, output, artifact_root, paths=paths)
     from src.app import telemetry
     run = telemetry.init(str(cfg.group), str(cfg.experiment_id), name,
-                         config=OmegaConf.to_container(cfg, resolve=True), version=version)
+                         config=OmegaConf.to_container(cfg, resolve=True), version=result_version)
     run.log({metric: result.value}, step=0)
     run.artifact(result_path, kind="objective")
     run.finish()

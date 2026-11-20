@@ -165,7 +165,6 @@ class DiscussionPanel(QWidget):
         self.builder.built.connect(self._built)
         self.builder.failed.connect(self.figure_view.error)
         self.tree.figure_selected.connect(self.select_figure)
-        self.tree.add_requested.connect(self.open_picker)
         self.tree.rename_requested.connect(self.start_rename)
         self.tree.about_to_modify.connect(self._release)
         self.tree.experiment_selected.connect(self._experiment_selected)
@@ -288,10 +287,14 @@ class DiscussionPanel(QWidget):
 
     # ── Adding figures ───────────────────────────────────────────────────────
 
-    def open_picker(self, experiment):
-        """Show the experiment's compatible plot components in place of the Parameters box."""
+    def open_picker(self, experiment, *, runs=None):
+        """Show the Results selection's compatible plot components, even for its first figure."""
         if not experiment:
             return
+        self.tree.tree.setCurrentItem(None)
+        if runs is not None:
+            self.tree.set_runs(runs)
+        self._experiment_selected(experiment)
         self._discard_picker()
         self.picker = FigurePicker(experiment, self.candidates)
         self.picker.chosen.connect(self.add_figure)
@@ -303,6 +306,7 @@ class DiscussionPanel(QWidget):
 
     def close_picker(self):
         self._discard_picker()
+        self._experiment_selected(self.tree.selected_experiment())
         self.parameter_stack.setCurrentIndex(self.PARAMETERS_PAGE if self.parameters is not None else 0)
 
     def _discard_picker(self):

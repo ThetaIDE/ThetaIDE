@@ -1,0 +1,12 @@
+# Stable-Baselines3 SAC (Soft Actor Critic)
+algorithm: sb3_dev/sb3/sac
+backend: sb3
+policy: MlpPolicy
+learning_rate: 3e-4
+buffer_size: 50000
+learning_starts: 100
+batch_size: 64
+gamma: 0.99
+tau: 0.005
+ent_coef: auto
+observation_scaling: none

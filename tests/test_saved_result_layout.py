@@ -109,6 +109,35 @@ def test_results_tree_groups_nested_saves_and_keeps_siblings_apart():
     explorer.deleteLater()
 
 
+def test_results_tree_shows_the_trial_and_seed_even_for_one_seed():
+    pytest.importorskip('PyQt6')
+    from PyQt6.QtWidgets import QApplication
+    from frontend.results.data import Manifest
+    from frontend.results.explorer import RunExplorer
+
+    application = QApplication.instance() or QApplication([])
+    explorer = RunExplorer()
+    identity = 'path/g_run/20261112-120000'
+    version = 'trial_4/seed_73'
+    explorer.set_runs([{'group': 'g', 'experiment_id': identity, 'agents': [{'name': 'ppo'}], 'finished': True}])
+    explorer.add_manifest(Manifest('g', identity, {'ppo': [version]}, []))
+    group = explorer.tree.topLevelItem(0)
+    folder = group.child(0)
+    experiment = folder.child(0)
+    stamp = experiment.child(0)
+    method = stamp.child(0)
+    trial = method.child(0)
+    seed = trial.child(0)
+    assert [item.text(0) for item in (group, folder, experiment, stamp, method, trial, seed)] == [
+        'g', 'path', 'g_run', '20261112-120000', 'ppo', 'trial_4', 'seed_73']
+    icons = [item.icon(0) for item in (folder, experiment, method)]
+    assert all(not icon.isNull() for icon in icons)
+    assert len({icon.cacheKey() for icon in icons}) == 3
+    assert explorer.select_version(f'g/{identity}', 'ppo', version)
+    assert [source.version for source in explorer.checked_sources()] == [version]
+    explorer.deleteLater()
+
+
 @pytest.mark.parametrize("identity", ["nested/run", "nested/run/" + "a" * 32])
 def test_variability_results_are_nested(tmp_path, monkeypatch, identity):
     from src.app.pipeline.variability import run_execution

@@ -28,9 +28,10 @@ from PyQt6.QtWidgets import QApplication, QLayout, QLineEdit, QWidget
 from ..config_panel.controls import (ConfigBox, IndentedHierarchyBlock, ParameterForm,
                                      _collapsible_parameter_label, _make_param_adder_button,
                                      _make_subtle_tool_button, _parameter_row)
-from ..config_panel.editors import schema_kind, set_error, value_editor
+from ..config_panel.editors import ChoiceListEditor, schema_kind, set_error, value_editor
 from ..config_panel.rendering import ParameterNode, render_nodes
-from .model import FigureError
+from .model import FIGURE_SOURCES, FigureError, target_runs
+from .sources import populate_sources, source_label
 
 INHERITED_TIP = "Default. Editing creates an explicit value."
 AUTO = "Auto"
@@ -95,10 +96,19 @@ class ParametersBox(ConfigBox):
         _clear(self.layout)
         self.editors, self.groups = {}, {}
         properties = self.doc.schema().get("properties") or {}
+        values = self.doc.values()
+        self.source_key = next((key for key, node in properties.items() if node.get(FIGURE_SOURCES)), None)
+        sources = values.get(self.source_key, ())
+        self.filtered_metrics = (
+            list(target_runs(self.doc.paths, self.doc.experiment, sources=sources,
+                             methods=values.get("methods", ())).metrics)
+            if self.source_key else self.metric_choices
+        )
         defaults = self.doc.defaults()
         required = set(self.doc.required())
-        shown = [key for key in properties if key in self.doc.params or key in defaults or key in required]
-        addable = [key for key in properties if key not in shown]
+        available = [key for key, node in properties.items() if not (sources and node.get("x-theta-method"))]
+        shown = [key for key in available if key in self.doc.params or key in defaults or key in required]
+        addable = [key for key in available if key not in shown]
         add = _make_param_adder_button("Add parameter", addable, self.add_param, parent_widget=self,
                                        allow_custom=False)
         add.setProperty("parameterPath", "")
@@ -107,7 +117,6 @@ class ParametersBox(ConfigBox):
         self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.title_label.installEventFilter(self)
 
-        values = self.doc.values()
         ungrouped, grouped = [], {}
         for key in shown:
             schema = properties[key]
@@ -138,7 +147,7 @@ class ParametersBox(ConfigBox):
 
     def _choices(self, schema):
         if schema.get("x-theta-metric"):
-            return self.metric_choices
+            return self.filtered_metrics
         if schema.get("x-theta-method"):
             return self.method_choices
         return None
@@ -146,9 +155,22 @@ class ParametersBox(ConfigBox):
     def _editor(self, key, value, schema):
         holder = []
         choices = self._choices(schema)
-        if choices is not None and schema_kind(schema) != "array" and not choices:
+        strict = bool(self.source_key and schema.get("x-theta-metric"))
+        if choices is not None and schema_kind(schema) != "array" and not choices and not strict:
             choices = None  # nothing logged yet: type a value
-        editor = value_editor(value, schema, lambda edited: self.set_param(key, edited, holder[0]), choices=choices)
+        def write(edited):
+            self.set_param(key, edited, holder[0])
+
+        if schema.get(FIGURE_SOURCES):
+            editor = ChoiceListEditor(
+                value, (), write, noun="data source", allow_custom=False, label=source_label,
+                populate=lambda menu: populate_sources(menu, self.doc.paths, holder[0].values, holder[0].add),
+                empty_text="This experiment or run",
+            )
+        else:
+            editor = value_editor(value, schema, write, choices=choices, strict_choices=strict)
+            if strict and schema_kind(schema) == "string":
+                editor.setPlaceholderText("Select a metric" if choices else "No logged metrics")
         holder.append(editor)
         editor.setProperty("parameterPath", key)
         editor.setProperty("figureParameter", key)
@@ -268,7 +290,9 @@ class ParametersBox(ConfigBox):
             return False
         self.doc.save()
         self._changed(key)
-        if not was_explicit:
+        if self.source_key and (key == self.source_key or schema.get("x-theta-method")):
+            QTimer.singleShot(0, self.render)
+        elif not was_explicit:
             self._structure_changed(editor)
         return True
 

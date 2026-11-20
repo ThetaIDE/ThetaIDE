@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from src.app.pipeline.result_paths import iter_result_versions
+
 # Qualitative palette guaranteeing distinct colors for methods on the same plot
 QUALITATIVE_PALETTE = [
     "#1f77b4",  # blue
@@ -415,8 +417,7 @@ class BasePlotter:
             if canon_name not in results:
                 results[canon_name] = {}
 
-            # Check version_X subdirectories
-            version_dirs = sorted([d for d in method_dir.glob("version_*") if d.is_dir()])
+            version_dirs = sorted(iter_result_versions(method_dir))
             if not version_dirs:
                 version_dirs = [method_dir]
 
@@ -426,11 +427,8 @@ class BasePlotter:
                     try:
                         df = pd.read_csv(csv_path)
                         if not df.empty:
-                            v_key = (
-                                f"{raw_method_name}_{v_dir.name}"
-                                if canon_name in results and v_dir.name in results[canon_name]
-                                else v_dir.name
-                            )
+                            version = v_dir.relative_to(method_dir).as_posix() if v_dir != method_dir else v_dir.name
+                            v_key = f"{raw_method_name}_{version}" if version in results[canon_name] else version
                             results[canon_name][v_key] = df
                     except Exception as e:
                         print(f"Error reading {csv_path}: {e}")

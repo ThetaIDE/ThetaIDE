@@ -1,8 +1,10 @@
 # Discussion
 
-Open **Discussion** in the side tabs, after Results. Its tree shows experiment groups and subfolders, with timestamped saved runs beneath their experiments, using the same catalog and labels as Results. Select a stamped run and use the square **+** in the tree toolbar to add a figure for that run. Its parameters and discussion belong to that run, and plotting reads only its metrics. Saved runs remain available even if the current experiment recipe was removed.
+To add a figure, select an experiment in **Results** and click the square **+** above its tree. This opens **Discussion** with the **Add figure** picker for that experiment. Select a saved run in Results to create a figure scoped to that run's metrics.
 
-Experiment-level figures remain directly under the experiment. Select a figure to reopen its chart and discussion. Use Reload to pick up new runs. The **+** replaces the parameters column with an **Add figure** box: one card per installed plot component that provides the figure contract and satisfies the selected target's compatibility requirements. Each card shows the component's package, version and parameter count; warnings appear on the card. Click a card (or focus it and press Enter) to create the figure and open its parameters. **×** or Escape closes the box without adding anything. Run compatibility reads the saved run config; if it has not been downloaded, sync it before adding figures.
+The picker shows a card for each installed plot component that satisfies the selected target's compatibility requirements. Each card shows the component's package, version, parameter count and any warnings. Click a card or press Enter on it to create the figure and open its parameters. **×** or Escape cancels. The picker reads the saved run config for run-level figures. Use Results to sync the config if it is missing.
+
+The Discussion tree shows only branches that contain figures. Experiment-level figures appear directly under the experiment, and run-level figures appear under the saved run. Select a figure to reopen its chart and discussion.
 
 The page is laid out like the Experiment tab: a title naming the selected experiment or run, the figure's parameter box (titled with the figure's name) on the left, and the **Figure** and **Discussion** cards on the right. Select a figure to open its parameters, chart, and plain-text discussion.
 
@@ -24,6 +26,10 @@ Parameters use the shared configuration controls, grouped into **Data**, **Axes*
 
 `metric` offers the metrics the selected target's runs logged, and `methods` offers its methods: pick entries with **+**, remove them with their **×**, or leave the list empty to include every method. Fields such as `title`, `x_label`, `y_min` and `y_max` show **Auto** while unset; clear one to return to the automatic value.
 
+For a standard metric figure, click **+** beside **Data sources** to browse workspace results by group and experiment. Choose an entire result, all runs of one method, or an individual seed or log version. Add as many sources as you need. To include the figure's own experiment or run alongside others, select it in the same menu. Clearing the source list returns to the figure's own data.
+
+The metric picker offers metrics logged by any of the selected sources. For each metric the figure uses the selected logs that contain values for it. Method labels include the source result so the same method from different experiments stays distinct.
+
 Live parameters (titles, labels, axis ranges, line width and opacity) update the chart immediately. Other parameters rebuild it in the background after a short pause. Reopening an unchanged figure draws at once from memory; new or changed runs are picked up automatically.
 
 ## The figure
@@ -39,6 +45,8 @@ Component errors appear in the chart pane.
 ## Managing figures
 
 Right-click a figure in the tree to **Rename…**, **Duplicate** or **Delete…** it. **F2** renames the selected figure and **Delete** (or Backspace) deletes it after confirmation; clicking the parameter box title also renames. Names use letters, digits, spaces, `_` and `-`. Press Enter to apply a rename or Escape to cancel; a name already in use stays in the field with the reason. The discussion text always moves, copies and deletes with its figure. A duplicate is named `<name>_copy`.
+
+Select a folder and click the trash icon, or right-click it and choose **Delete…**, to delete all figures and discussion text in that branch. This includes figures hidden by search or inside collapsed folders. Experiment recipes and run results stay on disk.
 
 ## Discussion text
 

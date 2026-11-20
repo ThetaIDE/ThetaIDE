@@ -150,6 +150,9 @@ class LocalBackend(QObject):
     def rename_run_file(self, group: str, experiment_id: str, path: str, new_name: str, callback: Callback):
         self._submit(partial(catalog.rename_run_file, workspace=self.paths), group, experiment_id, path, new_name, callback=callback)
 
+    def delete_run_file(self, group: str, experiment_id: str, path: str, callback: Callback):
+        self._submit(partial(catalog.delete_run_file, workspace=self.paths), group, experiment_id, path, callback=callback)
+
     def wait(self, msecs: int = 30000) -> bool:
         """Block until queued calls finish (tests and shutdown)."""
         started = time.monotonic()

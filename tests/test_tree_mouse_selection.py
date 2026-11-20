@@ -29,12 +29,18 @@ def test_results_command_selection_survives_right_click(monkeypatch):
     click(tree, items[0])
     click(tree, items[2], Qt.KeyboardModifier.ControlModifier)
     assert len(tree.selectedItems()) == 2
-    monkeypatch.setattr(QMenu, "exec", lambda *args: None)
+    deleted = []
+    widget.delete_selection_requested.connect(deleted.append)
+
+    def delete_selection(menu, _position):
+        next(action for action in menu.actions() if action.text() == "Delete…").trigger()
+
+    monkeypatch.setattr(QMenu, "exec", delete_selection)
     position = tree.visualItemRect(items[0]).center()
     QTest.mouseClick(tree.viewport(), Qt.MouseButton.RightButton, pos=position)
     widget._context_menu(position)
     assert len(tree.selectedItems()) == 2
-    assert widget.deletion_targets() == [("g", "a"), ("g", "c")]
+    assert deleted == [[("g", "a"), ("g", "c")]]
     click(tree, items[0], Qt.KeyboardModifier.ControlModifier)
     assert tree.selectedItems() == [items[2]]
     widget.close()

@@ -18,6 +18,8 @@ from typing import Any
 
 from PyQt6.QtCore import QFileSystemWatcher, QObject, QProcess, QProcessEnvironment, pyqtSignal
 
+from src.app.pipeline.result_paths import iter_result_versions
+from src.app.pipeline.trial_artifacts import trial_metrics_version
 from src.app.workspace import WorkspacePaths
 from src.app.services.config_service import LaunchError, prepare_launch
 from src.app.services.job_store import JobStore
@@ -302,7 +304,8 @@ class JobManager(QObject):
                         continue
                     label = f"{method} · {summary.get('study', '')} · trial {trial['id']}"
                     version = trial.get("log_version")
-                    trial_dir = self._run_dir(job) / (summary.get("log_method") or method) / str(version or "")
+                    method_dir = self._run_dir(job) / (summary.get("log_method") or method)
+                    trial_dir = method_dir / trial_metrics_version(method_dir, trial)
                     state = 'pending' if trial.get('state') == 'pending' else (
                         'running' if trial.get('execution_started') or version and any((trial_dir / name).exists()
                         for name in ('events.jsonl', 'metrics.csv')) else 'pending')
@@ -590,12 +593,12 @@ class JobManager(QObject):
         sweeps = self._sweep_summaries(job)
         if sweeps:
             for method, summary in sweeps:
+                agent = summary.get("log_method") or method
                 for trial in summary.get("trials", []):
-                    version = trial.get("log_version")
+                    version = trial_metrics_version(run_dir / agent, trial)
                     if version:
                         sources.append((f"{method} · {summary.get('study', '')} · trial {trial['id']}", run_dir,
-                                        summary.get("log_method") or method, version,
-                                        trial.get("state", "running")))
+                                        agent, version, trial.get("state", "running")))
             if sources:
                 return sources
         return [(str(agent), run_dir, str(agent), "", job.get("status", "running")) for agent in job.get("agents", [])]
@@ -615,7 +618,7 @@ class JobManager(QObject):
             paths.extend([run_dir.parent, run_dir])
             agent_dir = run_dir / agent
             paths.append(agent_dir)
-            version_dirs = [agent_dir / explicit_version] if explicit_version else list(agent_dir.glob("version_*"))
+            version_dirs = [agent_dir / explicit_version] if explicit_version else iter_result_versions(agent_dir)
             for version_dir in version_dirs:
                 paths.extend([version_dir, version_dir / "events.jsonl", version_dir / "metrics.csv"])
         existing = {str(p) for p in paths if Path(p).exists()}
@@ -660,10 +663,10 @@ class JobManager(QObject):
                     output = self.project_root / output
                 signature.append((run.get("run_id"), run.get("status"), run.get("waiting_reason"), output.is_file()))
         for method, summary in self._sweep_summaries(job):
+            method_dir = self._run_dir(job) / (summary.get("log_method") or method)
             signature.append((method, summary.get("stop_reason"),
                               tuple((t.get("id"), t.get("state"),
-                                     any((self._run_dir(job) / (summary.get("log_method") or method)
-                                          / str(t.get("log_version") or "") / name).exists()
+                                     any((method_dir / trial_metrics_version(method_dir, t) / name).exists()
                                          for name in ("events.jsonl", "metrics.csv")))
                                     for t in summary.get("trials", []))))
         return tuple(signature)
@@ -773,7 +776,7 @@ class JobManager(QObject):
                     self._watch(job)
                     self._execution_signatures[job_id] = self._execution_status_signature(job)
                     self._emit_queue()
-                if "returncode" not in record and not process_alive(record.get("pid"), record.get("process_started")):
+                if "returncode" not in record and process_alive(record.get("pid"), record.get("process_started")) is False:
                     record = read_announcement(path) or record  # its exit may have been recorded meanwhile
                     if "returncode" not in record:
                         job["error"] = "The terminal run ended without recording an exit code."

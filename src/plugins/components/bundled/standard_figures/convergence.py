@@ -4,7 +4,7 @@ import math
 from src.app.api.plotting import (BasePlotter, aggregate, auto_text, by_method, metric_runs, smooth, thin_xy,
                                   vega_lite_figure)
 
-from .common import (colors, hover_points, interactive_line, load_runs, method_styles, metric_title, tooltip,
+from .common import (colors, data_title, hover_points, interactive_line, load_runs, method_styles, metric_title, tooltip,
                      x_axis, y_encoding)
 
 LIVE = ["line_width", "opacity", "title", "x_label", "y_label", "y_min", "y_max"]
@@ -27,12 +27,12 @@ class ConvergencePlotter(BasePlotter):
         """
         group, runs_data = load_runs(self, exp_id, params)
         metric = params["metric"]
-        runs, x_title = metric_runs(runs_data, metric, params["x_quantity"])
+        runs, x_title = metric_runs(runs_data, metric, params["x_quantity"], common_x=bool(params.get("sources")))
         if not runs:
-            raise ValueError(f"No run of {exp_id} logged {metric!r}.")
+            raise ValueError(f"No run of {data_title(exp_id, params)} logged {metric!r}.")
         grouped = by_method(runs)
         methods = sorted(grouped)
-        styles = method_styles(self, exp_id, group, methods)
+        styles = method_styles(self, exp_id, group, methods, sources=params.get("sources"))
 
         rows = []
         for method in methods:
@@ -73,7 +73,7 @@ class ConvergencePlotter(BasePlotter):
                        ("hi", "Upper", "quantitative"))
         layers.append(hover_points("datum.kind === 'mean'", y, tips))
         return vega_lite_figure(
-            params, LIVE, rows, title=auto_text("title", f"{exp_id} · {metric}"),
+            params, LIVE, rows, title=auto_text("title", f"{data_title(exp_id, params)} · {metric}"),
             encoding={"x": {"field": "x", "type": "quantitative", "axis": x_axis(x_title)},
                       "color": colors(styles, methods, params["legend"])},
             layer=layers)

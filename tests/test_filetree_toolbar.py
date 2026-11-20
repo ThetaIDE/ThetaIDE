@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
@@ -44,6 +45,7 @@ class TestFileTreeToolbar(unittest.TestCase):
             self.tree_exp.btn_duplicate,
             self.tree_exp.btn_refresh,
             self.tree_exp.btn_launch,
+            self.tree_exp.btn_delete,
         ]:
             self.assertIsInstance(b, DraggableToolButton)
 
@@ -100,9 +102,25 @@ class TestFileTreeToolbar(unittest.TestCase):
             self.assertEqual([b.button_id for b in groups["row1_left"]], ["reload", "collapse_all", "expand_all", "search"])
             self.assertEqual([b.button_id for b in groups["row1_right"]], ["plus", "hub", "raw_yaml"])
             self.assertEqual([b.button_id for b in groups["row2_left"]], ["copy", "deep_copy"])
-            self.assertEqual([b.button_id for b in groups["row2_right"]], [])
+            self.assertEqual([b.button_id for b in groups["row2_right"]], ["trash"])
         finally:
             tree_comp.close()
+
+    def test_config_toolbar_and_context_menu_use_the_same_delete_target(self):
+        (self.root / "agent").mkdir()
+        (self.root / "agent" / "ppo.yaml").touch()
+        components = ConfigTreeWidget(root_dir=self.root, mode="components")
+        self.addCleanup(components.close)
+        for widget, path in ((self.tree_exp, "experiment/cartpole/exp1.yaml"), (components, "agent/ppo.yaml")):
+            with self.subTest(mode=widget.mode), patch.object(widget, "prompt_delete") as delete:
+                self.assertFalse(widget.btn_delete.isEnabled())
+                widget.select_file(path, emit_signal=False)
+                self.assertTrue(widget.btn_delete.isEnabled())
+                widget.btn_delete.click()
+                action = widget.build_context_menu(widget.tree.currentItem()).actions()[-1]
+                self.assertEqual(action.text(), "Delete…")
+                action.trigger()
+                self.assertEqual([call.args for call in delete.call_args_list], [(path,), (path,)])
 
 
 if __name__ == "__main__":

@@ -60,8 +60,13 @@ def publisher_fixture(tmp_path):
     return runtime, work, record, logs
 
 
-def test_atomic_publication_chunks_priority_coalescing_and_no_rehash(tmp_path, monkeypatch):
+@pytest.mark.parametrize('scratch_alias', [False, True])
+def test_atomic_publication_chunks_priority_coalescing_and_no_rehash(tmp_path, monkeypatch, scratch_alias):
     runtime, work, record, logs = publisher_fixture(tmp_path)
+    if scratch_alias:
+        alias = tmp_path / 'scratch'
+        alias.symlink_to(runtime, target_is_directory=True)
+        runtime = alias
     clock = [0]
     policy = {**DEFAULTS, 'chunk_bytes': 16, 'tick_bytes': 64, 'metrics_seconds': 60}
     publisher = Publisher(runtime, work, record, policy, clock=lambda: clock[0])

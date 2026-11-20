@@ -491,10 +491,14 @@ class PluginContext:
             except (TypeError, RuntimeError):
                 pass
 
-    def is_managed_file(self, path: Union[str, Path]) -> bool:
-        """True for files of an installed (non-user) package; edit a user override instead."""
+    def is_managed_file(self, path: Union[str, Path], *, include_descendants=False) -> bool:
+        """Check whether a path belongs to or optionally contains an installed package."""
         client = getattr(self._window, "hub_client", None)
-        return bool(client is not None and client.installer.is_installed_file(path))
+        if client is None:
+            return False
+        if include_descendants:
+            return client.installer.is_installed_file(path, include_descendants=True)
+        return client.installer.is_installed_file(path)
 
     def config_catalog(self, force_reload: bool = False):
         """The host's parsed configuration catalog for the selected workspace, or None."""

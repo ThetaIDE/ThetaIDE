@@ -515,6 +515,7 @@ def test_play_queues_before_starting_and_opens_the_queued_monitor():
     host = SimpleNamespace(
         check_missing_components=lambda: [], compose_valid=True,
         config=lambda: SimpleNamespace(name="new", overrides=lambda: []), current_experiment="g/new",
+        unique_experiment_id=lambda name, is_recover=False: name + "/20261120-120000",
         backend=SimpleNamespace(prepare_launch=prepare_launch),
         jobs=SimpleNamespace(launch=Mock(side_effect=lambda *a, **kw: calls.append(("launch", kw)) or job),
                              launch_claims=lambda: [{"job_id": "old"}]),
@@ -527,8 +528,8 @@ def test_play_queues_before_starting_and_opens_the_queued_monitor():
     Window.launch_training(host)
     # The launch check runs in the validation process; the runner receives its plan instead of
     # composing again on the GUI thread.
-    assert calls == [("check", "g/new", True, [{"job_id": "old"}]),
-                     ("launch", {"queue": True, "overwrite": True, "plan": plan}),
+    assert calls == [("check", "g/new", False, [{"job_id": "old"}]),
+                     ("launch", {"queue": True, "overwrite": False, "plan": plan}),
                      ("record",), ("monitor",), ("start", True)]
 
 

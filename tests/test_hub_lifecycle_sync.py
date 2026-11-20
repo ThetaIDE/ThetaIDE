@@ -60,6 +60,8 @@ def test_installed_files_are_distinct_from_user_copies(environment):
     assert e.installer.is_installed_file(e.source / "provider.py")
     assert e.installer.is_installed_file(e.first)
     assert not e.installer.is_installed_file(user_copy)
+    assert e.installer.is_installed_file(e.source.parent, include_descendants=True)
+    assert not e.installer.is_installed_file(user_copy.parent, include_descendants=True)
     e.installer.protect_installed_components()
     assert (e.source / "provider.py").stat().st_mode & 0o222 == 0
     with pytest.raises(PermissionError, match="read-only"):

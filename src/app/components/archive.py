@@ -34,6 +34,10 @@ def validate_native_package(meta, source):
         raise ValueError("Unsupported or missing native contract: packages require explicit storage_version: 3 and api_version: 1")
     valid, error = validate_manifest_data({k: v for k, v in meta.items() if v is not None})
     if not valid: raise ValueError(f"Invalid package manifest: {error}")
+    if "sdk" in (meta.get("compatibility") or {}):
+        from src.app.api import sdk_requirement_error
+        if error := sdk_requirement_error(meta["compatibility"]["sdk"]):
+            raise ValueError(f"Package {meta['id']} {error}")
     if not isinstance(meta.get("capabilities"), list): raise ValueError("Declare capabilities explicitly (an empty list is valid for a config/dependency package)")
     payload = meta.get("payload")
     if not isinstance(payload, dict) or not all(k in payload for k in ("implementations", "resources", "configs")):
@@ -93,7 +97,7 @@ def validate_native_package(meta, source):
         if file.suffix == ".py" and not sep: raise ValueError(f"Executable entry point needs an explicit object: {entry}")
         if not any(file == root or file.is_relative_to(root) for root in declared):
             raise ValueError(f"Entry point is outside declared payload: {entry}")
-        for hook_name in ("preflight", "resource_hint_hook"):
+        for hook_name in ("preflight", "resource_hint_hook", "tuning_profile_hook"):
             if hook_name not in cap:
                 continue
             hook_entry, _, hook_attr = cap[hook_name].partition(":")

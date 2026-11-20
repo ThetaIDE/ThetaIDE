@@ -52,6 +52,17 @@ class WorkspacePaths:
         if frozen and selected and Path(selected).expanduser().resolve() == self.root:
             return Path(frozen)
         return None
+
+    def launch_inputs_snapshot(self):
+        """Provider/resource inventory captured by this process's enclosing launch."""
+        from src.app.pipeline.launch_inputs import INPUTS_SNAPSHOT_ENV, read_inputs
+        frozen, selected = os.environ.get(INPUTS_SNAPSHOT_ENV), os.environ.get("THETA_WORKSPACE")
+        if frozen and selected and Path(selected).expanduser().resolve() == self.root:
+            inputs = read_inputs(frozen)
+            if Path(inputs["workspace"]).resolve() != self.root:
+                raise ValueError("Launch inputs belong to another workspace")
+            return inputs
+        return None
     @property
     def framework_defaults(self): return self.framework_config
 
@@ -84,7 +95,9 @@ class WorkspacePaths:
         return self.config if (self.config / 'config.yaml').is_file() else self.framework_config
 
     @property
-    def framework_config(self): return self.application / "src/app/config_defaults"
+    def framework_config(self):
+        inputs = self.launch_inputs_snapshot()
+        return Path(inputs["framework_config"]) if inputs is not None and "framework_config" in inputs else self.application / "src/app/config_defaults"
 
     def config_roots(self):
         from src.app.core.provider_catalog import get_catalog
@@ -111,6 +124,11 @@ class WorkspacePaths:
         import re
         if not re.fullmatch(r"[a-z][a-z0-9_]*", str(name)) or name in RESERVED_RESEARCH_DIRECTORIES:
             raise ValueError(f"Invalid workspace resource name: {name!r}")
+        inputs = self.launch_inputs_snapshot()
+        if inputs is not None:
+            # An undeclared/new resource is absent from this launch, even if it
+            # has since appeared in the editable workspace.
+            return Path(inputs["resources"].get(name, str(self.config.parent / "resources" / name)))
         return self.research / name
     @property
     def results(self): return self.research / "results"
@@ -173,6 +191,9 @@ class WorkspacePaths:
 
     def manifests(self):
         import json
+        inputs = self.launch_inputs_snapshot()
+        if inputs is not None:
+            return [Path(record["manifest"]) for record in inputs["packages"]]
         from src.app.core.provider_discovery import current_snapshot
         snapshot = current_snapshot()
         if snapshot is not None and self in snapshot.manifests:
@@ -212,6 +233,11 @@ class WorkspacePaths:
         frozen, selected = os.environ.get(CONFIG_SNAPSHOT_ENV), os.environ.get("THETA_WORKSPACE")
         if frozen and selected and root == Path(frozen).resolve():
             return cls(Path(selected))
+        if selected:
+            paths = cls(Path(selected))
+            inputs = paths.launch_inputs_snapshot()
+            if inputs is not None and "framework_config" in inputs and root == Path(inputs["framework_config"]).resolve():
+                return paths
         if root.parts[-3:] == ("src", "usr", "config"):
             return cls(root.parents[2])
         if root.parts[-3:] == ("src", "app", "config_defaults"):

@@ -3,7 +3,6 @@ defaults:
   - override /env: null
 paradigm: apprenticeship
 group: AL
-seed: 42
 eval_episodes: 0
 # Read-only artificial demonstrations shipped with the editable provider.
 dataset_path: package://themes-dev/resources/synthetic.npz

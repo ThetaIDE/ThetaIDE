@@ -234,12 +234,18 @@ class FigureBuilder(QObject):
 
     def cache_key(self, doc) -> tuple:
         """What a built spec depends on. Live parameters are applied after drawing, so they are not part of it."""
-        from .model import target_stamp
+        from src.app.core.plotting.metric_sources import figure_source_targets
+        from .model import FIGURE_SOURCES, target_stamp
         live = set(doc.live_params())
         values = {name: value for name, value in doc.values().items() if name not in live}
         package = doc.capability()[0]
+        properties = doc.schema().get("properties") or {}
+        sources = next((values.get(key) for key, node in properties.items()
+                        if node.get(FIGURE_SOURCES)), None)
+        targets = figure_source_targets(doc.experiment, sources)
         return (doc.plotter, package.id, package.version, doc.experiment,
-                json.dumps(values, sort_keys=True, default=str), target_stamp(self.paths, doc.experiment))
+                json.dumps(values, sort_keys=True, default=str),
+                tuple(target_stamp(self.paths, target) for target in targets))
 
     def request(self, doc, *, immediate: bool = False, force: bool = False):
         """Rebuild ``doc``'s figure: now, or after the debounce interval (restarted by each call).

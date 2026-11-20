@@ -1,0 +1,61 @@
+{
+  "id": "gym_box2d",
+  "name": "Gymnasium Box2D (local)",
+  "kind": "env",
+  "version": "0.1.0",
+  "storage_version": 3,
+  "api_version": 1,
+  "origin": "user",
+  "description": "Discrete LunarLander-v3 with native eight-feature observations and four engine actions.",
+  "config_path": "env/gym_box2d/lunarlander.yaml",
+  "config_paths": [
+    "env/gym_box2d/lunarlander.yaml"
+  ],
+  "compatibility": {
+    "theta": ">=2.0.0"
+  },
+  "dependencies": {
+    "components": [],
+    "pip": [
+      "gymnasium[box2d]>=1.0,<1.1"
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "gym_box2d/lunarlander",
+      "kind": "env",
+      "entry_point": "env_vectorized.py:VectorizedEnv",
+      "resource_root": ".",
+      "requires": [
+        {
+          "level": "block",
+          "config": "paradigm",
+          "in": [
+            "online_rl"
+          ],
+          "message": "Box2D local profiles support online RL; no offline dataset is supplied."
+        }
+      ]
+    }
+  ],
+  "payload": {
+    "implementations": [
+      "env_vectorized.py",
+      "resources/rules/lunarlander/attitude_descent/valuation.py",
+      "resources/rules/lunarlander/full_controller/valuation.py"
+    ],
+    "resources": [
+      "requirements.txt",
+      "resources"
+    ],
+    "configs": {
+      "env/gym_box2d/lunarlander.yaml": "configs/env/gym_box2d/lunarlander.yaml"
+    }
+  },
+  "workspace_resources": {
+    "rules": {
+      "depth": 2,
+      "path": "resources/rules"
+    }
+  }
+}

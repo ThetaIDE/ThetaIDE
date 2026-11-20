@@ -63,6 +63,28 @@ def test_delete_selection_expands_experiments_and_deduplicates_groups():
     explorer.deleteLater()
 
 
+def test_add_figure_uses_the_selected_experiment_or_saved_run():
+    explorer = RunExplorer()
+    explorer.set_runs([
+        {"group": "g", "experiment_id": "nested/exp/20260101-000000", "agents": [{"name": "a"}]},
+    ])
+    group = explorer.tree.topLevelItem(0)
+    folder = group.child(0)
+    experiment = folder.child(0)
+    run = experiment.child(0)
+    requested = []
+    explorer.add_figure_requested.connect(requested.append)
+    for item in (None, group, folder):
+        explorer.tree.setCurrentItem(item)
+        assert not explorer.btn_add_figure.isEnabled()
+    for item in (experiment, run, run.child(0)):
+        explorer.tree.setCurrentItem(item)
+        assert explorer.btn_add_figure.isEnabled()
+        explorer.btn_add_figure.click()
+    assert requested == ["g/nested/exp", "g/nested/exp/20260101-000000", "g/nested/exp/20260101-000000"]
+    explorer.deleteLater()
+
+
 def test_batch_delete_refreshes_once_after_all_callbacks(monkeypatch):
     from types import SimpleNamespace
     from frontend.results.panel import ResultsPanel

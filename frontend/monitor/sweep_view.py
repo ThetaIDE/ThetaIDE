@@ -176,6 +176,12 @@ class SweepView(QWidget):
         self.summary.setText(f"{study.get('objective_metric') or 'Objective'} · {study.get('direction', 'unknown').capitalize()}\n"
                              f"Best {best_text}    |    {counts['complete']} complete    ·    {counts['running']} running    ·    {pending} pending    ·    "
                              f"{counts['pruned']} pruned    ·    {counts['fail']} failed")
+        if study.get("outcome") == "no_full_budget_configuration_completed":
+            self.summary.setText(self.summary.text() + "\nNo full-budget configuration completed")
+        budgeted = any("budget" in trial for trial in trials)
+        self.table.setColumnCount(6 if budgeted else 5)
+        headers = ["Trial", "State", "Objective", "Duration (s)", "Parameters"]
+        self.table.setHorizontalHeaderLabels(headers + (["Budget (transitions)"] if budgeted else []))
         self.summary.setToolTip("Estimated parameter importance: " + ", ".join(
             f"{name}: {value:.2f}" for name, value in study.get("parameter_importance", {}).items()))
         selected_id = self.table.currentItem().data(Qt.ItemDataRole.UserRole) if self.table.currentItem() else None
@@ -185,6 +191,8 @@ class SweepView(QWidget):
         for row, trial in enumerate(trials):
             values = [trial.get("id"), trial.get("state"), trial.get("value"), trial.get("duration_seconds"),
                       ", ".join(f"{k}={v}" for k, v in trial.get("parameters", {}).items())]
+            if budgeted:
+                values.append(trial.get("budget"))
             for col, value in enumerate(values):
                 item = QTableWidgetItem("—" if value is None else str(value))
                 item.setData(Qt.ItemDataRole.UserRole, trial.get("id"))

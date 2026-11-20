@@ -17,12 +17,15 @@ import tempfile
 import zipfile
 import threading
 from collections import OrderedDict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
-from src.app.pipeline.result_paths import check_result_path, iter_run_dirs, nested_run_names, SAVED_RUN_NAME
+from src.app.pipeline.result_paths import (
+    SAVED_RUN_NAME, SEED_NAME, TRIAL_NAME, check_result_path, iter_result_versions, iter_run_dirs,
+    nested_run_names, result_experiment_id, result_version, result_version_order,
+)
 
 from .metrics import latest_version_file, read_metrics_table
 
@@ -326,8 +329,9 @@ def _result_replicates(run_dir: Path, *, workspace=None):
     found = {}
     relative = run_dir.relative_to(logs_dir)
     experiment_id = Path(*relative.parts[1:]).as_posix()
-    root = logs_dir.parent / "executions" / relative
-    for path in sorted(root.glob("*/manifest.json")):
+    base = logs_dir.parent / "executions" / relative.parts[0]
+    roots = {base / experiment_id, base / result_experiment_id(experiment_id)}
+    for path in sorted(path for root in roots for path in root.glob("*/manifest.json")):
         manifest = _read_json(path)
         parent = manifest.get("parent") or {}
         for run in manifest.get("runs", []):
@@ -338,10 +342,17 @@ def _result_replicates(run_dir: Path, *, workspace=None):
                 continue
             found[(agent, run["version"])] = {
                 "seed": run.get("training_seed"), "status": run.get("status"),
-                **({"trial_version": parent.get("log_version"), "study": parent.get("study"),
+                **({"trial_version": parent.get("result_version", parent.get("log_version")), "study": parent.get("study"),
                     "trial_number": parent.get("trial_number")} if parent.get("kind") == "trial" else {}),
             }
     return found
+
+
+def run_version_details(group: str, experiment_id: str, *, workspace=None) -> dict:
+    """Read seed metadata without walking the run's artifact files."""
+    check_result_path(group, nested=False)
+    check_result_path(experiment_id)
+    return _result_replicates(_logs_dir(workspace) / group / experiment_id, workspace=workspace)
 
 
 def _remote_result_record(run_dir: Path, *, workspace=None):
@@ -358,7 +369,7 @@ def _remote_result_record(run_dir: Path, *, workspace=None):
 def _result_snapshot(run_dir: Path, replicates=None, *, workspace=None):
     """Published versions and checkpoint folders; active trials never enter Results."""
     logs_dir = _logs_dir(workspace)
-    from src.app.pipeline.trial_artifacts import trial_checkpoint_dir
+    from src.app.pipeline.trial_artifacts import trial_checkpoint_dir, trial_logs
 
     from src.app.sites.result_state import results_available
     remote = _remote_result_record(run_dir, workspace=workspace)
@@ -380,6 +391,10 @@ def _result_snapshot(run_dir: Path, replicates=None, *, workspace=None):
             terminal = trial.get("state") in ("complete", "pruned", "fail")
             if trial.get("log_version"):
                 trial_states[(method, trial["log_version"])] = terminal
+            agent_dir = run_dir / method
+            actual = trial_logs(agent_dir, trial)
+            if actual != agent_dir:
+                trial_states[(method, actual.name)] = terminal
             if terminal and summary.get("study") and isinstance(trial.get("id"), int) and trial["id"] >= 0:
                 directory = trial_checkpoint_dir(checkpoint_root / path.relative_to(checkpoint_root).parts[0],
                                                  summary["study"], trial["id"])
@@ -390,19 +405,24 @@ def _result_snapshot(run_dir: Path, replicates=None, *, workspace=None):
         for agent_dir in run_dir.iterdir():
             if not agent_dir.is_dir():
                 continue
-            all_versions = [p for p in agent_dir.glob("version_*") if p.is_dir()]
+            all_versions = [p for p in iter_result_versions(agent_dir)
+                            if not TRIAL_NAME.fullmatch(p.name) or any(child.is_file() for child in p.iterdir())]
             completed = []
             for version in all_versions:
                 runtime = _read_json(version / "runtime.json")
-                key = (agent_dir.name, version.name)
-                terminal = trial_states.get(key)
+                name = version.relative_to(agent_dir).as_posix()
+                key = (agent_dir.name, name)
+                terminal = trial_states.get((agent_dir.name, name.split("/", 1)[0]))
                 if key in replicates:
                     terminal = replicates[key]["status"] in ("completed", "failed", "cancelled")
-                if remote_available or terminal is True or (terminal is None and not version.name.startswith("version_sweep_") and
+                if terminal is None and "/" in name:
+                    status = _read_json(checkpoint_root / agent_dir.name / name / "execution.json").get("status")
+                    terminal = status in ("completed", "failed", "cancelled", "pruned") if status else None
+                if remote_available or terminal is True or (terminal is None and not name.startswith("version_sweep_") and
                                         runtime_finished(runtime)):
-                    completed.append(version.name)
+                    completed.append(name)
             if completed:
-                versions[agent_dir.name] = sorted(completed, key=lambda name: (_version_number(name), name))
+                versions[agent_dir.name] = sorted(completed, key=result_version_order)
             if all_versions and len(completed) == len(all_versions) and agent_dir.name not in active_methods:
                 complete_methods.add(agent_dir.name)
             elif all_versions:
@@ -442,16 +462,31 @@ def list_runs(completed_only: bool = False, *, workspace=None) -> list[dict[str,
                 versions, _, _, in_progress = _result_snapshot(run_dir, workspace=workspace)
                 agents = []
                 for name, names in versions.items():
-                    version = run_dir / name / names[-1]
-                    if not (version / "metrics.csv").is_file():
+                    method = run_dir / name
+                    metrics = next((method / version / "metrics.csv" for version in reversed(names)
+                                    if (method / version / "metrics.csv").is_file()), None)
+                    if metrics is None and not any(TRIAL_NAME.fullmatch(version.split("/")[0]) for version in names):
                         continue
-                    summary = _read_agent_summary(run_dir / name, version / "runtime.json", version / "metrics.csv")
+                    version = metrics.parent if metrics else method / names[-1]
+                    summary = _read_agent_summary(method, version / "runtime.json", metrics)
                     summary["finished"] = summary["finished"] or True
                     agents.append(summary)
                 if not agents and not remote_available:
                     continue
             else:
                 agents = [summary for agent_dir in agent_dirs if (summary := agent_summary(agent_dir)) is not None]
+                known = {agent["name"] for agent in agents}
+                checkpoint_root = logs_dir.parent / "checkpoints" / group / experiment_id
+                for method in agent_dirs:
+                    if method.name in known:
+                        continue
+                    record = latest_version_file(checkpoint_root / method.name, "execution.json")
+                    if record is None or not SEED_NAME.fullmatch(record.parent.name):
+                        continue
+                    status = _read_json(record).get("status")
+                    summary = _read_agent_summary(method, method / "runtime.json", None)
+                    summary["finished"] = status in ("completed", "failed", "cancelled", "pruned")
+                    agents.append(summary)
             runs.append(
                 {
                     "group": group,
@@ -493,18 +528,13 @@ def check_path_segment(part: str) -> None:
         raise ValueError(f"Invalid path segment: {part!r}")
 
 
-def _version_number(name: str) -> int:
-    suffix = name.removeprefix("version_")
-    return int(suffix) if suffix.isdigit() else -1
-
-
 def run_metrics(
     group: str, experiment_id: str, agent: str, version: str | None = None, since: int = 0,
     completed_only: bool = False,
 *, workspace=None) -> dict[str, Any]:
     """Every row of an agent's metrics.csv (as text), with every column the engine logged.
 
-    `version` picks a version_N folder (default: the newest). `since` skips rows the caller already has,
+    `version` picks a trial/seed path or legacy version folder. `since` skips rows the caller already has,
     so a client following a run that is still training reads only new rows; `total_rows` says where to
     resume. Raises FileNotFoundError if there are no such metrics, ValueError for a bad name.
     """
@@ -513,22 +543,26 @@ def run_metrics(
     for part in (group, agent):
         check_path_segment(part)
     agent_dir = logs_dir / group / experiment_id / agent
-    versions = sorted(
-        (p.name for p in agent_dir.glob("version_*") if (p / "metrics.csv").is_file()), key=_version_number
-    )
+    versions = sorted((p.relative_to(agent_dir).as_posix() for p in iter_result_versions(agent_dir)
+                       if (p / "metrics.csv").is_file()), key=result_version_order)
+    name = None
+    if version is not None:
+        name = version if version.startswith(("version_", "trial_")) else f"version_{version}"
+        check_result_path(name)
+        if result_version(name.split("/")) != name:
+            raise ValueError(f"Invalid result version: {version!r}")
     if completed_only:
         published, _, _, _ = _result_snapshot(agent_dir.parent, workspace=workspace)
         versions = [name for name in versions if name in published.get(agent, [])]
-        if version is None:
-            version = versions[-1] if versions else None
-        name = version if version and version.startswith("version_") else f"version_{version}"
+        if name is None:
+            name = versions[-1] if versions else None
         if name not in versions:
             raise FileNotFoundError(f"No completed metrics for {group}/{experiment_id}/{agent}")
-    if version is None:
+    if name is None:
         metrics_file = latest_version_file(agent_dir, "metrics.csv")
     else:
-        name = version if version.startswith("version_") else f"version_{version}"
-        check_path_segment(name)
+        if name not in versions:
+            raise FileNotFoundError(f"No metrics for {group}/{experiment_id}/{agent}")
         metrics_file = agent_dir / name / "metrics.csv"
     if metrics_file is None or not metrics_file.exists():
         raise FileNotFoundError(f"No metrics for {group}/{experiment_id}/{agent}")
@@ -537,7 +571,7 @@ def run_metrics(
         "metrics": rows,
         "columns": columns,
         "total_rows": total,
-        "version": metrics_file.parent.name,
+        "version": metrics_file.parent.relative_to(agent_dir).as_posix(),
         "versions": versions,
         "source": str(metrics_file),
     }
@@ -824,8 +858,8 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
     def visible(root, parts):
         if not completed_only or remote_available:
             return True
-        version = next((p for p in parts if p.startswith("version_")), None)
-        if version:
+        version = result_version(parts[1:])
+        if version is not None:
             return version in published.get(parts[0], [])
         if "sweeps" in parts and any(p.startswith("trial_") for p in parts):
             return any(tuple(parts[:len(folder)]) == folder for folder in terminal_trials)
@@ -843,6 +877,13 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
                         and all(t.get("state") in ("complete", "pruned", "fail") for t in trials))
         return parts[0] in complete_methods
 
+    def visit_folder(root, parts):
+        if len(parts) == 2 and TRIAL_NAME.fullmatch(parts[1]):
+            # A seed can be published before the trial's aggregate metrics exist.
+            return (not completed_only or remote_available or
+                    any(name == parts[1] or name.startswith(parts[1] + "/") for name in published.get(parts[0], [])))
+        return result_version(parts[1:]) is None or visible(root, parts)
+
     saved = nested_run_names(run_logs)
     categories = result_categories(workspace=workspace)
     artifacts: list[dict[str, Any]] = []
@@ -852,7 +893,7 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
         for directory, children, files in os.walk(run_dir):
             relative = Path(directory).relative_to(run_dir).parts
             children[:] = sorted(name for name in children if (relative or name not in saved)
-                                 and (not name.startswith("version_") or visible(root, (*relative, name))))
+                                 and (len(relative) > 2 or visit_folder(root, (*relative, name))))
             for filename in sorted(files):
                 path = Path(directory) / filename
                 parts = path.relative_to(run_dir).parts
@@ -868,7 +909,7 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
                         "root": root,
                         "kind": _artifact_kind(root, path, categories),
                         "agent": parts[0] if len(parts) > 1 else None,
-                        "version": next((p for p in parts[1:-1] if p.startswith("version_")), None),
+                        "version": result_version(parts[1:-1]),
                         "size": stat.st_size,
                         "modified": stat.st_mtime,
                     }
@@ -876,14 +917,16 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
             if len(artifacts) >= MANIFEST_LIMIT:
                 truncated = True
                 break
-    agents: dict[str, list[str]] = {}
+    agents: dict[str, set[str]] = {}
     for item in artifacts:
-        if item["kind"] == "metrics" and item["agent"] and item["version"]:
-            agents.setdefault(item["agent"], []).append(item["version"])
+        version = item["version"]
+        if item["agent"] and version and (item["kind"] == "metrics" or
+                item["root"] in ("logs", "checkpoints") and SEED_NAME.fullmatch(version.partition("/")[2])):
+            agents.setdefault(item["agent"], set()).add(version)
     return {
         "group": group,
         "experiment_id": experiment_id,
-        "agents": {name: sorted(versions, key=_version_number) for name, versions in sorted(agents.items())},
+        "agents": {name: sorted(versions, key=result_version_order) for name, versions in sorted(agents.items())},
         "version_details": {agent: {version: details for (name, version), details in replicates.items()
                                     if name == agent and version in versions}
                             for agent, versions in agents.items()},
@@ -893,26 +936,40 @@ def run_manifest(group: str, experiment_id: str, completed_only: bool = False, *
     }
 
 
-def rename_run_file(group: str, experiment_id: str, path: str, new_name: str, *, workspace=None) -> str:
-    """Rename an artifact within its current folder, returning its new results-relative path."""
-    check_path_segment(new_name)
+def _mutable_run_file(group: str, experiment_id: str, path: str, *, workspace=None) -> Path:
     check_result_path(path)
     dirs = _mutable_run_dirs(group, experiment_id, workspace=workspace)
     base = results_dir(workspace=workspace).resolve()
     source = base / path
-    if not any(source.is_relative_to(directory.resolve()) for directory in dirs.values()):
+    run_dir = next((directory.resolve() for directory in dirs.values()
+                    if source.is_relative_to(directory.resolve())), None)
+    if run_dir is None:
         raise PermissionError("Path is outside this run's results")
     if any(part.is_symlink() for part in (source, *source.parents) if part.is_relative_to(base)):
-        raise ValueError("Cannot rename through symbolic links")
+        raise ValueError("Cannot modify files through symbolic links")
     if not source.is_file():
         raise FileNotFoundError(f"File not found: {path}")
+    if source.relative_to(run_dir).parts[0] in nested_run_names(_logs_dir(workspace) / group / experiment_id):
+        raise PermissionError("File belongs to a nested saved run")
+    return source
+
+
+def rename_run_file(group: str, experiment_id: str, path: str, new_name: str, *, workspace=None) -> str:
+    """Rename an artifact within its current folder, returning its new results-relative path."""
+    check_path_segment(new_name)
+    source = _mutable_run_file(group, experiment_id, path, workspace=workspace)
     target = source.with_name(new_name)
     if target == source:
         return path
     if target.exists() or target.is_symlink():
         raise FileExistsError(f"A file or folder named {new_name!r} already exists")
     source.rename(target)
-    return target.relative_to(base).as_posix()
+    return (PurePosixPath(path).parent / new_name).as_posix()
+
+
+def delete_run_file(group: str, experiment_id: str, path: str, *, workspace=None) -> None:
+    """Delete a single local artifact belonging to this run."""
+    _mutable_run_file(group, experiment_id, path, workspace=workspace).unlink()
 
 
 def read_run_file(group: str, experiment_id: str, path: str, *, workspace=None) -> bytes:

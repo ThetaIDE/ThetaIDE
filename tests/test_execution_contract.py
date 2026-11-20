@@ -80,9 +80,12 @@ def sentinel_workspace(tmp_path, runner="Sentinel"):
             {"id": "old", "kind": "algorithm", "entry_point": "probe.py:Sentinel"}]}))
     (package / "probe.py").write_text(
         "from src.app.core.execution import RunResult\n"
+        "from src.app import telemetry\n"
         "class Sentinel:\n execution_contract=1\n def run(self,cfg,context):\n"
         "  with (context.workspace.root/'calls.txt').open('a') as f: f.write('called\\n')\n"
         "  (context.artifacts/'best_model.ckpt').write_text('sentinel')\n"
+        "  with telemetry.init(cfg.group, cfg.experiment_id, cfg.model.name, system_interval=0) as run:\n"
+        "   run.log({'probe': 7}, step=1)\n"
         "  return RunResult(metrics={'probe': 7}, metric_definitions={'probe': {'direction':'maximize','meaning':'sentinel'}}, objective=7)\n"
         "class Alternate:\n execution_contract=1\n def run(self,cfg,context):\n"
         "  with (context.workspace.root/'calls.txt').open('a') as f: f.write('alternate\\n')\n"
@@ -162,6 +165,23 @@ def test_pipeline_sweep_invokes_worker_once_per_trial(tmp_path):
     records = list((tmp_path / 'src/usr/results/checkpoints').rglob('execution.json'))
     assert len(records) == 2
     assert all(json.loads(p.read_text())['status'] == 'completed' for p in records)
+    from src.app.pipeline.result_paths import SAVED_RUN_NAME
+    from src.app.services import catalog
+
+    (run,) = catalog.list_runs(completed_only=True, workspace=tmp_path)
+    identity = run['experiment_id']
+    experiment, stamp = identity.split('/')
+    assert experiment == 'sentinel' and SAVED_RUN_NAME.fullmatch(stamp)
+    versions = []
+    for path in records:
+        effective = json.loads(path.read_text())['effective_config']
+        version = f"trial_{effective['theta_tuning']['trial_number']}/seed_{effective['seed']}"
+        assert path.parent.relative_to(tmp_path / 'src/usr/results/checkpoints/gate' / identity / 'one').as_posix() == version
+        assert catalog.run_metrics('gate', identity, 'one', version, completed_only=True,
+                                   workspace=tmp_path)['total_rows'] == 1
+        versions.append(version)
+    manifest = catalog.run_manifest('gate', identity, completed_only=True, workspace=tmp_path)
+    assert manifest['agents'] == {'one': sorted(versions)}
 
 
 @pytest.mark.parametrize('outcome', ['failed', 'cancelled'])

@@ -11,6 +11,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Create editable objectives](guides/CUSTOM_OBJECTIVES.md)
 - [Use mechanistic monitors](guides/MECHANISTIC_MONITORS.md)
 - [Run THEMES/AL experiments](guides/THEMES_AL.md)
+- [Run Lunar Lander BlendRL experiments](guides/LUNARLANDER_BLENDRL.md) — local Box2D provider, rule controls, environment-count pilot, boundary-refined 8/16/32-env DNN → BlendRL → feature tuning and held-out ablations.
 - [Configure local training resources](guides/TRAINING_RESOURCES.md)
 - [Run and sync cluster jobs](guides/CLUSTER_JOBS.md)
 - [Create figures and write discussions](guides/DISCUSSION.md)
@@ -25,6 +26,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Extension contributions and readiness v1](reference/EXTENSION_CONTRIBUTIONS.md) — metadata-only discovery, enablement, lifecycle cleanup and tuner controls/monitor availability.
 - [Scheduler component contract v1](reference/SCHEDULER_CONTRACT.md) — explicit `site.scheduler` selection, runtime methods, receipt ownership and installing the optional Slurm component.
 - [Portable tuner execution contract v1](reference/TUNER_EXECUTION_CONTRACT.md) — explicit provider selection, launch bindings, state snapshots, continuation, dependency pins, headless summaries and receipts.
+- [Local PPO tuning examples](guides/LOCAL_RL_TUNING.md) — DEHB budgets, scripted PPO schedule replay, and synchronous PBT.
 - [What a launch fixes at start](reference/LAUNCHES.md) — the config snapshot every trial composes from, seeds drawn once per launch, and reproducing a run.
 - [Saved result layout](reference/RESULT_STORAGE.md) — experiment folders, unique runs, and legacy compatibility.
 - [Pipeline and component service API](reference/API.md)
@@ -32,6 +34,7 @@ Documentation is organized by purpose and shared by human contributors and codin
 - [Data loader ownership and selection](reference/DATA_LOADER_CONTRACT.md)
 - [Experiment monitor contract](reference/MONITOR_CONTRACT.md) — declarations, hover descriptions, nested chart sections, and stream selection.
 - [Configuration parameter form conventions](reference/CONFIG_PARAMETER_FORMS.md)
+- [Filetree delete conventions](reference/FILETREE_ACTIONS.md)
 - [Third-party libraries and licenses](reference/THIRD_PARTY_LIBRARIES.md)
 
 ## Development
@@ -65,10 +68,15 @@ These documents describe proposals, intended behavior, or remaining work. Consul
 - [Execution abstractions, THEMES components, and the AL group](plans/EXECUTION_ABSTRACTIONS_AND_THEMES_PLAN.md) — strict execution-contract migration using editable first-party dev components, then THEMES/AL; production Hub release and general workflows deferred. [Implementation prompt](plans/EXECUTION_ABSTRACTIONS_IMPLEMENTATION_PROMPT.md).
 - [Slurm hardening and NCShare CPU rollout](plans/SLURM_NCSHARE_HARDENING_PLAN.md) — storage/publication policy, parallelism and continuation boundaries, implementation sequence, and CPU acceptance gate.
 - [Hyperparameter sweep design](plans/HYPERPARAMETER_SWEEPS_DESIGN.md) — design draft.
+- [RL tuner implementation plan](plans/RL_TUNER_IMPLEMENTATION_PLAN.md) — DEHB, dynamic configuration infrastructure, and a PBT example.
 - [Training and evaluation variability design](plans/TRAINING_EVALUATION_VARIABILITY_DESIGN.md) — proposed design; see the [implementation status](development/VARIABILITY_IMPLEMENTATION_STATUS.md) for current behavior.
 - [Mechanistic monitoring roadmap](plans/MECHANISTIC_MONITORS_ROADMAP.md) — remaining work after the initial foundation.
 
 ## Reports
+
+- [MountainCar PPO parameter transfer test](reports/MOUNTAINCAR_PPO_CROSS_TEST_20261119.md) — held-out 2 × 2 cross-test of the DNN and BlendRL sweep winners, with matched seeds and paired inference.
+
+- [Launch isolation incident and correction](reports/LAUNCH_ISOLATION_INCIDENT_20261119.md) — unrelated ruleset additions invalidated MountainCar workers; private launch inputs, failed-trial propagation, affected records and recovery recipes.
 
 - [BlendRL Bets CartPole ablations](reports/BLENDRL_BETS_CARTPOLE_ABLATIONS_20261118.md) — 12 methods × 5 seeds: ceiling at initialization, no method distinguishable from BlendRL, gate trust in the logic expert explains the gap to DNN.
 

@@ -124,7 +124,7 @@ def compose_experiment(raw_experiment: str, extra_args: list[str] | tuple[str, .
 
 
 @one_discovery
-def validate_composed(composed: ComposedExperiment) -> list[str]:
+def validate_composed(composed: ComposedExperiment, *, resuming: bool = False) -> list[str]:
     """Run pre-flight paradigm validation. Returns notices; raises ConfigurationError."""
     notices = validate_experiment_config(
         composed.cfg, composed.experiment, is_sweep=composed.is_sweep,
@@ -137,15 +137,21 @@ def validate_composed(composed: ComposedExperiment) -> list[str]:
         validate_allocation(composed.cfg, paths=composed.workspace)
     if composed.cfg.get("variability") is not None:
         from src.app.pipeline.config import parse_methods_dict
+        from src.app.pipeline.seeds import validate_seed_ranges, with_launch_seeds
         from src.app.pipeline.variability import make_plan
 
-        choices = composed.cfg.get("hydra", {}).get("runtime", {}).get("choices", {})
-        site = choices.get("site") or (composed.cfg.get("site") or {}).get("name") or "local"
-        from src.app.pipeline.seeds import with_launch_seeds
-
         methods = parse_methods_dict(composed.cfg)
-        make_plan(with_launch_seeds(composed.cfg, methods),
-                  {"methods": methods, "is_sweep": composed.is_sweep, "is_interactive": True})
+        seeded = with_launch_seeds(composed.cfg, methods, resuming=resuming)
+        plan = make_plan(seeded, {"methods": methods, "is_sweep": composed.is_sweep, "is_interactive": True})
+        if seeded.get("paradigm") == "online_rl":
+            from src.app.pipeline.exceptions import ConfigurationError
+
+            try:
+                validate_seed_ranges(seeded, methods, plan)
+            except ConfigurationError as exc:
+                if not resuming:
+                    raise
+                notices.append(f"Resuming with the original study seeds. {exc}")
     return notices
 
 
@@ -173,7 +179,9 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
 
     from hydra.core.override_parser.overrides_parser import OverridesParser
     from src.app.pipeline.tuners import get_tuner
-    inspect_override = getattr(get_tuner(composed.cfg, paths=paths), "preview_override", None) if sweep else None
+    tuner = get_tuner(composed.cfg, paths=paths) if sweep else None
+    inspect_override = getattr(tuner, "preview_override", None)
+    validate_runner = getattr(tuner, "validate_runner", None)
 
     parser = OverridesParser.create()
     for name, plan in method_plans(composed).items():
@@ -195,7 +203,9 @@ def _validate_method_composition(composed: ComposedExperiment) -> None:
                 sampled.pop(key, None)
             trial = compose_experiment(composed.experiment, [*fixed.values(), *sampled.values()], config_dir=composed.config_dir, workspace=composed.workspace)
             from src.app.core.execution import execution_backend
-            execution_backend(trial.cfg, paths=composition_workspace(composed.config_dir, composed.workspace))
+            execution_backend(trial.cfg, paths=paths)
+            if has_sweep and callable(validate_runner):
+                validate_runner(trial.cfg, paths=paths)
             from src.app.core.paradigm_loader import load_paradigm_definition
             runner = load_paradigm_definition(trial.cfg.get("paradigm"), paths=paths).runner_cls
             validator = getattr(runner, "validate_config", None)
